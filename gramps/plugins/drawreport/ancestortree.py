@@ -72,6 +72,7 @@ PT2CM = utils.pt2cm
 # ------------------------------------------------------------------------
 _BORN = (_("b.", "birth abbreviation"),)
 _DIED = (_("d.", "death abbreviation"),)
+_AGE = (_("ae.", "short for age"),)
 _MARR = (_("m.", "marriage abbreviation"),)
 
 LVL_GEN, LVL_INDX, LVL_Y = range(3)
@@ -971,8 +972,12 @@ class AncestorTreeOptions(MenuReportOptions):
         ##################
         category_name = _("Display")
 
+        #disp = TextOption(
+        #    _("Father\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
+        #)
         disp = TextOption(
-            _("Father\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
+            _("Father\nDisplay Format"), 
+            ["$n", "%s $b" % _BORN[0], "-{%s $d (%s $a)}" % (_DIED[0], _AGE[0])]
         )
         disp.set_help(_("Display format for the fathers box."))
         menu.add_option(category_name, "father_disp", disp)
@@ -985,9 +990,13 @@ class AncestorTreeOptions(MenuReportOptions):
         # missing.set_help(_("What will print when information is not known"))
         # menu.add_option(category_name, "miss_val", missing)
 
+        #disp_mom = TextOption(
+        #    _("Mother\nDisplay Format"),
+        #    ["$n", "%s $b" % _BORN, "%s $m" % _MARR, "-{%s $d}" % _DIED],
+        #)
         disp_mom = TextOption(
-            _("Mother\nDisplay Format"),
-            ["$n", "%s $b" % _BORN, "%s $m" % _MARR, "-{%s $d}" % _DIED],
+            _("Mother\nDisplay Format"), 
+            ["$n", "%s $b" % _BORN[0], "%s $m" % _MARR[0], "-{%s $d (%s $a)}" % (_DIED[0], _AGE[0])],
         )
         disp_mom.set_help(_("Display format for the mothers box."))
         menu.add_option(category_name, "mother_disp", disp_mom)

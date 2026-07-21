@@ -85,6 +85,7 @@ WIKI_PAGE = URL_WIKISTRING + URL_MANUAL_PAGE + "_-_Categories#Pedigree_View"
 _PERSON = "p"
 _BORN = _("b.", "short for born")
 _DIED = _("d.", "short for died")
+_AGE = _("ae.", "short for age")
 _BAPT = _("bap.", "short for baptized")
 _CHRI = _("chr.", "short for christened")
 _BURI = _("bur.", "short for buried")

@@ -70,6 +70,7 @@ PT2CM = utils.pt2cm
 # ------------------------------------------------------------------------
 _BORN = (_("b.", "birth abbreviation"),)
 _DIED = (_("d.", "death abbreviation"),)
+_AGE = (_("ae.", "short for age"),)
 _MARR = (_("m.", "marriage abbreviation"),)
 
 _RPT_NAME = "descend_chart"
@@ -1706,8 +1707,12 @@ class DescendTreeOptions(MenuReportOptions):
         ##################
         category_name = _("Display")
 
+        #disp = TextOption(
+        #    _("Descendant\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
+        #)
         disp = TextOption(
-            _("Descendant\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
+            _("Descendant\nDisplay Format"), 
+            ["$n", "%s $b" % _BORN, "-{%s $d (%s $a)}" % (_DIED, _AGE)]
         )
         disp.set_help(_("Display format for a descendant."))
         menu.add_option(category_name, "descend_disp", disp)
@@ -1719,8 +1724,12 @@ class DescendTreeOptions(MenuReportOptions):
         # diffspouse.set_help(_("Whether spouses can have a different format."))
         # menu.add_option(category_name, "diffspouse", diffspouse)
 
+        #sdisp = TextOption(
+        #    _("Spousal\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
+        #)
         sdisp = TextOption(
-            _("Spousal\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
+            _("Spousal\nDisplay Format"), 
+            ["$n", "%s $b" % _BORN, "-{%s $d (%s $a)}" % (_DIED, _AGE)]
         )
         sdisp.set_help(_("Display format for a spouse."))
         menu.add_option(category_name, "spouse_disp", sdisp)
