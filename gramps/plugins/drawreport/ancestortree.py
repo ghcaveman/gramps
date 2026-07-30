@@ -263,7 +263,24 @@ class CalcItems:
         self, lines: list[str], indi_handle: str | None, fams_handle: str | None
     ) -> None:
         """Calculate marriage duration and append it to the marriage line."""
-        if not lines or fams_handle is None:
+        if not lines:
+            return
+
+        # Determine the correct marriage family handle.  In person boxes,
+        # fams_handle is the parents' family, not the person's own marriage
+        # family.  SubstKeywords falls back to the first family, so we do
+        # the same to find the right family for spouse death lookups.
+        marriage_fam_handle = fams_handle
+        if indi_handle is not None:
+            person = self.__dbase.get_person_from_handle(indi_handle)
+            if person is None:
+                return
+            fam_hand_list = person.get_family_handle_list()
+            if not fam_hand_list:
+                return
+            if fams_handle not in fam_hand_list:
+                marriage_fam_handle = fam_hand_list[0]
+        elif fams_handle is None:
             return
 
         m_str = "".join(self.__calc_l.calc_lines(indi_handle, fams_handle, ["$m"]))
@@ -279,7 +296,7 @@ class CalcItems:
         if v_year and v_year >= m_year:
             end_year = v_year
         else:
-            family = self.__dbase.get_family_from_handle(fams_handle)
+            family = self.__dbase.get_family_from_handle(marriage_fam_handle)
             if family:
                 for spouse_handle in [
                     family.get_father_handle(),
@@ -302,7 +319,21 @@ class CalcItems:
             return
 
         dur_label = _DUR[0]
-        lines[-1] = f"{lines[-1]} ({span} {dur_label})"
+        span_str = f"({span} {dur_label})"
+
+        # Find the marriage line by looking for _MARR[0] marker.
+        marr_marker = _MARR[0]
+        for i, line in enumerate(lines):
+            if marr_marker in line:
+                lines[i] = f"{line} {span_str}"
+                return
+
+        # Fallback: if no marriage marker found, try matching by marriage year.
+        if m_year:
+            for i, line in enumerate(lines):
+                if str(m_year) in line and dur_label not in line:
+                    lines[i] = f"{line} {span_str}"
+                    return
 
     def calc_person(self, index, indi_handle, fams_handle):
         working_lines = ""
@@ -328,6 +359,7 @@ class CalcItems:
                 indi_handle, fams_handle, working_lines
             )
             self._add_age_at_death(final_lines, indi_handle, fams_handle)
+            self._add_marriage_span(final_lines, indi_handle, fams_handle)
             return final_lines
 
     def calc_marriage(self, indi_handle, fams_handle):
