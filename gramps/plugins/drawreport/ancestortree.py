@@ -29,6 +29,7 @@
 # ------------------------------------------------------------------------
 
 from __future__ import annotations
+import re
 from typing import Any
 
 # ------------------------------------------------------------------------
@@ -72,8 +73,10 @@ PT2CM = utils.pt2cm
 # ------------------------------------------------------------------------
 _BORN = (_("b.", "birth abbreviation"),)
 _DIED = (_("d.", "death abbreviation"),)
-_AGE = (_("ae.", "short for age"),)
+_AGE = (_("age", "short for age"),)
 _MARR = (_("m.", "marriage abbreviation"),)
+_DIV = (_("v.", "divorce abbreviation"),)
+_DUR = (_("yrs", "short for years"),)
 
 LVL_GEN, LVL_INDX, LVL_Y = range(3)
 
@@ -178,6 +181,7 @@ class CalcItems:
     def __init__(self, dbase):
         _gui = GUIConnect()
         self._gui = _gui
+        self.__dbase = dbase
 
         # calculate the printed lines for each box
         # str = ""
@@ -203,6 +207,103 @@ class CalcItems:
         self.disp_marr = [_gui.get_val("marr_disp")]
         self.__blank_marriage = self.__calc_l.calc_lines(None, None, self.disp_marr)
 
+    def _extract_year(self, text: str) -> int | None:
+        """Extract the first 4-digit year from rendered text."""
+        years = re.findall(r"\b(1\d{3}|20\d{2})\b", text)
+        return int(years[0]) if years else None
+
+    def _add_age_at_death(
+        self, lines: list[str], indi_handle: str | None, fams_handle: str | None
+    ) -> None:
+        """Calculate age at death and append it to the death line."""
+        if not lines or indi_handle is None:
+            return
+
+        b_str = "".join(self.__calc_l.calc_lines(indi_handle, fams_handle, ["$b"]))
+        d_str = "".join(self.__calc_l.calc_lines(indi_handle, fams_handle, ["$d"]))
+
+        b_year = self._extract_year(b_str)
+        d_year = self._extract_year(d_str)
+
+        age = None
+        if b_year and d_year and d_year > b_year:
+            candidate = d_year - b_year
+            if 0 <= candidate <= 120:
+                age = candidate
+
+        if age is None:
+            return
+
+        age_label = _AGE[0]
+        age_str = f"({age_label} {age})"
+
+        # Find the death line: look for _DIED[0] marker or the death
+        # year from the rendered $d text.
+        death_marker = _DIED[0]
+        for i, line in enumerate(lines):
+            if death_marker in line:
+                if age_label in line:
+                    lines[i] = re.sub(
+                        r"\(" + re.escape(age_label) + r"[^)]*\)",
+                        age_str,
+                        line,
+                    )
+                else:
+                    lines[i] = f"{line} {age_str}"
+                return
+
+        # Fallback: if no death marker found, try matching by death year.
+        if d_year:
+            for i, line in enumerate(lines):
+                if str(d_year) in line and age_label not in line:
+                    lines[i] = f"{line} {age_str}"
+                    return
+
+    def _add_marriage_span(
+        self, lines: list[str], indi_handle: str | None, fams_handle: str | None
+    ) -> None:
+        """Calculate marriage duration and append it to the marriage line."""
+        if not lines or fams_handle is None:
+            return
+
+        m_str = "".join(self.__calc_l.calc_lines(indi_handle, fams_handle, ["$m"]))
+        v_str = "".join(self.__calc_l.calc_lines(indi_handle, fams_handle, ["$v"]))
+
+        m_year = self._extract_year(m_str)
+        v_year = self._extract_year(v_str)
+
+        if not m_year:
+            return
+
+        end_year = None
+        if v_year and v_year >= m_year:
+            end_year = v_year
+        else:
+            family = self.__dbase.get_family_from_handle(fams_handle)
+            if family:
+                for spouse_handle in [
+                    family.get_father_handle(),
+                    family.get_mother_handle(),
+                ]:
+                    if spouse_handle:
+                        d_str = "".join(
+                            self.__calc_l.calc_lines(spouse_handle, None, ["$d"])
+                        )
+                        d_year = self._extract_year(d_str)
+                        if d_year and d_year >= m_year:
+                            if end_year is None or d_year < end_year:
+                                end_year = d_year
+
+        if not end_year:
+            return
+
+        span = end_year - m_year
+        if span < 0 or span > 100:
+            return
+
+        dur_label = _DUR[0]
+        lines[-1] = f"{lines[-1]} ({span} {dur_label})"
+
     def calc_person(self, index, indi_handle, fams_handle):
         working_lines = ""
         if index[1] % 2 == 0 or (index[1] == 1 and self.center_use == 0):
@@ -223,13 +324,21 @@ class CalcItems:
         if indi_handle == fams_handle is None:
             return working_lines
         else:
-            return self.__calc_l.calc_lines(indi_handle, fams_handle, working_lines)
+            final_lines = self.__calc_l.calc_lines(
+                indi_handle, fams_handle, working_lines
+            )
+            self._add_age_at_death(final_lines, indi_handle, fams_handle)
+            return final_lines
 
     def calc_marriage(self, indi_handle, fams_handle):
         if indi_handle == fams_handle is None:
             return self.__blank_marriage
         else:
-            return self.__calc_l.calc_lines(indi_handle, fams_handle, self.disp_marr)
+            final_lines = self.__calc_l.calc_lines(
+                indi_handle, fams_handle, self.disp_marr
+            )
+            self._add_marriage_span(final_lines, indi_handle, fams_handle)
+            return final_lines
 
 
 class MakeAncestorTree(AscendPerson):
@@ -972,12 +1081,12 @@ class AncestorTreeOptions(MenuReportOptions):
         ##################
         category_name = _("Display")
 
-        #disp = TextOption(
+        # disp = TextOption(
         #    _("Father\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
-        #)
+        # )
         disp = TextOption(
-            _("Father\nDisplay Format"), 
-            ["$n", "%s $b" % _BORN[0], "-{%s $d (%s $a)}" % (_DIED[0], _AGE[0])]
+            _("Father\nDisplay Format"),
+            ["$n", "%s $b" % _BORN[0], "-{%s $d (%s )}" % (_DIED[0], _AGE[0])],
         )
         disp.set_help(_("Display format for the fathers box."))
         menu.add_option(category_name, "father_disp", disp)
@@ -990,13 +1099,18 @@ class AncestorTreeOptions(MenuReportOptions):
         # missing.set_help(_("What will print when information is not known"))
         # menu.add_option(category_name, "miss_val", missing)
 
-        #disp_mom = TextOption(
+        # disp_mom = TextOption(
         #    _("Mother\nDisplay Format"),
         #    ["$n", "%s $b" % _BORN, "%s $m" % _MARR, "-{%s $d}" % _DIED],
-        #)
+        # )
         disp_mom = TextOption(
-            _("Mother\nDisplay Format"), 
-            ["$n", "%s $b" % _BORN[0], "%s $m" % _MARR[0], "-{%s $d (%s $a)}" % (_DIED[0], _AGE[0])],
+            _("Mother\nDisplay Format"),
+            [
+                "$n",
+                "%s $b" % _BORN[0],
+                "%s $m" % _MARR[0],
+                "-{%s $d (%s )}" % (_DIED[0], _AGE[0]),
+            ],
         )
         disp_mom.set_help(_("Display format for the mothers box."))
         menu.add_option(category_name, "mother_disp", disp_mom)
@@ -1014,7 +1128,9 @@ class AncestorTreeOptions(MenuReportOptions):
         menu.add_option(category_name, "inc_marr", self.incmarr)
         self.incmarr.connect("value-changed", self._incmarr_changed)
 
-        self.marrdisp = StringOption(_("Marriage\nDisplay Format"), "%s $m" % _MARR)
+        self.marrdisp = StringOption(
+            _("Marriage\nDisplay Format"), "%s $m {/ %s $v}" % (_MARR[0], _DIV[0])
+        )
         self.marrdisp.set_help(_("Display format for the marital box."))
         menu.add_option(category_name, "marr_disp", self.marrdisp)
         self._incmarr_changed()
