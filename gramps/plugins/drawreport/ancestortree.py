@@ -231,10 +231,23 @@ class CalcItems:
             if 0 <= candidate <= 120:
                 age = candidate
 
+        age_label = _AGE[0]
+
         if age is None:
+            # No age could be calculated.  Remove the "(age )" placeholder
+            # that the display format left in the death line so we don't
+            # show a trailing "(age )" string.
+            death_marker = _DIED[0]
+            for i, line in enumerate(lines):
+                if death_marker in line and age_label in line:
+                    lines[i] = re.sub(
+                        r"\s*\(" + re.escape(age_label) + r"[^)]*\)",
+                        "",
+                        line,
+                    )
+                    return
             return
 
-        age_label = _AGE[0]
         age_str = f"({age_label} {age})"
 
         # Find the death line: look for _DIED[0] marker or the death
