@@ -98,6 +98,26 @@ class CalcItems:
         years = re.findall(r"\b(1\d{3}|20\d{2})\b", text)
         return int(years[0]) if years else None
 
+    def _clean_tuple_artifacts(self, lines: list[str]) -> None:
+        """Replace tuple repr artifacts (e.g. ``('d.',)``) with their
+        string values.  This handles saved configurations that were
+        created with older code that used the tuple constants directly
+        instead of indexing ``[0]``.
+        """
+        replacements = {
+            f"('{_BORN[0]}',)": _BORN[0],
+            f"('{_DIED[0]}',)": _DIED[0],
+            f"('{_AGE[0]}',)": _AGE[0],
+            f"('{_MARR[0]}',)": _MARR[0],
+            f"('{_DIV[0]}',)": _DIV[0],
+            f"('{_DUR[0]}',)": _DUR[0],
+        }
+        for i, line in enumerate(lines):
+            for old, new in replacements.items():
+                if old in line:
+                    line = line.replace(old, new)
+            lines[i] = line
+
     def _add_age_at_death(
         self, lines: list[str], indi_handle: str | None, fams_handle: str | None
     ) -> None:
@@ -259,14 +279,15 @@ class DescendantBoxBase(BoxBase):
         calc = gui.calc_lines(database)
         self.text = calc.calc_lines(person, family, gui.working_lines(self))
 
-        # Post-process: add age at death and/or marriage span
+        # Post-process: clean up any tuple artifacts from saved configs,
+        # then add age at death and/or marriage span as appropriate.
         if person is not None:
             calc_items = gui.calc_items(database, calc)
+            calc_items._clean_tuple_artifacts(self.text)
             if self.boxstr == "CG2-fam-box":
                 calc_items._add_marriage_span(self.text, person, family)
             else:
                 calc_items._add_age_at_death(self.text, person, family)
-                calc_items._add_marriage_span(self.text, person, family)
 
 
 class PersonBox(DescendantBoxBase):

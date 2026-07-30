@@ -30,6 +30,7 @@ from html import escape
 import math
 import os
 import pickle
+import re
 
 # -------------------------------------------------------------------------
 #
@@ -85,7 +86,10 @@ WIKI_PAGE = URL_WIKISTRING + URL_MANUAL_PAGE + "_-_Categories#Pedigree_View"
 _PERSON = "p"
 _BORN = _("b.", "short for born")
 _DIED = _("d.", "short for died")
-_AGE = _("ae.", "short for age")
+_AGE = _("age", "short for age")
+_MARR = _("m.", "marriage abbreviation")
+_DIV = _("v.", "divorce abbreviation")
+_DUR = _("yrs", "short for years")
 _BAPT = _("bap.", "short for baptized")
 _CHRI = _("chr.", "short for christened")
 _BURI = _("bur.", "short for buried")
@@ -211,6 +215,29 @@ class PersonBoxWidgetCairo(_PersonWidgetBase):
             self.text = self.format_helper.format_person(
                 self.person, self.maxlines, True
             )
+            # Inject age at death if both birth and death years are known
+            try:
+                birth_ref = self.person.get_birth_ref()
+                death_ref = self.person.get_death_ref()
+                if birth_ref and death_ref:
+                    dbase = self.view.dbstate.db
+                    b_evt = dbase.get_event_from_handle(birth_ref.ref)
+                    d_evt = dbase.get_event_from_handle(death_ref.ref)
+                    if b_evt and d_evt:
+                        b_year = b_evt.get_date_object().get_year()
+                        d_year = d_evt.get_date_object().get_year()
+                        if b_year > 0 and d_year > 0:
+                            age_val = d_year - b_year
+                            if 0 <= age_val <= 120:
+                                age_label = _AGE
+                                if "\n" in self.text:
+                                    lines = self.text.split("\n")
+                                    lines[-1] += f" ({age_label} {age_val})"
+                                    self.text = "\n".join(lines)
+                                else:
+                                    self.text += f" ({age_label} {age_val})"
+            except Exception:
+                pass
             gender = self.person.get_gender()
         else:
             gender = None
@@ -1265,6 +1292,63 @@ class PedigreeView(NavigationView):
             ):
                 if lst[i] and lst[i][2]:
                     text = self.format_helper.format_relation(lst[i][2], 1, True)
+                    # Inject marriage span (yrs) if marriage year is known
+                    try:
+                        if text:
+                            m_years = [
+                                int(y)
+                                for y in re.findall(r"\b(1\d{3}|20\d{2})\b", text)
+                            ]
+                            if m_years:
+                                m_year = m_years[0]
+                                fam = lst[i][2]
+                                dbase = self.dbstate.db
+                                end_year = None
+                                # Check divorce date
+                                div_ref = fam.get_divorce_ref()
+                                if div_ref:
+                                    div_evt = dbase.get_event_from_handle(
+                                        div_ref.ref
+                                    )
+                                    if div_evt:
+                                        v_year = div_evt.get_date_object().get_year()
+                                        if v_year and v_year >= m_year:
+                                            end_year = v_year
+                                # Fallback: earliest spouse death
+                                if not end_year:
+                                    death_years = []
+                                    for spouse_handle in [
+                                        fam.get_father_handle(),
+                                        fam.get_mother_handle(),
+                                    ]:
+                                        if spouse_handle:
+                                            spouse = dbase.get_person_from_handle(
+                                                spouse_handle
+                                            )
+                                            if spouse:
+                                                d_ref = spouse.get_death_ref()
+                                                if d_ref:
+                                                    d_evt = dbase.get_event_from_handle(
+                                                        d_ref.ref
+                                                    )
+                                                    if d_evt:
+                                                        d_yr = (
+                                                            d_evt.get_date_object()
+                                                            .get_year()
+                                                        )
+                                                        if d_yr:
+                                                            death_years.append(d_yr)
+                                    if death_years:
+                                        earliest = min(death_years)
+                                        if earliest >= m_year:
+                                            end_year = earliest
+                                if end_year:
+                                    span_val = end_year - m_year
+                                    if 0 <= span_val <= 100:
+                                        text = text.replace("\n", " ").strip()
+                                        text += f" ({span_val} {_DUR})"
+                    except Exception:
+                        pass
                 else:
                     text = " "
                 label = Gtk.Label(label=text)
