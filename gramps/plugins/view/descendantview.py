@@ -165,6 +165,14 @@ class DescendantView(NavigationView):
         self.build_tree()
         self.uistate.modify_statusbar(self.dbstate)
 
+    def cb_childmenu_changed(self, obj, person_handle):
+        """
+        Callback for the pulldown menu selection, changing to the person
+        attached with menu item.
+        """
+        self.change_active(person_handle)
+        return True
+
     def build_tree(self):
         active_handle = self.get_active()
         if not active_handle:
