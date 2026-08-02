@@ -802,58 +802,65 @@ class DescendantView(NavigationView):
                 parent_button_box.set_margin_top(6)
                 parent_button_box.set_margin_bottom(6)
 
-                # Primary person's parents
+                # Primary person's parents - always show button,
+                # disabled when no parents exist (like pedigreeview).
                 parentlist = find_parents(self.dbstate.db, person)
+                button = Gtk.Button.new_from_icon_name(
+                    "go-next-symbolic", Gtk.IconSize.BUTTON
+                )
+                button.set_size_request(24, 24)
                 if parentlist:
-                    button = Gtk.Button.new_from_icon_name(
-                        "go-next-symbolic", Gtk.IconSize.BUTTON
-                    )
-                    button.set_size_request(24, 24)
                     button.connect(
                         "clicked",
                         self.cb_on_show_parent_menu,
                         active_handle,
                     )
                     button.set_tooltip_text(_("Jump to parent..."))
-                    button.set_halign(Gtk.Align.CENTER)
-                    button.set_valign(Gtk.Align.CENTER)
-                    parent_button_box.pack_start(button, False, False, 0)
+                else:
+                    button.set_sensitive(False)
+                    button.set_tooltip_text(_("No parents"))
+                button.set_halign(Gtk.Align.CENTER)
+                button.set_valign(Gtk.Align.CENTER)
+                parent_button_box.pack_start(button, False, False, 0)
 
-                # Spouses' parents
+                # Spouses' parents - always show button, disabled when
+                # no parents exist.
                 for idx, spouse in enumerate(root_spouses):
                     spouse_parentlist = find_parents(
                         self.dbstate.db, spouse
                     )
-                    if not spouse_parentlist:
-                        continue
                     button = Gtk.Button.new_from_icon_name(
                         "go-next-symbolic", Gtk.IconSize.BUTTON
                     )
                     button.set_size_request(24, 24)
-                    button.connect(
-                        "clicked",
-                        self.cb_on_show_parent_menu,
-                        spouse.get_handle(),
-                    )
-                    button.set_tooltip_text(_("Jump to parent..."))
+                    if spouse_parentlist:
+                        button.connect(
+                            "clicked",
+                            self.cb_on_show_parent_menu,
+                            spouse.get_handle(),
+                        )
+                        button.set_tooltip_text(_("Jump to parent..."))
+                    else:
+                        button.set_sensitive(False)
+                        button.set_tooltip_text(_("No parents"))
                     button.set_halign(Gtk.Align.CENTER)
                     button.set_valign(Gtk.Align.CENTER)
                     button.set_margin_top(10)
                     parent_button_box.pack_start(button, False, False, 0)
 
-                if len(parent_button_box.get_children()) > 0:
-                    self.table.attach(
-                        parent_button_box,
-                        (max_seen_depth * 3) + col_offset + 1,
-                        root_row,
-                        1,
-                        1,
-                    )
+                self.table.attach(
+                    parent_button_box,
+                    (max_seen_depth * 3) + col_offset + 1,
+                    root_row,
+                    1,
+                    1,
+                )
 
         # Add child navigation arrows on the left side of deepest persons.
         # Uses popup menu when multiple children exist.  The button column
         # mirrors the family cell layout so each person/spouse gets its own
-        # horizontally-aligned button.
+        # horizontally-aligned button.  Buttons are always shown, disabled
+        # when no children exist (like pedigreeview).
         deepest_nodes = population_map.get(max_seen_depth, [])
         for grid_row, person, spouses, _is_first, _is_last in deepest_nodes:
             # Button box matching the family container layout: one button
@@ -869,7 +876,7 @@ class DescendantView(NavigationView):
             ]
 
             for idx, handle in enumerate(persons_handles):
-                # Skip spouses without children
+                # Get children for this person/spouse
                 if idx > 0:
                     person_obj = self.dbstate.db.get_person_from_handle(handle)
                     if not person_obj:
@@ -878,27 +885,27 @@ class DescendantView(NavigationView):
                 else:
                     childlist = find_children(self.dbstate.db, person)
 
-                if not childlist:
-                    continue
-
                 button = Gtk.Button.new_from_icon_name(
                     "go-previous-symbolic", Gtk.IconSize.BUTTON
                 )
                 button.set_size_request(24, 24)
-                button.connect(
-                    "clicked",
-                    self.cb_on_show_child_menu,
-                    handle,
-                )
-                button.set_tooltip_text(_("Jump to child..."))
+                if childlist:
+                    button.connect(
+                        "clicked",
+                        self.cb_on_show_child_menu,
+                        handle,
+                    )
+                    button.set_tooltip_text(_("Jump to child..."))
+                else:
+                    button.set_sensitive(False)
+                    button.set_tooltip_text(_("No children"))
                 button.set_halign(Gtk.Align.CENTER)
                 button.set_valign(Gtk.Align.CENTER)
                 if idx > 0:
                     button.set_margin_top(10)
                 button_box.pack_start(button, False, False, 0)
 
-            if len(button_box.get_children()) > 0:
-                self.table.attach(button_box, 0, grid_row, 1, 1)
+            self.table.attach(button_box, 0, grid_row, 1, 1)
 
         # Add a spacer in column 0 to ensure the column has visible width
         # even when no child navigation buttons are present.
