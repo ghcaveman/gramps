@@ -219,6 +219,22 @@ class TestImports(unittest.TestCase):
         self.assertIn("Skipped subordinate line", user.infotext)
         self.assertIn("Could not import photo.jpg", user.infotext)
 
+    def test_imp_notetest_lds_warnings(self):
+        """
+        Verify that importing imp_notetest_lds_dfs.ged produces the expected
+        number of GEDCOM import warnings, without requiring the GUI.
+        """
+        fn1 = os.path.join(TEST_DIR, "imp_notetest_lds_dfs.ged")
+        config.set("preferences.default-source", True)
+        config.set("preferences.tag-on-import-format", "Imported")
+        config.set("preferences.tag-on-import", True)
+        db = make_database("sqlite")
+        db.load(":memory:")
+        db.set_feature("skip-import-additions", False)
+        user = CaptureUser()
+        importData(db, fn1, user)
+        self.assertEqual(user.report_title, "GEDCOM import report: 202 errors detected")
+
 
 def _report_details(path, diff1, diff2):
     """Checks if a detail is significant, needs adjusting for xml filter
@@ -353,6 +369,7 @@ def make_tst_function(tstfile, file_name):
             in [
                 "imp_MediaTest.ged",
                 "imp_notetest_dfs.ged",
+                "imp_notetest_lds_dfs.ged",
                 "imp_notetest_lds_in-out-in_dfs.ged",
                 "imp_sample.ged",
             ]
