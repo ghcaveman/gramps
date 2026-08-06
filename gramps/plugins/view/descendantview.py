@@ -708,6 +708,8 @@ class DescendantView(NavigationView):
         # root: [primary_box, spouse_box, ...]
         deepest_person_boxes: dict[int, list] = {}
         root_person_boxes: list = []
+        # All cell boxes by grid row, used to center connector lines.
+        cell_boxes_by_row: dict[int, list] = {}
 
         # Step 1: Render all Person and Spouse boxes to establish columns
         for depth_level, people_nodes in population_map.items():
@@ -798,6 +800,7 @@ class DescendantView(NavigationView):
                     deepest_person_boxes[grid_row] = cell_boxes
                 if depth_level == 0:
                     root_person_boxes = cell_boxes
+                cell_boxes_by_row[grid_row] = cell_boxes
 
                 self.table.attach(
                     family_container, grid_column, grid_row, 1, 1
@@ -818,7 +821,8 @@ class DescendantView(NavigationView):
 
                     if has_children:
                         outbound_stub = ParentOutboundLine(
-                            num_spouses=len(spouses)
+                            num_spouses=len(spouses),
+                            person_boxes=cell_boxes,
                         )
                         outbound_stub.set_vexpand(True)
                         outbound_stub.set_valign(Gtk.Align.FILL)
@@ -849,6 +853,7 @@ class DescendantView(NavigationView):
                 people_rows_map = {node[0]: node for node in group}
 
                 for current_row in range(start_row, end_row + 1):
+                    row_boxes = cell_boxes_by_row.get(current_row, [])
                     if current_row in people_rows_map:
                         node_data = people_rows_map[current_row]
                         is_first = node_data[3]
@@ -859,12 +864,14 @@ class DescendantView(NavigationView):
                             is_first_child=is_first,
                             is_last_child=is_last,
                             has_spouse=has_spouse,
+                            person_boxes=row_boxes,
                         )
                     else:
                         inbound_line = ChildInboundLine(
                             is_first_child=False,
                             is_last_child=False,
                             has_spouse=False,
+                            person_boxes=row_boxes,
                         )
 
                         def draw_plain_vertical(widget, context) -> bool:
