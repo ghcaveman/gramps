@@ -763,14 +763,26 @@ class DescendantView(NavigationView):
 
 
                 if depth_level < max_seen_depth:
-                    outbound_stub = ParentOutboundLine(
-                        num_spouses=len(spouses)
+                    # Only draw the outbound connector when this cell
+                    # actually has children; otherwise it dangles.
+                    has_children = bool(
+                        find_children(self.dbstate.db, person)
                     )
-                    outbound_stub.set_vexpand(True)
-                    outbound_stub.set_valign(Gtk.Align.FILL)
-                    self.table.attach(
-                        outbound_stub, grid_column - 1, grid_row, 1, 1
-                    )
+                    if not has_children:
+                        for spouse in spouses:
+                            if find_children(self.dbstate.db, spouse):
+                                has_children = True
+                                break
+
+                    if has_children:
+                        outbound_stub = ParentOutboundLine(
+                            num_spouses=len(spouses)
+                        )
+                        outbound_stub.set_vexpand(True)
+                        outbound_stub.set_valign(Gtk.Align.FILL)
+                        self.table.attach(
+                            outbound_stub, grid_column - 1, grid_row, 1, 1
+                        )
 
         # Step 2: Render continuous, gap-free vertical lines for siblings
         for depth_level in range(1, max_seen_depth + 1):
