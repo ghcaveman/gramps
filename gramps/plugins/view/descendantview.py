@@ -59,6 +59,17 @@ LOG = logging.getLogger(__name__)
 
 WIKI_PAGE = URL_WIKISTRING + URL_MANUAL_PAGE + "_-_Categories#Descendant_View"
 
+# Connector stroke widths. Vertical rails are drawn inset from the widget
+# edge by half their width so the full stroke stays visible (Cairo clips
+# strokes centered on the path; drawing at x=width would hide half of it).
+_H_LINE_WIDTH = 3
+_V_LINE_WIDTH = 4
+
+# Y offset from the top/bottom of a family cell to the vertical center of
+# the primary person box (and symmetrically the spouse box). Matches the
+# family container's top/bottom margin plus roughly half a person box.
+_PERSON_CENTER_Y = 24
+
 
 #------------------------------------------------------------
 #
@@ -81,37 +92,45 @@ class ParentOutboundLine(Gtk.DrawingArea):
     def draw_line(self, widget: Gtk.DrawingArea, context) -> bool:
         alloc = self.get_allocation()
         context.set_source_rgb(0.0, 0.0, 0.0)
-        context.set_line_width(2)
 
-        mid_y = alloc.height / 2
         right_edge = alloc.width
+        # Junction X for the couple backbone / outbound stub
+        spine_x = right_edge / 2
 
-        # The top primary person box center always maps to 24px
-        person1_center_y = 24
+        # Primary person box is packed at the top of the family cell
+        person1_center_y = _PERSON_CENTER_Y
 
         if self.num_spouses > 0:
-            spouse_center_y = alloc.height - 24
+            spouse_center_y = alloc.height - _PERSON_CENTER_Y
+            mid_y = (person1_center_y + spouse_center_y) / 2
 
             # Draw horizontal lines poking into both the person and the spouse
+            context.set_line_width(_H_LINE_WIDTH)
             context.move_to(right_edge, person1_center_y)
-            context.line_to(right_edge / 2, person1_center_y)
+            context.line_to(spine_x, person1_center_y)
 
             context.move_to(right_edge, spouse_center_y)
-            context.line_to(right_edge / 2, spouse_center_y)
+            context.line_to(spine_x, spouse_center_y)
 
-            # Draw the vertical coupling backbone joining them
-            context.move_to(right_edge / 2, person1_center_y)
-            context.line_to(right_edge / 2, spouse_center_y)
-
-            # Outbound lineage delivery line centered perfectly on the branch
-            context.move_to(right_edge / 2, mid_y)
+            # Outbound lineage delivery line centered on the couple branch
+            context.move_to(spine_x, mid_y)
             context.line_to(0, mid_y)
+            context.stroke()
+
+            # Vertical coupling backbone, thicker than the horizontals
+            context.set_line_width(_V_LINE_WIDTH)
+            context.move_to(spine_x, person1_center_y)
+            context.line_to(spine_x, spouse_center_y)
+            context.stroke()
         else:
-            # Single individual connector line layout
-            context.move_to(right_edge, mid_y)
-            context.line_to(0, mid_y)
+            # Single person: aim at the person box center near the top of
+            # the cell (not the geometric mid-point of the allocated area,
+            # which drifts when the row is taller than the box).
+            context.set_line_width(_H_LINE_WIDTH)
+            context.move_to(right_edge, person1_center_y)
+            context.line_to(0, person1_center_y)
+            context.stroke()
 
-        context.stroke()
         return False
 
 
@@ -139,20 +158,26 @@ class ChildInboundLine(Gtk.DrawingArea):
     def draw_lines(self, widget: Gtk.DrawingArea, context) -> bool:
         alloc = self.get_allocation()
         context.set_source_rgb(0.0, 0.0, 0.0)
-        context.set_line_width(2)
 
-        spine_x = alloc.width
+        # Inset so the full vertical stroke remains visible; its outer edge
+        # still meets the adjacent parent-outbound connector at the cell edge.
+        spine_x = alloc.width - _V_LINE_WIDTH / 2
 
-        # Calculate target Y center based on whether the sibling box
-        # contains a spouse
-        target_y = 24 if self.has_spouse else (alloc.height / 2)
+        # Always aim at the primary person box center near the top of the
+        # cell. Using alloc.height/2 for singles misaligns when the row is
+        # taller than the family container content.
+        target_y = _PERSON_CENTER_Y
 
         # 1. Horizontal connector pin running into the right side of the
         #    child box
+        context.set_line_width(_H_LINE_WIDTH)
         context.move_to(spine_x, target_y)
         context.line_to(0, target_y)
+        context.stroke()
 
-        # 2. Continuous vertical sibling tracking rails (edge to edge)
+        # 2. Continuous vertical sibling tracking rails (edge to edge),
+        #    thicker than the horizontal connectors
+        context.set_line_width(_V_LINE_WIDTH)
         if not self.is_first_child:
             context.move_to(spine_x, target_y)
             context.line_to(spine_x, 0)
@@ -163,6 +188,7 @@ class ChildInboundLine(Gtk.DrawingArea):
 
         context.stroke()
         return False
+
 
 
 #------------------------------------------------------------
@@ -581,28 +607,33 @@ class DescendantView(NavigationView):
                         valid_children.append(child_person)
 
                 for idx, child_person in enumerate(valid_children):
-                    if idx > 0 or len(child_nodes_in_family) > 0:
-                        next_row += 2
-
                     target_gen = current_depth + 1
-                    if target_gen not in generation_dict:
-                        generation_dict[target_gen] = []
-                    target_list_idx = len(generation_dict[target_gen])
 
-                    next_row = self.map_descendants(
-                        child_person,
-                        current_depth + 1,
-                        max_depth,
-                        generation_dict,
-                        next_row,
-                    )
+                    # Children at the max depth boundary are not added to
+                    # the generation dict, so skip them entirely to avoid
+                    # out-of-range errors further down.
+                    if target_gen < max_depth:
+                        if idx > 0 or len(child_nodes_in_family) > 0:
+                            next_row += 2
 
-                    is_first_sibling = (
-                        idx == 0 and len(child_nodes_in_family) == 0
-                    )
-                    child_nodes_in_family.append(
-                        (target_gen, target_list_idx, is_first_sibling)
-                    )
+                        if target_gen not in generation_dict:
+                            generation_dict[target_gen] = []
+                        target_list_idx = len(generation_dict[target_gen])
+
+                        next_row = self.map_descendants(
+                            child_person,
+                            current_depth + 1,
+                            max_depth,
+                            generation_dict,
+                            next_row,
+                        )
+
+                        is_first_sibling = (
+                            idx == 0 and len(child_nodes_in_family) == 0
+                        )
+                        child_nodes_in_family.append(
+                            (target_gen, target_list_idx, is_first_sibling)
+                        )
 
         if child_nodes_in_family:
             for t_gen, t_idx, _t_first in child_nodes_in_family:
@@ -630,6 +661,12 @@ class DescendantView(NavigationView):
         # Offset columns by 1 to reserve column 0 for child nav buttons
         col_offset = 1
 
+        # Person/spouse boxes keyed for nav-button height matching.
+        # deepest: grid_row -> [primary_box, spouse_box, ...]
+        # root: [primary_box, spouse_box, ...]
+        deepest_person_boxes: dict[int, list] = {}
+        root_person_boxes: list = []
+
         # Step 1: Render all Person and Spouse boxes to establish columns
         for depth_level, people_nodes in population_map.items():
             grid_column = (max_seen_depth - depth_level) * 3 + col_offset
@@ -646,6 +683,9 @@ class DescendantView(NavigationView):
                 )
                 family_container.set_margin_top(6)
                 family_container.set_margin_bottom(6)
+                family_container.set_valign(Gtk.Align.START)
+
+                cell_boxes: list = []
 
                 is_alive = not person.get_death_ref()
                 primary_box = PersonBoxWidgetCairo(
@@ -660,6 +700,7 @@ class DescendantView(NavigationView):
                 )
                 family_container.pack_start(primary_box, False, False, 0)
                 column_size_group.add_widget(primary_box)
+                cell_boxes.append(primary_box)
 
                 # Connect button-press for context menu and double-click edit
                 fam_h = None
@@ -690,6 +731,7 @@ class DescendantView(NavigationView):
                     spouse_box.set_margin_top(10)
                     family_container.pack_start(spouse_box, False, False, 0)
                     column_size_group.add_widget(spouse_box)
+                    cell_boxes.append(spouse_box)
 
                     # Connect button-press for spouse context menu
                     sp_fam_h = None
@@ -710,9 +752,15 @@ class DescendantView(NavigationView):
                         sp_fam_h,
                     )
 
+                if depth_level == max_seen_depth:
+                    deepest_person_boxes[grid_row] = cell_boxes
+                if depth_level == 0:
+                    root_person_boxes = cell_boxes
+
                 self.table.attach(
                     family_container, grid_column, grid_row, 1, 1
                 )
+
 
                 if depth_level < max_seen_depth:
                     outbound_stub = ParentOutboundLine(
@@ -768,11 +816,13 @@ class DescendantView(NavigationView):
                         def draw_plain_vertical(widget, context) -> bool:
                             alloc = widget.get_allocation()
                             context.set_source_rgb(0.0, 0.0, 0.0)
-                            context.set_line_width(2)
-                            context.move_to(alloc.width, 0)
-                            context.line_to(alloc.width, alloc.height)
+                            context.set_line_width(_V_LINE_WIDTH)
+                            spine_x = alloc.width - _V_LINE_WIDTH / 2
+                            context.move_to(spine_x, 0)
+                            context.line_to(spine_x, alloc.height)
                             context.stroke()
                             return False
+
 
                         inbound_line.disconnect_by_func(inbound_line.draw_lines)
                         inbound_line.connect("draw", draw_plain_vertical)
@@ -783,15 +833,14 @@ class DescendantView(NavigationView):
                         inbound_line, grid_column + 1, current_row, 1, 1
                     )
 
-        # Step 3: Add navigation arrow buttons
+        # Step 3: Add navigation arrow buttons.  Each button sits in a
+        # slot that is height-matched to its person/spouse box via a
+        # vertical SizeGroup, so the button stays centered on that box
+        # even when box heights differ (e.g. with/without images).
         active_handle = self.get_active()
-        if active_handle:
+        if active_handle and root_person_boxes:
             person = self.dbstate.db.get_person_from_handle(active_handle)
             if person:
-                # Add parent navigation arrow on the right side of root.
-                # Uses popup menu when multiple parents exist.  The button
-                # box mirrors the family cell layout so each person/spouse
-                # gets its own horizontally-aligned button.
                 root_node = population_map[0][0]
                 root_row = root_node[0]
                 root_spouses = root_node[2]
@@ -801,52 +850,44 @@ class DescendantView(NavigationView):
                 )
                 parent_button_box.set_margin_top(6)
                 parent_button_box.set_margin_bottom(6)
+                parent_button_box.set_valign(Gtk.Align.START)
 
-                # Primary person's parents - always show button,
-                # disabled when no parents exist (like pedigreeview).
+                # Primary person's parents
                 parentlist = find_parents(self.dbstate.db, person)
-                button = Gtk.Button.new_from_icon_name(
-                    "go-next-symbolic", Gtk.IconSize.BUTTON
+                self._pack_nav_button(
+                    parent_button_box,
+                    root_person_boxes[0],
+                    "go-next-symbolic",
+                    parentlist,
+                    self.cb_on_show_parent_menu,
+                    active_handle,
+                    _("Jump to parent..."),
+                    _("No parents"),
+                    margin_top=0,
                 )
-                button.set_size_request(24, 24)
-                if parentlist:
-                    button.connect(
-                        "clicked",
-                        self.cb_on_show_parent_menu,
-                        active_handle,
-                    )
-                    button.set_tooltip_text(_("Jump to parent..."))
-                else:
-                    button.set_sensitive(False)
-                    button.set_tooltip_text(_("No parents"))
-                button.set_halign(Gtk.Align.CENTER)
-                button.set_valign(Gtk.Align.CENTER)
-                parent_button_box.pack_start(button, False, False, 0)
 
-                # Spouses' parents - always show button, disabled when
-                # no parents exist.
+                # Spouses' parents
                 for idx, spouse in enumerate(root_spouses):
                     spouse_parentlist = find_parents(
                         self.dbstate.db, spouse
                     )
-                    button = Gtk.Button.new_from_icon_name(
-                        "go-next-symbolic", Gtk.IconSize.BUTTON
+                    box_idx = idx + 1
+                    person_box = (
+                        root_person_boxes[box_idx]
+                        if box_idx < len(root_person_boxes)
+                        else root_person_boxes[0]
                     )
-                    button.set_size_request(24, 24)
-                    if spouse_parentlist:
-                        button.connect(
-                            "clicked",
-                            self.cb_on_show_parent_menu,
-                            spouse.get_handle(),
-                        )
-                        button.set_tooltip_text(_("Jump to parent..."))
-                    else:
-                        button.set_sensitive(False)
-                        button.set_tooltip_text(_("No parents"))
-                    button.set_halign(Gtk.Align.CENTER)
-                    button.set_valign(Gtk.Align.CENTER)
-                    button.set_margin_top(10)
-                    parent_button_box.pack_start(button, False, False, 0)
+                    self._pack_nav_button(
+                        parent_button_box,
+                        person_box,
+                        "go-next-symbolic",
+                        spouse_parentlist,
+                        self.cb_on_show_parent_menu,
+                        spouse.get_handle(),
+                        _("Jump to parent..."),
+                        _("No parents"),
+                        margin_top=10,
+                    )
 
                 self.table.attach(
                     parent_button_box,
@@ -856,56 +897,49 @@ class DescendantView(NavigationView):
                     1,
                 )
 
-        # Add child navigation arrows on the left side of deepest persons.
-        # Uses popup menu when multiple children exist.  The button column
-        # mirrors the family cell layout so each person/spouse gets its own
-        # horizontally-aligned button.  Buttons are always shown, disabled
-        # when no children exist (like pedigreeview).
+        # Child navigation arrows on the left of deepest-generation persons.
         deepest_nodes = population_map.get(max_seen_depth, [])
         for grid_row, person, spouses, _is_first, _is_last in deepest_nodes:
-            # Button box matching the family container layout: one button
-            # for the primary person and one for each spouse.
             button_box = Gtk.Box(
                 orientation=Gtk.Orientation.VERTICAL, spacing=2
             )
             button_box.set_margin_top(6)
             button_box.set_margin_bottom(6)
+            button_box.set_valign(Gtk.Align.START)
 
+            cell_boxes = deepest_person_boxes.get(grid_row, [])
             persons_handles = [person.get_handle()] + [
                 spouse.get_handle() for spouse in spouses
             ]
 
             for idx, handle in enumerate(persons_handles):
-                # Get children for this person/spouse
                 if idx > 0:
-                    person_obj = self.dbstate.db.get_person_from_handle(handle)
+                    person_obj = self.dbstate.db.get_person_from_handle(
+                        handle
+                    )
                     if not person_obj:
                         continue
                     childlist = find_children(self.dbstate.db, person_obj)
                 else:
                     childlist = find_children(self.dbstate.db, person)
 
-                button = Gtk.Button.new_from_icon_name(
-                    "go-previous-symbolic", Gtk.IconSize.BUTTON
+                person_box = (
+                    cell_boxes[idx] if idx < len(cell_boxes) else None
                 )
-                button.set_size_request(24, 24)
-                if childlist:
-                    button.connect(
-                        "clicked",
-                        self.cb_on_show_child_menu,
-                        handle,
-                    )
-                    button.set_tooltip_text(_("Jump to child..."))
-                else:
-                    button.set_sensitive(False)
-                    button.set_tooltip_text(_("No children"))
-                button.set_halign(Gtk.Align.CENTER)
-                button.set_valign(Gtk.Align.CENTER)
-                if idx > 0:
-                    button.set_margin_top(10)
-                button_box.pack_start(button, False, False, 0)
+                self._pack_nav_button(
+                    button_box,
+                    person_box,
+                    "go-previous-symbolic",
+                    childlist,
+                    self.cb_on_show_child_menu,
+                    handle,
+                    _("Jump to child..."),
+                    _("No children"),
+                    margin_top=10 if idx > 0 else 0,
+                )
 
             self.table.attach(button_box, 0, grid_row, 1, 1)
+
 
         # Add a spacer in column 0 to ensure the column has visible width
         # even when no child navigation buttons are present.
@@ -1364,6 +1398,48 @@ class DescendantView(NavigationView):
         """Called when tree size setting changes."""
         self.tree_depth = int(entry)
         self.build_tree()
+
+    def _pack_nav_button(
+        self,
+        button_box,
+        person_box,
+        icon_name: str,
+        target_list,
+        callback,
+        handle,
+        tooltip: str,
+        tooltip_disabled: str,
+        margin_top: int,
+    ) -> None:
+        """
+        Add a navigation button aligned with its corresponding person box.
+
+        A vertical SizeGroup ties the button slot to the person box height
+        so the button stays centered on that box even when box heights
+        differ (e.g. persons with and without images).
+        """
+        button = Gtk.Button.new_from_icon_name(icon_name, Gtk.IconSize.BUTTON)
+        button.set_size_request(24, 24)
+        if target_list:
+            button.connect("clicked", callback, handle)
+            button.set_tooltip_text(tooltip)
+        else:
+            button.set_sensitive(False)
+            button.set_tooltip_text(tooltip_disabled)
+        button.set_halign(Gtk.Align.CENTER)
+        button.set_valign(Gtk.Align.CENTER)
+        if margin_top:
+            button.set_margin_top(margin_top)
+
+        if person_box is not None:
+            slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            size_group = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.VERTICAL)
+            size_group.add_widget(slot)
+            size_group.add_widget(person_box)
+            slot.pack_start(button, True, True, 0)
+            button_box.pack_start(slot, False, False, 0)
+        else:
+            button_box.pack_start(button, False, False, 0)
 
     def _get_configure_page_funcs(self) -> list:
         """Return config page functions."""
