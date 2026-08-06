@@ -83,11 +83,29 @@ class ParentOutboundLine(Gtk.DrawingArea):
     to the LEFT.
     """
 
-    def __init__(self, num_spouses: int = 0) -> None:
+    def __init__(
+        self, num_spouses: int = 0, person_boxes: list | None = None
+    ) -> None:
         Gtk.DrawingArea.__init__(self)
         self.num_spouses = num_spouses
+        self.person_boxes = person_boxes or []
         self.set_size_request(20, -1)
         self.connect("draw", self.draw_line)
+
+    def _box_center_y(self, box) -> float | None:
+        """
+        Return the vertical center of box in this widget's coordinates.
+
+        Returns None if the box is not yet realized, in which case the
+        caller falls back to a fixed offset.
+        """
+        if box is None or not box.get_realized():
+            return None
+        coords = box.translate_coordinates(self, 0, 0)
+        if coords is None:
+            return None
+        _x, y = coords
+        return y + box.get_allocated_height() / 2
 
     def draw_line(self, widget: Gtk.DrawingArea, context) -> bool:
         alloc = self.get_allocation()
@@ -97,11 +115,16 @@ class ParentOutboundLine(Gtk.DrawingArea):
         # Junction X for the couple backbone / outbound stub
         spine_x = right_edge / 2
 
-        # Primary person box is packed at the top of the family cell
-        person1_center_y = _PERSON_CENTER_Y
+        # Compute the actual vertical center of each person box so the
+        # horizontal stubs line up perfectly with the boxes.
+        centers = []
+        for box in self.person_boxes:
+            center = self._box_center_y(box)
+            centers.append(center if center is not None else _PERSON_CENTER_Y)
 
-        if self.num_spouses > 0:
-            spouse_center_y = alloc.height - _PERSON_CENTER_Y
+        if self.num_spouses > 0 and len(centers) >= 2:
+            person1_center_y = centers[0]
+            spouse_center_y = centers[1]
             mid_y = (person1_center_y + spouse_center_y) / 2
 
             # Draw horizontal lines poking into both the person and the spouse
@@ -123,9 +146,8 @@ class ParentOutboundLine(Gtk.DrawingArea):
             context.line_to(spine_x, spouse_center_y)
             context.stroke()
         else:
-            # Single person: aim at the person box center near the top of
-            # the cell (not the geometric mid-point of the allocated area,
-            # which drifts when the row is taller than the box).
+            # Single person: aim at the person box center
+            person1_center_y = centers[0] if centers else _PERSON_CENTER_Y
             context.set_line_width(_H_LINE_WIDTH)
             context.move_to(right_edge, person1_center_y)
             context.line_to(0, person1_center_y)
@@ -146,14 +168,34 @@ class ChildInboundLine(Gtk.DrawingArea):
     """
 
     def __init__(
-        self, is_first_child: bool, is_last_child: bool, has_spouse: bool = False
+        self,
+        is_first_child: bool,
+        is_last_child: bool,
+        has_spouse: bool = False,
+        person_boxes: list | None = None,
     ) -> None:
         Gtk.DrawingArea.__init__(self)
         self.is_first_child = is_first_child
         self.is_last_child = is_last_child
         self.has_spouse = has_spouse
+        self.person_boxes = person_boxes or []
         self.set_size_request(20, -1)
         self.connect("draw", self.draw_lines)
+
+    def _box_center_y(self, box) -> float | None:
+        """
+        Return the vertical center of box in this widget's coordinates.
+
+        Returns None if the box is not yet realized, in which case the
+        caller falls back to a fixed offset.
+        """
+        if box is None or not box.get_realized():
+            return None
+        coords = box.translate_coordinates(self, 0, 0)
+        if coords is None:
+            return None
+        _x, y = coords
+        return y + box.get_allocated_height() / 2
 
     def draw_lines(self, widget: Gtk.DrawingArea, context) -> bool:
         alloc = self.get_allocation()
@@ -163,10 +205,10 @@ class ChildInboundLine(Gtk.DrawingArea):
         # still meets the adjacent parent-outbound connector at the cell edge.
         spine_x = alloc.width - _V_LINE_WIDTH / 2
 
-        # Always aim at the primary person box center near the top of the
-        # cell. Using alloc.height/2 for singles misaligns when the row is
-        # taller than the family container content.
-        target_y = _PERSON_CENTER_Y
+        # Aim at the actual vertical center of the primary person box so
+        # the horizontal pin lines up perfectly with the box.
+        center = self._box_center_y(self.person_boxes[0]) if self.person_boxes else None
+        target_y = center if center is not None else _PERSON_CENTER_Y
 
         # 1. Horizontal connector pin running into the right side of the
         #    child box
