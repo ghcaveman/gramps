@@ -377,7 +377,7 @@ def make_tst_function(tstfile, file_name):
         "skipping TestImports test case %s. en_US.utf-8 locale is required."
         % (tstfile),
     )
-    
+
     def tst(self, mockptime, mocktime, mockltime, mockdtime):
         """This compares the import file with the expected result '.gramps'
         file.
