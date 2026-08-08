@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE database PUBLIC "-//Gramps//DTD Gramps XML 1.7.1//EN"
-"http://gramps-project.org/xml/1.7.1/grampsxml.dtd">
-<database xmlns="http://gramps-project.org/xml/1.7.1/">
+<!DOCTYPE database PUBLIC "-//Gramps//DTD Gramps XML 1.7.2//EN"
+"http://gramps-project.org/xml/1.7.2/grampsxml.dtd">
+<database xmlns="http://gramps-project.org/xml/1.7.2/">
   <header>
-    <created date="2019-03-05" version="5.0.2"/>
+    <created date="1999-12-25" version="6.1.0"/>
     <researcher>
     </researcher>
   </header>
@@ -68,7 +68,7 @@
       <noteref hlink="_0000000200000002"/>
       <noteref hlink="_0000000b0000000b"/>
     </object>
-    <object handle="_0000000400000004" change="548708291" id="M1">
+    <object handle="_0000000400000004" change="548704691" id="M1">
       <file src="" mime="image/jpeg" description="Multimedia link to linked form v5.5 blob"/>
       <attribute type="REFN" value="Ref12345M1">
         <noteref hlink="_0000001200000012"/>
@@ -77,12 +77,12 @@
       <noteref hlink="_0000001300000013"/>
       <noteref hlink="_0000001400000014"/>
     </object>
-    <object handle="_0000000500000005" change="548797681" id="M3">
+    <object handle="_0000000500000005" change="548794081" id="M3">
       <file src="test.jpg" mime="image/jpeg" description="Multimedia link to linked form Gramps style v5.5ish file"/>
       <noteref hlink="_0000001700000017"/>
       <noteref hlink="_0000001800000018"/>
     </object>
-    <object handle="_0000000600000006" change="548883481" id="M4">
+    <object handle="_0000000600000006" change="548879881" id="M4">
       <file src="test.jpg" mime="image/jpeg" description="Multimedia link to linked form v5.5.1 file"/>
       <attribute type="Media-Type" value="Photo"/>
       <attribute type="REFN" value="Ref1234567M4">
@@ -106,7 +106,7 @@
       <noteref hlink="_0000002200000022"/>
       <datestr val="6/4/2016 9:33:57 AM"/>
     </object>
-    <object handle="_0000000a0000000a" change="549056401" id="M6">
+    <object handle="_0000000a0000000a" change="549052801" id="M6">
       <file src="test.jpg" mime="image/jpeg" description="Multimedia link to linked form v5.5.1 with two files(1)"/>
       <attribute type="Media-Type" value="Photo"/>
       <attribute type="REFN" value="Ref1234567M6">
@@ -189,7 +189,8 @@ n @XREF:OBJE@ OBJE {1:1}
     <note handle="_0000001400000014" change="1" id="N0003" type="GEDCOM import">
       <text>Records not imported into OBJE (multi-media object) Gramps ID M1:
 
-Tag recognized but not supported                                    Line    58: 1 BLOB 
+Tag recognized but not supported: '
+.HM.......k.1..F.jwA.Dzzzzw..   Line    58: 1 BLOB 
                                                                                        .HM.......k.1..F.jwA.Dzzzzw............A....1.........0U.66..E.8
                                                                                        .......A..k.a6.A.......A..k.........../6....G.......0../..U.....
                                                                                        .w1/m........HC0..../...zzzzzzzz..5zzk..AnA..U..W6U....2rRrRrRrR
@@ -207,7 +208,8 @@ Filename omitted                                                    Line    55: 
     <note handle="_0000001600000016" change="1" id="N0004" type="GEDCOM import">
       <text>Records not imported into OBJE (multi-media object) Gramps ID M2:
 
-Tag recognized but not supported                                    Line    77: 1 BLOB 
+Tag recognized but not supported: '
+67890gramps doesn't do this a   Line    77: 1 BLOB 
                                                                                        67890gramps doesn't do this anyway, so don't bother doing it right.
 Filename omitted                                                    Line    74: 0 M2 OBJE
 </text>

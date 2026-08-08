@@ -343,10 +343,10 @@ Line ignored as not understood                                      Line    29: 
     <note handle="_0000000900000009" change="1" id="N0005" type="GEDCOM import">
       <text>Records not imported into NOTE Gramps ID N0003:
 
-Tag recognized but not supported                                    Line    32: 1 RIN Submission Note RIN
-Tag recognized but not supported                                    Line    33: 1 REFN Submission Note REFN
+Tag recognized but not supported: 'Submission Note RIN' on line     Line    32: 1 RIN Submission Note RIN
+Tag recognized but not supported: 'Submission Note REFN' on line    Line    33: 1 REFN Submission Note REFN
 Skipped subordinate line                                            Line    34: 2 TYPE Submission Note REFN TYPE
-Tag recognized but not supported                                    Line    35: 1 SOUR Submission note source
+Tag recognized but not supported: 'Submission note source' on lin   Line    35: 1 SOUR Submission note source
 Line ignored as not understood                                      Line    39: 1 TEST on XREF Note
 </text>
       <style name="fontface" value="Monospace">
@@ -444,10 +444,10 @@ Line ignored as not understood                                      Line    94: 
     <note handle="_0000002400000024" change="1" id="N0021" type="GEDCOM import">
       <text>Records not imported into NOTE Gramps ID N0018:
 
-Tag recognized but not supported                                    Line   107: 1 RIN 123456
-Tag recognized but not supported                                    Line   108: 1 REFN 98765
+Tag recognized but not supported: '123456' on line                  Line   107: 1 RIN 123456
+Tag recognized but not supported: '98765' on line                   Line   108: 1 REFN 98765
 Skipped subordinate line                                            Line   109: 2 TYPE Who knows REFN TYPE
-Tag recognized but not supported                                    Line   113: 2 NOTE Note on a change on a note!!!
+Tag recognized but not supported: 'Note on a change on a note!!!'   Line   113: 2 NOTE Note on a change on a note!!!
 Skipped subordinate line                                            Line   114: 3 CHAN 
 Skipped subordinate line                                            Line   115: 4 DATE 2001-01-11
 Skipped subordinate line                                            Line   116: 5 TIME 16:00:06
@@ -535,7 +535,7 @@ Skipped subordinate line                                            Line   172: 
     <note handle="_0000004800000048" change="1" id="N0037" type="GEDCOM import">
       <text>Records not imported into FAM (family) Gramps ID F0001:
 
-Tag recognized but not supported                                    Line   186: 2 _PREF Y
+Tag recognized but not supported: 'Y' on line                       Line   186: 2 _PREF Y
 Line ignored as not understood                                      Line   190: 2 TEST Family Note
 Empty note ignored                                                  Line   194: 1 NOTE 
 Skipped subordinate line                                            Line   195: 2 TEST Empty Note
@@ -583,7 +583,7 @@ Skipped subordinate line                                            Line   231: 
     <note handle="_0000004f0000004f" change="1" id="N0042" type="GEDCOM import">
       <text>Records not imported into SOUR (source) Gramps ID S0055:
 
-Tag recognized but not supported                                    Line   235: 1 _PAREN Y
+Tag recognized but not supported: 'Y' on line                       Line   235: 1 _PAREN Y
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="149"/>
@@ -592,7 +592,7 @@ Tag recognized but not supported                                    Line   235: 
     <note handle="_0000005100000051" change="1" id="N0043" type="GEDCOM import">
       <text>Records not imported into SOUR (source) Gramps ID S0033:
 
-Tag recognized but not supported                                    Line   239: 1 _PAREN Y
+Tag recognized but not supported: 'Y' on line                       Line   239: 1 _PAREN Y
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="149"/>
@@ -601,8 +601,8 @@ Tag recognized but not supported                                    Line   239: 
     <note handle="_0000005400000054" change="1" id="N0044" type="GEDCOM import">
       <text>Records not imported into SOUR (source) Gramps ID S0071:
 
-Tag recognized but not supported                                    Line   248: 1 _ITALIC Y
-Tag recognized but not supported                                    Line   249: 1 _PAREN Y
+Tag recognized but not supported: 'Y' on line                       Line   248: 1 _ITALIC Y
+Tag recognized but not supported: 'Y' on line                       Line   249: 1 _PAREN Y
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="241"/>
@@ -611,7 +611,7 @@ Tag recognized but not supported                                    Line   249: 
     <note handle="_0000005600000056" change="1" id="N0045" type="GEDCOM import">
       <text>Records not imported into REPO (repository) Gramps ID R0003:
 
-Tag recognized but not supported                                    Line   254: 2 _NAME The National Archives and Records Administration (NARA)
+Tag recognized but not supported: 'The National Archives and Reco   Line   254: 2 _NAME The National Archives and Records Administration (NARA)
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="206"/>
@@ -809,7 +809,7 @@ Skipped subordinate line                                            Line   383: 
         <range start="0" end="10851"/>
       </style>
     </note>
-    <note handle="_0000005f0000005f" change="1785891359" id="N0054" type="General">
+    <note handle="_0000005f0000005f" change="1786194033" id="N0054" type="General">
       <text>Objects referenced by this note were missing in a file imported on 12/25/1999 12:00:00 AM.</text>
     </note>
   </notes>
