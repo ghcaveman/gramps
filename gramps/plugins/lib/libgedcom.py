@@ -3600,7 +3600,7 @@ class GedcomParser(UpdateCallback):
         if not text or not BARE_NUMERIC_DATE.match(text):
             return
         # ``line`` is intentionally not passed: ``__add_msg`` truncates
-        # the problem string to 66 columns when a line is supplied, which
+        # the problem string to 99 columns when a line is supplied, which
         # drops the actionable half of the warning.  The text below
         # contains the original GEDCOM date string verbatim, so the user
         # can still grep their .ged for it without the line number.
