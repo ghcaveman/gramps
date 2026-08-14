@@ -76,7 +76,8 @@ jobs:
       run: |
         export GDK_BACKEND=-
         export GRAMPS_RESOURCES=build/share
-        python3 -m unittest discover -p "*_test.py"
+        pip install pytest
+        pytest --tb=short -q
     - name: POTFILES check
       run: |
         cd po
