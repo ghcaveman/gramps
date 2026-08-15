@@ -254,11 +254,19 @@ class Canvas(Page):
             if width > box.width:
                 box.width = width
 
+        # Account for the thumbnail width if it is larger than the text width
+        if box.thumbnail and box.thumb_width > box.width:
+            box.width = box.thumb_width
+
         #####################
         # Get the height
         height = len(box.text) * font.get_size() * 1.5
         height += 1.0 / 2.0 * font.get_size()  # funny number(s) based upon font.
         box.height = PT2CM(height)
+
+        # Account for the thumbnail height at the top of the box
+        if box.thumbnail:
+            box.height += box.thumb_height
 
     def page_count(self, incblank):
         count = 0
@@ -595,6 +603,10 @@ class BoxBase:
         self.line_to = None
         # if text in TOC needs to be different from text, set mark_text
         self.mark_text = None
+        # thumbnail image to draw at the top of the box
+        self.thumbnail = None
+        self.thumb_width = 0.0
+        self.thumb_height = 0.0
 
     def scale(self, scale_amount):
         """Scale the amounts"""
@@ -602,6 +614,8 @@ class BoxBase:
         self.y_cm *= scale_amount
         self.width *= scale_amount
         self.height *= scale_amount
+        self.thumb_width *= scale_amount
+        self.thumb_height *= scale_amount
 
     def add_mark(self, database, person):
         self.__mark = utils.get_person_mark(database, person)
@@ -617,6 +631,13 @@ class BoxBase:
         text = "\n".join(self.text)
         xbegin = self.x_cm - self.page.page_x_offset
         ybegin = self.y_cm - self.page.page_y_offset
+
+        # Draw the thumbnail image at the top of the box first.
+        # The text is drawn by draw_box which centers it vertically.
+        if self.thumbnail:
+            img_x = xbegin + (self.width - self.thumb_width) / 2
+            img_y = ybegin
+            doc.draw_image(self.thumbnail, img_x, img_y, self.thumb_width, self.thumb_height)
 
         doc.draw_box(
             self.boxstr, text, xbegin, ybegin, self.width, self.height, self.__mark

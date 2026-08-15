@@ -60,6 +60,9 @@ from gramps.plugins.lib.libtreebase import *
 from gramps.gen.proxy import CacheProxyDb
 from gramps.gen.display.name import displayer as _nd
 from gramps.gen.utils.db import family_name
+from gramps.gen.utils.file import media_path_full
+from gramps.gen.utils.thumbnails import get_thumbnail_path
+import os
 
 PT2CM = utils.pt2cm
 
@@ -436,6 +439,11 @@ class RecurseDown:
         # 1 - Only bold the first person
         # 2 - Bold all direct descendants
         self.bold_now = 0
+
+        ## Thumbnail options
+        self.inc_thumb = gui.get_val("inc_thumb")
+        self.thumb_size = gui.get_val("thumb_size")
+        self.thumb_path = gui.get_val("thumb_path")
         gui = None
 
     def add_to_col(self, box):
@@ -519,11 +527,57 @@ class RecurseDown:
                 self.database, self.database.get_person_from_handle(indi_handle)
             )
 
+            # Set the thumbnail for this person
+            if self.inc_thumb:
+                self._set_thumbnail(myself, indi_handle)
+
         self.add_to_col(myself)
 
         self.canvas.add_box(myself)
 
         return myself
+
+    def _set_thumbnail(self, box, person_handle):
+        """
+        Find and set the thumbnail image for a person box.
+
+        The thumbnail path option (thumb_path) specifies either:
+        - A directory containing images named by Gramps ID (e.g. I0001.jpg)
+        - A full path to a directory, with the image named as <gramps_id>.<ext>
+        Falls back to the first image in the person's media list if no
+        thumbnail file is found.
+        """
+        person = self.database.get_person_from_handle(person_handle)
+        if person is None:
+            return
+
+        # Try to find a thumbnail file in the configured path first
+        thumb_path = None
+        if self.thumb_path:
+            gid = person.get_gramps_id()
+            for ext in [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"]:
+                candidate = os.path.join(self.thumb_path, gid + ext)
+                if os.path.isfile(candidate):
+                    thumb_path = candidate
+                    break
+
+        # If no file found in configured path, use the person's first media image
+        if thumb_path is None:
+            media_list = person.get_media_list()
+            if media_list:
+                media = self.database.get_media_from_handle(
+                    media_list[0].get_reference_handle()
+                )
+                if media and media.get_mime_type()[0:5] == "image":
+                    thumb_path = get_thumbnail_path(
+                        media_path_full(self.database, media.get_path()),
+                        rectangle=media_list[0].get_rectangle(),
+                    )
+
+        if thumb_path and os.path.isfile(thumb_path):
+            box.thumbnail = thumb_path
+            box.thumb_width = self.thumb_size
+            box.thumb_height = self.thumb_size
 
     def add_marriage_box(self, level, indi_handle, fams_handle, father):
         """Makes a marriage box and add that person into the Canvas."""
@@ -1740,6 +1794,35 @@ class DescendTreeOptions(MenuReportOptions):
         ##################
         category_name = _("Advanced")
 
+        self.incthumb = BooleanOption(_("Include thumbnail images of people"), False)
+        self.incthumb.set_help(
+            _("Whether to include a small picture of each person in the report.")
+        )
+        menu.add_option(category_name, "inc_thumb", self.incthumb)
+        self.incthumb.connect("value-changed", self._thumbs_changed)
+
+        self.thumbsize = NumberOption(_("Thumbnail size (cm)"), 2.0, 0.5, 5.0, 0.1)
+        self.thumbsize.set_help(_("The size of the thumbnail image in centimeters."))
+        menu.add_option(category_name, "thumb_size", self.thumbsize)
+
+        self.thumbpath = StringOption(
+            _(
+                "Thumbnail path\n"
+                "(directory containing images named "
+                "by Gramps ID, e.g. I0001.jpg)"
+            ),
+            "",
+        )
+        self.thumbpath.set_help(
+            _(
+                "The directory containing thumbnail images named by Gramps ID.\n"
+                "If empty, the first image in each person's media list is used.\n"
+                "If a matching image is not found, the person's media is used."
+            )
+        )
+        menu.add_option(category_name, "thumb_path", self.thumbpath)
+        self._thumbs_changed()
+
         repldisp = TextOption(
             _("Replace Display Format:\n'Replace this'/' with this'"), []
         )
@@ -1774,6 +1857,12 @@ class DescendTreeOptions(MenuReportOptions):
         )  # down to 0
         self.box_shadow_sf.set_help(_("Make the box shadow bigger or smaller"))
         menu.add_option(category_name, "shadowscale", self.box_shadow_sf)
+
+    def _thumbs_changed(self):
+        """If thumbnails are not enabled, disable the related options."""
+        value = self.incthumb.get_value()
+        self.thumbsize.set_available(value)
+        self.thumbpath.set_available(value)
 
     def _incmarr_changed(self):
         """
