@@ -76,8 +76,8 @@ jobs:
       run: |
         export GDK_BACKEND=-
         export GRAMPS_RESOURCES=build/share
-        pip install pytest
-        pytest --tb=short -q
+        pip install pytest pytest-mock
+        pytest gramps/ --tb=short -q
     - name: POTFILES check
       run: |
         cd po
