@@ -76,8 +76,9 @@ jobs:
       run: |
         export GDK_BACKEND=-
         export GRAMPS_RESOURCES=build/share
+        export PYTHONPATH=$PYTHONPATH:.
         pip install pytest pytest-mock
-        pytest gramps/ --tb=short -q
+        pytest gramps/ --tb=short -q --disable-warnings
     - name: POTFILES check
       run: |
         cd po
