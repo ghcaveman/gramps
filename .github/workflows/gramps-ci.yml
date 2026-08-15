@@ -78,7 +78,7 @@ jobs:
         export GRAMPS_RESOURCES=build/share
         export PYTHONPATH=$PYTHONPATH:.
         pip install pytest pytest-mock
-        pytest gramps/ --tb=short -q --disable-warnings
+        pytest gramps/ --import-mode=importlib --tb=short -q --disable-warnings
     - name: POTFILES check
       run: |
         cd po
