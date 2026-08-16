@@ -2279,6 +2279,10 @@ class GedcomParser(UpdateCallback):
         self.addr_is_detail = False
         self.groups = None
         self.want_parse_warnings = True
+        # Track which suppressed tags have already been logged once so that
+        # the user is informed — without being flooded — that we are
+        # suppressing all further warnings for that tag.
+        self._suppressed_warnings_logged = set()
 
         self.pid_map = IdMapper(
             self.dbase.has_person_gramps_id,
@@ -3139,6 +3143,29 @@ class GedcomParser(UpdateCallback):
                 self.__check_xref()
         self.dbase.enable_signals()
         self.dbase.request_rebuild()
+
+        # Warn the user about data that may be lost when round-tripping
+        # through GEDCOM.  If any tags were suppressed (i.e. silently or
+        # one-time-logged), the data from those tags exists only in the
+        # imported Gramps database.  Re-exporting to GEDCOM and re-importing
+        # into FamilySearch or Legacy will not preserve that data.
+        if self._suppressed_warnings_logged:
+            suppressed_list = ", ".join(sorted(self._suppressed_warnings_logged))
+            roundtrip_msg = _(
+                "\nThe following GEDCOM tags were present in the input but "
+                "not imported (Gramps does not support them): %(tags)s. "
+                "If you later export from Gramps to GEDCOM and re-import "
+                "into FamilySearch or Legacy, the data from these tags "
+                "will be missing.\n"
+            ) % {"tags": suppressed_list}
+            self.errors.append(roundtrip_msg)
+            LOG.warning(
+                "GEDCOM import: %d tag(s) suppressed: %s. "
+                "Round-tripping through GEDCOM will lose this data.",
+                len(self._suppressed_warnings_logged),
+                suppressed_list,
+            )
+
         if self.number_of_errors == 0:
             message = _("GEDCOM import report: No errors detected")
         else:
@@ -3495,12 +3522,34 @@ class GedcomParser(UpdateCallback):
         # If the current line tag is '_PREF', bypass parsing entirely.
         # Legacy has the concept of "Preferred" spouses, siblings and children
         # to help determine what shows on charts when multiple choices exist.
-        # To help eliminate clutter, let's supress this from the logs if
-        # we don't plan to use it.
         # Legacy also adds parens and italics to the source notation, but gramps
         # handles this through the Bibliography and Report Engine to set either
         # Chicago, Oxford, or custom style
+        #
+        # Rather than silently skipping these tags, log a one-time warning so
+        # the user knows we are suppressing further messages for the tag.
         if line.token_text in ("_PREF", "_PAREN", "_ITALIC", "_NAME"):
+            tag = line.token_text
+            if tag not in self._suppressed_warnings_logged:
+                self._suppressed_warnings_logged.add(tag)
+                self.__add_msg(
+                    _(
+                        "Tag '%(tag)s' found but not imported (Gramps does "
+                        "not use this Legacy custom field). Further warnings "
+                        "for this tag will be suppressed. Note: if you export "
+                        "GEDCOM from Gramps and re-import into FamilySearch "
+                        "or Legacy, this data will be missing."
+                    )
+                    % {"tag": tag},
+                    line,
+                    state,
+                )
+                LOG.warning(
+                    "GEDCOM import: suppressing all further warnings for tag"
+                    " '%s'. Data will not survive a "
+                    "Gramps-to-FamilySearch/Legacy round-trip.",
+                    tag,
+                )
             return True  # Tells the state engine this tag is handled/skipped cleanly
 
         if line.token == TOKEN_UNKNOWN:
@@ -4057,8 +4106,10 @@ class GedcomParser(UpdateCallback):
         while True:
             line = self.__get_next_line()
 
-            # --- ENHANCED SILENT INTERCEPT ---
-            # Catch Legacy's custom place and event definitions, swallowing all children silently
+            # --- SUPPRESSED TAG INTERCEPT ---
+            # Catch Legacy's custom place and event definitions, swallowing
+            # all children silently.  Log a one-time warning per tag so the
+            # user knows we are suppressing further messages.
             if line and (
                 line.data in ("_PLAC_DEFN", "_EVENT_DEFN")
                 or getattr(line, "token_text", "") in ("_PLAC_DEFN", "_EVENT_DEFN")
@@ -4067,7 +4118,43 @@ class GedcomParser(UpdateCallback):
                     and line.data.startswith(("_PLAC_DEFN", "_EVENT_DEFN"))
                 )
             ):
-                # Advance the file pointer and completely ignore everything until the next Level 0 record
+                # Determine the tag name for the warning message
+                tag_name = None
+                if line.data in ("_PLAC_DEFN", "_EVENT_DEFN"):
+                    tag_name = line.data
+                elif getattr(line, "token_text", "") in (
+                    "_PLAC_DEFN",
+                    "_EVENT_DEFN",
+                ):
+                    tag_name = line.token_text
+                elif isinstance(line.data, str) and line.data.startswith(
+                    ("_PLAC_DEFN", "_EVENT_DEFN")
+                ):
+                    tag_name = line.data
+
+                if tag_name and tag_name not in self._suppressed_warnings_logged:
+                    self._suppressed_warnings_logged.add(tag_name)
+                    self.__add_msg(
+                        _(
+                            "Tag '%(tag)s' found but not imported (Legacy "
+                            "custom place/event definition). Further warnings "
+                            "for this tag will be suppressed. Note: if you "
+                            "export GEDCOM from Gramps and re-import into "
+                            "FamilySearch or Legacy, this data will be missing."
+                        )
+                        % {"tag": tag_name},
+                        line,
+                        None,
+                    )
+                    LOG.warning(
+                        "GEDCOM import: suppressing all further warnings for"
+                        " tag '%s'. Data will not survive a "
+                        "Gramps-to-FamilySearch/Legacy round-trip.",
+                        tag_name,
+                    )
+
+                # Advance the file pointer and completely ignore everything
+                # until the next Level 0 record
                 while True:
                     next_line = self.__get_next_line()
                     if not next_line:
