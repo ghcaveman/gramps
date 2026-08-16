@@ -191,11 +191,13 @@ class TestImports(unittest.TestCase):
         db.set_feature("skip-import-additions", False)
         user = CaptureUser()
         importData(db, fn1, user)
-        self.assertEqual(user.report_title, "GEDCOM import report: 41 errors detected")
+        self.assertEqual(user.report_title, "GEDCOM import report: 12 errors detected")
         self.assertIn("ADDR element ignored '123 main'", user.infotext)
         self.assertIn("Tag recognized but not supported", user.infotext)
-        self.assertIn("Unknown tag", user.infotext)
-        self.assertIn("Skipped subordinate line", user.infotext)
+        self.assertIn("Unsupported tag '_PREF'", user.infotext)
+        self.assertIn("Tag '_EVENT_DEFN'", user.infotext)
+        self.assertIn("Unsupported tag '_PAREN'", user.infotext)
+        self.assertIn("Unsupported tag '_NAME'", user.infotext)
         self.assertIn("Could not import photo.jpg", user.infotext)
 
     def test_imp_notetest_dfs_warnings(self):
@@ -233,7 +235,7 @@ class TestImports(unittest.TestCase):
         db.set_feature("skip-import-additions", False)
         user = CaptureUser()
         importData(db, fn1, user)
-        self.assertEqual(user.report_title, "GEDCOM import report: 202 errors detected")
+        self.assertEqual(user.report_title, "GEDCOM import report: 74 errors detected")
 
 
 def _report_details(path, diff1, diff2):
