@@ -3147,21 +3147,18 @@ class GedcomParser(UpdateCallback):
         # Warn the user about data that may be lost when round-tripping
         # through GEDCOM.  If any tags were suppressed (i.e. silently or
         # one-time-logged), the data from those tags exists only in the
-        # imported Gramps database.  Re-exporting to GEDCOM and re-importing
-        # into FamilySearch or Legacy will not preserve that data.
+        # external database.  The data will be lost when re-exporting to
+        # a GEDCOM file.
         if self._suppressed_warnings_logged:
             suppressed_list = ", ".join(sorted(self._suppressed_warnings_logged))
             roundtrip_msg = _(
-                "\nThe following GEDCOM tags were present in the input but "
-                "not imported (Gramps does not support them): %(tags)s. "
-                "If you later export from Gramps to GEDCOM and re-import "
-                "into FamilySearch or Legacy, the data from these tags "
-                "will be missing.\n"
+                "\nThe following unsupported GEDCOM tags were not imported: "
+                "%(tags)s.\n"
             ) % {"tags": suppressed_list}
             self.errors.append(roundtrip_msg)
             LOG.warning(
                 "GEDCOM import: %d tag(s) suppressed: %s. "
-                "Round-tripping through GEDCOM will lose this data.",
+                "Data may not survive a round-trip.",
                 len(self._suppressed_warnings_logged),
                 suppressed_list,
             )
@@ -3534,11 +3531,8 @@ class GedcomParser(UpdateCallback):
                 self._suppressed_warnings_logged.add(tag)
                 self.__add_msg(
                     _(
-                        "Tag '%(tag)s' found but not imported (Gramps does "
-                        "not use this Legacy custom field). Further warnings "
-                        "for this tag will be suppressed. Note: if you export "
-                        "GEDCOM from Gramps and re-import into FamilySearch "
-                        "or Legacy, this data will be missing."
+                        "Unsupported tag '%(tag)s' found but not imported. Further"
+                        "warnings for this tag will be suppressed."
                     )
                     % {"tag": tag},
                     line,
@@ -3546,8 +3540,7 @@ class GedcomParser(UpdateCallback):
                 )
                 LOG.warning(
                     "GEDCOM import: suppressing all further warnings for tag"
-                    " '%s'. Data will not survive a "
-                    "Gramps-to-FamilySearch/Legacy round-trip.",
+                    " '%s'. Data may not survive a round-trip.",
                     tag,
                 )
             return True  # Tells the state engine this tag is handled/skipped cleanly
