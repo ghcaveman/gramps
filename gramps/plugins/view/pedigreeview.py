@@ -233,10 +233,16 @@ class PersonBoxWidgetCairo(_PersonWidgetBase):
                                     age_label = _AGE
                                     if "\n" in self.text:
                                         lines = self.text.split("\n")
-                                        lines[-1] += f" ({age_label} {age_val})"
+                                        lines[-1] = (
+                                            lines[-1].rstrip()
+                                            + f" ({age_label} {age_val})"
+                                        )
                                         self.text = "\n".join(lines)
                                     else:
-                                        self.text += f" ({age_label} {age_val})"
+                                        self.text = (
+                                            self.text.rstrip()
+                                            + f" ({age_label} {age_val})"
+                                        )
                 except Exception:
                     pass
             gender = self.person.get_gender()
@@ -1362,7 +1368,7 @@ class PedigreeView(NavigationView):
                                     span_val = end_year - m_year
                                     if 0 <= span_val <= 100:
                                         text = text.replace("\n", " ").strip()
-                                        text += f" ({span_val} {_DUR})"
+                                        text = text.rstrip() + f" ({span_val} {_DUR})"
                     except Exception as e:
                         pass
                 else:
