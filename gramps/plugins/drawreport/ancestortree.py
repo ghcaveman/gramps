@@ -239,6 +239,23 @@ class CalcItems:
         if not lines or indi_handle is None:
             return
 
+        # Check if age display is enabled
+        _gui = GUIConnect()
+        show_age = _gui.get_val("show_age")
+
+        # Remove the "(age )" placeholder if age display is disabled
+        if not show_age:
+            age_label = _AGE[0]
+            death_marker = _DIED[0]
+            for i, line in enumerate(lines):
+                if death_marker in line and age_label in line:
+                    lines[i] = re.sub(
+                        r"\s*\(" + re.escape(age_label) + r"[^)]*\)",
+                        "",
+                        line,
+                    )
+            return
+
         b_str = "".join(self.__calc_l.calc_lines(indi_handle, fams_handle, ["$b"]))
         d_str = "".join(self.__calc_l.calc_lines(indi_handle, fams_handle, ["$d"]))
 
@@ -297,6 +314,11 @@ class CalcItems:
     ) -> None:
         """Calculate marriage duration and append it to the marriage line."""
         if not lines:
+            return
+
+        # Check if age display is enabled
+        _gui = GUIConnect()
+        if not _gui.get_val("show_age"):
             return
 
         # Determine the correct marriage family handle.  In person boxes,
@@ -1050,6 +1072,13 @@ class AncestorTreeOptions(MenuReportOptions):
         )
         menu.add_option(category_name, "compress_tree", compress)
 
+        self.show_age = BooleanOption(_("Display age/years"), True)
+        self.show_age.set_help(
+            _("Whether to display age at death and marriage duration")
+        )
+        menu.add_option(category_name, "show_age", self.show_age)
+        self.show_age.connect("value-changed", self._show_age_changed)
+
         self.show_idx = BooleanOption(_("Show Index"), False)
         self.show_idx.set_help(_("Display index of each person"))
         menu.add_option(category_name, "show_idx", self.show_idx)
@@ -1151,12 +1180,12 @@ class AncestorTreeOptions(MenuReportOptions):
         # disp = TextOption(
         #    _("Father\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
         # )
-        disp = TextOption(
+        self.father_disp = TextOption(
             _("Father\nDisplay Format"),
             ["$n", "%s $b" % _BORN[0], "-{%s $d (%s )}" % (_DIED[0], _AGE[0])],
         )
-        disp.set_help(_("Display format for the fathers box."))
-        menu.add_option(category_name, "father_disp", disp)
+        self.father_disp.set_help(_("Display format for the fathers box."))
+        menu.add_option(category_name, "father_disp", self.father_disp)
 
         # Will add when libsubstkeyword supports it.
         # missing = EnumeratedListOption(_("Replace missing\nplaces\\dates \
@@ -1170,7 +1199,7 @@ class AncestorTreeOptions(MenuReportOptions):
         #    _("Mother\nDisplay Format"),
         #    ["$n", "%s $b" % _BORN, "%s $m" % _MARR, "-{%s $d}" % _DIED],
         # )
-        disp_mom = TextOption(
+        self.mother_disp = TextOption(
             _("Mother\nDisplay Format"),
             [
                 "$n",
@@ -1179,8 +1208,8 @@ class AncestorTreeOptions(MenuReportOptions):
                 "-{%s $d (%s )}" % (_DIED[0], _AGE[0]),
             ],
         )
-        disp_mom.set_help(_("Display format for the mothers box."))
-        menu.add_option(category_name, "mother_disp", disp_mom)
+        self.mother_disp.set_help(_("Display format for the mothers box."))
+        menu.add_option(category_name, "mother_disp", self.mother_disp)
 
         center_disp = EnumeratedListOption(_("Center person uses\n" "which format"), 0)
         center_disp.add_item(0, _("Use Fathers Display format"))
@@ -1297,6 +1326,44 @@ class AncestorTreeOptions(MenuReportOptions):
         self.fillout.set_items(item_list)
         if old_val + 2 > len(item_list):
             self.fillout.set_value(len(item_list) - 2)
+
+    def _show_age_changed(self):
+        """Update display formats when show_age option changes."""
+        age_placeholder = " (%s )" % _AGE[0]
+        if self.show_age.get_value():
+            # Add age placeholder to display formats
+            father_format = self.father_disp.get_value()
+            if father_format and age_placeholder not in father_format:
+                father_format = father_format.replace(
+                    "-{%s $d}" % _DIED[0],
+                    "-{%s $d (%s )}" % (_DIED[0], _AGE[0]),
+                )
+                self.father_disp.set_value(father_format)
+
+            mother_format = self.mother_disp.get_value()
+            if mother_format and age_placeholder not in mother_format:
+                mother_format = mother_format.replace(
+                    "-{%s $d}" % _DIED[0],
+                    "-{%s $d (%s )}" % (_DIED[0], _AGE[0]),
+                )
+                self.mother_disp.set_value(mother_format)
+        else:
+            # Remove age placeholder from display formats
+            father_format = self.father_disp.get_value()
+            if father_format and age_placeholder in father_format:
+                father_format = father_format.replace(
+                    "-{%s $d (%s )}" % (_DIED[0], _AGE[0]),
+                    "-{%s $d}" % _DIED[0],
+                )
+                self.father_disp.set_value(father_format)
+
+            mother_format = self.mother_disp.get_value()
+            if mother_format and age_placeholder in mother_format:
+                mother_format = mother_format.replace(
+                    "-{%s $d (%s )}" % (_DIED[0], _AGE[0]),
+                    "-{%s $d}" % _DIED[0],
+                )
+                self.mother_disp.set_value(mother_format)
 
     def make_default_style(self, default_style):
         """Make the default output style for the Ancestor Tree."""

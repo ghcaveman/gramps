@@ -125,6 +125,23 @@ class CalcItems:
         if not lines or indi_handle is None:
             return
 
+        # Check if age display is enabled
+        _gui = GuiConnect()
+        show_age = _gui.get_val("show_age")
+
+        # Remove the "(age )" placeholder if age display is disabled
+        if not show_age:
+            age_label = _AGE[0]
+            death_marker = _DIED[0]
+            for i, line in enumerate(lines):
+                if death_marker in line and age_label in line:
+                    lines[i] = re.sub(
+                        r"\s*\(" + re.escape(age_label) + r"[^)]*\)",
+                        "",
+                        line,
+                    )
+            return
+
         b_str = "".join(self.__calc_l.calc_lines(indi_handle, fams_handle, ["$b"]))
         d_str = "".join(self.__calc_l.calc_lines(indi_handle, fams_handle, ["$d"]))
 
@@ -183,6 +200,11 @@ class CalcItems:
     ) -> None:
         """Calculate marriage duration and append it to the marriage line."""
         if not lines:
+            return
+
+        # Check if age display is enabled
+        gui = GuiConnect()
+        if not gui.get_val("show_age"):
             return
 
         # Determine the correct marriage family handle.  In person boxes,
@@ -1818,6 +1840,13 @@ class DescendTreeOptions(MenuReportOptions):
         indspouce.set_help(_("Whether to indent the spouses in the tree."))
         menu.add_option(category_name, "ind_spouse", indspouce)
 
+        self.show_age = BooleanOption(_("Display age/years"), True)
+        self.show_age.set_help(
+            _("Whether to display age at death and marriage duration")
+        )
+        menu.add_option(category_name, "show_age", self.show_age)
+        self.show_age.connect("value-changed", self._show_age_changed)
+
         ##################
         category_name = _("Report Options")
 
@@ -1900,15 +1929,15 @@ class DescendTreeOptions(MenuReportOptions):
         ##################
         category_name = _("Display")
 
-        #disp = TextOption(
+        # disp = TextOption(
         #    _("Descendant\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
-        #)
-        disp = TextOption(
+        # )
+        self.descend_disp = TextOption(
             _("Descendant\nDisplay Format"),
             ["$n", "%s $b" % _BORN[0], "-{%s $d (%s )}" % (_DIED[0], _AGE[0])],
         )
-        disp.set_help(_("Display format for a descendant."))
-        menu.add_option(category_name, "descend_disp", disp)
+        self.descend_disp.set_help(_("Display format for a descendant."))
+        menu.add_option(category_name, "descend_disp", self.descend_disp)
 
         # bug 4767
         # diffspouse = BooleanOption(
@@ -1917,15 +1946,15 @@ class DescendTreeOptions(MenuReportOptions):
         # diffspouse.set_help(_("Whether spouses can have a different format."))
         # menu.add_option(category_name, "diffspouse", diffspouse)
 
-        #sdisp = TextOption(
+        # sdisp = TextOption(
         #    _("Spousal\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
-        #)
-        sdisp = TextOption(
+        # )
+        self.spouse_disp = TextOption(
             _("Spousal\nDisplay Format"),
             ["$n", "%s $b" % _BORN[0], "-{%s $d (%s )}" % (_DIED[0], _AGE[0])],
         )
-        sdisp.set_help(_("Display format for a spouse."))
-        menu.add_option(category_name, "spouse_disp", sdisp)
+        self.spouse_disp.set_help(_("Display format for a spouse."))
+        menu.add_option(category_name, "spouse_disp", self.spouse_disp)
 
         self.incmarr = BooleanOption(_("Include Marriage box"), True)
         self.incmarr.set_help(
@@ -2012,6 +2041,44 @@ class DescendTreeOptions(MenuReportOptions):
             if self.showparents.get_value():
                 item_list.append([3, _("Cousin Chart for [names of children]")])
         self.title.set_items(item_list)
+
+    def _show_age_changed(self):
+        """Update display formats when show_age option changes."""
+        age_placeholder = " (%s )" % _AGE[0]
+        if self.show_age.get_value():
+            # Add age placeholder to display formats
+            descend_format = self.descend_disp.get_value()
+            if descend_format and age_placeholder not in descend_format:
+                descend_format = descend_format.replace(
+                    "-{%s $d}" % _DIED[0],
+                    "-{%s $d (%s )}" % (_DIED[0], _AGE[0]),
+                )
+                self.descend_disp.set_value(descend_format)
+
+            spouse_format = self.spouse_disp.get_value()
+            if spouse_format and age_placeholder not in spouse_format:
+                spouse_format = spouse_format.replace(
+                    "-{%s $d}" % _DIED[0],
+                    "-{%s $d (%s )}" % (_DIED[0], _AGE[0]),
+                )
+                self.spouse_disp.set_value(spouse_format)
+        else:
+            # Remove age placeholder from display formats
+            descend_format = self.descend_disp.get_value()
+            if descend_format and age_placeholder in descend_format:
+                descend_format = descend_format.replace(
+                    "-{%s $d (%s )}" % (_DIED[0], _AGE[0]),
+                    "-{%s $d}" % _DIED[0],
+                )
+                self.descend_disp.set_value(descend_format)
+
+            spouse_format = self.spouse_disp.get_value()
+            if spouse_format and age_placeholder in spouse_format:
+                spouse_format = spouse_format.replace(
+                    "-{%s $d (%s )}" % (_DIED[0], _AGE[0]),
+                    "-{%s $d}" % _DIED[0],
+                )
+                self.spouse_disp.set_value(spouse_format)
 
     def make_default_style(self, default_style):
         """Make the default output style for the Descendant Tree."""

@@ -216,28 +216,29 @@ class PersonBoxWidgetCairo(_PersonWidgetBase):
                 self.person, self.maxlines, True
             )
             # Inject age at death if both birth and death years are known
-            try:
-                birth_ref = self.person.get_birth_ref()
-                death_ref = self.person.get_death_ref()
-                if birth_ref and death_ref:
-                    dbase = self.view.dbstate.db
-                    b_evt = dbase.get_event_from_handle(birth_ref.ref)
-                    d_evt = dbase.get_event_from_handle(death_ref.ref)
-                    if b_evt and d_evt:
-                        b_year = b_evt.get_date_object().get_year()
-                        d_year = d_evt.get_date_object().get_year()
-                        if b_year > 0 and d_year > 0:
-                            age_val = d_year - b_year
-                            if 0 <= age_val <= 120:
-                                age_label = _AGE
-                                if "\n" in self.text:
-                                    lines = self.text.split("\n")
-                                    lines[-1] += f" ({age_label} {age_val})"
-                                    self.text = "\n".join(lines)
-                                else:
-                                    self.text += f" ({age_label} {age_val})"
-            except Exception:
-                pass
+            if self.view.show_age:
+                try:
+                    birth_ref = self.person.get_birth_ref()
+                    death_ref = self.person.get_death_ref()
+                    if birth_ref and death_ref:
+                        dbase = self.view.dbstate.db
+                        b_evt = dbase.get_event_from_handle(birth_ref.ref)
+                        d_evt = dbase.get_event_from_handle(death_ref.ref)
+                        if b_evt and d_evt:
+                            b_year = b_evt.get_date_object().get_year()
+                            d_year = d_evt.get_date_object().get_year()
+                            if b_year > 0 and d_year > 0:
+                                age_val = d_year - b_year
+                                if 0 <= age_val <= 120:
+                                    age_label = _AGE
+                                    if "\n" in self.text:
+                                        lines = self.text.split("\n")
+                                        lines[-1] += f" ({age_label} {age_val})"
+                                        self.text = "\n".join(lines)
+                                    else:
+                                        self.text += f" ({age_label} {age_val})"
+                except Exception:
+                    pass
             gender = self.person.get_gender()
         else:
             gender = None
@@ -581,6 +582,7 @@ class PedigreeView(NavigationView):
         ("interface.pedview-show-tags", False),
         ("interface.pedview-tree-direction", 2),
         ("interface.pedview-show-unknown-people", True),
+        ("interface.pedview-show-age", True),
     )
 
     FLEUR_CURSOR = Gdk.Cursor.new_for_display(
@@ -632,6 +634,8 @@ class PedigreeView(NavigationView):
         self.show_unknown_people = self._config.get(
             "interface.pedview-show-unknown-people"
         )
+        # Show age at death and marriage duration
+        self.show_age = self._config.get("interface.pedview-show-age")
 
         # use symbols
         self.symbols = Symbols()
@@ -889,6 +893,42 @@ class PedigreeView(NavigationView):
         self._config.save()
         NavigationView.on_delete(self)
 
+    def configure(self):
+        """Override configure to add on_close callback."""
+        from gramps.gui.views.pageview import ViewConfigureDialog
+
+        title = _("%(cat)s - %(view)s") % {
+            "cat": self.get_translated_category(),
+            "view": self.get_title(),
+        }
+
+        if self.can_configure():
+            config_funcs = self._get_configure_page_funcs()
+        else:
+            config_funcs = []
+        if self.bottombar:
+            config_funcs += self.bottombar.get_config_funcs()
+
+        try:
+            ViewConfigureDialog(
+                self.uistate,
+                self.dbstate,
+                config_funcs,
+                self,
+                self._config,
+                dialogtitle=title,
+                on_close=self.configure_dialog_closed,
+            )
+        except WindowActiveError:
+            return
+
+    def configure_dialog_closed(self):
+        """Called when the configure dialog is closed."""
+        # Reload config values before rebuilding
+        self.show_age = self._config.get("interface.pedview-show-age")
+        self.show_marriage_data = self._config.get("interface.pedview-show-marriage")
+        self.person_rebuild()
+
     def on_help_clicked(self, dummy):
         """Button: Display the relevant portion of Gramps manual"""
         display_url(WIKI_PAGE)
@@ -918,6 +958,14 @@ class PedigreeView(NavigationView):
         """Callback function for signals of change database."""
         self.format_helper.clear_cache()
         self.format_helper.reload_symbols()
+        # Reload config values in case they changed
+        self.show_images = self._config.get("interface.pedview-show-images")
+        self.show_marriage_data = self._config.get("interface.pedview-show-marriage")
+        self.show_unknown_people = self._config.get(
+            "interface.pedview-show-unknown-people"
+        )
+        self.show_age = self._config.get("interface.pedview-show-age")
+        self.show_tag_color = self._config.get("interface.pedview-show-tags")
         self.dirty = True
         if self.active:
             self.rebuild_trees(self.get_active())
@@ -1294,7 +1342,7 @@ class PedigreeView(NavigationView):
                     text = self.format_helper.format_relation(lst[i][2], 1, True)
                     # Inject marriage span (yrs) if marriage year is known
                     try:
-                        if text:
+                        if text and self.show_age:
                             m_years = [
                                 int(y)
                                 for y in re.findall(r"\b(1\d{3}|20\d{2})\b", text)
@@ -1305,15 +1353,20 @@ class PedigreeView(NavigationView):
                                 dbase = self.dbstate.db
                                 end_year = None
                                 # Check divorce date
-                                div_ref = fam.get_divorce_ref()
-                                if div_ref:
-                                    div_evt = dbase.get_event_from_handle(
-                                        div_ref.ref
-                                    )
-                                    if div_evt:
-                                        v_year = div_evt.get_date_object().get_year()
-                                        if v_year and v_year >= m_year:
-                                            end_year = v_year
+                                try:
+                                    div_ref = fam.get_divorce_ref()
+                                    if div_ref:
+                                        div_evt = dbase.get_event_from_handle(
+                                            div_ref.ref
+                                        )
+                                        if div_evt:
+                                            v_year = (
+                                                div_evt.get_date_object().get_year()
+                                            )
+                                            if v_year and v_year >= m_year:
+                                                end_year = v_year
+                                except Exception:
+                                    pass
                                 # Fallback: earliest spouse death
                                 if not end_year:
                                     death_years = []
@@ -1333,21 +1386,20 @@ class PedigreeView(NavigationView):
                                                     )
                                                     if d_evt:
                                                         d_yr = (
-                                                            d_evt.get_date_object()
-                                                            .get_year()
+                                                            d_evt.get_date_object().get_year()
                                                         )
                                                         if d_yr:
                                                             death_years.append(d_yr)
-                                    if death_years:
-                                        earliest = min(death_years)
-                                        if earliest >= m_year:
-                                            end_year = earliest
+                                if death_years:
+                                    earliest = min(death_years)
+                                    if earliest >= m_year:
+                                        end_year = earliest
                                 if end_year:
                                     span_val = end_year - m_year
                                     if 0 <= span_val <= 100:
                                         text = text.replace("\n", " ").strip()
                                         text += f" ({span_val} {_DUR})"
-                    except Exception:
+                    except Exception as e:
                         pass
                 else:
                     text = " "
@@ -2331,12 +2383,15 @@ class PedigreeView(NavigationView):
             grid, _("Show unknown people"), 2, "interface.pedview-show-unknown-people"
         )
         configdialog.add_checkbox(
-            grid, _("Show tags"), 3, "interface.pedview-show-tags"
+            grid, _("Display age/years"), 3, "interface.pedview-show-age"
+        )
+        configdialog.add_checkbox(
+            grid, _("Show tags"), 4, "interface.pedview-show-tags"
         )
         configdialog.add_combo(
             grid,
             _("Tree style"),
-            4,
+            5,
             "interface.pedview-layout",
             ((0, _("Standard")), (1, _("Compact")), (2, _("Expanded"))),
             callback=self.cb_update_layout,
@@ -2344,7 +2399,7 @@ class PedigreeView(NavigationView):
         configdialog.add_combo(
             grid,
             _("Tree direction"),
-            5,
+            6,
             "interface.pedview-tree-direction",
             (
                 (0, _("Vertical (↓)")),
@@ -2354,7 +2409,7 @@ class PedigreeView(NavigationView):
             ),
         )
         self.config_size_slider = configdialog.add_slider(
-            grid, _("Tree size"), 6, "interface.pedview-tree-size", (2, 9)
+            grid, _("Tree size"), 7, "interface.pedview-tree-size", (2, 9)
         )
 
         return _("Layout"), grid
