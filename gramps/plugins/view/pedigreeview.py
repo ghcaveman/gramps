@@ -893,42 +893,6 @@ class PedigreeView(NavigationView):
         self._config.save()
         NavigationView.on_delete(self)
 
-    def configure(self):
-        """Override configure to add on_close callback."""
-        from gramps.gui.views.pageview import ViewConfigureDialog
-
-        title = _("%(cat)s - %(view)s") % {
-            "cat": self.get_translated_category(),
-            "view": self.get_title(),
-        }
-
-        if self.can_configure():
-            config_funcs = self._get_configure_page_funcs()
-        else:
-            config_funcs = []
-        if self.bottombar:
-            config_funcs += self.bottombar.get_config_funcs()
-
-        try:
-            ViewConfigureDialog(
-                self.uistate,
-                self.dbstate,
-                config_funcs,
-                self,
-                self._config,
-                dialogtitle=title,
-                on_close=self.configure_dialog_closed,
-            )
-        except WindowActiveError:
-            return
-
-    def configure_dialog_closed(self):
-        """Called when the configure dialog is closed."""
-        # Reload config values before rebuilding
-        self.show_age = self._config.get("interface.pedview-show-age")
-        self.show_marriage_data = self._config.get("interface.pedview-show-marriage")
-        self.person_rebuild()
-
     def on_help_clicked(self, dummy):
         """Button: Display the relevant portion of Gramps manual"""
         display_url(WIKI_PAGE)
@@ -2292,6 +2256,16 @@ class PedigreeView(NavigationView):
             self.show_marriage_data = False
         self.rebuild_trees(self.get_active())
 
+    def cb_update_show_age(self, client, cnxn_id, entry, data):
+        """
+        Called when the configuration menu changes the show_age setting.
+        """
+        if entry == "True":
+            self.show_age = True
+        else:
+            self.show_age = False
+        self.rebuild_trees(self.get_active())
+
     def cb_update_show_unknown_people(self, client, cnxn_id, entry, data):
         """
         Called when the configuration menu changes the unknown people setting.
@@ -2346,6 +2320,7 @@ class PedigreeView(NavigationView):
         self._config.connect(
             "interface.pedview-show-marriage", self.cb_update_show_marriage
         )
+        self._config.connect("interface.pedview-show-age", self.cb_update_show_age)
         self._config.connect("interface.pedview-show-tags", self.cb_update_show_tags)
         self._config.connect(
             "interface.pedview-show-unknown-people", self.cb_update_show_unknown_people
