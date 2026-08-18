@@ -635,13 +635,25 @@ class BoxBase:
         # Draw the thumbnail image at the top of the box first.
         # The text is drawn by draw_box which centers it vertically.
         if self.thumbnail:
-            img_x = xbegin + (self.width - self.thumb_width) / 2
-            img_y = ybegin
-            doc.draw_image(self.thumbnail, img_x, img_y, self.thumb_width, self.thumb_height)
+            thumb_height = self.thumb_height
+
+        # Draw the box first, then the thumbnail image ON TOP of it.
+        # The thumbnail should be at the top of the box, starting at text_y.
+        # Adjust text y position so it appears below the thumbnail.
+        # draw_box centers text at y + h/2, so we shift y down by thumb_height.
+        text_y = ybegin + self.thumb_height
 
         doc.draw_box(
-            self.boxstr, text, xbegin, ybegin, self.width, self.height, self.__mark
+            self.boxstr, "", xbegin, ybegin, self.width, self.height, self.__mark
         )
+
+        doc.draw_text(self.boxstr, text, xbegin + 0.05, text_y)
+
+        if self.thumbnail:
+            img_x = xbegin + (self.width - self.thumb_width) / 2
+            # Draw thumbnail INSIDE the box, starting at text_y (the box top)
+            img_y = text_y
+            doc.draw_image(self.thumbnail, img_x, ybegin + 0.05, self.thumb_width, self.thumb_height)
 
         # I am responsible for my own lines. Do them here.
         if self.line_to:
