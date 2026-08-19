@@ -34,7 +34,7 @@ from typing import Any
 # Gramps modules
 #
 # ------------------------------------------------------------------------
-from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.const import GRAMPS_LOCALE as glocale, IMAGE_DIR
 
 _ = glocale.translation.sgettext
 from gramps.gen.errors import ReportError
@@ -44,6 +44,7 @@ from gramps.gen.plug.menu import (
     BooleanOption,
     EnumeratedListOption,
     StringOption,
+    DestinationOption,
     PersonOption,
     FamilyOption,
 )
@@ -444,6 +445,7 @@ class RecurseDown:
         self.inc_thumb = gui.get_val("inc_thumb")
         self.thumb_size = gui.get_val("thumb_size")
         self.thumb_path = gui.get_val("thumb_path")
+        self.mask_path = gui.get_val("mask_path")
         gui = None
 
     def add_to_col(self, box):
@@ -541,17 +543,17 @@ class RecurseDown:
         """
         Find and set the thumbnail image for a person box.
 
-        The thumbnail path option (thumb_path) specifies either:
-        - A directory containing images named by Gramps ID (e.g. I0001.jpg)
-        - A full path to a directory, with the image named as <gramps_id>.<ext>
-        Falls back to the first image in the person's media list if no
-        thumbnail file is found.
+        The thumbnail path option (thumb_path) specifies a directory
+        containing images named by Gramps ID (e.g. I0001.jpg).  Falls back
+        to the first image in the person's media list if no thumbnail file
+        is found.  The mask path option (mask_path) specifies the mask image
+        file to draw over each thumbnail.
         """
         person = self.database.get_person_from_handle(person_handle)
         if person is None:
             return
 
-        # Try to find a thumbnail file in the configured path first
+        # Try to find a thumbnail file in the configured directory first
         thumb_path = None
         if self.thumb_path:
             gid = person.get_gramps_id()
@@ -578,6 +580,10 @@ class RecurseDown:
             box.thumbnail = thumb_path
             box.thumb_width = self.thumb_size
             box.thumb_height = self.thumb_size
+
+        # The mask image file to draw over each thumbnail
+        if self.mask_path and os.path.isfile(self.mask_path):
+            box.mask = self.mask_path
 
     def add_marriage_box(self, level, indi_handle, fams_handle, father):
         """Makes a marriage box and add that person into the Canvas."""
@@ -1821,6 +1827,21 @@ class DescendTreeOptions(MenuReportOptions):
             )
         )
         menu.add_option(category_name, "thumb_path", self.thumbpath)
+
+        self.maskpath = DestinationOption(
+            _(
+                "Thumbnail mask file\n"
+                "(image file to overlay on each thumbnail)"
+            ),
+            os.path.join(IMAGE_DIR, "masks", "frame_ornate_wood.png"),
+        )
+        self.maskpath.set_help(
+            _(
+                "The mask image file to draw over each "
+                "thumbnail image in the report."
+            )
+        )
+        menu.add_option(category_name, "mask_path", self.maskpath)
         self._thumbs_changed()
 
         repldisp = TextOption(
@@ -1863,6 +1884,7 @@ class DescendTreeOptions(MenuReportOptions):
         value = self.incthumb.get_value()
         self.thumbsize.set_available(value)
         self.thumbpath.set_available(value)
+        self.maskpath.set_available(value)
 
     def _incmarr_changed(self):
         """

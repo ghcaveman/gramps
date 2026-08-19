@@ -607,6 +607,8 @@ class BoxBase:
         self.thumbnail = None
         self.thumb_width = 0.0
         self.thumb_height = 0.0
+        # mask image to draw over the thumbnail
+        self.mask = None
 
     def scale(self, scale_amount):
         """Scale the amounts"""
@@ -654,6 +656,11 @@ class BoxBase:
             # Draw thumbnail INSIDE the box, starting at text_y (the box top)
             img_y = text_y
             doc.draw_image(self.thumbnail, img_x, ybegin + 0.05, self.thumb_width, self.thumb_height)
+            # Draw the mask image over the thumbnail
+            if self.mask:
+                doc.draw_image(
+                    self.mask, img_x, ybegin + 0.05, self.thumb_width, self.thumb_height
+                )
 
         # I am responsible for my own lines. Do them here.
         if self.line_to:
