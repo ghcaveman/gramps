@@ -445,7 +445,6 @@ class RecurseDown:
         self.inc_thumb = gui.get_val("inc_thumb")
         self.thumb_width = gui.get_val("thumb_width")
         self.thumb_height = gui.get_val("thumb_height")
-        self.thumb_path = gui.get_val("thumb_path")
         self.mask_path = gui.get_val("mask_path")
         gui = None
 
@@ -554,28 +553,18 @@ class RecurseDown:
         if person is None:
             return
 
-        # Try to find a thumbnail file in the configured directory first
         thumb_path = None
-        if self.thumb_path:
-            gid = person.get_gramps_id()
-            for ext in [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"]:
-                candidate = os.path.join(self.thumb_path, gid + ext)
-                if os.path.isfile(candidate):
-                    thumb_path = candidate
-                    break
 
-        # If no file found in configured path, use the person's first media image
-        if thumb_path is None:
-            media_list = person.get_media_list()
-            if media_list:
-                media = self.database.get_media_from_handle(
-                    media_list[0].get_reference_handle()
+        media_list = person.get_media_list()
+        if media_list:
+            media = self.database.get_media_from_handle(
+                media_list[0].get_reference_handle()
+            )
+            if media and media.get_mime_type()[0:5] == "image":
+                thumb_path = get_thumbnail_path(
+                    media_path_full(self.database, media.get_path()),
+                    rectangle=media_list[0].get_rectangle(),
                 )
-                if media and media.get_mime_type()[0:5] == "image":
-                    thumb_path = get_thumbnail_path(
-                        media_path_full(self.database, media.get_path()),
-                        rectangle=media_list[0].get_rectangle(),
-                    )
 
         if thumb_path and os.path.isfile(thumb_path):
             box.thumbnail = thumb_path
@@ -1808,10 +1797,6 @@ class DescendTreeOptions(MenuReportOptions):
         menu.add_option(category_name, "inc_thumb", self.incthumb)
         self.incthumb.connect("value-changed", self._thumbs_changed)
 
-        #self.thumbsize = NumberOption(_("Thumbnail size (cm)"), 2.0, 0.5, 5.0, 0.1)
-        #self.thumbsize.set_help(_("The size of the thumbnail image in centimeters."))
-        #menu.add_option(category_name, "thumb_size", self.thumbsize)
-
         self.thumbwidth = NumberOption(_("Thumbnail width (cm)"), 2.0, 0.5, 5.0, 0.1)
         self.thumbwidth.set_help(_("The width of the thumbnail image in centimeters."))
         menu.add_option(category_name, "thumb_width", self.thumbwidth)
@@ -1819,23 +1804,6 @@ class DescendTreeOptions(MenuReportOptions):
         self.thumbheight = NumberOption(_("Thumbnail height (cm)"), 2.0, 0.5, 5.0, 0.1)
         self.thumbheight.set_help(_("The height of the thumbnail image in centimeters."))
         menu.add_option(category_name, "thumb_height", self.thumbheight)
-
-        self.thumbpath = StringOption(
-            _(
-                "Thumbnail path\n"
-                "(directory containing images named "
-                "by Gramps ID, e.g. I0001.jpg)"
-            ),
-            "",
-        )
-        self.thumbpath.set_help(
-            _(
-                "The directory containing thumbnail images named by Gramps ID.\n"
-                "If empty, the first image in each person's media list is used.\n"
-                "If a matching image is not found, the person's media is used."
-            )
-        )
-        menu.add_option(category_name, "thumb_path", self.thumbpath)
 
         self.maskpath = DestinationOption(
             _(
@@ -1893,7 +1861,6 @@ class DescendTreeOptions(MenuReportOptions):
         value = self.incthumb.get_value()
         self.thumbwidth.set_available(value)
         self.thumbheight.set_available(value)
-        self.thumbpath.set_available(value)
         self.maskpath.set_available(value)
 
     def _incmarr_changed(self):
