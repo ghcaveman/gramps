@@ -443,7 +443,8 @@ class RecurseDown:
 
         ## Thumbnail options
         self.inc_thumb = gui.get_val("inc_thumb")
-        self.thumb_size = gui.get_val("thumb_size")
+        self.thumb_width = gui.get_val("thumb_width")
+        self.thumb_height = gui.get_val("thumb_height")
         self.thumb_path = gui.get_val("thumb_path")
         self.mask_path = gui.get_val("mask_path")
         gui = None
@@ -578,8 +579,8 @@ class RecurseDown:
 
         if thumb_path and os.path.isfile(thumb_path):
             box.thumbnail = thumb_path
-            box.thumb_width = self.thumb_size
-            box.thumb_height = self.thumb_size
+            box.thumb_width = self.thumb_width
+            box.thumb_height = self.thumb_height
 
         # The mask image file to draw over each thumbnail
         if self.mask_path and os.path.isfile(self.mask_path):
@@ -1807,9 +1808,17 @@ class DescendTreeOptions(MenuReportOptions):
         menu.add_option(category_name, "inc_thumb", self.incthumb)
         self.incthumb.connect("value-changed", self._thumbs_changed)
 
-        self.thumbsize = NumberOption(_("Thumbnail size (cm)"), 2.0, 0.5, 5.0, 0.1)
-        self.thumbsize.set_help(_("The size of the thumbnail image in centimeters."))
-        menu.add_option(category_name, "thumb_size", self.thumbsize)
+        #self.thumbsize = NumberOption(_("Thumbnail size (cm)"), 2.0, 0.5, 5.0, 0.1)
+        #self.thumbsize.set_help(_("The size of the thumbnail image in centimeters."))
+        #menu.add_option(category_name, "thumb_size", self.thumbsize)
+
+        self.thumbwidth = NumberOption(_("Thumbnail width (cm)"), 2.0, 0.5, 5.0, 0.1)
+        self.thumbwidth.set_help(_("The width of the thumbnail image in centimeters."))
+        menu.add_option(category_name, "thumb_width", self.thumbwidth)
+
+        self.thumbheight = NumberOption(_("Thumbnail height (cm)"), 2.0, 0.5, 5.0, 0.1)
+        self.thumbheight.set_help(_("The height of the thumbnail image in centimeters."))
+        menu.add_option(category_name, "thumb_height", self.thumbheight)
 
         self.thumbpath = StringOption(
             _(
@@ -1882,7 +1891,8 @@ class DescendTreeOptions(MenuReportOptions):
     def _thumbs_changed(self):
         """If thumbnails are not enabled, disable the related options."""
         value = self.incthumb.get_value()
-        self.thumbsize.set_available(value)
+        self.thumbwidth.set_available(value)
+        self.thumbheight.set_available(value)
         self.thumbpath.set_available(value)
         self.maskpath.set_available(value)
 
