@@ -87,6 +87,10 @@ UIDEFAULT = (
           <attribute name="action">win.Import</attribute>
           <attribute name="label" translatable="yes">_Import...</attribute>
         </item>
+        <item groups='RW'>
+          <attribute name="action">win.GrizardImport</attribute>
+          <attribute name="label" translatable="yes">_Grizard Import...</attribute>
+        </item>
         <item>
           <attribute name="action">win.Export</attribute>
           <attribute name="label" translatable="yes">_Export...</attribute>

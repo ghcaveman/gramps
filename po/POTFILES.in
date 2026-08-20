@@ -561,6 +561,7 @@ gramps/gui/glade/styleeditor.glade
 gramps/gui/glade/tipofday.glade
 gramps/gui/glade/updateaddons.glade
 gramps/gui/grampsgui.py
+gramps/gui/grizard/grizardassistant.py
 gramps/gui/logger/_errorreportassistant.py
 gramps/gui/logger/_errorview.py
 gramps/gui/makefilter.py

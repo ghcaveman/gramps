@@ -346,6 +346,7 @@ gramps/gen/utils/test/requirements_test.py
 # gui - GUI code
 #
 gramps/gui/__init__.py
+gramps/gui/grizard/__init__.py
 gramps/gui/basesidebar.py
 gramps/gui/dbguielement.py
 gramps/gui/ddtargets.py
