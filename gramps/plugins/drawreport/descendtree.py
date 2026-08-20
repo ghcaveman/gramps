@@ -1797,7 +1797,7 @@ class DescendTreeOptions(MenuReportOptions):
         menu.add_option(category_name, "inc_thumb", self.incthumb)
         self.incthumb.connect("value-changed", self._thumbs_changed)
 
-        self.thumbwidth = NumberOption(_("Thumbnail width (cm)"), 2.0, 0.5, 5.0, 0.1)
+        self.thumbwidth = NumberOption(_("Thumbnail width (cm)"), 1.5, 0.5, 5.0, 0.1)
         self.thumbwidth.set_help(_("The width of the thumbnail image in centimeters."))
         menu.add_option(category_name, "thumb_width", self.thumbwidth)
 
