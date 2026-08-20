@@ -80,6 +80,13 @@ gramps/gen/datehandler/test/datestrings_test.py
 gramps/gen/fs/fs_import/test/__init__.py
 gramps/gen/fs/fs_import/test/source_dates_test.py
 #
+# gen.grizard package
+#
+#
+gramps/gen/grizard/__init__.py
+gramps/gen/grizard/test/__init__.py
+gramps/gen/grizard/test/grizard_test.py
+#
 # gen db API
 #
 gramps/gen/db/__init__.py
