@@ -331,7 +331,7 @@ TOKENS = {
     "_DETAIL": TOKEN_IGNORE,
     "_EMAIL": TOKEN_EMAIL,
     "_E-MAIL": TOKEN_EMAIL,
-    "_EVENT_DEFN": TOKEN_UNKNOWN_SECTION, #MyHeritage GEDCOM custom tag for event definition
+    "_EVENT_DEFN": TOKEN_UNKNOWN_SECTION,  # MyHeritage GEDCOM custom tag for event definition
     "_FREL": TOKEN__FREL,
     "_FSFTID": TOKEN__FSFTID,
     "_GODP": TOKEN__GODP,
@@ -351,7 +351,7 @@ TOKENS = {
     "_PAREN": TOKEN_IGNORE,
     "_PHOTO": TOKEN__PHOTO,
     "_PLACE": TOKEN_IGNORE,
-    "_PLAC_DEFN": TOKEN_UNKNOWN_SECTION, #MyHeritage GEDCOM custom tag for place definition
+    "_PLAC_DEFN": TOKEN_UNKNOWN_SECTION,  # MyHeritage GEDCOM custom tag for place definition
     "_PREF": TOKEN__PRIMARY,
     "_PRIM": TOKEN__PRIM,
     "_PRIMARY": TOKEN__PRIMARY,
@@ -2286,6 +2286,7 @@ class GedcomParser(UpdateCallback):
         # the user is informed — without being flooded — that we are
         # suppressing all further warnings for that tag.
         self._suppressed_warnings_logged = set()
+        self._suppressed_tag_counts = defaultdict(int)
 
         self.pid_map = IdMapper(
             self.dbase.has_person_gramps_id,
@@ -3153,7 +3154,10 @@ class GedcomParser(UpdateCallback):
         # external database.  The data will be lost when re-exporting to
         # a GEDCOM file.
         if self._suppressed_warnings_logged:
-            suppressed_list = ", ".join(sorted(self._suppressed_warnings_logged))
+            suppressed_list = ", ".join(
+                "%s (%d)" % (tag, self._suppressed_tag_counts[tag])
+                for tag in sorted(self._suppressed_warnings_logged)
+            )
             roundtrip_msg = _(
                 "\nThe following unsupported GEDCOM tags were not imported: "
                 "%(tags)s.\n"
@@ -3524,6 +3528,7 @@ class GedcomParser(UpdateCallback):
         # the user knows we are suppressing further messages for the tag.
         if line.token_text in ("_PREF", "_PAREN", "_ITALIC", "_NAME"):
             tag = line.token_text
+            self._suppressed_tag_counts[tag] += 1
             if tag not in self._suppressed_warnings_logged:
                 self._suppressed_warnings_logged.add(tag)
                 self.__add_msg(
@@ -4115,6 +4120,7 @@ class GedcomParser(UpdateCallback):
                 self.__check_msgs(_("Top Level"), state, None)
             elif line.token == TOKEN_UNKNOWN_SECTION:
                 tag = line.token_text
+                self._suppressed_tag_counts[tag] += 1
                 if tag not in self._suppressed_warnings_logged:
                     self._suppressed_warnings_logged.add(tag)
                     self.__add_msg(
