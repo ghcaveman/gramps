@@ -279,9 +279,9 @@ ADDR element ignored '123 main'                                                 
 ADDR element ignored ' Norwalk'                                                                       Line    25: 2 ADDR 123 main, Norwalk, Ohio, USA
 ADDR element ignored ' Ohio'                                                                          Line    25: 2 ADDR 123 main, Norwalk, Ohio, USA
 ADDR element ignored ' USA'                                                                           Line    25: 2 ADDR 123 main, Norwalk, Ohio, USA
-Tag recognized but not supported: 'URL' on line                                                       Line    42: 4 TYPE URL
-Tag recognized but not supported: 'PHOTO' on line                                                     Line    48: 4 TYPE PHOTO
-Tag recognized but not supported: '98765' on line                                                     Line    50: 2 REFN 98765
+Tag recognized but not supported                                                                      Line    42: 4 TYPE URL
+Tag recognized but not supported                                                                      Line    48: 4 TYPE PHOTO
+Tag recognized but not supported                                                                      Line    50: 2 REFN 98765
 Could not import photo.jpg                                                                            Line    45: 1 OBJE 
 </text>
       <style name="fontface" value="Monospace">
@@ -315,7 +315,7 @@ TEST: TEST family</text>
     <note handle="_0000002d0000002d" change="1" id="N0003" type="GEDCOM import">
       <text>Records not imported into FAM (family) Gramps ID F0001:
 
-Unsupported tag '_PREF' found but not imported. Further warnings for this tag will be suppressed.      Line   146: 2 _PREF Y
+Unsupported tag '_PREF' found but not imported. Further warnings for this tag will be suppressed.     Line   146: 2 _PREF Y
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="181"/>
@@ -328,7 +328,7 @@ Unsupported tag '_PREF' found but not imported. Further warnings for this tag wi
     <note handle="_0000003000000030" change="1" id="N0005" type="GEDCOM import">
       <text>Records not imported into SOUR (source) Gramps ID S0002:
 
-Unsupported tag '_PAREN' found but not imported. Further warnings for this tag will be suppressed.     Line   191: 1 _PAREN Y
+Unsupported tag '_PAREN' found but not imported. Further warnings for this tag will be suppressed.    Line   191: 1 _PAREN Y
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="183"/>
@@ -341,7 +341,7 @@ Unsupported tag '_PAREN' found but not imported. Further warnings for this tag w
     <note handle="_0000003200000032" change="1" id="N0007" type="GEDCOM import">
       <text>Records not imported into REPO (repository) Gramps ID R0002:
 
-Unsupported tag '_NAME' found but not imported. Further warnings for this tag will be suppressed.      Line   195: 2 _NAME The Testers repository
+Unsupported tag '_NAME' found but not imported. Further warnings for this tag will be suppressed.     Line   195: 2 _NAME The Testers repository
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="207"/>

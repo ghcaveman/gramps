@@ -296,10 +296,10 @@ Line ignored as not understood                                                  
     <note handle="_0000000900000009" change="1" id="N0005" type="GEDCOM import">
       <text>Records not imported into NOTE Gramps ID N0003:
 
-Tag recognized but not supported: 'Submission Note RIN' on line                                       Line    32: 1 RIN Submission Note RIN
-Tag recognized but not supported: 'Submission Note REFN' on line                                      Line    33: 1 REFN Submission Note REFN
+Tag recognized but not supported                                                                      Line    32: 1 RIN Submission Note RIN
+Tag recognized but not supported                                                                      Line    33: 1 REFN Submission Note REFN
 Skipped subordinate line                                                                              Line    34: 2 TYPE Submission Note REFN TYPE
-Tag recognized but not supported: 'Submission note source' on line                                    Line    35: 1 SOUR Submission note source
+Tag recognized but not supported                                                                      Line    35: 1 SOUR Submission note source
 Line ignored as not understood                                                                        Line    39: 1 TEST on XREF Note
 </text>
       <style name="fontface" value="Monospace">
@@ -397,10 +397,10 @@ Line ignored as not understood                                                  
     <note handle="_0000002200000022" change="1" id="N0021" type="GEDCOM import">
       <text>Records not imported into NOTE Gramps ID N0018:
 
-Tag recognized but not supported: '123456' on line                                                    Line   103: 1 RIN 123456
-Tag recognized but not supported: '98765' on line                                                     Line   104: 1 REFN 98765
+Tag recognized but not supported                                                                      Line   103: 1 RIN 123456
+Tag recognized but not supported                                                                      Line   104: 1 REFN 98765
 Skipped subordinate line                                                                              Line   105: 2 TYPE Who knows REFN TYPE
-Tag recognized but not supported: 'Note on a change on a note!!!' on line                             Line   109: 2 NOTE Note on a change on a note!!!
+Tag recognized but not supported                                                                      Line   109: 2 NOTE Note on a change on a note!!!
 Skipped subordinate line                                                                              Line   110: 3 CHAN 
 Skipped subordinate line                                                                              Line   111: 4 DATE 2001-01-11
 Skipped subordinate line                                                                              Line   112: 5 TIME 16:00:06

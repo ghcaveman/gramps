@@ -1592,7 +1592,7 @@ ADDR element ignored '459 Main St.'                                             
     <note handle="_0000004800000048" change="1" id="N0015" type="GEDCOM import">
       <text>Records not imported into INDI (individual) Gramps ID I0018:
 
-Tag recognized but not supported: 'first generaton' on line                                           Line   247: 2 TYPE first generaton
+Tag recognized but not supported                                                                      Line   247: 2 TYPE first generaton
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="199"/>
@@ -1624,7 +1624,7 @@ Company. He enlisted in the army at Sparks 7 December 1917 and served as a Corpo
     <note handle="_000000d0000000d0" change="1" id="N0022" type="GEDCOM import">
       <text>Records not imported into FAM (family) Gramps ID F0010:
 
-Tag recognized but not supported: '' on line                                                          Line   865: 2 _STAT 
+Tag recognized but not supported                                                                      Line   865: 2 _STAT 
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="180"/>
@@ -1652,7 +1652,7 @@ Could not import John&amp;Alice_smiths_marr_cert.jpg                            
     <note handle="_000000e5000000e5" change="1" id="N0025" type="GEDCOM import">
       <text>Records not imported into FAM (family) Gramps ID F0008:
 
-Tag recognized but not supported: '123 Main st, Grantville, Virginia, USA' on line                    Line  1007: 1 ADDR 123 Main st, Grantville, Virginia, USA
+Tag recognized but not supported                                                                      Line  1007: 1 ADDR 123 Main st, Grantville, Virginia, USA
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="217"/>
@@ -1676,7 +1676,7 @@ Tag recognized but not supported: '123 Main st, Grantville, Virginia, USA' on li
     <note handle="_000000ef000000ef" change="1" id="N0031" type="GEDCOM import">
       <text>Records not imported into SOUR (source) Gramps ID S0003:
 
-Tag recognized but not supported: '' on line                                                          Line  1047: 1 DATA 
+Tag recognized but not supported                                                                      Line  1047: 1 DATA 
 Skipped subordinate line                                                                              Line  1048: 2 AGNC NYC Public Library
 </text>
       <style name="fontface" value="Monospace">
@@ -1718,7 +1718,7 @@ Unknown tag                                                                     
         <range start="0" end="197"/>
       </style>
     </note>
-    <note handle="_000000fa000000fa" change="1786736033" id="N0037" type="General">
+    <note handle="_000000fa000000fa" change="1787347569" id="N0037" type="General">
       <text>Objects referenced by this note were missing in a file imported on 12/25/1999 12:00:00 AM.</text>
     </note>
   </notes>

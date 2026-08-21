@@ -189,8 +189,7 @@ n @XREF:OBJE@ OBJE {1:1}
     <note handle="_0000001400000014" change="1" id="N0003" type="GEDCOM import">
       <text>Records not imported into OBJE (multi-media object) Gramps ID M1:
 
-Tag recognized but not supported: '
-.HM.......k.1..F.jwA.Dzzzzw............A....1.........0U.66..E.   Line    58: 1 BLOB 
+Tag recognized but not supported                                                                      Line    58: 1 BLOB 
                                                                                                                          .HM.......k.1..F.jwA.Dzzzzw............A....1.........0U.66..E.8
                                                                                                                          .......A..k.a6.A.......A..k.........../6....G.......0../..U.....
                                                                                                                          .w1/m........HC0..../...zzzzzzzz..5zzk..AnA..U..W6U....2rRrRrRrR
@@ -208,8 +207,7 @@ Filename omitted                                                                
     <note handle="_0000001600000016" change="1" id="N0004" type="GEDCOM import">
       <text>Records not imported into OBJE (multi-media object) Gramps ID M2:
 
-Tag recognized but not supported: '
-67890gramps doesn't do this anyway, so don't bother doing it ri   Line    77: 1 BLOB 
+Tag recognized but not supported                                                                      Line    77: 1 BLOB 
                                                                                                                          67890gramps doesn't do this anyway, so don't bother doing it right.
 Filename omitted                                                                                      Line    74: 0 M2 OBJE
 </text>
