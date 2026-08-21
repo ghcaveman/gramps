@@ -315,6 +315,13 @@ TOKEN__APID = 138
 TOKEN__CALLNAME = 139
 TOKEN_INIL = 140
 TOKEN_UNKNOWN_SECTION = 141
+# Dedicated tokens for Legacy-specific tags that are recognized but not
+# imported; see GedcomParser.__ignore(). These tags were previously mapped
+# onto shared tokens (TOKEN__PRIMARY and TOKEN_IGNORE), which made it
+# impossible to identify them by token alone.
+TOKEN__PREF = 142
+TOKEN__PAREN = 143
+TOKEN__ITALIC = 144
 
 TOKENS = {
     "_ADPN": TOKEN__ADPN,
@@ -335,7 +342,7 @@ TOKENS = {
     "_FREL": TOKEN__FREL,
     "_FSFTID": TOKEN__FSFTID,
     "_GODP": TOKEN__GODP,
-    "_ITALIC": TOKEN_IGNORE,
+    "_ITALIC": TOKEN__ITALIC,
     "_JUST": TOKEN__JUST,  # FTM Citation Quality Justification
     "_LEVEL": TOKEN_IGNORE,
     "_LINK": TOKEN__LINK,
@@ -348,11 +355,11 @@ TOKENS = {
     "_MEDI": TOKEN_MEDI,
     "_MREL": TOKEN__MREL,
     "_NAME": TOKEN__NAME,
-    "_PAREN": TOKEN_IGNORE,
+    "_PAREN": TOKEN__PAREN,
     "_PHOTO": TOKEN__PHOTO,
     "_PLACE": TOKEN_IGNORE,
     "_PLAC_DEFN": TOKEN_UNKNOWN_SECTION,  # MyHeritage GEDCOM custom tag for place definition
-    "_PREF": TOKEN__PRIMARY,
+    "_PREF": TOKEN__PREF,
     "_PRIM": TOKEN__PRIM,
     "_PRIMARY": TOKEN__PRIMARY,
     "_PRIV": TOKEN__PRIV,
@@ -2559,6 +2566,8 @@ class GedcomParser(UpdateCallback):
             TOKEN_TIME: self.__event_time,
             TOKEN_ASSO: self.__ignore,
             TOKEN_IGNORE: self.__ignore,
+            TOKEN__PAREN: self.__ignore,
+            TOKEN__ITALIC: self.__ignore,
             TOKEN_STAT: self.__ignore,
             TOKEN_TEMP: self.__ignore,
             TOKEN_HUSB: self.__event_husb,
@@ -2597,6 +2606,8 @@ class GedcomParser(UpdateCallback):
             TOKEN_TIME: self.__ignore,
             TOKEN_ASSO: self.__ignore,
             TOKEN_IGNORE: self.__ignore,
+            TOKEN__PAREN: self.__ignore,
+            TOKEN__ITALIC: self.__ignore,
             TOKEN_STAT: self.__ignore,
             TOKEN_TEMP: self.__ignore,
             TOKEN_OBJE: self.__event_object,
@@ -2620,6 +2631,8 @@ class GedcomParser(UpdateCallback):
             TOKEN_RNOTE: self.__person_famc_note,
             # Extras
             TOKEN__PRIMARY: self.__person_famc_primary,
+            # Legacy uses _PREF on FAMC to mark the preferred child
+            TOKEN__PREF: self.__person_famc_primary,
             TOKEN_SOUR: self.__person_famc_sour,
             # GEDit
             TOKEN_STAT: self.__ignore,
@@ -2641,6 +2654,8 @@ class GedcomParser(UpdateCallback):
             TOKEN_TIME: self.__ignore,
             TOKEN_ADDR: self.__ignore,
             TOKEN_IGNORE: self.__ignore,
+            TOKEN__PAREN: self.__ignore,
+            TOKEN__ITALIC: self.__ignore,
             TOKEN_STAT: self.__ignore,
             TOKEN_TEMP: self.__ignore,
             TOKEN_OBJE: self.__ignore,
@@ -2680,6 +2695,8 @@ class GedcomParser(UpdateCallback):
             TOKEN_REFN: self.__citation_refn,
             TOKEN_EVEN: self.__citation_even,
             TOKEN_IGNORE: self.__ignore,
+            TOKEN__PAREN: self.__ignore,
+            TOKEN__ITALIC: self.__ignore,
             TOKEN__LKD: self.__ignore,
             TOKEN_QUAY: self.__citation_quay,
             TOKEN_NOTE: self.__citation_note,
@@ -2700,6 +2717,8 @@ class GedcomParser(UpdateCallback):
             TOKEN_RNOTE: self.__obje_note,  # illegal, but often there
             TOKEN__PRIM: self.__media_ref_prim,  # LFT etc.
             TOKEN_IGNORE: self.__ignore,
+            TOKEN__PAREN: self.__ignore,
+            TOKEN__ITALIC: self.__ignore,
         }
         self.func_list.append(self.media_parse_tbl)
 
@@ -2719,6 +2738,8 @@ class GedcomParser(UpdateCallback):
             TOKEN__NAME: self.__ignore,
             TOKEN_PHON: self.__location_phone,
             TOKEN_IGNORE: self.__ignore,
+            TOKEN__PAREN: self.__ignore,
+            TOKEN__ITALIC: self.__ignore,
         }
         self.func_list.append(self.parse_loc_tbl)
 
@@ -2836,6 +2857,8 @@ class GedcomParser(UpdateCallback):
             # not legal, but Ultimate Family Tree does this
             TOKEN_DATE: self.__ignore,
             TOKEN_IGNORE: self.__ignore,
+            TOKEN__PAREN: self.__ignore,
+            TOKEN__ITALIC: self.__ignore,
             TOKEN__APID: self.__source_attr,
         }
         self.func_list.append(self.source_func)
@@ -2904,6 +2927,8 @@ class GedcomParser(UpdateCallback):
             TOKEN__LOC: self.__ignore,
             TOKEN__NAME: self.__ignore,
             TOKEN_IGNORE: self.__ignore,
+            TOKEN__PAREN: self.__ignore,
+            TOKEN__ITALIC: self.__ignore,
             TOKEN_TYPE: self.__ignore,
             TOKEN_CAUS: self.__ignore,
         }
@@ -2940,6 +2965,8 @@ class GedcomParser(UpdateCallback):
             TOKEN_RNOTE: self.__repo_ref_note,
             TOKEN_MEDI: self.__repo_ref_medi,
             TOKEN_IGNORE: self.__ignore,
+            TOKEN__PAREN: self.__ignore,
+            TOKEN__ITALIC: self.__ignore,
         }
         self.func_list.append(self.repo_ref_tbl)
 
@@ -3159,7 +3186,7 @@ class GedcomParser(UpdateCallback):
                 for tag in sorted(self._suppressed_warnings_logged)
             )
             roundtrip_msg = _(
-                "\nThe following unsupported GEDCOM tags were not imported: "
+                "\nThe following unsupported GEDCOM tags were not imported:"
                 "%(tags)s.\n"
             ) % {"tags": suppressed_list}
             self.errors.append(roundtrip_msg)
@@ -3517,7 +3544,8 @@ class GedcomParser(UpdateCallback):
         @param state: The current state
         @type state: CurrentState
         """
-        # If the current line tag is '_PREF', bypass parsing entirely.
+        # If the current line tag is '_PREF', '_PAREN', '_ITALIC' or '_NAME',
+        # bypass parsing entirely.
         # Legacy has the concept of "Preferred" spouses, siblings and children
         # to help determine what shows on charts when multiple choices exist.
         # Legacy also adds parens and italics to the source notation, but gramps
@@ -3526,7 +3554,7 @@ class GedcomParser(UpdateCallback):
         #
         # Rather than silently skipping these tags, log a one-time warning so
         # the user knows we are suppressing further messages for the tag.
-        if line.token_text in ("_PREF", "_PAREN", "_ITALIC", "_NAME"):
+        if line.token in (TOKEN__PREF, TOKEN__PAREN, TOKEN__ITALIC, TOKEN__NAME):
             tag = line.token_text
             self._suppressed_tag_counts[tag] += 1
             if tag not in self._suppressed_warnings_logged:
@@ -3542,19 +3570,10 @@ class GedcomParser(UpdateCallback):
                 )
 
             return True  # Tells the state engine this tag is handled/skipped cleanly
-
-        if line.token == TOKEN_UNKNOWN:
+        elif line.token == TOKEN_UNKNOWN:
             self.__add_msg(_("Line ignored as not understood"), line, state)
         else:
-            self.__add_msg(
-                _(
-                    "Tag recognized but not supported: '"
-                    + str(line.data)
-                    + "' on line "
-                ),
-                line,
-                state,
-            )
+            self.__add_msg(_("Tag recognized but not supported"), line, state)
         self.__skip_subordinate_levels(line.level + 1, state)
 
     def __not_recognized(self, line, state):
@@ -4147,7 +4166,13 @@ class GedcomParser(UpdateCallback):
                 state = CurrentState(level=1)
                 self.__parse_submission(line, state)
                 self.__check_msgs(_("Top Level"), state, None)
-            elif line.token in (TOKEN_SUBM, TOKEN_SUBN, TOKEN_IGNORE):
+            elif line.token in (
+                TOKEN_SUBM,
+                TOKEN_SUBN,
+                TOKEN_IGNORE,
+                TOKEN__PAREN,
+                TOKEN__ITALIC,
+            ):
                 state = CurrentState()
                 self.__skip_subordinate_levels(1, state)
                 self.__check_msgs(_("Top Level"), state, None)

@@ -195,7 +195,7 @@ class TestImports(unittest.TestCase):
         self.assertIn("ADDR element ignored '123 main'", user.infotext)
         self.assertIn("Tag recognized but not supported", user.infotext)
         self.assertIn("Unsupported tag '_PREF'", user.infotext)
-        self.assertIn("Tag '_EVENT_DEFN'", user.infotext)
+        self.assertIn("Unsupported tag '_EVENT_DEFN'", user.infotext)
         self.assertIn("Unsupported tag '_PAREN'", user.infotext)
         self.assertIn("Unsupported tag '_NAME'", user.infotext)
         self.assertIn("Could not import photo.jpg", user.infotext)
