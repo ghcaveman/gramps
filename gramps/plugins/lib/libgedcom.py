@@ -314,6 +314,7 @@ TOKEN__DATE = 137
 TOKEN__APID = 138
 TOKEN__CALLNAME = 139
 TOKEN_INIL = 140
+TOKEN_UNKNOWN_SECTION = 141
 
 TOKENS = {
     "_ADPN": TOKEN__ADPN,
@@ -330,6 +331,7 @@ TOKENS = {
     "_DETAIL": TOKEN_IGNORE,
     "_EMAIL": TOKEN_EMAIL,
     "_E-MAIL": TOKEN_EMAIL,
+    "_EVENT_DEFN": TOKEN_UNKNOWN_SECTION, #MyHeritage GEDCOM custom tag for event definition
     "_FREL": TOKEN__FREL,
     "_FSFTID": TOKEN__FSFTID,
     "_GODP": TOKEN__GODP,
@@ -349,6 +351,7 @@ TOKENS = {
     "_PAREN": TOKEN_IGNORE,
     "_PHOTO": TOKEN__PHOTO,
     "_PLACE": TOKEN_IGNORE,
+    "_PLAC_DEFN": TOKEN_UNKNOWN_SECTION, #MyHeritage GEDCOM custom tag for place definition
     "_PREF": TOKEN__PRIMARY,
     "_PRIM": TOKEN__PRIM,
     "_PRIMARY": TOKEN__PRIMARY,
@@ -3585,6 +3588,18 @@ class GedcomParser(UpdateCallback):
             self.__add_msg(_("Skipped subordinate line"), line, state)
             skips += 1
 
+    def __skip_subordinate_levels_silent(self, level):
+        """
+        Skip all lines of the specified level or lower without emitting
+        any messages.  Used for tags mapped to TOKEN_UNKNOWN_SECTION whose
+        subordinate content is intentionally not imported (e.g. MyHeritage
+        _PLAC_DEFN / _EVENT_DEFN definitions).
+        """
+        while True:
+            line = self.__get_next_line()
+            if self.__level_is_finished(line, level):
+                return
+
     def __level_is_finished(self, text, level):
         """
         Check to see if the level has been completed, indicated by finding
@@ -4089,60 +4104,6 @@ class GedcomParser(UpdateCallback):
         while True:
             line = self.__get_next_line()
 
-            # --- SUPPRESSED TAG INTERCEPT ---
-            # Catch Legacy's custom place and event definitions, swallowing
-            # all children silently.  Log a one-time warning per tag so the
-            # user knows we are suppressing further messages.
-            if line and (
-                line.data in ("_PLAC_DEFN", "_EVENT_DEFN")
-                or getattr(line, "token_text", "") in ("_PLAC_DEFN", "_EVENT_DEFN")
-                or (
-                    isinstance(line.data, str)
-                    and line.data.startswith(("_PLAC_DEFN", "_EVENT_DEFN"))
-                )
-            ):
-                # Determine the tag name for the warning message
-                tag_name = None
-                if line.data in ("_PLAC_DEFN", "_EVENT_DEFN"):
-                    tag_name = line.data
-                elif getattr(line, "token_text", "") in (
-                    "_PLAC_DEFN",
-                    "_EVENT_DEFN",
-                ):
-                    tag_name = line.token_text
-                elif isinstance(line.data, str) and line.data.startswith(
-                    ("_PLAC_DEFN", "_EVENT_DEFN")
-                ):
-                    tag_name = line.data
-
-                if tag_name and tag_name not in self._suppressed_warnings_logged:
-                    self._suppressed_warnings_logged.add(tag_name)
-                    self.__add_msg(
-                        _(
-                            "Tag '%(tag)s' found but not imported (Legacy "
-                            "custom place/event definition). Further warnings "
-                            "for this tag will be suppressed. Note: if you "
-                            "export GEDCOM from Gramps and re-import into "
-                            "FamilySearch or Legacy, this data will be missing."
-                        )
-                        % {"tag": tag_name},
-                        line,
-                        None,
-                    )
-
-
-                # Advance the file pointer and completely ignore everything
-                # until the next Level 0 record
-                while True:
-                    next_line = self.__get_next_line()
-                    if not next_line:
-                        break
-                    if next_line.level == 0:
-                        self._backup()  # Push the next valid Level 0 record back onto the stack
-                        break
-                continue  # Immediately jump to the next iteration of the main loop
-            # -------------------------------
-
             key = line.data
             if not line or line.token == TOKEN_TRLR:
                 self._backup()
@@ -4152,6 +4113,20 @@ class GedcomParser(UpdateCallback):
                 self.__add_msg(_("Unknown tag"), line, state)
                 self.__skip_subordinate_levels(1, state)
                 self.__check_msgs(_("Top Level"), state, None)
+            elif line.token == TOKEN_UNKNOWN_SECTION:
+                tag = line.token_text
+                if tag not in self._suppressed_warnings_logged:
+                    self._suppressed_warnings_logged.add(tag)
+                    self.__add_msg(
+                        _(
+                            "Unsupported tag '%(tag)s' found but not imported. "
+                            "Further warnings for this tag will be suppressed."
+                        )
+                        % {"tag": tag},
+                        line,
+                        None,
+                    )
+                self.__skip_subordinate_levels_silent(1)
             elif key in ("FAM", "FAMILY"):
                 self.__parse_fam(line)
             elif key in ("INDI", "INDIVIDUAL"):
