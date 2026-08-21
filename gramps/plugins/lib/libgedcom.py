@@ -3156,12 +3156,6 @@ class GedcomParser(UpdateCallback):
                 "%(tags)s.\n"
             ) % {"tags": suppressed_list}
             self.errors.append(roundtrip_msg)
-            LOG.warning(
-                "GEDCOM import: %d tag(s) suppressed: %s. "
-                "Data may not survive a round-trip.",
-                len(self._suppressed_warnings_logged),
-                suppressed_list,
-            )
 
         if self.number_of_errors == 0:
             message = _("GEDCOM import report: No errors detected")
@@ -3531,18 +3525,14 @@ class GedcomParser(UpdateCallback):
                 self._suppressed_warnings_logged.add(tag)
                 self.__add_msg(
                     _(
-                        "Unsupported tag '%(tag)s' found but not imported. Further"
+                        "Unsupported tag '%(tag)s' found but not imported. Further "
                         "warnings for this tag will be suppressed."
                     )
                     % {"tag": tag},
                     line,
                     state,
                 )
-                LOG.warning(
-                    "GEDCOM import: suppressing all further warnings for tag"
-                    " '%s'. Data may not survive a round-trip.",
-                    tag,
-                )
+
             return True  # Tells the state engine this tag is handled/skipped cleanly
 
         if line.token == TOKEN_UNKNOWN:
@@ -4139,12 +4129,7 @@ class GedcomParser(UpdateCallback):
                         line,
                         None,
                     )
-                    LOG.warning(
-                        "GEDCOM import: suppressing all further warnings for"
-                        " tag '%s'. Data will not survive a "
-                        "Gramps-to-FamilySearch/Legacy round-trip.",
-                        tag_name,
-                    )
+
 
                 # Advance the file pointer and completely ignore everything
                 # until the next Level 0 record

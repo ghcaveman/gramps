@@ -315,7 +315,7 @@ TEST: TEST family</text>
     <note handle="_0000002d0000002d" change="1" id="N0003" type="GEDCOM import">
       <text>Records not imported into FAM (family) Gramps ID F0001:
 
-Unsupported tag '_PREF' found but not imported. Furtherwarnings for this tag will be suppressed.      Line   146: 2 _PREF Y
+Unsupported tag '_PREF' found but not imported. Further warnings for this tag will be suppressed.      Line   146: 2 _PREF Y
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="181"/>
@@ -328,7 +328,7 @@ Unsupported tag '_PREF' found but not imported. Furtherwarnings for this tag wil
     <note handle="_0000003000000030" change="1" id="N0005" type="GEDCOM import">
       <text>Records not imported into SOUR (source) Gramps ID S0002:
 
-Unsupported tag '_PAREN' found but not imported. Furtherwarnings for this tag will be suppressed.     Line   191: 1 _PAREN Y
+Unsupported tag '_PAREN' found but not imported. Further warnings for this tag will be suppressed.     Line   191: 1 _PAREN Y
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="183"/>
@@ -341,7 +341,7 @@ Unsupported tag '_PAREN' found but not imported. Furtherwarnings for this tag wi
     <note handle="_0000003200000032" change="1" id="N0007" type="GEDCOM import">
       <text>Records not imported into REPO (repository) Gramps ID R0002:
 
-Unsupported tag '_NAME' found but not imported. Furtherwarnings for this tag will be suppressed.      Line   195: 2 _NAME The Testers repository
+Unsupported tag '_NAME' found but not imported. Further warnings for this tag will be suppressed.      Line   195: 2 _NAME The Testers repository
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="207"/>

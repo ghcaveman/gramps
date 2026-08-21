@@ -534,7 +534,7 @@ Skipped subordinate line                                                        
     <note handle="_0000004800000048" change="1" id="N0037" type="GEDCOM import">
       <text>Records not imported into FAM (family) Gramps ID F0001:
 
-Unsupported tag '_PREF' found but not imported. Furtherwarnings for this tag will be suppressed.      Line   186: 2 _PREF Y
+Unsupported tag '_PREF' found but not imported. Further warnings for this tag will be suppressed.      Line   186: 2 _PREF Y
 Line ignored as not understood                                                                        Line   190: 2 TEST Family Note
 Empty note ignored                                                                                    Line   194: 1 NOTE 
 Skipped subordinate line                                                                              Line   195: 2 TEST Empty Note
@@ -582,7 +582,7 @@ Skipped subordinate line                                                        
     <note handle="_0000004f0000004f" change="1" id="N0042" type="GEDCOM import">
       <text>Records not imported into SOUR (source) Gramps ID S0055:
 
-Unsupported tag '_PAREN' found but not imported. Furtherwarnings for this tag will be suppressed.     Line   235: 1 _PAREN Y
+Unsupported tag '_PAREN' found but not imported. Further warnings for this tag will be suppressed.     Line   235: 1 _PAREN Y
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="183"/>
@@ -591,7 +591,7 @@ Unsupported tag '_PAREN' found but not imported. Furtherwarnings for this tag wi
     <note handle="_0000005300000053" change="1" id="N0043" type="GEDCOM import">
       <text>Records not imported into SOUR (source) Gramps ID S0071:
 
-Unsupported tag '_ITALIC' found but not imported. Furtherwarnings for this tag will be suppressed.    Line   248: 1 _ITALIC Y
+Unsupported tag '_ITALIC' found but not imported. Further warnings for this tag will be suppressed.    Line   248: 1 _ITALIC Y
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="184"/>
@@ -600,7 +600,7 @@ Unsupported tag '_ITALIC' found but not imported. Furtherwarnings for this tag w
     <note handle="_0000005500000055" change="1" id="N0044" type="GEDCOM import">
       <text>Records not imported into REPO (repository) Gramps ID R0003:
 
-Unsupported tag '_NAME' found but not imported. Furtherwarnings for this tag will be suppressed.      Line   254: 2 _NAME The National Archives and Records Administration (NARA)
+Unsupported tag '_NAME' found but not imported. Further warnings for this tag will be suppressed.      Line   254: 2 _NAME The National Archives and Records Administration (NARA)
 </text>
       <style name="fontface" value="Monospace">
         <range start="0" end="240"/>
