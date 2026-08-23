@@ -315,10 +315,8 @@ TOKEN__APID = 138
 TOKEN__CALLNAME = 139
 TOKEN_INIL = 140
 TOKEN_UNKNOWN_SECTION = 141
-# Dedicated tokens for Legacy-specific tags that are recognized but not
-# imported; see GedcomParser.__ignore(). These tags were previously mapped
-# onto shared tokens (TOKEN__PRIMARY and TOKEN_IGNORE), which made it
-# impossible to identify them by token alone.
+# Dedicated tokens for Legacy Family -specific tags that are recognized
+# but not imported
 TOKEN__PREF = 142
 TOKEN__PAREN = 143
 TOKEN__ITALIC = 144
@@ -338,7 +336,7 @@ TOKENS = {
     "_DETAIL": TOKEN_IGNORE,
     "_EMAIL": TOKEN_EMAIL,
     "_E-MAIL": TOKEN_EMAIL,
-    "_EVENT_DEFN": TOKEN_UNKNOWN_SECTION,  # MyHeritage GEDCOM custom tag for event definition
+    "_EVENT_DEFN": TOKEN_UNKNOWN_SECTION,  # Legacy Family Tree GEDCOM custom tag for event definition
     "_FREL": TOKEN__FREL,
     "_FSFTID": TOKEN__FSFTID,
     "_GODP": TOKEN__GODP,
@@ -358,7 +356,7 @@ TOKENS = {
     "_PAREN": TOKEN__PAREN,
     "_PHOTO": TOKEN__PHOTO,
     "_PLACE": TOKEN_IGNORE,
-    "_PLAC_DEFN": TOKEN_UNKNOWN_SECTION,  # MyHeritage GEDCOM custom tag for place definition
+    "_PLAC_DEFN": TOKEN_UNKNOWN_SECTION,  # Legacy Family Tree GEDCOM custom tag for place definition
     "_PREF": TOKEN__PREF,
     "_PRIM": TOKEN__PRIM,
     "_PRIMARY": TOKEN__PRIMARY,
@@ -3616,7 +3614,7 @@ class GedcomParser(UpdateCallback):
         """
         Skip all lines of the specified level or lower without emitting
         any messages.  Used for tags mapped to TOKEN_UNKNOWN_SECTION whose
-        subordinate content is intentionally not imported (e.g. MyHeritage
+        subordinate content is intentionally not imported (e.g. Legacy Family Tree
         _PLAC_DEFN / _EVENT_DEFN definitions).
         """
         while True:
