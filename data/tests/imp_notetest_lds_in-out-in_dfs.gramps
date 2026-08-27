@@ -149,7 +149,6 @@
       <eventref hlink="_0000002600000026" role="Family"/>
       <eventref hlink="_0000002700000027" role="Family"/>
       <childref hlink="_0000001800000018"/>
-      <noteref hlink="_0000002d0000002d"/>
       <citationref hlink="_0000002c0000002c"/>
       <tagref hlink="_0000000200000002"/>
     </family>
@@ -203,9 +202,8 @@
     <source handle="_0000002800000028" change="1" id="S0002">
       <stitle>Note Test file Source: Tester</stitle>
       <sabbrev>Note Test file Source: Tester</sabbrev>
-      <noteref hlink="_0000002e0000002e"/>
-      <noteref hlink="_0000003000000030"/>
-      <reporef hlink="_0000002f0000002f" medium="Book"/>
+      <noteref hlink="_0000002d0000002d"/>
+      <reporef hlink="_0000002e0000002e" medium="Book"/>
     </source>
   </sources>
   <places>
@@ -235,14 +233,13 @@
       <address>
       </address>
     </repository>
-    <repository handle="_0000002f0000002f" change="1" id="R0002">
+    <repository handle="_0000002e0000002e" change="1" id="R0002">
       <rname>The Testers repository</rname>
       <type>Library</type>
       <address>
         <street>The Testers repository</street>
-        <noteref hlink="_0000003100000031"/>
+        <noteref hlink="_0000002f0000002f"/>
       </address>
-      <noteref hlink="_0000003200000032"/>
     </repository>
   </repositories>
   <notes>
@@ -279,13 +276,10 @@ ADDR element ignored '123 main'                                                 
 ADDR element ignored ' Norwalk'                                                                       Line    25: 2 ADDR 123 main, Norwalk, Ohio, USA
 ADDR element ignored ' Ohio'                                                                          Line    25: 2 ADDR 123 main, Norwalk, Ohio, USA
 ADDR element ignored ' USA'                                                                           Line    25: 2 ADDR 123 main, Norwalk, Ohio, USA
-Tag recognized but not supported                                                                      Line    42: 4 TYPE URL
-Tag recognized but not supported                                                                      Line    48: 4 TYPE PHOTO
-Tag recognized but not supported                                                                      Line    50: 2 REFN 98765
 Could not import photo.jpg                                                                            Line    45: 1 OBJE 
 </text>
       <style name="fontface" value="Monospace">
-        <range start="0" end="1163"/>
+        <range start="0" end="784"/>
       </style>
     </note>
     <note handle="_0000001d0000001d" change="1" id="N0002" type="Event Note">
@@ -312,40 +306,13 @@ Family note
 from year
 TEST: TEST family</text>
     </note>
-    <note handle="_0000002d0000002d" change="1" id="N0003" type="GEDCOM import">
-      <text>Records not imported into FAM (family) Gramps ID F0001:
-
-Unsupported tag '_PREF' found but not imported. Further warnings for this tag will be suppressed.     Line   146: 2 _PREF Y
-</text>
-      <style name="fontface" value="Monospace">
-        <range start="0" end="181"/>
-      </style>
-    </note>
-    <note handle="_0000002e0000002e" change="1" id="N0004" type="Source Note">
+    <note handle="_0000002d0000002d" change="1" id="N0003" type="Source Note">
       <text>note embedded in the SOURCE Record</text>
       <tagref hlink="_0000000200000002"/>
     </note>
-    <note handle="_0000003000000030" change="1" id="N0005" type="GEDCOM import">
-      <text>Records not imported into SOUR (source) Gramps ID S0002:
-
-Unsupported tag '_PAREN' found but not imported. Further warnings for this tag will be suppressed.    Line   191: 1 _PAREN Y
-</text>
-      <style name="fontface" value="Monospace">
-        <range start="0" end="183"/>
-      </style>
-    </note>
-    <note handle="_0000003100000031" change="1" id="N0006" type="Address Note">
+    <note handle="_0000002f0000002f" change="1" id="N0004" type="Address Note">
       <text>Repository Note</text>
       <tagref hlink="_0000000200000002"/>
-    </note>
-    <note handle="_0000003200000032" change="1" id="N0007" type="GEDCOM import">
-      <text>Records not imported into REPO (repository) Gramps ID R0002:
-
-Unsupported tag '_NAME' found but not imported. Further warnings for this tag will be suppressed.     Line   195: 2 _NAME The Testers repository
-</text>
-      <style name="fontface" value="Monospace">
-        <range start="0" end="207"/>
-      </style>
     </note>
   </notes>
 </database>
