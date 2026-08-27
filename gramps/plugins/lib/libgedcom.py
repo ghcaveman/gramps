@@ -3180,7 +3180,7 @@ class GedcomParser(UpdateCallback):
         # a GEDCOM file.
         if self._suppressed_warnings_logged:
             suppressed_list = "".join(
-                "\n  %s (%d occurrences)" % (tag, self._suppressed_tag_counts[tag])
+                "\n  %s (counted %d)" % (tag, self._suppressed_tag_counts[tag])
                 for tag in sorted(self._suppressed_warnings_logged)
             )
             roundtrip_msg = _(

@@ -196,10 +196,10 @@ class TestImports(unittest.TestCase):
         self.assertIn(
             "The following tags were recognized but not supported:", user.infotext
         )
-        self.assertRegex(user.infotext, r"\n  _PREF \(\d+ occurrences\)")
-        self.assertRegex(user.infotext, r"\n  _EVENT_DEFN \(\d+ occurrences\)")
-        self.assertRegex(user.infotext, r"\n  _PAREN \(\d+ occurrences\)")
-        self.assertRegex(user.infotext, r"\n  _NAME \(\d+ occurrences\)")
+        self.assertRegex(user.infotext, r"\n  _PREF \(counted \d+\)")
+        self.assertRegex(user.infotext, r"\n  _EVENT_DEFN \(counted \d+\)")
+        self.assertRegex(user.infotext, r"\n  _PAREN \(counted \d+\)")
+        self.assertRegex(user.infotext, r"\n  _NAME \(counted \d+\)")
         self.assertIn("Could not import photo.jpg", user.infotext)
 
     def test_imp_notetest_dfs_warnings(self):
