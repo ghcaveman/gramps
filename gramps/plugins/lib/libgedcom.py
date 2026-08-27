@@ -3179,13 +3179,12 @@ class GedcomParser(UpdateCallback):
         # external database.  The data will be lost when re-exporting to
         # a GEDCOM file.
         if self._suppressed_warnings_logged:
-            suppressed_list = ", ".join(
-                "%s (%d)" % (tag, self._suppressed_tag_counts[tag])
+            suppressed_list = "".join(
+                "\n  %s (%d occurrences)" % (tag, self._suppressed_tag_counts[tag])
                 for tag in sorted(self._suppressed_warnings_logged)
             )
             roundtrip_msg = _(
-                "\nThe following unsupported GEDCOM tags were not imported:"
-                "%(tags)s.\n"
+                "\nThe following tags were recognized but not supported:" "%(tags)s\n"
             ) % {"tags": suppressed_list}
             self.errors.append(roundtrip_msg)
 
@@ -3542,37 +3541,16 @@ class GedcomParser(UpdateCallback):
         @param state: The current state
         @type state: CurrentState
         """
-        # If the current line tag is '_PREF', '_PAREN', '_ITALIC' or '_NAME',
-        # bypass parsing entirely.
-        # Legacy has the concept of "Preferred" spouses, siblings and children
-        # to help determine what shows on charts when multiple choices exist.
-        # Legacy also adds parens and italics to the source notation, but gramps
-        # handles this through the Bibliography and Report Engine to set either
-        # Chicago, Oxford, or custom style
-        #
-        # Rather than silently skipping these tags, log a one-time warning so
-        # the user knows we are suppressing further messages for the tag.
-        if line.token in (TOKEN__PREF, TOKEN__PAREN, TOKEN__ITALIC, TOKEN__NAME):
-            tag = line.token_text
-            self._suppressed_tag_counts[tag] += 1
-            if tag not in self._suppressed_warnings_logged:
-                self._suppressed_warnings_logged.add(tag)
-                self.__add_msg(
-                    _(
-                        "Unsupported tag '%(tag)s' found but not imported. Further "
-                        "warnings for this tag will be suppressed."
-                    )
-                    % {"tag": tag},
-                    line,
-                    state,
-                )
-
-            return True  # Tells the state engine this tag is handled/skipped cleanly
-        elif line.token == TOKEN_UNKNOWN:
+        # Recognized-but-unsupported tags do not produce per-line messages;
+        # instead each occurrence is counted and a summary of the skipped
+        # tags is reported once at the end of the import.
+        if line.token == TOKEN_UNKNOWN:
             self.__add_msg(_("Line ignored as not understood"), line, state)
         else:
-            self.__add_msg(_("Tag recognized but not supported"), line, state)
-        self.__skip_subordinate_levels(line.level + 1, state)
+            tag = line.token_text
+            self._suppressed_tag_counts[tag] += 1
+            self._suppressed_warnings_logged.add(tag)
+        self.__skip_subordinate_levels_silent(line.level + 1)
 
     def __not_recognized(self, line, state):
         """
@@ -4138,17 +4116,7 @@ class GedcomParser(UpdateCallback):
             elif line.token == TOKEN_UNKNOWN_SECTION:
                 tag = line.token_text
                 self._suppressed_tag_counts[tag] += 1
-                if tag not in self._suppressed_warnings_logged:
-                    self._suppressed_warnings_logged.add(tag)
-                    self.__add_msg(
-                        _(
-                            "Unsupported tag '%(tag)s' found but not imported. "
-                            "Further warnings for this tag will be suppressed."
-                        )
-                        % {"tag": tag},
-                        line,
-                        None,
-                    )
+                self._suppressed_warnings_logged.add(tag)
                 self.__skip_subordinate_levels_silent(1)
             elif key in ("FAM", "FAMILY"):
                 self.__parse_fam(line)
@@ -4171,9 +4139,11 @@ class GedcomParser(UpdateCallback):
                 TOKEN__PAREN,
                 TOKEN__ITALIC,
             ):
-                state = CurrentState()
-                self.__skip_subordinate_levels(1, state)
-                self.__check_msgs(_("Top Level"), state, None)
+                # Recognized but not supported: count it for the end-of-import
+                # summary and skip silently.
+                self._suppressed_tag_counts[line.token_text] += 1
+                self._suppressed_warnings_logged.add(line.token_text)
+                self.__skip_subordinate_levels_silent(1)
             elif key in ("SOUR", "SOURCE"):
                 self.__parse_source(line.token_text, 1)
             elif line.data.startswith(("SOUR ", "SOURCE ")):
