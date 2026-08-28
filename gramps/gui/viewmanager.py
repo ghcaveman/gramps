@@ -1291,6 +1291,7 @@ class ViewManager(CLIManager):
         """
         if self.dbstate.is_open():
             from .grizard.grizardassistant import GrizardAssistant
+
             dialog = GrizardAssistant(self.uistate, self.dbstate, self.window)
             dialog.show()
 
@@ -1879,6 +1880,11 @@ class ViewManager(CLIManager):
             for cat in sorted(viewstoshow.keys())
             if viewstoshow[cat] not in resultorder
         )
+        if "HTML" in viewstoshow:
+            html_group = viewstoshow["HTML"]
+            if html_group in resultorder:
+                resultorder.remove(html_group)
+            resultorder.append(html_group)
         return resultorder
 
 
