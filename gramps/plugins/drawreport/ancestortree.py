@@ -1177,9 +1177,6 @@ class AncestorTreeOptions(MenuReportOptions):
         ##################
         category_name = _("Display")
 
-        # disp = TextOption(
-        #    _("Father\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
-        # )
         self.father_disp = TextOption(
             _("Father\nDisplay Format"),
             ["$n", "%s $b" % _BORN[0], "-{%s $d (%s )}" % (_DIED[0], _AGE[0])],
@@ -1195,10 +1192,6 @@ class AncestorTreeOptions(MenuReportOptions):
         # missing.set_help(_("What will print when information is not known"))
         # menu.add_option(category_name, "miss_val", missing)
 
-        # disp_mom = TextOption(
-        #    _("Mother\nDisplay Format"),
-        #    ["$n", "%s $b" % _BORN, "%s $m" % _MARR, "-{%s $d}" % _DIED],
-        # )
         self.mother_disp = TextOption(
             _("Mother\nDisplay Format"),
             [

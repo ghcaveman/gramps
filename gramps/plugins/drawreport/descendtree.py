@@ -1929,9 +1929,6 @@ class DescendTreeOptions(MenuReportOptions):
         ##################
         category_name = _("Display")
 
-        # disp = TextOption(
-        #    _("Descendant\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
-        # )
         self.descend_disp = TextOption(
             _("Descendant\nDisplay Format"),
             ["$n", "%s $b" % _BORN[0], "-{%s $d (%s )}" % (_DIED[0], _AGE[0])],
@@ -1946,9 +1943,6 @@ class DescendTreeOptions(MenuReportOptions):
         # diffspouse.set_help(_("Whether spouses can have a different format."))
         # menu.add_option(category_name, "diffspouse", diffspouse)
 
-        # sdisp = TextOption(
-        #    _("Spousal\nDisplay Format"), ["$n", "%s $b" % _BORN, "-{%s $d}" % _DIED]
-        # )
         self.spouse_disp = TextOption(
             _("Spousal\nDisplay Format"),
             ["$n", "%s $b" % _BORN[0], "-{%s $d (%s )}" % (_DIED[0], _AGE[0])],
