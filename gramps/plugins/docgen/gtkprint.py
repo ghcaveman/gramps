@@ -524,9 +524,7 @@ class GtkPrint(libcairodoc.CairoDoc):
                 )
             except GLib.GError as err:
                 LOG.error("Print operation failed", exc_info=True)
-                raise ReportError(
-                    _("Printing failed."), str(err)
-                ) from err
+                raise ReportError(_("Printing failed."), str(err)) from err
             if self.preview is None:  # cancel or print
                 break
             # set up printing again; can't reuse PrintOperation?
