@@ -71,11 +71,11 @@ _V_LINE_WIDTH = 4
 _PERSON_CENTER_Y = 24
 
 
-#------------------------------------------------------------
+# ------------------------------------------------------------
 #
 # ParentOutboundLine
 #
-#------------------------------------------------------------
+# ------------------------------------------------------------
 class ParentOutboundLine(Gtk.DrawingArea):
     """
     Draws a vertical coupling backbone on the right side to join couples
@@ -83,9 +83,7 @@ class ParentOutboundLine(Gtk.DrawingArea):
     to the LEFT.
     """
 
-    def __init__(
-        self, num_spouses: int = 0, person_boxes: list | None = None
-    ) -> None:
+    def __init__(self, num_spouses: int = 0, person_boxes: list | None = None) -> None:
         Gtk.DrawingArea.__init__(self)
         self.num_spouses = num_spouses
         self.person_boxes = person_boxes or []
@@ -156,11 +154,11 @@ class ParentOutboundLine(Gtk.DrawingArea):
         return False
 
 
-#------------------------------------------------------------
+# ------------------------------------------------------------
 #
 # ChildInboundLine
 #
-#------------------------------------------------------------
+# ------------------------------------------------------------
 class ChildInboundLine(Gtk.DrawingArea):
     """
     Draws seamless, unbroken vertical tracking rails from the first sibling's
@@ -232,12 +230,11 @@ class ChildInboundLine(Gtk.DrawingArea):
         return False
 
 
-
-#------------------------------------------------------------
+# ------------------------------------------------------------
 #
 # DescendantView
 #
-#------------------------------------------------------------
+# ------------------------------------------------------------
 class DescendantView(NavigationView):
     """
     A view that displays descendants branching from right (root) to left
@@ -287,8 +284,7 @@ class DescendantView(NavigationView):
           <attribute name="label" translatable="no">%s...</attribute>
         </item>
       </section>
-"""
-        % _("Organize Bookmarks"),
+""" % _("Organize Bookmarks"),
         """
         <placeholder id='otheredit'>
         <item>
@@ -623,9 +619,7 @@ class DescendantView(NavigationView):
                 elif person.handle == orig_mother and orig_father:
                     spouse_handle = orig_father
                 if spouse_handle:
-                    spouse_obj = self.dbstate.db.get_person_from_handle(
-                        spouse_handle
-                    )
+                    spouse_obj = self.dbstate.db.get_person_from_handle(spouse_handle)
                     if spouse_obj and spouse_obj not in spouses:
                         spouses.append(spouse_obj)
 
@@ -642,9 +636,7 @@ class DescendantView(NavigationView):
             if family:
                 valid_children = []
                 for child_ref in family.get_child_ref_list():
-                    child_person = self.dbstate.db.get_person_from_handle(
-                        child_ref.ref
-                    )
+                    child_person = self.dbstate.db.get_person_from_handle(child_ref.ref)
                     if child_person:
                         valid_children.append(child_person)
 
@@ -670,9 +662,7 @@ class DescendantView(NavigationView):
                             next_row,
                         )
 
-                        is_first_sibling = (
-                            idx == 0 and len(child_nodes_in_family) == 0
-                        )
+                        is_first_sibling = idx == 0 and len(child_nodes_in_family) == 0
                         child_nodes_in_family.append(
                             (target_gen, target_list_idx, is_first_sibling)
                         )
@@ -780,9 +770,7 @@ class DescendantView(NavigationView):
                     # Connect button-press for spouse context menu
                     sp_fam_h = None
                     for family_handle in person.get_family_handle_list():
-                        fam = self.dbstate.db.get_family_from_handle(
-                            family_handle
-                        )
+                        fam = self.dbstate.db.get_family_from_handle(family_handle)
                         if fam and (
                             fam.get_father_handle() == spouse.get_handle()
                             or fam.get_mother_handle() == spouse.get_handle()
@@ -802,17 +790,12 @@ class DescendantView(NavigationView):
                     root_person_boxes = cell_boxes
                 cell_boxes_by_row[grid_row] = cell_boxes
 
-                self.table.attach(
-                    family_container, grid_column, grid_row, 1, 1
-                )
-
+                self.table.attach(family_container, grid_column, grid_row, 1, 1)
 
                 if depth_level < max_seen_depth:
                     # Only draw the outbound connector when this cell
                     # actually has children; otherwise it dangles.
-                    has_children = bool(
-                        find_children(self.dbstate.db, person)
-                    )
+                    has_children = bool(find_children(self.dbstate.db, person))
                     if not has_children:
                         for spouse in spouses:
                             if find_children(self.dbstate.db, spouse):
@@ -884,15 +867,12 @@ class DescendantView(NavigationView):
                             context.stroke()
                             return False
 
-
                         inbound_line.disconnect_by_func(inbound_line.draw_lines)
                         inbound_line.connect("draw", draw_plain_vertical)
 
                     inbound_line.set_vexpand(True)
                     inbound_line.set_valign(Gtk.Align.FILL)
-                    self.table.attach(
-                        inbound_line, grid_column + 1, current_row, 1, 1
-                    )
+                    self.table.attach(inbound_line, grid_column + 1, current_row, 1, 1)
 
         # Step 3: Add navigation arrow buttons.  Each button sits in a
         # slot that is height-matched to its person/spouse box via a
@@ -929,9 +909,7 @@ class DescendantView(NavigationView):
 
                 # Spouses' parents
                 for idx, spouse in enumerate(root_spouses):
-                    spouse_parentlist = find_parents(
-                        self.dbstate.db, spouse
-                    )
+                    spouse_parentlist = find_parents(self.dbstate.db, spouse)
                     box_idx = idx + 1
                     person_box = (
                         root_person_boxes[box_idx]
@@ -961,9 +939,7 @@ class DescendantView(NavigationView):
         # Child navigation arrows on the left of deepest-generation persons.
         deepest_nodes = population_map.get(max_seen_depth, [])
         for grid_row, person, spouses, _is_first, _is_last in deepest_nodes:
-            button_box = Gtk.Box(
-                orientation=Gtk.Orientation.VERTICAL, spacing=2
-            )
+            button_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             button_box.set_margin_top(6)
             button_box.set_margin_bottom(6)
             button_box.set_valign(Gtk.Align.START)
@@ -975,18 +951,14 @@ class DescendantView(NavigationView):
 
             for idx, handle in enumerate(persons_handles):
                 if idx > 0:
-                    person_obj = self.dbstate.db.get_person_from_handle(
-                        handle
-                    )
+                    person_obj = self.dbstate.db.get_person_from_handle(handle)
                     if not person_obj:
                         continue
                     childlist = find_children(self.dbstate.db, person_obj)
                 else:
                     childlist = find_children(self.dbstate.db, person)
 
-                person_box = (
-                    cell_boxes[idx] if idx < len(cell_boxes) else None
-                )
+                person_box = cell_boxes[idx] if idx < len(cell_boxes) else None
                 self._pack_nav_button(
                     button_box,
                     person_box,
@@ -1000,7 +972,6 @@ class DescendantView(NavigationView):
                 )
 
             self.table.attach(button_box, 0, grid_row, 1, 1)
-
 
         # Add a spacer in column 0 to ensure the column has visible width
         # even when no child navigation buttons are present.
@@ -1069,9 +1040,7 @@ class DescendantView(NavigationView):
             clipboard = Gtk.Clipboard.get_for_display(
                 Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
             )
-            clipboard.set_text(
-                self.format_helper.format_person(person, 11), -1
-            )
+            clipboard.set_text(self.format_helper.format_person(person, 11), -1)
             return True
         return False
 
@@ -1082,15 +1051,11 @@ class DescendantView(NavigationView):
             clipboard = Gtk.Clipboard.get_for_display(
                 Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
             )
-            clipboard.set_text(
-                self.format_helper.format_relation(family, 11), -1
-            )
+            clipboard.set_text(self.format_helper.format_relation(family, 11), -1)
             return True
         return False
 
-    def cb_person_button_press(
-        self, obj, event, person_handle, family_handle
-    ) -> bool:
+    def cb_person_button_press(self, obj, event, person_handle, family_handle) -> bool:
         """Handle button press on person box."""
         if is_right_click(event):
             self.cb_build_full_nav_menu(obj, event, person_handle, family_handle)
@@ -1145,9 +1110,7 @@ class DescendantView(NavigationView):
     def update_scrollbar_positions(self, adjustment, value) -> bool:
         """Control value then try setup in scrollbar."""
         if value > (adjustment.get_upper() - adjustment.get_page_size()):
-            adjustment.set_value(
-                adjustment.get_upper() - adjustment.get_page_size()
-            )
+            adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
         else:
             adjustment.set_value(value)
         return True
@@ -1163,9 +1126,7 @@ class DescendantView(NavigationView):
 
     def add_nav_portion_to_menu(self, menu, person_handle) -> None:
         """Add history-navigation portion to the context menu."""
-        hobj = self.uistate.get_history(
-            self.navigation_type(), self.navigation_group()
-        )
+        hobj = self.uistate.get_history(self.navigation_type(), self.navigation_group())
         home_sensitivity = True
         if not self.dbstate.db.get_default_person():
             home_sensitivity = False
@@ -1200,9 +1161,7 @@ class DescendantView(NavigationView):
         item.show()
         menu.append(item)
 
-    def cb_build_full_nav_menu(
-        self, obj, event, person_handle, family_handle
-    ) -> int:
+    def cb_build_full_nav_menu(self, obj, event, person_handle, family_handle) -> int:
         """Build the full context menu for a person."""
         from html import escape
 
@@ -1285,13 +1244,10 @@ class DescendantView(NavigationView):
 
                 if find_children(self.dbstate.db, sib):
                     label = Gtk.Label(
-                        label="<b><i>%s</i></b>"
-                        % escape(name_displayer.display(sib))
+                        label="<b><i>%s</i></b>" % escape(name_displayer.display(sib))
                     )
                 else:
-                    label = Gtk.Label(
-                        label=escape(name_displayer.display(sib))
-                    )
+                    label = Gtk.Label(label=escape(name_displayer.display(sib)))
 
                 sib_item = Gtk.MenuItem()
                 label.set_use_markup(True)
@@ -1324,22 +1280,17 @@ class DescendantView(NavigationView):
 
             if find_children(self.dbstate.db, child):
                 label = Gtk.Label(
-                    label="<b><i>%s</i></b>"
-                    % escape(name_displayer.display(child))
+                    label="<b><i>%s</i></b>" % escape(name_displayer.display(child))
                 )
             else:
-                label = Gtk.Label(
-                    label=escape(name_displayer.display(child))
-                )
+                label = Gtk.Label(label=escape(name_displayer.display(child)))
 
             child_item = Gtk.MenuItem()
             label.set_use_markup(True)
             label.show()
             label.set_halign(Gtk.Align.START)
             child_item.add(label)
-            child_item.connect(
-                "activate", self.cb_childmenu_changed, child_handle
-            )
+            child_item.connect("activate", self.cb_childmenu_changed, child_handle)
             child_item.show()
             child_menu.append(child_item)
 
@@ -1367,13 +1318,10 @@ class DescendantView(NavigationView):
 
             if find_parents(self.dbstate.db, par):
                 label = Gtk.Label(
-                    label="<b><i>%s</i></b>"
-                    % escape(name_displayer.display(par))
+                    label="<b><i>%s</i></b>" % escape(name_displayer.display(par))
                 )
             else:
-                label = Gtk.Label(
-                    label=escape(name_displayer.display(par))
-                )
+                label = Gtk.Label(label=escape(name_displayer.display(par)))
 
             par_item = Gtk.MenuItem()
             label.set_use_markup(True)
@@ -1438,12 +1386,8 @@ class DescendantView(NavigationView):
         self._config.connect(
             "interface.descrtl-show-images", self.cb_update_show_images
         )
-        self._config.connect(
-            "interface.descrtl-show-tags", self.cb_update_show_tags
-        )
-        self._config.connect(
-            "interface.descrtl-tree-size", self.cb_update_tree_size
-        )
+        self._config.connect("interface.descrtl-show-tags", self.cb_update_show_tags)
+        self._config.connect("interface.descrtl-tree-size", self.cb_update_tree_size)
 
     def cb_update_show_tags(self, client, cnxn_id, entry, data) -> None:
         """Called when tags setting changes."""

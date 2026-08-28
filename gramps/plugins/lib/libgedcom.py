@@ -3507,7 +3507,11 @@ class GedcomParser(UpdateCallback):
             self.__add_msg(_("Line ignored as not understood"), line, state)
         else:
             self.__add_msg(
-                _("Tag recognized but not supported: '" + str(line.data) + "' on line "),
+                _(
+                    "Tag recognized but not supported: '"
+                    + str(line.data)
+                    + "' on line "
+                ),
                 line,
                 state,
             )
