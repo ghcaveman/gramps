@@ -1869,6 +1869,11 @@ class ViewManager(CLIManager):
             for cat in sorted(viewstoshow.keys())
             if viewstoshow[cat] not in resultorder
         )
+        if "HTML" in viewstoshow:
+            html_group = viewstoshow["HTML"]
+            if html_group in resultorder:
+                resultorder.remove(html_group)
+            resultorder.append(html_group)
         return resultorder
 
 
