@@ -655,7 +655,13 @@ class BoxBase:
             img_x = xbegin + (self.width - self.thumb_width) / 2
             # Draw thumbnail INSIDE the box, starting at text_y (the box top)
             img_y = text_y
-            doc.draw_image(self.thumbnail, img_x, ybegin + 0.05, self.thumb_width, self.thumb_height)
+            doc.draw_image(
+                self.thumbnail,
+                img_x,
+                ybegin + 0.05,
+                self.thumb_width,
+                self.thumb_height,
+            )
             # Draw the mask image over the thumbnail
             if self.mask:
                 doc.draw_image(

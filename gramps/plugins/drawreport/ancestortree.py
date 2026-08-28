@@ -38,7 +38,7 @@ import os
 #
 # ------------------------------------------------------------------------
 
-from gramps.gen.const import GRAMPS_LOCALE as glocale, IMAGE_DIR
+from gramps.gen.const import GRAMPS_LOCALE as glocale
 
 _ = glocale.translation.sgettext
 from gramps.gen.errors import ReportError
@@ -1081,21 +1081,17 @@ class AncestorTreeOptions(MenuReportOptions):
         menu.add_option(category_name, "thumb_width", self.thumbwidth)
 
         self.thumbheight = NumberOption(_("Thumbnail height (cm)"), 2.0, 0.5, 5.0, 0.1)
-        self.thumbheight.set_help(_("The height of the thumbnail image in centimeters."))
+        self.thumbheight.set_help(
+            _("The height of the thumbnail image in centimeters.")
+        )
         menu.add_option(category_name, "thumb_height", self.thumbheight)
 
         self.maskpath = DestinationOption(
-            _(
-                "Thumbnail mask file\n"
-                "(image file to overlay on each thumbnail)"
-            ),
-            os.path.join(IMAGE_DIR, "masks", "frame_ornate_wood.png"),
+            _("Thumbnail mask file\n" "(image file to overlay on each thumbnail)"),
+            "",
         )
         self.maskpath.set_help(
-            _(
-                "The mask image file to draw over each "
-                "thumbnail image in the report."
-            )
+            _("The mask image file to draw over each " "thumbnail image in the report.")
         )
         menu.add_option(category_name, "mask_path", self.maskpath)
         self._thumbs_changed()
