@@ -41,7 +41,7 @@ from gi.repository import Gtk
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.const import CUSTOM_FILTERS, URL_MANUAL_PAGE, URL_WIKISTRING
 from gramps.gen.errors import WindowActiveError
-from gramps.gen.lib import ChildRef, Family
+from gramps.gen.lib import ChildRef, ChildRefType, Family
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.utils.db import find_children, find_parents, find_witnessed_people
 from gramps.gen.utils.libformatting import FormattingHelper
@@ -171,11 +171,13 @@ class ChildInboundLine(Gtk.DrawingArea):
         is_last_child: bool,
         has_spouse: bool = False,
         person_boxes: list | None = None,
+        is_birth: bool = True,
     ) -> None:
         Gtk.DrawingArea.__init__(self)
         self.is_first_child = is_first_child
         self.is_last_child = is_last_child
         self.has_spouse = has_spouse
+        self.is_birth = is_birth
         self.person_boxes = person_boxes or []
         self.set_size_request(20, -1)
         self.connect("draw", self.draw_lines)
@@ -209,11 +211,17 @@ class ChildInboundLine(Gtk.DrawingArea):
         target_y = center if center is not None else _PERSON_CENTER_Y
 
         # 1. Horizontal connector pin running into the right side of the
-        #    child box
+        #    child box. Dashed when the child's relationship to the primary
+        #    person is not by birth (matching pedigree view behavior).
         context.set_line_width(_H_LINE_WIDTH)
+        if self.is_birth:
+            context.set_dash([], 0)  # SOLID
+        else:
+            context.set_dash([9.0], 1)  # DASH
         context.move_to(spine_x, target_y)
         context.line_to(0, target_y)
         context.stroke()
+        context.set_dash([], 0)  # SOLID
 
         # 2. Continuous vertical sibling tracking rails (edge to edge),
         #    thicker than the horizontal connectors
@@ -599,6 +607,7 @@ class DescendantView(NavigationView):
         max_depth: int,
         generation_dict: dict,
         next_row: int = 0,
+        is_birth: bool = True,
     ) -> int:
         """Recursively map descendants into a generation dictionary."""
         if current_depth >= max_depth or not person:
@@ -624,8 +633,8 @@ class DescendantView(NavigationView):
                         spouses.append(spouse_obj)
 
         current_node_row = next_row
-        # Layout: [row, person, spouses, is_first, is_last]
-        node_payload = [current_node_row, person, spouses, True, True]
+        # Layout: [row, person, spouses, is_first, is_last, is_birth]
+        node_payload = [current_node_row, person, spouses, True, True, is_birth]
         generation_dict[current_depth].append(node_payload)
 
         child_start_row = next_row
@@ -638,9 +647,21 @@ class DescendantView(NavigationView):
                 for child_ref in family.get_child_ref_list():
                     child_person = self.dbstate.db.get_person_from_handle(child_ref.ref)
                     if child_person:
-                        valid_children.append(child_person)
+                        # Relationship is judged on the primary person's own
+                        # link to the child (frel if primary is the father,
+                        # mrel if the mother), mirroring pedigree view.
+                        if person.handle == family.get_father_handle():
+                            child_is_birth = child_ref.frel == ChildRefType.BIRTH
+                        elif person.handle == family.get_mother_handle():
+                            child_is_birth = child_ref.mrel == ChildRefType.BIRTH
+                        else:
+                            child_is_birth = (
+                                child_ref.frel == ChildRefType.BIRTH
+                                and child_ref.mrel == ChildRefType.BIRTH
+                            )
+                        valid_children.append((child_person, child_is_birth))
 
-                for idx, child_person in enumerate(valid_children):
+                for idx, (child_person, child_is_birth) in enumerate(valid_children):
                     target_gen = current_depth + 1
 
                     # Children at the max depth boundary are not added to
@@ -660,6 +681,7 @@ class DescendantView(NavigationView):
                             max_depth,
                             generation_dict,
                             next_row,
+                            child_is_birth,
                         )
 
                         is_first_sibling = idx == 0 and len(child_nodes_in_family) == 0
@@ -711,7 +733,14 @@ class DescendantView(NavigationView):
                 )
             column_size_group = size_groups_by_column[grid_column]
 
-            for grid_row, person, spouses, _is_first, _is_last in people_nodes:
+            for (
+                grid_row,
+                person,
+                spouses,
+                _is_first,
+                _is_last,
+                _is_birth,
+            ) in people_nodes:
                 family_container = Gtk.Box(
                     orientation=Gtk.Orientation.VERTICAL, spacing=2
                 )
@@ -848,6 +877,7 @@ class DescendantView(NavigationView):
                             is_last_child=is_last,
                             has_spouse=has_spouse,
                             person_boxes=row_boxes,
+                            is_birth=node_data[5],
                         )
                     else:
                         inbound_line = ChildInboundLine(
@@ -938,7 +968,7 @@ class DescendantView(NavigationView):
 
         # Child navigation arrows on the left of deepest-generation persons.
         deepest_nodes = population_map.get(max_seen_depth, [])
-        for grid_row, person, spouses, _is_first, _is_last in deepest_nodes:
+        for grid_row, person, spouses, _is_first, _is_last, _is_birth in deepest_nodes:
             button_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             button_box.set_margin_top(6)
             button_box.set_margin_bottom(6)
