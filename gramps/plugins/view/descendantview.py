@@ -306,6 +306,19 @@ class ChildInboundLine(Gtk.DrawingArea):
         if not self.is_last_child:
             stroke_solid(target_y, alloc.height)
 
+        # Only child (first and last): the edge-gated spine draws nothing,
+        # so bridge the pin to the parents' delivery line explicitly when
+        # they share this row.  Non-birth children are already covered by
+        # their dashed connector run.
+        if self.is_first_child and self.is_last_child and self.is_birth:
+            delivery = self._delivery_in_own_coords()
+            if delivery is not None:
+                lo, hi = sorted((target_y, delivery))
+                if hi - lo > 0.5:
+                    context.move_to(spine_x, lo)
+                    context.line_to(spine_x, hi)
+                    context.stroke()
+
         # Dashed connector runs for the non-birth children.
         for lo, hi in intervals:
             y0 = max(lo, 0.0)
