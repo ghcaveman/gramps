@@ -92,7 +92,9 @@ class ParentOutboundLine(Gtk.DrawingArea):
         Gtk.DrawingArea.__init__(self)
         self.num_spouses = num_spouses
         self.person_boxes = person_boxes or []
-        self.child_boxes = child_boxes or []
+        self.child_boxes: list = []
+        self.child_is_first = False
+        self.child_is_last = False
         self.set_size_request(20, -1)
         self.connect("draw", self.draw_line)
 
@@ -162,21 +164,31 @@ class ParentOutboundLine(Gtk.DrawingArea):
             delivery_y = person1_center_y
 
         # Bridge the delivery line's Y to the child pin's Y when a child
-        # cell shares this grid row.  The child's inbound rail (next column
-        # over, spine at its right edge -- the same boundary this widget's
-        # delivery line ends at) only spans outward from its own pin, so a
-        # couple's midline sitting off the child box's center would stop
-        # short without this connecting segment.
+        # cell shares this grid row and its inbound rail leaves the
+        # boundary uncovered.  A middle sibling's rail already spans the
+        # full widget height, but an edge child's rail stops at its own
+        # pin, so a couple's midline sitting off the child box's center
+        # would stop short without this connecting segment.
         child_center = (
             self._box_center_y(self.child_boxes[0]) if self.child_boxes else None
         )
         if child_center is not None and abs(delivery_y - child_center) > 0.5:
-            context.set_line_width(_H_LINE_WIDTH)
-            # Inset from the left edge by half the stroke so it stays visible.
-            bridge_x = _H_LINE_WIDTH / 2
-            context.move_to(bridge_x, delivery_y)
-            context.line_to(bridge_x, child_center)
-            context.stroke()
+            if self.child_is_first and self.child_is_last:
+                need = True  # only child: rail exists only at the pin
+            elif self.child_is_first:
+                need = delivery_y < child_center - 0.5
+            elif self.child_is_last:
+                need = delivery_y > child_center + 0.5
+            else:
+                need = False  # middle child: rail already spans fully
+            if need:
+                context.set_line_width(_H_LINE_WIDTH)
+                # Draw on the widget's left edge (x=0): the delivery line
+                # above and the child's pin in the adjacent column both end
+                # at this same boundary, keeping the whole run collinear.
+                context.move_to(0, delivery_y)
+                context.line_to(0, child_center)
+                context.stroke()
 
         return False
 
@@ -767,8 +779,8 @@ class DescendantView(NavigationView):
                 grid_row,
                 person,
                 spouses,
-                _is_first,
-                _is_last,
+                is_first_child,
+                is_last_child,
                 _is_birth,
             ) in people_nodes:
                 family_container = Gtk.Box(
@@ -866,6 +878,8 @@ class DescendantView(NavigationView):
                             num_spouses=len(spouses),
                             person_boxes=cell_boxes,
                         )
+                        outbound_stub.child_is_first = is_first_child
+                        outbound_stub.child_is_last = is_last_child
                         outbound_stub.set_vexpand(True)
                         outbound_stub.set_valign(Gtk.Align.FILL)
                         self.table.attach(
