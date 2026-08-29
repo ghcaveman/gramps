@@ -45,7 +45,7 @@ from gramps.gen.lib import ChildRef, ChildRefType, Family
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.utils.db import find_children, find_parents, find_witnessed_people
 from gramps.gen.utils.libformatting import FormattingHelper
-from gramps.gui.display import display_url
+from gramps.gui.display import display_help
 from gramps.gui.dialog import RunDatabaseRepair
 from gramps.gui.editors import EditFamily, EditPerson, FilterEditor
 from gramps.gui.utils import is_right_click
@@ -518,7 +518,7 @@ class DescendantView(NavigationView):
 
     def on_help_clicked(self, dummy) -> None:
         """Display the relevant portion of Gramps manual."""
-        display_url(WIKI_PAGE)
+        display_help(self.uistate.window, WIKI_PAGE)
 
     def _connect_db_signals(self) -> None:
         """Connect database signals."""
@@ -996,19 +996,38 @@ class DescendantView(NavigationView):
                         )
                     group_rails.append(rail)
 
+                # The outbound stub lives in the parents' grid row, which is
+                # one of the group's rows but generally not the same row as
+                # each child.  Find it once for the whole group so every
+                # rail (including the non-couple rows) can compute the
+                # dashed connector runs up to the delivery line.
+                group_stub = None
+                for r in range(start_row, end_row + 1):
+                    stub = outbound_stubs_by_pos.get((grid_column + 2, r))
+                    if stub is not None:
+                        group_stub = stub
+                        break
+
                 for offset, rail in enumerate(group_rails):
                     current_row = start_row + offset
                     rail.nonbirth_rails = group_nonbirth
                     rail.set_vexpand(True)
                     rail.set_valign(Gtk.Align.FILL)
                     self.table.attach(rail, grid_column + 1, current_row, 1, 1)
-                    # Wire the rail to the outbound stub immediately to its
-                    # right (parent cell column + 1): every rail in the
-                    # group reads the stub's delivery Y so the dashed
+                    # Wire every rail in the group to the group's stub: the
+                    # rail reads the stub's delivery Y so the dashed
                     # connector runs all end exactly on the delivery line.
-                    rail.parent_line = outbound_stubs_by_pos.get(
-                        (grid_column + 2, current_row)
-                    )
+                    rail.parent_line = group_stub
+                    # The rail may have drawn before the stub was realized,
+                    # in which case it fell back to an all-solid spine;
+                    # redraw now that the delivery point is available, and
+                    # again when the stub first draws if it wasn't realized
+                    # yet.
+                    rail.queue_draw()
+                    if group_stub is not None and not group_stub.get_realized():
+                        group_stub.connect(
+                            "draw", lambda _w, _c, r=rail: r.queue_draw()
+                        )
 
         # Step 3: Add navigation arrow buttons.  Each button sits in a
         # slot that is height-matched to its person/spouse box via a
