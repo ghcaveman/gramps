@@ -190,14 +190,20 @@ class ChildInboundLine(Gtk.DrawingArea):
         has_spouse: bool = False,
         person_boxes: list | None = None,
         is_birth: bool = True,
+        draw_pin: bool = True,
     ) -> None:
         Gtk.DrawingArea.__init__(self)
         self.is_first_child = is_first_child
         self.is_last_child = is_last_child
         self.has_spouse = has_spouse
         self.is_birth = is_birth
+        self.draw_pin = draw_pin
         self.person_boxes = person_boxes or []
         self.parent_line: ParentOutboundLine | None = None
+        # Rails of the non-birth children in this sibling group.  Every
+        # row widget in the group gets the same list so it can split its
+        # solid spine around their connector runs and dash those runs.
+        self.nonbirth_rails: list = []
         self.set_size_request(20, -1)
         self.connect("draw", self.draw_lines)
 
@@ -216,6 +222,46 @@ class ChildInboundLine(Gtk.DrawingArea):
         _x, y = coords
         return y + box.get_allocated_height() / 2
 
+    def pin_y(self) -> float:
+        """Return this row's pin Y (the person box center) in own coords."""
+        center = self._box_center_y(self.person_boxes[0]) if self.person_boxes else None
+        return center if center is not None else _PERSON_CENTER_Y
+
+    def _delivery_in_own_coords(self) -> float | None:
+        """Return the parents' delivery Y translated into own coords."""
+        if self.parent_line is None or not self.parent_line.get_realized():
+            return None
+        coords = self.parent_line.translate_coordinates(
+            self, 0, self.parent_line.delivery_y()
+        )
+        return coords[1] if coords else None
+
+    def _dashed_intervals(self) -> list[tuple[float, float]]:
+        """
+        Return merged, sorted spine intervals carrying the non-birth
+        children's connector runs (pin to the parents' delivery point).
+        """
+        delivery = self._delivery_in_own_coords()
+        if delivery is None:
+            return []
+        intervals = []
+        for rail in self.nonbirth_rails:
+            if not rail.get_realized():
+                continue
+            coords = rail.translate_coordinates(self, 0, rail.pin_y())
+            if not coords:
+                continue
+            lo, hi = sorted((coords[1], delivery))
+            if hi - lo > 0.5:
+                intervals.append((lo, hi))
+        merged: list[list[float]] = []
+        for lo, hi in sorted(intervals):
+            if merged and lo <= merged[-1][1] + 0.5:
+                merged[-1][1] = max(merged[-1][1], hi)
+            else:
+                merged.append([lo, hi])
+        return [(lo, hi) for lo, hi in merged]
+
     def draw_lines(self, widget: Gtk.DrawingArea, context) -> bool:
         alloc = self.get_allocation()
         context.set_source_rgb(0.0, 0.0, 0.0)
@@ -226,69 +272,62 @@ class ChildInboundLine(Gtk.DrawingArea):
 
         # Aim at the actual vertical center of the primary person box so
         # the horizontal pin lines up perfectly with the box.
-        center = self._box_center_y(self.person_boxes[0]) if self.person_boxes else None
-        target_y = center if center is not None else _PERSON_CENTER_Y
+        target_y = self.pin_y()
 
-        # 1. Horizontal connector pin running into the right side of the
-        #    child box. Dashed when the child's relationship to the primary
-        #    person is not by birth (matching pedigree view behavior).
-        context.set_line_width(_H_LINE_WIDTH)
-        if self.is_birth:
-            context.set_dash([], 0)  # SOLID
-        else:
-            context.set_dash([9.0], 1)  # DASH
-        context.move_to(spine_x, target_y)
-        context.line_to(0, target_y)
-        context.stroke()
-        context.set_dash([], 0)  # SOLID
-
-        # 2. Vertical spine work.  The segment between the pin and the
-        #    parents' delivery line (when misaligned) is this child's own
-        #    connector: it is drawn dashed for non-birth children, and the
-        #    solid sibling rails are split around it so no solid stroke
-        #    hides underneath the dashes.
-        span_lo = span_hi = None
-        delivery = None
-        if self.parent_line is not None:
-            delivery = self.parent_line.delivery_y()
-            if abs(delivery - target_y) > 0.5:
-                span_lo, span_hi = sorted((target_y, delivery))
+        # Spine intervals carrying non-birth children's connectors; drawn
+        # dashed, with the solid rails split around them so no solid
+        # stroke hides underneath the dashes.
+        intervals = self._dashed_intervals()
 
         context.set_line_width(_V_LINE_WIDTH)
 
         def stroke_solid(a: float, b: float) -> None:
-            """Stroke a solid vertical segment, clipped to the widget."""
-            a = max(a, 0.0)
-            b = min(b, alloc.height)
-            if b - a > 0.5:
-                context.move_to(spine_x, a)
-                context.line_to(spine_x, b)
+            """Stroke [a, b] minus the dashed intervals, clipped to widget."""
+            cursor = max(a, 0.0)
+            end = min(b, alloc.height)
+            for lo, hi in intervals:
+                if hi <= cursor + 0.5:
+                    continue
+                if lo >= end - 0.5:
+                    break
+                if lo - cursor > 0.5:
+                    context.move_to(spine_x, cursor)
+                    context.line_to(spine_x, lo)
+                    context.stroke()
+                cursor = max(cursor, hi)
+            if end - cursor > 0.5:
+                context.move_to(spine_x, cursor)
+                context.line_to(spine_x, end)
                 context.stroke()
 
-        # Solid sibling rails, split around the connector span.
+        # Solid sibling rails (edge-gated), split around dashed intervals.
         if not self.is_first_child:
-            if span_lo is None:
-                stroke_solid(0.0, target_y)
-            else:
-                stroke_solid(0.0, span_lo)
-                stroke_solid(span_hi, target_y)
+            stroke_solid(0.0, target_y)
         if not self.is_last_child:
-            if span_lo is None:
-                stroke_solid(target_y, alloc.height)
-            else:
-                stroke_solid(target_y, span_lo)
-                stroke_solid(span_hi, alloc.height)
+            stroke_solid(target_y, alloc.height)
 
-        # Connector segment from the pin to the parents' delivery line:
-        # dashed for non-birth relationships (matching the pin), solid
-        # for birth.  For an edge child this is the extension bridging
-        # the uncovered side; for a middle child it replaces the portion
-        # of rail the connector runs along.
-        if span_lo is not None:
-            if not self.is_birth:
+        # Dashed connector runs for the non-birth children.
+        for lo, hi in intervals:
+            y0 = max(lo, 0.0)
+            y1 = min(hi, alloc.height)
+            if y1 - y0 > 0.5:
+                context.set_dash([9.0], 1)  # DASH
+                context.move_to(spine_x, y0)
+                context.line_to(spine_x, y1)
+                context.stroke()
+                context.set_dash([], 0)  # SOLID
+
+        # Horizontal connector pin running into the right side of the
+        # child box. Dashed when the child's relationship to the primary
+        # person is not by birth (matching pedigree view behavior).
+        if self.draw_pin:
+            context.set_line_width(_H_LINE_WIDTH)
+            if self.is_birth:
+                context.set_dash([], 0)  # SOLID
+            else:
                 context.set_dash([9.0], 1)  # DASH
             context.move_to(spine_x, target_y)
-            context.line_to(spine_x, delivery)
+            context.line_to(0, target_y)
             context.stroke()
             context.set_dash([], 0)  # SOLID
 
@@ -927,64 +966,47 @@ class DescendantView(NavigationView):
                 end_row = group[-1][0]
                 people_rows_map = {node[0]: node for node in group}
 
+                # All rows of the group (person rows and gap rows) get a
+                # rail widget sharing one non-birth rail list, so each
+                # widget splits its solid spine around and dashes exactly
+                # the non-birth children's connector runs.  Gap rows have
+                # no pin; they just carry the spine through.
+                group_nonbirth: list = []
+                group_rails: list[ChildInboundLine] = []
                 for current_row in range(start_row, end_row + 1):
                     row_boxes = cell_boxes_by_row.get(current_row, [])
-                    if current_row in people_rows_map:
-                        node_data = people_rows_map[current_row]
-                        is_first = node_data[3]
-                        is_last = node_data[4]
-                        has_spouse = len(node_data[2]) > 0
-
-                        inbound_line = ChildInboundLine(
-                            is_first_child=is_first,
-                            is_last_child=is_last,
-                            has_spouse=has_spouse,
+                    node_data = people_rows_map.get(current_row)
+                    if node_data is not None:
+                        rail = ChildInboundLine(
+                            is_first_child=node_data[3],
+                            is_last_child=node_data[4],
+                            has_spouse=len(node_data[2]) > 0,
                             person_boxes=row_boxes,
                             is_birth=node_data[5],
                         )
+                        if not node_data[5]:
+                            group_nonbirth.append(rail)
                     else:
-                        inbound_line = ChildInboundLine(
+                        rail = ChildInboundLine(
                             is_first_child=False,
                             is_last_child=False,
                             has_spouse=False,
-                            person_boxes=row_boxes,
+                            person_boxes=[],
+                            draw_pin=False,
                         )
+                    group_rails.append(rail)
 
-                        # Gap filler: a plain full-height spine.  In the
-                        # parents' own row this filler carries the children's
-                        # connectors up to the delivery line, so it must be
-                        # dashed when the group contains a non-birth child
-                        # (matching the dashed pins and spine segments).
-                        group_has_nonbirth = any(not node[5] for node in group)
-                        is_couple_row = (
-                            grid_column + 2,
-                            current_row,
-                        ) in outbound_stubs_by_pos
-
-                        def draw_plain_vertical(widget, context) -> bool:
-                            alloc = widget.get_allocation()
-                            context.set_source_rgb(0.0, 0.0, 0.0)
-                            context.set_line_width(_V_LINE_WIDTH)
-                            if is_couple_row and group_has_nonbirth:
-                                context.set_dash([9.0], 1)  # DASH
-                            spine_x = alloc.width - _V_LINE_WIDTH / 2
-                            context.move_to(spine_x, 0)
-                            context.line_to(spine_x, alloc.height)
-                            context.stroke()
-                            context.set_dash([], 0)  # SOLID
-                            return False
-
-                        inbound_line.disconnect_by_func(inbound_line.draw_lines)
-                        inbound_line.connect("draw", draw_plain_vertical)
-
-                    inbound_line.set_vexpand(True)
-                    inbound_line.set_valign(Gtk.Align.FILL)
-                    self.table.attach(inbound_line, grid_column + 1, current_row, 1, 1)
+                for offset, rail in enumerate(group_rails):
+                    current_row = start_row + offset
+                    rail.nonbirth_rails = group_nonbirth
+                    rail.set_vexpand(True)
+                    rail.set_valign(Gtk.Align.FILL)
+                    self.table.attach(rail, grid_column + 1, current_row, 1, 1)
                     # Wire the rail to the outbound stub immediately to its
-                    # right (parent cell column + 1): the rail reads the
-                    # stub's delivery Y to draw its spine extension exactly
-                    # collinear with the rails and the delivery line.
-                    inbound_line.parent_line = outbound_stubs_by_pos.get(
+                    # right (parent cell column + 1): every rail in the
+                    # group reads the stub's delivery Y so the dashed
+                    # connector runs all end exactly on the delivery line.
+                    rail.parent_line = outbound_stubs_by_pos.get(
                         (grid_column + 2, current_row)
                     )
 
