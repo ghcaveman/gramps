@@ -87,16 +87,26 @@ class ParentOutboundLine(Gtk.DrawingArea):
         self,
         num_spouses: int = 0,
         person_boxes: list | None = None,
-        child_boxes: list | None = None,
     ) -> None:
         Gtk.DrawingArea.__init__(self)
         self.num_spouses = num_spouses
         self.person_boxes = person_boxes or []
-        self.child_boxes: list = []
-        self.child_is_first = False
-        self.child_is_last = False
         self.set_size_request(20, -1)
         self.connect("draw", self.draw_line)
+
+    def delivery_y(self) -> float:
+        """
+        Return the Y coordinate (in this widget's coordinates) where the
+        outbound lineage delivery line leaves this widget's left edge.
+        """
+        centers = []
+        for box in self.person_boxes:
+            center = self._box_center_y(box)
+            centers.append(center if center is not None else _PERSON_CENTER_Y)
+
+        if self.num_spouses > 0 and len(centers) >= 2:
+            return (centers[0] + centers[1]) / 2
+        return centers[0] if centers else _PERSON_CENTER_Y
 
     def _box_center_y(self, box) -> float | None:
         """
@@ -151,8 +161,6 @@ class ParentOutboundLine(Gtk.DrawingArea):
             context.move_to(spine_x, person1_center_y)
             context.line_to(spine_x, spouse_center_y)
             context.stroke()
-
-            delivery_y = mid_y
         else:
             # Single person: aim at the person box center
             person1_center_y = centers[0] if centers else _PERSON_CENTER_Y
@@ -160,35 +168,6 @@ class ParentOutboundLine(Gtk.DrawingArea):
             context.move_to(right_edge, person1_center_y)
             context.line_to(0, person1_center_y)
             context.stroke()
-
-            delivery_y = person1_center_y
-
-        # Bridge the delivery line's Y to the child pin's Y when a child
-        # cell shares this grid row and its inbound rail leaves the
-        # boundary uncovered.  A middle sibling's rail already spans the
-        # full widget height, but an edge child's rail stops at its own
-        # pin, so a couple's midline sitting off the child box's center
-        # would stop short without this connecting segment.
-        child_center = (
-            self._box_center_y(self.child_boxes[0]) if self.child_boxes else None
-        )
-        if child_center is not None and abs(delivery_y - child_center) > 0.5:
-            if self.child_is_first and self.child_is_last:
-                need = True  # only child: rail exists only at the pin
-            elif self.child_is_first:
-                need = delivery_y < child_center - 0.5
-            elif self.child_is_last:
-                need = delivery_y > child_center + 0.5
-            else:
-                need = False  # middle child: rail already spans fully
-            if need:
-                context.set_line_width(_H_LINE_WIDTH)
-                # Draw on the widget's left edge (x=0): the delivery line
-                # above and the child's pin in the adjacent column both end
-                # at this same boundary, keeping the whole run collinear.
-                context.move_to(0, delivery_y)
-                context.line_to(0, child_center)
-                context.stroke()
 
         return False
 
@@ -218,6 +197,7 @@ class ChildInboundLine(Gtk.DrawingArea):
         self.has_spouse = has_spouse
         self.is_birth = is_birth
         self.person_boxes = person_boxes or []
+        self.parent_line: ParentOutboundLine | None = None
         self.set_size_request(20, -1)
         self.connect("draw", self.draw_lines)
 
@@ -274,6 +254,31 @@ class ChildInboundLine(Gtk.DrawingArea):
             context.line_to(spine_x, alloc.height)
 
         context.stroke()
+
+        # 3. Bridge extension along the spine: connect the pin to the
+        #    parents' delivery line when the couple's midline sits off
+        #    this box's center.  An edge child's rails stop at the pin,
+        #    leaving the spine uncovered on one side; a middle sibling's
+        #    rails already span the full height and need no extension.
+        #    Drawing on spine_x keeps the extension exactly collinear
+        #    with the rails and the parents' delivery line beyond.
+        if self.parent_line is not None:
+            delivery = self.parent_line.delivery_y()
+            if abs(delivery - target_y) > 0.5:
+                if self.is_first_child and self.is_last_child:
+                    need = True  # only child: rails exist only at the pin
+                elif self.is_first_child:
+                    need = delivery < target_y - 0.5
+                elif self.is_last_child:
+                    need = delivery > target_y + 0.5
+                else:
+                    need = False  # middle child: rails already span fully
+                if need:
+                    context.set_line_width(_V_LINE_WIDTH)
+                    context.move_to(spine_x, target_y)
+                    context.line_to(spine_x, delivery)
+                    context.stroke()
+
         return False
 
 
@@ -761,9 +766,9 @@ class DescendantView(NavigationView):
         root_person_boxes: list = []
         # All cell boxes by grid row, used to center connector lines.
         cell_boxes_by_row: dict[int, list] = {}
-        # Outbound connector widgets by grid row, wired to child boxes
-        # after all cells are rendered.
-        outbound_stubs_by_row: dict[int, ParentOutboundLine] = {}
+        # Outbound connector widgets keyed by (column, row); wired into
+        # the adjacent child rails after all widgets are rendered.
+        outbound_stubs_by_pos: dict[tuple[int, int], ParentOutboundLine] = {}
 
         # Step 1: Render all Person and Spouse boxes to establish columns
         for depth_level, people_nodes in population_map.items():
@@ -779,8 +784,8 @@ class DescendantView(NavigationView):
                 grid_row,
                 person,
                 spouses,
-                is_first_child,
-                is_last_child,
+                _is_first,
+                _is_last,
                 _is_birth,
             ) in people_nodes:
                 family_container = Gtk.Box(
@@ -878,21 +883,14 @@ class DescendantView(NavigationView):
                             num_spouses=len(spouses),
                             person_boxes=cell_boxes,
                         )
-                        outbound_stub.child_is_first = is_first_child
-                        outbound_stub.child_is_last = is_last_child
                         outbound_stub.set_vexpand(True)
                         outbound_stub.set_valign(Gtk.Align.FILL)
                         self.table.attach(
                             outbound_stub, grid_column - 1, grid_row, 1, 1
                         )
-                        outbound_stubs_by_row[grid_row] = outbound_stub
-
-        # Defer wiring the child boxes into the outbound stubs until every
-        # cell exists: deeper generations sharing a row overwrite
-        # cell_boxes_by_row entries, and the stub must aim at the same box
-        # the adjacent child rail aims at.
-        for stub_row, stub in outbound_stubs_by_row.items():
-            stub.child_boxes = cell_boxes_by_row.get(stub_row, [])
+                        outbound_stubs_by_pos[(grid_column - 1, grid_row)] = (
+                            outbound_stub
+                        )
 
         # Step 2: Render continuous, gap-free vertical lines for siblings
         for depth_level in range(1, max_seen_depth + 1):
@@ -955,6 +953,13 @@ class DescendantView(NavigationView):
                     inbound_line.set_vexpand(True)
                     inbound_line.set_valign(Gtk.Align.FILL)
                     self.table.attach(inbound_line, grid_column + 1, current_row, 1, 1)
+                    # Wire the rail to the outbound stub immediately to its
+                    # right (parent cell column + 1): the rail reads the
+                    # stub's delivery Y to draw its spine extension exactly
+                    # collinear with the rails and the delivery line.
+                    inbound_line.parent_line = outbound_stubs_by_pos.get(
+                        (grid_column + 2, current_row)
+                    )
 
         # Step 3: Add navigation arrow buttons.  Each button sits in a
         # slot that is height-matched to its person/spouse box via a
