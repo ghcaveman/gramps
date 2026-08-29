@@ -83,10 +83,16 @@ class ParentOutboundLine(Gtk.DrawingArea):
     to the LEFT.
     """
 
-    def __init__(self, num_spouses: int = 0, person_boxes: list | None = None) -> None:
+    def __init__(
+        self,
+        num_spouses: int = 0,
+        person_boxes: list | None = None,
+        child_boxes: list | None = None,
+    ) -> None:
         Gtk.DrawingArea.__init__(self)
         self.num_spouses = num_spouses
         self.person_boxes = person_boxes or []
+        self.child_boxes = child_boxes or []
         self.set_size_request(20, -1)
         self.connect("draw", self.draw_line)
 
@@ -143,12 +149,33 @@ class ParentOutboundLine(Gtk.DrawingArea):
             context.move_to(spine_x, person1_center_y)
             context.line_to(spine_x, spouse_center_y)
             context.stroke()
+
+            delivery_y = mid_y
         else:
             # Single person: aim at the person box center
             person1_center_y = centers[0] if centers else _PERSON_CENTER_Y
             context.set_line_width(_H_LINE_WIDTH)
             context.move_to(right_edge, person1_center_y)
             context.line_to(0, person1_center_y)
+            context.stroke()
+
+            delivery_y = person1_center_y
+
+        # Bridge the delivery line's Y to the child pin's Y when a child
+        # cell shares this grid row.  The child's inbound rail (next column
+        # over, spine at its right edge -- the same boundary this widget's
+        # delivery line ends at) only spans outward from its own pin, so a
+        # couple's midline sitting off the child box's center would stop
+        # short without this connecting segment.
+        child_center = (
+            self._box_center_y(self.child_boxes[0]) if self.child_boxes else None
+        )
+        if child_center is not None and abs(delivery_y - child_center) > 0.5:
+            context.set_line_width(_H_LINE_WIDTH)
+            # Inset from the left edge by half the stroke so it stays visible.
+            bridge_x = _H_LINE_WIDTH / 2
+            context.move_to(bridge_x, delivery_y)
+            context.line_to(bridge_x, child_center)
             context.stroke()
 
         return False
@@ -722,6 +749,9 @@ class DescendantView(NavigationView):
         root_person_boxes: list = []
         # All cell boxes by grid row, used to center connector lines.
         cell_boxes_by_row: dict[int, list] = {}
+        # Outbound connector widgets by grid row, wired to child boxes
+        # after all cells are rendered.
+        outbound_stubs_by_row: dict[int, ParentOutboundLine] = {}
 
         # Step 1: Render all Person and Spouse boxes to establish columns
         for depth_level, people_nodes in population_map.items():
@@ -841,6 +871,14 @@ class DescendantView(NavigationView):
                         self.table.attach(
                             outbound_stub, grid_column - 1, grid_row, 1, 1
                         )
+                        outbound_stubs_by_row[grid_row] = outbound_stub
+
+        # Defer wiring the child boxes into the outbound stubs until every
+        # cell exists: deeper generations sharing a row overwrite
+        # cell_boxes_by_row entries, and the stub must aim at the same box
+        # the adjacent child rail aims at.
+        for stub_row, stub in outbound_stubs_by_row.items():
+            stub.child_boxes = cell_boxes_by_row.get(stub_row, [])
 
         # Step 2: Render continuous, gap-free vertical lines for siblings
         for depth_level in range(1, max_seen_depth + 1):
