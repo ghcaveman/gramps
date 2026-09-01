@@ -747,7 +747,7 @@ class DescendantView(NavigationView):
         generation_dict[current_depth].append(node_payload)
 
         child_start_row = next_row
-        child_nodes_in_family = []
+        child_nodes_in_family: list = []
 
         for family_handle in person.get_family_handle_list():
             family = self.dbstate.db.get_family_from_handle(family_handle)
@@ -818,6 +818,9 @@ class DescendantView(NavigationView):
         """Render the descendant tree into the GTK grid."""
         if not population_map:
             return
+
+        table = self.table
+        assert table is not None
 
         max_seen_depth = max(population_map.keys())
         size_groups_by_column: dict[int, Gtk.SizeGroup] = {}
@@ -931,7 +934,7 @@ class DescendantView(NavigationView):
                     root_person_boxes = cell_boxes
                 cell_boxes_by_row[grid_row] = cell_boxes
 
-                self.table.attach(family_container, grid_column, grid_row, 1, 1)
+                table.attach(family_container, grid_column, grid_row, 1, 1)
 
                 if depth_level < max_seen_depth:
                     # Only draw the outbound connector when this cell
@@ -950,7 +953,7 @@ class DescendantView(NavigationView):
                         )
                         outbound_stub.set_vexpand(True)
                         outbound_stub.set_valign(Gtk.Align.FILL)
-                        self.table.attach(
+                        table.attach(
                             outbound_stub, grid_column - 1, grid_row, 1, 1
                         )
                         outbound_stubs_by_pos[(grid_column - 1, grid_row)] = (
@@ -1026,7 +1029,7 @@ class DescendantView(NavigationView):
                     rail.nonbirth_rails = group_nonbirth
                     rail.set_vexpand(True)
                     rail.set_valign(Gtk.Align.FILL)
-                    self.table.attach(rail, grid_column + 1, current_row, 1, 1)
+                    table.attach(rail, grid_column + 1, current_row, 1, 1)
                     # Wire every rail in the group to the group's stub: the
                     # rail reads the stub's delivery Y so the dashed
                     # connector runs all end exactly on the delivery line.
@@ -1096,7 +1099,7 @@ class DescendantView(NavigationView):
                         margin_top=10,
                     )
 
-                self.table.attach(
+                table.attach(
                     parent_button_box,
                     (max_seen_depth * 3) + col_offset + 1,
                     root_row,
@@ -1139,15 +1142,15 @@ class DescendantView(NavigationView):
                     margin_top=10 if idx > 0 else 0,
                 )
 
-            self.table.attach(button_box, 0, grid_row, 1, 1)
+            table.attach(button_box, 0, grid_row, 1, 1)
 
         # Add a spacer in column 0 to ensure the column has visible width
         # even when no child navigation buttons are present.
         spacer = Gtk.Label()
         spacer.set_size_request(24, 1)
-        self.table.attach(spacer, 0, 0, 1, 1)
+        table.attach(spacer, 0, 0, 1, 1)
 
-        self.table.show_all()
+        table.show_all()
 
     ####################################################################
     # Context menu and navigation
@@ -1307,7 +1310,7 @@ class DescendantView(NavigationView):
         for label, callback, sensitivity in entries:
             item = Gtk.MenuItem.new_with_mnemonic(label)
             item.set_sensitive(sensitivity)
-            if callback:
+            if callback is not None:
                 item.connect("activate", callback)
             item.show()
             menu.append(item)
