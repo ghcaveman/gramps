@@ -953,9 +953,7 @@ class DescendantView(NavigationView):
                         )
                         outbound_stub.set_vexpand(True)
                         outbound_stub.set_valign(Gtk.Align.FILL)
-                        table.attach(
-                            outbound_stub, grid_column - 1, grid_row, 1, 1
-                        )
+                        table.attach(outbound_stub, grid_column - 1, grid_row, 1, 1)
                         outbound_stubs_by_pos[(grid_column - 1, grid_row)] = (
                             outbound_stub
                         )
