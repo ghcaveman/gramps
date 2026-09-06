@@ -86,6 +86,8 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
         """
         Gtk.Assistant.__init__(self)
         ManagedWindow.__init__(self, uistate, [], self.__class__)
+        # set_window is present in both parent classes
+        self.set_window(self, None, _("Grizard Import Wizard"), isWindow=True)
 
         self.dbstate = dbstate
         self.grizard = GedGrizard(self.dbstate.db)
