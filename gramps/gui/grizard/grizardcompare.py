@@ -597,6 +597,8 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                 return ""
             if isinstance(name, str):
                 return name
+            if hasattr(name, "get_value"):
+                return name.get_value() or ""
             return name.get_name() if hasattr(name, "get_name") else str(name)
         return obj.__class__.__name__
 
@@ -799,7 +801,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                         if place_handle:
                             place_obj = db.get_place_from_handle(place_handle)
                             if place_obj:
-                                place = ", " + place_obj.get_name().get_name()
+                                place = ", " + place_obj.get_name().get_value()
                         lines.append(_("%s: %s%s") % (label, date_str, place))
                 except Exception as e:
                     LOG.warning("Detail lookup failed: %s", e)
@@ -837,16 +839,32 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         source_handle, target_handle = pair
 
         from .grizardassistant import GrizardAssistant
+        from gramps.gen.errors import WindowActiveError
 
-        assistant = GrizardAssistant(
-            self.uistate,
-            self.dbstate,
-            parent=self.get_transient_for(),
-        )
+        try:
+            assistant = GrizardAssistant(
+                self.uistate,
+                self.dbstate,
+                parent=self.get_transient_for(),
+                merge_mode=True,
+            )
+        except WindowActiveError:
+            # A previous assistant is still open; do not stack a second one.
+            LOG.warning("Grizard import assistant is already open.")
+            return
+        # Refresh both panels once the merge wizard commits its changes.
+        assistant.connect("apply", self.cb_assistant_applied)
         assistant.show()
         assistant.open_at_compare(
             source_handle, target_handle, grizard=self.grizard
         )
+
+    def cb_assistant_applied(self, assistant: Gtk.Assistant) -> None:
+        """
+        Rebuild both panels after the merge wizard applied changes, so
+        the merged data and the difference list reflect the new state.
+        """
+        self.select_category("person")
 
     def cb_close(self, _button: Gtk.Button) -> None:
         """

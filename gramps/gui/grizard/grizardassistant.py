@@ -73,7 +73,11 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
     """
 
     def __init__(
-        self, uistate: Any, dbstate: Any, parent: Gtk.Window | None = None
+        self,
+        uistate: Any,
+        dbstate: Any,
+        parent: Gtk.Window | None = None,
+        merge_mode: bool = False,
     ) -> None:
         """
         Initialize the Grizard import assistant.
@@ -81,6 +85,8 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
         :param uistate: Active Gramps UI state manager.
         :param dbstate: Active Gramps DB state manager.
         :param parent: Parent window.
+        :param merge_mode: If True, create only the compare/confirm pages
+            for use from the Grizard compare window's Merge button.
         """
         Gtk.Assistant.__init__(self)
         ManagedWindow.__init__(self, uistate, [], self.__class__)
@@ -96,10 +102,20 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
         if parent:
             self.set_transient_for(parent)
 
-        # Setup pages
-        self._setup_connect_page()
-        self._setup_load_page()
-        self._setup_match_page()
+        # Setup pages. In merge mode only the compare and confirm pages
+        # are created: the assistant then starts on its first page, so
+        # GTK offers no Back button and there are no earlier steps to
+        # navigate to.
+        self._merge_mode = merge_mode
+        # Context handles are set later via open_at_compare(); they must
+        # exist from the start because the compare page's prepare handler
+        # runs as soon as the assistant is shown.
+        self.context_source_handle: str | None = None
+        self.context_target_handle: str | None = None
+        if not merge_mode:
+            self._setup_connect_page()
+            self._setup_load_page()
+            self._setup_match_page()
         self._setup_compare_page()
         self._setup_confirm_page()
 
@@ -343,12 +359,55 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
 
         self.context_source_handle = source_handle
         self.context_target_handle = target_handle
+        # In merge mode the earlier wizard steps (file selection, source
+        # person, target match) do not apply, so hide the sidebar page
+        # tabs and the Back button to keep the user on the compare flow.
+        self._merge_mode = True
+        if hasattr(self, "set_show_sidebar"):
+            # GTK3 only; GTK4 assistants have no sidebar at all.
+            self.set_show_sidebar(False)
+        self._hide_back_button()
         # Locate the index of the compare page (Gtk.Widget has no
         # get_index(); ask the assistant for the page number instead).
         for index in range(self.get_n_pages()):
             if self.get_nth_page(index) is self.compare_box:
                 self.set_current_page(index)
                 break
+        # Populate explicitly: set_current_page() is a no-op when the
+        # page is already current, so prepare() would not re-fire.
+        self._populate_compare_page()
+
+    def _hide_back_button(self) -> None:
+        """
+        Hide the assistant's Back button on GTK3 and GTK4.
+        """
+        # GTK3: the buttons live in an accessible action area.
+        if hasattr(self, "get_action_area"):
+            try:
+                action_area = self.get_action_area()
+            except Exception:
+                action_area = None
+            if action_area is not None:
+                for child in action_area.get_children():
+                    if isinstance(child, Gtk.Button) and "back" in (
+                        child.get_label() or ""
+                    ).lower():
+                        child.hide()
+                return
+
+        # GTK4: the buttons are internal widgets; walk the widget tree.
+        def walk(widget: Gtk.Widget) -> None:
+            if isinstance(widget, Gtk.Button):
+                label = widget.get_label() or ""
+                if "back" in label.lower():
+                    widget.hide()
+            if hasattr(widget, "get_first_child"):
+                child = widget.get_first_child()
+                while child:
+                    walk(child)
+                    child = child.get_next_sibling()
+
+        walk(self)
 
     def cb_file_changed(self, button: Gtk.FileChooserButton) -> None:
         """
@@ -428,7 +487,7 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
         """
         Handle page transitioning. Connects step hooks dynamically on prepare.
         """
-        if page == self.load_box:
+        if not self._merge_mode and page == self.load_box:
             # Step 2: load people from parsed database proxy
             self.source_people_store.clear()
             try:
@@ -461,7 +520,7 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
                 LOG.error("Failed to load source database: %s", e)
                 ErrorDialog(_("Load Failed"), str(e), parent=self)
 
-        elif page == self.match_box:
+        elif not self._merge_mode and page == self.match_box:
             # Step 3: find potential target duplicate candidates in DB
             self.candidates_store.clear()
             # Default top option is to create a new person
@@ -485,46 +544,51 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
             self.candidates_tree.set_cursor(Gtk.TreePath.new_first())
 
         elif page == self.compare_box:
-            # Step 4: generate side-by-side comparisons
-            self.compare_store.clear()
-            self.resolutions.clear()
+            self._populate_compare_page()
 
-            if self.context_target_handle is None:
-                # Add as entirely new: stay on the compare page but show
-                # an explanation instead of field comparisons.
-                self.compare_label.set_text(
-                    _(
-                        "This person does not exist in the current family "
-                        "tree. Applying the changes will add them as a new "
-                        "person."
-                    )
-                )
-                self.detail_frame.hide()
-                return
+    def _populate_compare_page(self) -> None:
+        """
+        Generate side-by-side comparisons for the current context handles.
+        """
+        self.compare_store.clear()
+        self.resolutions.clear()
 
-            self.detail_frame.show()
+        if self.context_target_handle is None:
+            # Add as entirely new: stay on the compare page but show
+            # an explanation instead of field comparisons.
             self.compare_label.set_text(
-                _("Configure individual fields comparison actions below:")
-            )
-
-            try:
-                rows = self.grizard.run_step(
-                    "compare",
-                    source_person_handle=self.context_source_handle,
-                    target_person_handle=self.context_target_handle,
+                _(
+                    "This person does not exist in the current family "
+                    "tree. Applying the changes will add them as a new "
+                    "person."
                 )
-                for r in rows:
-                    # Initialize default resolution choice
-                    self.resolutions[r.field_type] = "target"
-                    display_res = _("Keep Target")
-                    self.compare_store.append(
-                        [r.field_type, r.field, display_res, r.source_val, r.target_val]
-                    )
-            except Exception as e:
-                LOG.error("Failed to run side-by-side comparison: %s", e)
+            )
+            self.detail_frame.hide()
+            return
 
-            # Auto-select first comparison row
-            self.compare_tree.set_cursor(Gtk.TreePath.new_first())
+        self.detail_frame.show()
+        self.compare_label.set_text(
+            _("Configure individual fields comparison actions below:")
+        )
+
+        try:
+            rows = self.grizard.run_step(
+                "compare",
+                source_person_handle=self.context_source_handle,
+                target_person_handle=self.context_target_handle,
+            )
+            for r in rows:
+                # Initialize default resolution choice
+                self.resolutions[r.field_type] = "target"
+                display_res = _("Keep Target")
+                self.compare_store.append(
+                    [r.field_type, r.field, display_res, r.source_val, r.target_val]
+                )
+        except Exception as e:
+            LOG.error("Failed to run side-by-side comparison: %s", e)
+
+        # Auto-select first comparison row
+        self.compare_tree.set_cursor(Gtk.TreePath.new_first())
 
     def cb_apply(self, assistant: Gtk.Assistant) -> None:
         """
@@ -560,9 +624,14 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
         Handle wizard cancel.
         """
         self.close()
+        self.destroy()
 
     def cb_close(self, assistant: Gtk.Assistant) -> None:
         """
         Handle wizard close.
         """
+        # ManagedWindow.close() removes the window from the tracked
+        # window list; a plain destroy() would leave it registered and
+        # block any future GrizardAssistant from being created.
+        self.close()
         self.destroy()
