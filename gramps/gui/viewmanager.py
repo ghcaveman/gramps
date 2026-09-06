@@ -595,6 +595,7 @@ class ViewManager(CLIManager):
             # --------------------------------------
             ("Import", self.import_data, "<PRIMARY>i"),
             ("GrizardImport", self.grizard_import, "<PRIMARY>g"),
+            ("GrizardCompare", self.grizard_compare, "<PRIMARY><shift>g"),
             ("Tools", self.tools_clicked),
             # ('BookMenu', None, _('_Bookmarks')),
             # ('ToolsMenu', None, _('_Tools')),
@@ -1294,6 +1295,56 @@ class ViewManager(CLIManager):
 
             dialog = GrizardAssistant(self.uistate, self.dbstate, self.window)
             dialog.show()
+
+    def grizard_compare(self, *obj):
+        """
+        Ask for a GEDCOM file, load it, and open the side-by-side
+        comparison window against the current tree.
+        """
+        if not self.dbstate.is_open():
+            return
+
+        from .grizard.grizardcompare import GrizardCompareWindow
+        from gramps.gen.grizard.gedcom import GedGrizard
+
+        chooser = Gtk.FileChooserDialog(
+            title=_("Select GEDCOM File to Compare"),
+            transient_for=self.window,
+            action=Gtk.FileChooserAction.OPEN,
+        )
+        chooser.add_buttons(
+            _("_Cancel"), Gtk.ResponseType.CANCEL, _("_OK"), Gtk.ResponseType.OK
+        )
+        file_filter = Gtk.FileFilter()
+        file_filter.set_name(_("GEDCOM Files (*.ged)"))
+        file_filter.add_pattern("*.ged")
+        chooser.add_filter(file_filter)
+
+        response = chooser.run()
+        path = chooser.get_filename()
+        chooser.destroy()
+        if response != Gtk.ResponseType.OK or not path:
+            return
+
+        grizard = GedGrizard(self.dbstate.db)
+        if not grizard.run_step("connect", gedcom_path=path):
+            ErrorDialog(
+                _("Load Failed"),
+                _("Could not read the GEDCOM file."),
+                parent=self.window,
+            )
+            return
+        try:
+            grizard.run_step("load")
+        except Exception as e:
+            LOG.error("Failed to load GEDCOM for comparison: %s", e)
+            ErrorDialog(_("Load Failed"), str(e), parent=self.window)
+            return
+
+        window = GrizardCompareWindow(
+            self.uistate, self.dbstate, grizard, parent=self.window
+        )
+        window.show()
 
     def __open_activate(self, obj, value):
         """

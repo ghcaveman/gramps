@@ -1,8 +1,6 @@
 #
 # Gramps - a GTK+/GNOME based genealogy program
 #
-# Copyright (C) 2026  Devin
-#
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation; either version 2 of the License, or
@@ -319,6 +317,33 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
         self.set_page_title(self.confirm_box, _("Apply Changes"))
         self.set_page_type(self.confirm_box, Gtk.AssistantPageType.CONFIRM)
         self.set_page_complete(self.confirm_box, True)
+
+    def open_at_compare(
+        self,
+        source_handle: str,
+        target_handle: str | None,
+        grizard: GedGrizard | None = None,
+    ) -> None:
+        """
+        Jump directly to the Compare Differences page for a given pair of
+        records, skipping the earlier wizard steps.
+
+        :param source_handle: Handle of the person in the GEDCOM source.
+        :param target_handle: Handle of the matching person in the target
+            database, or None to add as a new person.
+        :param grizard: Optional pre-loaded GedGrizard instance to use
+            instead of this assistant's own (empty) one.
+        """
+        if grizard is not None:
+            self.grizard = grizard
+
+        if self.grizard.context.get("source_db") is None:
+            LOG.error("Cannot open compare page: no source database loaded.")
+            return
+
+        self.context_source_handle = source_handle
+        self.context_target_handle = target_handle
+        self.set_current_page(self.compare_box.get_index())
 
     def cb_file_changed(self, button: Gtk.FileChooserButton) -> None:
         """
