@@ -236,11 +236,11 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
         self.compare_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.compare_box.set_border_width(15)
 
-        label = Gtk.Label(
+        self.compare_label = Gtk.Label(
             label=_("Configure individual fields comparison actions below:")
         )
-        label.set_xalign(0.0)
-        self.compare_box.pack_start(label, False, False, 0)
+        self.compare_label.set_xalign(0.0)
+        self.compare_box.pack_start(self.compare_label, False, False, 0)
 
         # Grid / Scrolled Window
         scrolled = Gtk.ScrolledWindow()
@@ -343,7 +343,12 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
 
         self.context_source_handle = source_handle
         self.context_target_handle = target_handle
-        self.set_current_page(self.compare_box.get_index())
+        # Locate the index of the compare page (Gtk.Widget has no
+        # get_index(); ask the assistant for the page number instead).
+        for index in range(self.get_n_pages()):
+            if self.get_nth_page(index) is self.compare_box:
+                self.set_current_page(index)
+                break
 
     def cb_file_changed(self, button: Gtk.FileChooserButton) -> None:
         """
@@ -485,9 +490,22 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
             self.resolutions.clear()
 
             if self.context_target_handle is None:
-                # Add as entirely new -> skip comparison page dynamically
-                self.next_page()
+                # Add as entirely new: stay on the compare page but show
+                # an explanation instead of field comparisons.
+                self.compare_label.set_text(
+                    _(
+                        "This person does not exist in the current family "
+                        "tree. Applying the changes will add them as a new "
+                        "person."
+                    )
+                )
+                self.detail_frame.hide()
                 return
+
+            self.detail_frame.show()
+            self.compare_label.set_text(
+                _("Configure individual fields comparison actions below:")
+            )
 
             try:
                 rows = self.grizard.run_step(

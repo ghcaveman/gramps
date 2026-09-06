@@ -36,7 +36,6 @@ from typing import Any
 #
 # -------------------------------------------------------------------------
 from gi.repository import Gtk
-from gi.repository import GLib
 
 # -------------------------------------------------------------------------
 #
@@ -116,6 +115,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         self.diff_index = -1
         self.left_index: dict[str, str] = {}
         self.right_index: dict[str, str] = {}
+        self._syncing = False
 
         self.set_title(_("Grizard Compare"))
         self.set_default_size(1400, 900)
@@ -175,12 +175,10 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             ErrorDialog(_("Populate Failed"), str(e), parent=self)
 
         self._update_diff_status()
-        # Note: the first difference is intentionally NOT auto-selected.
-        # Selecting a row makes GTK scroll it into view as soon as the
-        # widget is laid out, which would override showing the top of the
-        # tree. Navigation via Next/Previous (or clicking a row) will
-        # select the difference records instead.
-        GLib.idle_add(self._scroll_trees_top)
+        # Select and scroll to the first difference. The mirror logic in
+        # _highlight_diff also positions the other panel (matched person,
+        # or its alphabetical insertion point when missing).
+        self._select_first_diff()
 
     def _scroll_trees_top(self) -> bool:
         """
@@ -202,6 +200,68 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             except Exception:
                 LOG.debug("scroll_to_point failed", exc_info=True)
         return not all_realized
+
+    def _person_group_name(self, db: Any, person: Person) -> str:
+        """
+        Return the "Group As" surname for a person, the same way the main
+        Gramps People view groups people.
+        """
+        try:
+            group = name_displayer.name_grouping_data(db, person.primary_name)
+        except Exception:
+            group = ""
+        if not group:
+            surname_list = person.get_primary_name().surname_list
+            group = surname_list[0].surname if surname_list else "???"
+        return group
+
+    @staticmethod
+    def _row_sort_key(store: Gtk.TreeStore, iter_: Gtk.TreeIter) -> tuple[str, str]:
+        """
+        Return the (group, name) sort key of a row in a people TreeStore.
+        Group rows get an empty second element so they sort before their
+        own children.
+        """
+        name = store.get_value(iter_, 1) or ""
+        parent = store.iter_parent(iter_)
+        if parent is None:
+            return (name, "")
+        group = store.get_value(parent, 1) or ""
+        return (group, name)
+
+    def _select_person_or_position(
+        self,
+        panel: dict[str, Any],
+        handle: str | None,
+        group: str = "",
+        name_str: str = "",
+    ) -> None:
+        """
+        Select the row for the given handle. When the handle is missing
+        (or None), select the row at the alphabetical insertion point of
+        (group, name_str) — the first row that sorts at or after it — so
+        the viewer is positioned where the person would be added.
+        """
+        store = panel["store"]
+        if handle and self._select_handle(panel, handle):
+            return
+
+        # The TreeStore is sorted, so iteration order matches the view.
+        best_path: Gtk.TreePath | None = None
+        last_path: Gtk.TreePath | None = None
+        target = (group.lower(), name_str.lower())
+        for row in store:
+            last_path = row.path
+            key = self._row_sort_key(store, store.get_iter(row.path))
+            probe = (key[0].lower(), key[1].lower())
+            if not best_path and probe >= target:
+                best_path = row.path
+        if best_path is None:
+            best_path = last_path
+        if best_path is not None:
+            panel["tree"].set_cursor(best_path)
+            panel["tree"].scroll_to_cell(best_path, None, False, 0, 0)
+
 
     def cb_paned_size_allocate(
         self, widget: Gtk.Widget, allocation: Any
@@ -394,9 +454,6 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         Show the window and all of its child widgets.
         """
         self.show_all()
-        # Once mapped, make sure both trees display their top rows rather
-        # than the initially-selected difference row.
-        GLib.idle_add(self._scroll_trees_top)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -588,19 +645,38 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
     def _highlight_diff(self) -> None:
         """
         Select the rows in both panels corresponding to the current diff.
+        The left panel shows the matched person, or the alphabetical
+        insertion point when the person is missing from the tree.
         """
         if not (0 <= self.diff_index < len(self.diff_list)):
             return
         entry = self.diff_list[self.diff_index]
-        self._select_handle(self.right_panel, entry["source_handle"])
-        if entry["target_handle"]:
-            self._select_handle(self.left_panel, entry["target_handle"])
+        self._syncing = True
+        try:
+            self._select_handle(self.right_panel, entry["source_handle"])
+            if entry["target_handle"]:
+                self._select_handle(self.left_panel, entry["target_handle"])
+            else:
+                person = self.source_db.get_person_from_handle(
+                    entry["source_handle"]
+                )
+                if person:
+                    self._select_person_or_position(
+                        self.left_panel,
+                        None,
+                        group=self._person_group_name(self.source_db, person),
+                        name_str=name_displayer.display(person),
+                    )
+        finally:
+            self._syncing = False
         self._update_diff_status()
 
-    def _select_handle(self, panel: dict[str, Any], handle: str) -> None:
+    def _select_handle(self, panel: dict[str, Any], handle: str) -> bool:
         """
         Select the row with the given handle in a panel's tree view,
         searching depth-first through any group rows.
+
+        :returns: True if the row was found and selected.
         """
 
         def visit(store: Gtk.TreeStore, parent: Gtk.TreeIter | None) -> bool:
@@ -616,21 +692,24 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                 iter_ = store.iter_next(iter_)
             return False
 
-        visit(panel["store"], None)
+        return visit(panel["store"], None)
 
     def _get_selected_pair(self) -> tuple[str, str | None] | None:
         """
         Return (source_handle, target_handle) for the current selection,
-        or None if nothing valid is selected.
+        or None if nothing valid is selected. Group header rows carry an
+        empty handle and are treated as no selection.
         """
         model, tree_iter = self.right_panel["tree"].get_selection().get_selected()
         if not tree_iter:
             return None
         source_handle = model.get_value(tree_iter, 0)
+        if not source_handle:
+            return None
         target_handle = None
         lmodel, ltree_iter = self.left_panel["tree"].get_selection().get_selected()
         if ltree_iter:
-            target_handle = lmodel.get_value(ltree_iter, 0)
+            target_handle = lmodel.get_value(ltree_iter, 0) or None
         return source_handle, target_handle
 
     # ------------------------------------------------------------------
@@ -650,7 +729,8 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
 
     def cb_record_selected(self, tree_selection: Gtk.TreeSelection) -> None:
         """
-        Handle a record selection change; update the detail pane and buttons.
+        Handle a record selection change; update the detail pane, mirror
+        the selection to the other panel, and update the buttons.
         """
         model, tree_iter = tree_selection.get_selected()
         if not tree_iter:
@@ -660,11 +740,31 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             # Group header row (surname group); nothing to show
             return
         tree = tree_selection.get_tree_view()
-        panel = (
-            self.left_panel if tree is self.left_panel["tree"] else self.right_panel
-        )
+        is_left = tree is self.left_panel["tree"]
+        panel = self.left_panel if is_left else self.right_panel
+        other = self.right_panel if is_left else self.left_panel
+
         panel["detail"].set_text(self._get_detail_text(handle))
         self._update_diff_status()
+
+        # Mirror the selection into the other panel: same handle when it
+        # exists there, otherwise position at the alphabetical insertion
+        # point of the selected person.
+        if self._syncing or self.current_category != "person":
+            return
+        self._syncing = True
+        try:
+            db = self.dbstate.db if is_left else self.source_db
+            person = db.get_person_from_handle(handle)
+            if person:
+                self._select_person_or_position(
+                    other,
+                    handle,
+                    group=self._person_group_name(db, person),
+                    name_str=name_displayer.display(person),
+                )
+        finally:
+            self._syncing = False
 
     def _get_detail_text(self, handle: str) -> str:
         """
