@@ -389,9 +389,10 @@ class GrizardAssistant(ManagedWindow, Gtk.Assistant):
                 action_area = None
             if action_area is not None:
                 for child in action_area.get_children():
-                    if isinstance(child, Gtk.Button) and "back" in (
-                        child.get_label() or ""
-                    ).lower():
+                    if (
+                        isinstance(child, Gtk.Button)
+                        and "back" in (child.get_label() or "").lower()
+                    ):
                         child.hide()
                 return
 

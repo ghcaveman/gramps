@@ -262,10 +262,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             panel["tree"].set_cursor(best_path)
             panel["tree"].scroll_to_cell(best_path, None, False, 0, 0)
 
-
-    def cb_paned_size_allocate(
-        self, widget: Gtk.Widget, allocation: Any
-    ) -> None:
+    def cb_paned_size_allocate(self, widget: Gtk.Widget, allocation: Any) -> None:
         """
         Centre the paned divider so both panels get the same width.
         """
@@ -352,9 +349,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             if not person:
                 continue
             key = self._match_key(person)
-            self._target_index.setdefault(key, []).append(
-                PersonHandle(handle)
-            )
+            self._target_index.setdefault(key, []).append(PersonHandle(handle))
         self._matcher = matcher
 
     @staticmethod
@@ -395,7 +390,6 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                 best_score = score
                 best_handle = handle
         return best_handle
-
 
     @staticmethod
     def _add_person_row(
@@ -659,9 +653,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             if entry["target_handle"]:
                 self._select_handle(self.left_panel, entry["target_handle"])
             else:
-                person = self.source_db.get_person_from_handle(
-                    entry["source_handle"]
-                )
+                person = self.source_db.get_person_from_handle(entry["source_handle"])
                 if person:
                     self._select_person_or_position(
                         self.left_panel,
@@ -855,9 +847,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         # Refresh both panels once the merge wizard commits its changes.
         assistant.connect("apply", self.cb_assistant_applied)
         assistant.show()
-        assistant.open_at_compare(
-            source_handle, target_handle, grizard=self.grizard
-        )
+        assistant.open_at_compare(source_handle, target_handle, grizard=self.grizard)
 
     def cb_assistant_applied(self, assistant: Gtk.Assistant) -> None:
         """
