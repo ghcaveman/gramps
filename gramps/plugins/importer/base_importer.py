@@ -118,7 +118,9 @@ class BaseImporter(abc.ABC):
         """
 
     @abc.abstractmethod
-    def compare(self, source: SourceRecord, target_handle: PersonHandle) -> ComparisonResult:
+    def compare(
+        self, source: SourceRecord, target_handle: PersonHandle
+    ) -> ComparisonResult:
         """Compare a source record with an existing Gramps person.
 
         :param source: The full source record.

@@ -83,6 +83,7 @@ class GedcomImporter(BaseImporter):
         # GEDCOM import does not support incremental comparison yet. We return a
         # simple placeholder object.
         LOG.debug("GedcomImporter.compare called – not implemented for GEDCOM")
+
         class _SimpleResult:
             pass
 

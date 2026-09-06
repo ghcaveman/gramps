@@ -76,6 +76,7 @@ class XmlImporter(BaseImporter):
 
     def compare(self, source: SourceRecord, target_handle) -> ComparisonResult:
         LOG.debug("XmlImporter.compare called – not implemented for XML")
+
         class _SimpleResult:
             pass
 
