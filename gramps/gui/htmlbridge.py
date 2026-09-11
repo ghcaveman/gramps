@@ -88,7 +88,7 @@ class HtmlBridge:
                 )
 
                 chooser = Gtk.FileChooserDialog(
-                    title=_("Select GEDCOM File to Compare/Merge with captured HTML data"),
+                    title=_("Select File to Compare/Merge with captured HTML data"),
                     transient_for=vm.window,
                     action=Gtk.FileChooserAction.OPEN,
                 )
@@ -99,10 +99,31 @@ class HtmlBridge:
                     Gtk.ResponseType.OK,
                 )
 
+                # Supported Files
+                filter_supported = Gtk.FileFilter()
+                filter_supported.set_name(_("Supported Files (*.ged, *.xml, *.gramps)"))
+                filter_supported.add_pattern("*.ged")
+                filter_supported.add_pattern("*.xml")
+                filter_supported.add_pattern("*.gramps")
+                chooser.add_filter(filter_supported)
+
+                # GEDCOM Files
                 filter_ged = Gtk.FileFilter()
                 filter_ged.set_name(_("GEDCOM files (*.ged)"))
                 filter_ged.add_pattern("*.ged")
                 chooser.add_filter(filter_ged)
+
+                # XML / XML-GEDCOM Files
+                filter_xml = Gtk.FileFilter()
+                filter_xml.set_name(_("XML Files (*.xml)"))
+                filter_xml.add_pattern("*.xml")
+                chooser.add_filter(filter_xml)
+
+                # Gramps XML Files
+                filter_gramps = Gtk.FileFilter()
+                filter_gramps.set_name(_("Gramps XML Files (*.gramps)"))
+                filter_gramps.add_pattern("*.gramps")
+                chooser.add_filter(filter_gramps)
 
                 response = chooser.run()
                 if response == Gtk.ResponseType.OK:
