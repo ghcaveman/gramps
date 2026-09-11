@@ -36,6 +36,8 @@ from typing import Any
 #
 # -------------------------------------------------------------------------
 from gi.repository import Gtk
+from gi.repository import Pango
+from gi.repository import GLib
 
 # -------------------------------------------------------------------------
 #
@@ -49,6 +51,7 @@ from gramps.gen.soundex import soundex
 from gramps.gen.types import PersonHandle
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.fs.utils.attributes import get_fsftid
 from gramps.gui.managedwindow import ManagedWindow
 from gramps.gui.dialog import ErrorDialog
 
@@ -118,7 +121,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         self._syncing = False
 
         self.set_title(_("Grizard Compare"))
-        self.set_default_size(1400, 900)
+        self.set_default_size(1600, 900)
         if parent:
             self.set_transient_for(parent)
 
@@ -286,7 +289,6 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             if not person:
                 continue
             name_str = name_displayer.display(person)
-            birth_year = self._get_birth_year(person, source_db)
             self._add_person_row(right_store, source_db, person, name_str)
             self.right_index[handle] = name_str
 
@@ -295,7 +297,6 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             if not person:
                 continue
             name_str = name_displayer.display(person)
-            birth_year = self._get_birth_year(person, target_db)
             self._add_person_row(left_store, target_db, person, name_str)
             self.left_index.setdefault(handle, name_str)
 
@@ -312,11 +313,18 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
 
         # Compute records with differences: matched pairs where compare
         # produces non-matching rows, plus source-only (new) people.
+        # The full pairing (including pairs with no differences) is kept
+        # so panel mirroring can always find the counterpart person.
+        self._pair_map: dict[str, PersonHandle | None] = {}
+        self._pair_map_rev: dict[PersonHandle, str] = {}
         for handle in source_db.iter_person_handles():
             person = source_db.get_person_from_handle(handle)
             if not person:
                 continue
             target_handle = self._best_match(matcher, person)
+            self._pair_map[handle] = target_handle
+            if target_handle:
+                self._pair_map_rev[target_handle] = handle
             try:
                 if target_handle is None:
                     self.diff_list.append(
@@ -337,6 +345,32 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                         )
             except Exception as e:
                 LOG.warning("Comparison failed for %s: %s", handle, e)
+
+        # Mark people that have differences with '*' in the Diff column;
+        # rows left at 'o' have not been identified as different.
+        for entry in self.diff_list:
+            if entry["target_handle"]:
+                self._mark_row(left_store, entry["target_handle"])
+            self._mark_row(right_store, entry["source_handle"])
+
+    @staticmethod
+    def _mark_row(store: Gtk.TreeStore, handle: str, value: str = "*") -> None:
+        """
+        Set the Diff column (index 7) of the row with the given handle.
+        """
+
+        def visit(parent: Gtk.TreeIter | None = None) -> bool:
+            iter_ = store.iter_children(parent) if parent else store.get_iter_first()
+            while iter_:
+                if store.get_value(iter_, 0) == handle:
+                    store.set_value(iter_, 7, value)
+                    return True
+                if visit(iter_):
+                    return True
+                iter_ = store.iter_next(iter_)
+            return False
+
+        visit()
 
     def _build_target_index(self, matcher: CandidateMatcher) -> None:
         """
@@ -411,7 +445,10 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         if not group:
             surname_list = person.get_primary_name().surname_list
             group = surname_list[0].surname if surname_list else "???"
-        birth_year = GrizardCompareWindow._get_birth_year(person, db)
+        born = GrizardCompareWindow._get_born_text(person, db)
+        died = GrizardCompareWindow._get_died_text(person, db)
+        parents = GrizardCompareWindow._get_parent_names(person, db)
+        spouse = GrizardCompareWindow._get_spouse_names(person, db)
 
         # Find or create the group row (group rows carry handle '')
         group_iter = None
@@ -420,8 +457,22 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                 group_iter = store.get_iter(row.path)
                 break
         if group_iter is None:
-            group_iter = store.append(None, ["", group, ""])
-        store.append(group_iter, [person.handle, name_str, birth_year])
+            group_iter = store.append(
+                None, ["", group, "", "", "", "", "", ""]
+            )
+        store.append(
+            group_iter,
+            [
+                person.handle,
+                name_str,
+                born,
+                died,
+                ", ".join(parents),
+                ", ".join(spouse),
+                person.gramps_id or "",
+                "o",
+            ],
+        )
 
     def _populate_generic(
         self, category: str, left_store: Gtk.TreeStore, right_store: Gtk.TreeStore
@@ -440,7 +491,17 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                 if obj is None:
                     continue
                 store.append(
-                    None, [handle, self._describe_object(obj), obj.gramps_id or ""]
+                    None,
+                    [
+                        handle,
+                        self._describe_object(obj),
+                        obj.gramps_id or "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                    ],
                 )
 
     def show(self, *args) -> None:
@@ -448,6 +509,10 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         Show the window and all of its child widgets.
         """
         self.show_all()
+        # show_all() reveals even previously hidden widgets, so re-apply
+        # the visibility of empty detail sections afterwards.
+        self._apply_section_visibility(self.left_panel)
+        self._apply_section_visibility(self.right_panel)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -488,7 +553,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_size_request(160, -1)
+        scrolled.set_size_request(85, -1)
 
         self.category_listbox = Gtk.ListBox()
         self.category_listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
@@ -498,7 +563,8 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             label = Gtk.Label(label=title, xalign=0.0)
             label.set_margin_top(6)
             label.set_margin_bottom(6)
-            label.set_margin_start(10)
+            label.set_margin_start(4)
+            label.set_ellipsize(Pango.EllipsizeMode.END)
             row.add(label)
             self.category_listbox.add(row)
         self.category_listbox.connect("row-selected", self.cb_category_selected)
@@ -511,25 +577,60 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         Build one side-by-side comparison panel.
 
         :param title: Panel heading.
-        :returns: Dict with keys 'frame', 'store', 'tree', 'detail'.
+        :returns: Dict with keys 'frame', 'store', 'tree', 'detail' (the
+            sectioned detail box) and one label per section:
+            'detail_individual', 'detail_family', 'detail_children',
+            'detail_events'.
         """
         frame = Gtk.Frame(label=title)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.set_border_width(4)
         frame.add(box)
 
-        # Record rows: handle, summary, extra. Group rows use handle ''.
+        # Record rows: handle, name, born, died, parents, spouse, id.
+        # Group rows use handle '' and blanks for the other columns.
         # A TreeStore is used for all categories: flat for generic
         # categories, two-level (surname group -> person) for people.
-        store = Gtk.TreeStore(str, str, str)
+        store = Gtk.TreeStore(
+            str, str, str, str, str, str, str, str
+        )
         tree = Gtk.TreeView(model=store)
+        col_diff = Gtk.TreeViewColumn(_("Diff"), Gtk.CellRendererText(), text=7)
+        col_diff.set_resizable(False)
+        col_diff.set_min_width(30)
+        col_diff.set_max_width(40)
+        tree.append_column(col_diff)
         col_main = Gtk.TreeViewColumn(_("Record"), Gtk.CellRendererText(), text=1)
         col_main.set_resizable(True)
-        col_main.set_min_width(280)
-        col_extra = Gtk.TreeViewColumn(_("Detail"), Gtk.CellRendererText(), text=2)
-        col_extra.set_resizable(True)
+        col_main.set_min_width(150)
+        col_main.set_max_width(205)
         tree.append_column(col_main)
-        tree.append_column(col_extra)
+        for title, col_index in (
+            (_("Born"), 2),
+            (_("Died"), 3),
+            (_("Parents"), 4),
+            (_("Spouse"), 5),
+            (_("ID"), 6),
+        ):
+            col = Gtk.TreeViewColumn(title, Gtk.CellRendererText(), text=col_index)
+            col.set_resizable(True)
+            if col_index == 2:
+                # Born: keep narrow; places may still expand via resize
+                col.set_min_width(60)
+                col.set_max_width(120)
+            elif col_index == 4:
+                # Parents: roughly 20% narrower than the natural width
+                col.set_min_width(60)
+                col.set_max_width(200)
+            elif col_index == 5:
+                # Spouse: about half the natural width
+                col.set_min_width(50)
+                col.set_max_width(120)
+            elif col_index == 6:
+                # ID: short values, keep compact
+                col.set_min_width(30)
+                col.set_max_width(55)
+            tree.append_column(col)
         tree.get_selection().connect("changed", self.cb_record_selected)
 
         scrolled = Gtk.ScrolledWindow()
@@ -539,17 +640,52 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         scrolled.add(tree)
         box.pack_start(scrolled, True, True, 0)
 
-        detail = Gtk.Label(label="")
-        detail.set_xalign(0.0)
-        detail.set_line_wrap(True)
-        detail.set_selectable(True)
+        detail_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        detail_box.set_border_width(4)
+        section_labels = {}
+        section_boxes = {}
+        for key, title in (
+            ("individual", _("Individual Details")),
+            ("family", _("Family Relations")),
+            ("children", _("Children")),
+            ("events", _("Events & Other Records")),
+        ):
+            section_label = Gtk.Label(label="")
+            section_label.set_xalign(0.0)
+            section_label.set_line_wrap(True)
+            section_label.set_selectable(True)
+            section_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            header = Gtk.Label()
+            header.set_xalign(0.0)
+            header.set_markup("<b>%s</b>" % title)
+            section_box.pack_start(header, False, False, 0)
+            section_box.pack_start(section_label, False, False, 0)
+            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            detail_box.pack_start(separator, False, False, 0)
+            detail_box.pack_start(section_box, False, False, 0)
+            section_labels[key] = section_label
+            section_boxes[key] = section_box
+            # Hidden until content exists; avoids a blank line under
+            # headers of empty sections.
+            section_box.hide()
         detail_scrolled = Gtk.ScrolledWindow()
         detail_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        detail_scrolled.set_size_request(-1, 180)
-        detail_scrolled.add(detail)
+        detail_scrolled.set_size_request(-1, 490)
+        detail_scrolled.add(detail_box)
         box.pack_start(detail_scrolled, False, False, 0)
 
-        return {"frame": frame, "store": store, "tree": tree, "detail": detail}
+        return {
+            "frame": frame,
+            "store": store,
+            "tree": tree,
+            "detail": detail_box,
+            "detail_individual": section_labels["individual"],
+            "detail_family": section_labels["family"],
+            "detail_children": section_labels["children"],
+            "detail_events": section_labels["events"],
+            "detail_boxes": section_boxes,
+            "detail_texts": {},
+        }
 
     # ------------------------------------------------------------------
     # Helpers
@@ -597,17 +733,128 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         return obj.__class__.__name__
 
     @staticmethod
-    def _get_birth_year(person: Person, db: Any) -> str:
+    def _get_born_text(person: Person, db: Any) -> str:
         """
-        Return the birth year of the person as a string, or ''.
+        Return the birth summary (``b.<year> <place>``) for the person.
         """
-        birth_ref = person.get_birth_ref()
-        if not birth_ref:
+        parts = []
+        birth_year = GrizardCompareWindow._get_event_year(
+            person.get_birth_ref(), db
+        )
+        if birth_year:
+            parts.append("b." + birth_year)
+        birth_place = GrizardCompareWindow._get_event_place(
+            person.get_birth_ref(), db
+        )
+        if birth_place:
+            parts.append(birth_place)
+        return " ".join(parts)
+
+    @staticmethod
+    def _get_died_text(person: Person, db: Any) -> str:
+        """
+        Return the death summary (``d.<year>``) for the person.
+        """
+        death_year = GrizardCompareWindow._get_event_year(
+            person.get_death_ref(), db
+        )
+        return "d." + death_year if death_year else ""
+
+    @staticmethod
+    def _get_parent_names(
+        person: Person, db: Any, family_role: str | None = None
+    ) -> list[str]:
+        """
+        Return the display names of the person's parents, or [].
+
+        :param family_role: Restrict to 'father', 'mother' or None for
+            all parents across the person's parent families. Duplicate
+            names (from multiple parent families) are removed.
+        """
+        names = []
+        try:
+            for family_handle in person.get_parent_family_handle_list():
+                family = db.get_family_from_handle(family_handle)
+                if not family:
+                    continue
+                if family_role == "father":
+                    handles = [family.get_father_handle()]
+                elif family_role == "mother":
+                    handles = [family.get_mother_handle()]
+                else:
+                    handles = [
+                        family.get_father_handle(),
+                        family.get_mother_handle(),
+                    ]
+                for handle in handles:
+                    if not handle:
+                        continue
+                    parent = db.get_person_from_handle(handle)
+                    if parent:
+                        name = name_displayer.display(parent)
+                        if name not in names:
+                            names.append(name)
+        except Exception:
+            pass
+        return names
+
+    @staticmethod
+    def _get_spouse_names(person: Person, db: Any) -> list[str]:
+        """
+        Return the display names of the person's spouses, or [].
+        """
+        names = []
+        try:
+            for family_handle in person.get_family_handle_list():
+                family = db.get_family_from_handle(family_handle)
+                if not family:
+                    continue
+                father_handle = family.get_father_handle()
+                mother_handle = family.get_mother_handle()
+                person_handle = person.handle
+                spouse_handle = None
+                if father_handle and father_handle != person_handle:
+                    spouse_handle = father_handle
+                elif mother_handle and mother_handle != person_handle:
+                    spouse_handle = mother_handle
+                if spouse_handle:
+                    spouse = db.get_person_from_handle(spouse_handle)
+                    if spouse:
+                        names.append(name_displayer.display(spouse))
+        except Exception:
+            pass
+        return names
+
+    @staticmethod
+    def _get_event_year(event_ref: Any, db: Any) -> str:
+        """
+        Return the year of the event referenced by event_ref, or ''.
+        """
+        if not event_ref:
             return ""
         try:
-            event = db.get_event_from_handle(birth_ref.ref)
+            event = db.get_event_from_handle(event_ref.ref)
             if event:
                 return str(event.get_date_object().get_year() or "")
+        except Exception:
+            pass
+        return ""
+
+    @staticmethod
+    def _get_event_place(event_ref: Any, db: Any) -> str:
+        """
+        Return the place name of the event referenced by event_ref, or ''.
+        """
+        if not event_ref:
+            return ""
+        try:
+            event = db.get_event_from_handle(event_ref.ref)
+            if event:
+                place_handle = event.get_place_handle()
+                if place_handle:
+                    place = db.get_place_from_handle(place_handle)
+                    if place:
+                        return place.get_name().get_value() or ""
         except Exception:
             pass
         return ""
@@ -738,66 +985,471 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         panel = self.left_panel if is_left else self.right_panel
         other = self.right_panel if is_left else self.left_panel
 
-        panel["detail"].set_text(self._get_detail_text(handle))
+        self._set_detail_sections(panel, handle)
         self._update_diff_status()
 
         # Mirror the selection into the other panel: same handle when it
-        # exists there, otherwise position at the alphabetical insertion
-        # point of the selected person.
+        # exists there, otherwise the matched counterpart person, and as a
+        # last resort the alphabetical insertion point of the selected
+        # person. Handles are per-database, so a plain handle lookup only
+        # works when a person is present in both trees.
         if self._syncing or self.current_category != "person":
             return
         self._syncing = True
         try:
             db = self.dbstate.db if is_left else self.source_db
             person = db.get_person_from_handle(handle)
-            if person:
+            if not person:
+                return
+            other_db = self.source_db if is_left else self.dbstate.db
+            counterpart = self._get_counterpart(handle)
+            mirrored = False
+            if counterpart:
+                other_person = other_db.get_person_from_handle(counterpart)
+                if other_person:
+                    self._select_person_or_position(
+                        other,
+                        counterpart,
+                        group=self._person_group_name(other_db, other_person),
+                        name_str=name_displayer.display(other_person),
+                    )
+                    mirrored = True
+            if not mirrored:
                 self._select_person_or_position(
                     other,
-                    handle,
+                    None,
                     group=self._person_group_name(db, person),
                     name_str=name_displayer.display(person),
                 )
         finally:
             self._syncing = False
 
-    def _get_detail_text(self, handle: str) -> str:
+    def _get_counterpart(self, handle: str) -> str | None:
         """
-        Build the detail text shown beneath the record lists.
+        Return the handle of the counterpart person in the other panel,
+        or None when the person has no matched pair.
+
+        Uses the full pairing map (matched pairs regardless of whether
+        they differ), falling back to the difference list for robustness.
         """
-        if self.current_category != "person":
+        if handle in self.right_index:
+            pair_map = getattr(self, "_pair_map", {})
+            if handle in pair_map:
+                return pair_map[handle]
+            for entry in self.diff_list:
+                if entry["source_handle"] == handle:
+                    return entry["target_handle"]
+        else:
+            pair_map = getattr(self, "_pair_map_rev", {})
+            if handle in pair_map:
+                return pair_map[handle]
+            for entry in self.diff_list:
+                if entry["target_handle"] == handle:
+                    return entry["source_handle"]
+        return None
+
+    def _set_detail_sections(self, panel: dict[str, Any], handle: str) -> None:
+        """
+        Build and display the detail sections beneath the record lists.
+        Lines that differ from the counterpart person in the other panel
+        are rendered bold and italic so they stand out.
+        """
+        individual_text = family_text = children_text = events_text = ""
+        if self.current_category == "person":
+            db = self.source_db if handle in self.right_index else self.dbstate.db
+            person = db.get_person_from_handle(handle)
+            if person:
+                other_handle = self._get_counterpart(handle)
+                other_person = None
+                other_db = None
+                if other_handle:
+                    other_db = (
+                        self.dbstate.db
+                        if other_handle not in self.right_index
+                        else self.source_db
+                    )
+                    other_person = other_db.get_person_from_handle(other_handle)
+                # The ID line always differs between the source and the
+                # target database, so it is excluded from highlighting.
+                skip = (_("ID:"),)
+                individual_text = self._build_section_markup(
+                    self._individual_lines(person, db),
+                    self._individual_lines(other_person, other_db)
+                    if other_person
+                    else None,
+                    skip,
+                )
+                family_text = self._build_section_markup(
+                    self._family_lines(person, db),
+                    self._family_lines(other_person, other_db)
+                    if other_person
+                    else None,
+                    skip,
+                )
+                children_text = self._build_section_markup(
+                    self._children_lines(person, db),
+                    self._children_lines(other_person, other_db)
+                    if other_person
+                    else None,
+                    skip,
+                )
+                events_text = self._build_section_markup(
+                    self._event_lines(person, db),
+                    self._event_lines(other_person, other_db)
+                    if other_person
+                    else None,
+                    skip,
+                )
+                if not events_text:
+                    # Show the section with a placeholder when the person
+                    # has no events or other records to list.
+                    events_text = _("(none)")
+        panel["detail_individual"].set_markup(individual_text)
+        panel["detail_family"].set_markup(family_text)
+        panel["detail_children"].set_markup(children_text)
+        panel["detail_events"].set_markup(events_text)
+        panel["detail_texts"] = {
+            "individual": individual_text,
+            "family": family_text,
+            "children": children_text,
+            "events": events_text,
+        }
+        self._apply_section_visibility(panel)
+
+    def _apply_section_visibility(self, panel: dict[str, Any]) -> None:
+        """
+        Show a detail section only when it has content; hide it otherwise
+        so empty sections do not leave a blank line under their header.
+        """
+        for key, box in panel["detail_boxes"].items():
+            if panel["detail_texts"].get(key):
+                box.show()
+            else:
+                box.hide()
+
+    @staticmethod
+    def _build_section_markup(
+        lines: list[str],
+        other_lines: list[str] | None,
+        skip_prefixes: tuple[str, ...] = (),
+    ) -> str:
+        """
+        Render section lines as Pango markup, marking lines that are not
+        present in the counterpart's lines in bold italic.
+
+        :param lines: This side's plain-text section lines.
+        :param other_lines: Counterpart's lines, or None for no comparison.
+        :param skip_prefixes: Lines starting with any of these are never
+            highlighted (e.g., IDs that always differ across databases).
+        """
+        if not lines:
             return ""
-        db = self.source_db if handle in self.right_index else self.dbstate.db
-        person = db.get_person_from_handle(handle)
-        if not person:
+        # Drop blank/whitespace-only lines and collapse any embedded
+        # newlines so stray line feeds can never appear in a section.
+        cleaned = []
+        for line in lines:
+            line = " ".join(line.split())
+            if line:
+                cleaned.append(line)
+        if not cleaned:
             return ""
+        escaped = [GLib.markup_escape_text(line) for line in cleaned]
+        if not other_lines:
+            return "\n".join(escaped)
+        other_set = {
+            " ".join(line.split()) for line in other_lines if line.strip()
+        }
+        out = []
+        for line, esc in zip(cleaned, escaped):
+            if line in other_set or any(
+                line.startswith(prefix) for prefix in skip_prefixes
+            ):
+                out.append(esc)
+            else:
+                out.append("<b><i>%s</i></b>" % esc)
+        return "\n".join(out)
+
+    def _individual_lines(self, person: Person, db: Any) -> list[str]:
+        """
+        Build the Individual Details section lines: identity, gender, ID,
+        a one-line vital summary (``b.<year> (<birth place>) d.<year>``)
+        and the FamilySearch ID last. Events and other records are shown
+        in the Events & Other Records section instead.
+        """
         lines = [name_displayer.display(person)]
         gender = {
             Person.MALE: _("Male"),
             Person.FEMALE: _("Female"),
         }.get(person.get_gender(), _("Unknown"))
         lines.append(_("Gender: %s") % gender)
-        for label, get_ref in (
-            (_("Birth"), person.get_birth_ref),
-            (_("Death"), person.get_death_ref),
+        if person.gramps_id:
+            lines.append(_("ID: %s") % person.gramps_id)
+        birth_year = GrizardCompareWindow._get_event_year(
+            person.get_birth_ref(), db
+        )
+        death_year = GrizardCompareWindow._get_event_year(
+            person.get_death_ref(), db
+        )
+        birth_place = GrizardCompareWindow._get_event_place(
+            person.get_birth_ref(), db
+        )
+        birth_part = ""
+        if birth_year:
+            birth_part = "b." + birth_year
+            if birth_place:
+                birth_part += " (%s)" % birth_place
+        vitals = " ".join(
+            part
+            for part in (
+                birth_part,
+                "d." + death_year if death_year else "",
+            )
+            if part
+        )
+        if vitals:
+            lines.append(vitals)
+        fs_id = self._get_familysearch_id(person, db)
+        if fs_id:
+            lines.append(_("FamilySearch: %s") % fs_id)
+        return lines
+
+    def _event_lines(self, person: Person, db: Any) -> list[str]:
+        """
+        Build the Events & Other Records section lines: every event and
+        fact of the person, such as birth, death, occupation, residence,
+        etc. Empty ``_PPEXCLUDE`` marker events and ``_FSLINK`` events
+        are not shown; the FamilySearch ID appears in the Individual
+        Details section instead.
+        """
+        lines = []
+        for ref in person.get_event_ref_list():
+            try:
+                event = db.get_event_from_handle(ref.ref)
+                if not event:
+                    continue
+                type_name = str(event.get_type())
+                if type_name in ("_PPEXCLUDE", "_FSLINK"):
+                    continue
+                lines.append(self._format_event_line(event, db))
+            except Exception as e:
+                LOG.warning("Detail lookup failed: %s", e)
+        return lines
+
+    def _get_familysearch_id(self, person: Person, db: Any) -> str:
+        """
+        Return the FamilySearch person ID for the person, or ''.
+
+        The ID is taken from the canonical ``_FSFTID`` attribute, falling
+        back to the person ID parsed from the tail of a ``_FSLINK`` event
+        URL (``.../details/<id>``).
+        """
+        fs_id = get_fsftid(person)
+        if fs_id:
+            return fs_id
+        try:
+            for ref in person.get_event_ref_list():
+                event = db.get_event_from_handle(ref.ref)
+                if not event:
+                    continue
+                if str(event.get_type()) != "_FSLINK":
+                    continue
+                description = event.get_description() or ""
+                tail = description.rstrip("/").split("/")[-1]
+                if tail and tail != "details":
+                    return tail
+        except Exception as e:
+            LOG.warning("FamilySearch ID lookup failed: %s", e)
+        return ""
+
+    def _format_event_line(self, event: Any, db: Any) -> str:
+        """
+        Format one event or fact as a ``Type: date, place (description)``
+        line. Missing parts are omitted cleanly.
+        """
+        def clean(text: str) -> str:
+            # Collapse embedded newlines/extra whitespace into spaces.
+            return " ".join(text.split())
+
+        type_name = clean(str(event.get_type()))
+        date_str = clean(
+            glocale.date_displayer.display(event.get_date_object())
+        )
+        place = ""
+        place_handle = event.get_place_handle()
+        if place_handle:
+            try:
+                place_obj = db.get_place_from_handle(place_handle)
+                if place_obj:
+                    place = clean(place_obj.get_name().get_value() or "")
+            except Exception:
+                pass
+        description = clean(event.get_description() or "")
+        parts = [part for part in (date_str, place) if part]
+        line = _("%s: %s") % (type_name, ", ".join(parts))
+        if description:
+            line += " (%s)" % description
+        return line
+
+    def _family_lines(self, person: Person, db: Any) -> list[str]:
+        """
+        Build the Family Relations section lines: father and mother on
+        separate lines, then spouse(s).
+        """
+        lines = []
+        for label, names in (
+            (_("Father"), self._get_parent_persons(
+                person, db, family_role="father"
+            )),
+            (_("Mother"), self._get_parent_persons(
+                person, db, family_role="mother"
+            )),
         ):
-            ref = get_ref()
-            if ref:
-                try:
-                    event = db.get_event_from_handle(ref.ref)
-                    if event:
-                        date_str = glocale.date_displayer.display(
-                            event.get_date_object()
+            for name in names:
+                lines.append(_("%s: %s") % (label, name))
+        spouses = self._get_spouse_persons(person, db)
+        if spouses:
+            lines.append(_("Spouse: %s") % ", ".join(spouses))
+        return lines
+
+    def _family_lines(self, person: Person, db: Any) -> list[str]:
+        """
+        Build the Family Relations section lines: father and mother on
+        separate lines with their vital years, then spouse(s) with theirs.
+        """
+        lines = []
+        for label, relateds in (
+            (_("Father"), self._get_parent_persons(
+                person, db, family_role="father"
+            )),
+            (_("Mother"), self._get_parent_persons(
+                person, db, family_role="mother"
+            )),
+        ):
+            for related in relateds:
+                lines.append(
+                    _("%s: %s") % (label,
+                    self._related_name_with_vitals(related, db))
+                )
+        spouses = self._get_spouse_persons(person, db)
+        if spouses:
+            lines.append(_("Spouse: %s") % ", ".join(
+                self._related_name_with_vitals(spouse, db)
+                for spouse in spouses
+            ))
+        return lines
+
+    def _get_parent_persons(
+        self, person: Person, db: Any, family_role: str | None = None
+    ) -> list[Person]:
+        """
+        Return the Person objects of the person's parents, or [].
+
+        :param family_role: Restrict to 'father', 'mother' or None for
+            all parents across the person's parent families. Duplicate
+            persons (from multiple parent families) are removed.
+        """
+        persons = []
+        try:
+            for family_handle in person.get_parent_family_handle_list():
+                family = db.get_family_from_handle(family_handle)
+                if not family:
+                    continue
+                if family_role == "father":
+                    handles = [family.get_father_handle()]
+                elif family_role == "mother":
+                    handles = [family.get_mother_handle()]
+                else:
+                    handles = [
+                        family.get_father_handle(),
+                        family.get_mother_handle(),
+                    ]
+                for handle in handles:
+                    if not handle:
+                        continue
+                    parent = db.get_person_from_handle(handle)
+                    if parent and parent not in persons:
+                        persons.append(parent)
+        except Exception:
+            pass
+        return persons
+
+    def _get_spouse_persons(self, person: Person, db: Any) -> list[Person]:
+        """
+        Return the Person objects of the person's spouses, or [].
+        """
+        persons = []
+        try:
+            for family_handle in person.get_family_handle_list():
+                family = db.get_family_from_handle(family_handle)
+                if not family:
+                    continue
+                father_handle = family.get_father_handle()
+                mother_handle = family.get_mother_handle()
+                person_handle = person.handle
+                spouse_handle = None
+                if father_handle and father_handle != person_handle:
+                    spouse_handle = father_handle
+                elif mother_handle and mother_handle != person_handle:
+                    spouse_handle = mother_handle
+                if spouse_handle:
+                    spouse = db.get_person_from_handle(spouse_handle)
+                    if spouse and spouse not in persons:
+                        persons.append(spouse)
+        except Exception:
+            pass
+        return persons
+
+    def _vitals_text(self, related: Person, db: Any) -> str:
+        """
+        Return the compact vital summary (``b.<year> d.<year>``) of a
+        related person, or ''.
+        """
+        birth_year = GrizardCompareWindow._get_event_year(
+            related.get_birth_ref(), db
+        )
+        death_year = GrizardCompareWindow._get_event_year(
+            related.get_death_ref(), db
+        )
+        return " ".join(
+            part
+            for part in (
+                "b." + birth_year if birth_year else "",
+                "d." + death_year if death_year else "",
+            )
+            if part
+        )
+
+    def _children_lines(self, person: Person, db: Any) -> list[str]:
+        """
+        Build the Children section lines: children of each of the person's
+        families, one per line with their vital years.
+        """
+        lines = []
+        try:
+            for family_handle in person.get_family_handle_list():
+                family = db.get_family_from_handle(family_handle)
+                if not family:
+                    continue
+                for child_ref in family.get_child_ref_list():
+                    child = db.get_person_from_handle(child_ref.ref)
+                    if child:
+                        lines.append(
+                            self._related_name_with_vitals(child, db)
                         )
-                        place = ""
-                        place_handle = event.get_place_handle()
-                        if place_handle:
-                            place_obj = db.get_place_from_handle(place_handle)
-                            if place_obj:
-                                place = ", " + place_obj.get_name().get_value()
-                        lines.append(_("%s: %s%s") % (label, date_str, place))
-                except Exception as e:
-                    LOG.warning("Detail lookup failed: %s", e)
-        return "\n".join(lines)
+        except Exception as e:
+            LOG.warning("Children lookup failed: %s", e)
+        return lines
+
+    def _related_name_with_vitals(self, related: Person, db: Any) -> str:
+        """
+        Return ``<display name> (b.<year> d.<year>)`` for a related
+        person, omitting the parenthetical when no vitals are known.
+        """
+        name = name_displayer.display(related)
+        vitals = self._vitals_text(related, db)
+        if vitals:
+            return "%s (%s)" % (name, vitals)
+        return name
 
     def cb_previous(self, _button: Gtk.Button) -> None:
         """
