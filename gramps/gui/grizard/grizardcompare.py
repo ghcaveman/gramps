@@ -529,16 +529,12 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         btn_close.connect("clicked", self.cb_close)
         bar.pack_end(btn_close, False, False, 0)
 
-        self.btn_merge = Gtk.Button(label=_("Merge"))
-        self.btn_merge.connect("clicked", self.cb_merge)
-        bar.pack_end(self.btn_merge, False, False, 0)
-
-        self.btn_merge_dialog = Gtk.Button(label=_("Merge Dialog"))
-        self.btn_merge_dialog.set_tooltip_text(
+        self.btn_merge = Gtk.Button(label=_("Merge..."))
+        self.btn_merge.set_tooltip_text(
             _("Open the field-by-field merge dialog for the selected pair")
         )
-        self.btn_merge_dialog.connect("clicked", self.cb_merge_dialog)
-        bar.pack_end(self.btn_merge_dialog, False, False, 0)
+        self.btn_merge.connect("clicked", self.cb_merge_dialog)
+        bar.pack_end(self.btn_merge, False, False, 0)
 
         self.btn_next = Gtk.Button(label=_("Next"))
         self.btn_next.connect("clicked", self.cb_next)
@@ -1517,42 +1513,6 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         dialog.run()
         # Rebuild both panels so any merged data and the diff list
         # reflect the new state.
-        self.select_category("person")
-
-    def cb_merge(self, _button: Gtk.Button) -> None:
-        """
-        Open the existing Compare Differences merge wizard for the
-        currently selected record pair.
-        """
-        pair = self._get_selected_pair()
-        if pair is None:
-            return
-        source_handle, target_handle = pair
-
-        from .grizardassistant import GrizardAssistant
-        from gramps.gen.errors import WindowActiveError
-
-        try:
-            assistant = GrizardAssistant(
-                self.uistate,
-                self.dbstate,
-                parent=self.get_transient_for(),
-                merge_mode=True,
-            )
-        except WindowActiveError:
-            # A previous assistant is still open; do not stack a second one.
-            LOG.warning("Grizard import assistant is already open.")
-            return
-        # Refresh both panels once the merge wizard commits its changes.
-        assistant.connect("apply", self.cb_assistant_applied)
-        assistant.show()
-        assistant.open_at_compare(source_handle, target_handle, grizard=self.grizard)
-
-    def cb_assistant_applied(self, assistant: Gtk.Assistant) -> None:
-        """
-        Rebuild both panels after the merge wizard applied changes, so
-        the merged data and the difference list reflect the new state.
-        """
         self.select_category("person")
 
     def cb_close(self, _button: Gtk.Button) -> None:

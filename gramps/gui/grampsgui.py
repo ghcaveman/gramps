@@ -88,10 +88,6 @@ UIDEFAULT = (
           <attribute name="label" translatable="yes">_Import...</attribute>
         </item>
         <item groups='RW'>
-          <attribute name="action">win.GrizardImport</attribute>
-          <attribute name="label" translatable="yes">_Grizard Import...</attribute>
-        </item>
-        <item groups='RW'>
           <attribute name="action">win.GrizardCompare</attribute>
           <attribute name="label" translatable="yes">Grizard _Compare with GEDCOM...</attribute>
         </item>

@@ -22,10 +22,8 @@ Grizard GUI framework presentation package.
 
 from __future__ import annotations
 
-from .grizardassistant import GrizardAssistant
 from .grizardmergedialog import GrizardMergeDialog
 
 __all__ = [
-    "GrizardAssistant",
     "GrizardMergeDialog",
 ]
