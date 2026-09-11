@@ -87,6 +87,7 @@ from gramps.gen.types import PersonHandle
 # -------------------------------------------------------------------------
 from ..grizard import GrizardCompareRow, CandidateMatcher
 from ..gedcom import GedGrizard
+from gramps.gui.grizard.grizardmergedialog import GrizardMergeDialog
 
 
 # ------------------------------------------------------------
@@ -243,6 +244,97 @@ class GrizardTest(unittest.TestCase):
             # Verify target person has successfully updated primary details
             updated_person = self.db.get_person_from_handle(self.target_person.handle)
             self.assertEqual(updated_person.get_primary_name().first_name, "John")
+
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    def test_format_diff_line(self) -> None:
+        """
+        Test the GrizardMergeDialog's static method for rendering
+        Pango-highlighted differences between values.
+        """
+        # Exact match (should be plain)
+        res = GrizardMergeDialog._format_diff_line("Given Name", "John", "John", show_label=False, is_left=True)
+        self.assertEqual(res, "John")
+
+        # Differ (one word differs)
+        res_diff = GrizardMergeDialog._format_diff_line("Given Name", "John James", "John Paul", show_label=False, is_left=True)
+        # "James" differs, so it should be bolded, while "John" is matched and just italicized
+        self.assertIn("James", res_diff)
+
+        # Show label
+        res_label = GrizardMergeDialog._format_diff_line("Given Name", "John", "John", show_label=True, is_left=True)
+        self.assertEqual(res_label, "Given Name: John")
+
+    def test_ged_grizard_apply_merge_relationships(self) -> None:
+        """
+        Test merging complex family relationships (spouse, child, parents)
+        where the relative is mapped using best_target_person lookup.
+        """
+        # Create relative (spouse) in self.db
+        with DbTxn("Add spouse and child", self.db) as trans:
+            self.spouse_person = Person()
+            self.spouse_person.set_gender(Person.FEMALE)
+            name = Name()
+            name.first_name = "Jane"
+            s1 = Surname()
+            s1.set_surname("Doe")
+            name.add_surname(s1)
+            self.spouse_person.set_primary_name(name)
+            self.db.add_person(self.spouse_person, trans)
+
+        # GEDCOM data with John Doe having a spouse Jane Doe
+        gedcom_data = """0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME John /Doe/
+2 GIVN John
+2 SURN Doe
+1 SEX M
+1 FAMS @F1@
+0 @I2@ INDI
+1 NAME Jane /Doe/
+2 GIVN Jane
+2 SURN Doe
+1 SEX F
+1 FAMS @F1@
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+0 TRLR
+"""
+        with tempfile.NamedTemporaryFile(suffix=".ged", mode="w", delete=False) as f:
+            f.write(gedcom_data)
+            temp_path = f.name
+
+        try:
+            grizard = GedGrizard(self.db)
+            grizard.run_step("connect", gedcom_path=temp_path)
+            people = grizard.run_step("load")
+            source_john = [p for p in people if p.get_primary_name().first_name == "John"][0]
+            source_jane = [p for p in people if p.get_primary_name().first_name == "Jane"][0]
+
+            # Merge spouse relation
+            resolutions = {
+                f"spouse:{source_jane.handle}": "source",
+            }
+            success = grizard.run_step(
+                "apply",
+                source_person_handle=source_john.handle,
+                target_person_handle=self.target_person.handle,
+                resolutions=resolutions,
+            )
+            self.assertTrue(success)
+
+            # Verify that John now has a family link in self.db, and Jane is the spouse
+            updated_john = self.db.get_person_from_handle(self.target_person.handle)
+            self.assertTrue(len(updated_john.get_family_handle_list()) > 0)
+            fam_handle = updated_john.get_family_handle_list()[0]
+            fam = self.db.get_family_from_handle(fam_handle)
+            self.assertIsNotNone(fam)
+            self.assertEqual(fam.get_father_handle(), updated_john.handle)
+            self.assertEqual(fam.get_mother_handle(), self.spouse_person.handle)
 
         finally:
             if os.path.exists(temp_path):
