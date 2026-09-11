@@ -146,6 +146,18 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         self._paned_positioned = False
         self.paned.connect("size-allocate", self.cb_paned_size_allocate)
 
+        # Synchronize scrolling between left and right panels
+        self._syncing_scroll = False
+        left_vadj = self.left_panel["scrolled"].get_vadjustment()
+        right_vadj = self.right_panel["scrolled"].get_vadjustment()
+        left_hadj = self.left_panel["scrolled"].get_hadjustment()
+        right_hadj = self.right_panel["scrolled"].get_hadjustment()
+
+        left_vadj.connect("value-changed", self.cb_left_vscroll_changed)
+        right_vadj.connect("value-changed", self.cb_right_vscroll_changed)
+        left_hadj.connect("value-changed", self.cb_left_hscroll_changed)
+        right_hadj.connect("value-changed", self.cb_right_hscroll_changed)
+
         self.select_category("person")
 
     # ------------------------------------------------------------------
@@ -1520,3 +1532,71 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         Handle window close button.
         """
         self.close()
+
+    def cb_left_vscroll_changed(self, adj: Gtk.Adjustment) -> None:
+        """
+        Synchronize vertical scroll from left to right.
+        """
+        if self._syncing_scroll:
+            return
+        self._syncing_scroll = True
+        try:
+            right_vadj = self.right_panel["scrolled"].get_vadjustment()
+            val = adj.get_value()
+            clamped = max(right_vadj.get_lower(), min(val, right_vadj.get_upper() - right_vadj.get_page_size()))
+            right_vadj.set_value(clamped)
+        except Exception:
+            pass
+        finally:
+            self._syncing_scroll = False
+
+    def cb_right_vscroll_changed(self, adj: Gtk.Adjustment) -> None:
+        """
+        Synchronize vertical scroll from right to left.
+        """
+        if self._syncing_scroll:
+            return
+        self._syncing_scroll = True
+        try:
+            left_vadj = self.left_panel["scrolled"].get_vadjustment()
+            val = adj.get_value()
+            clamped = max(left_vadj.get_lower(), min(val, left_vadj.get_upper() - left_vadj.get_page_size()))
+            left_vadj.set_value(clamped)
+        except Exception:
+            pass
+        finally:
+            self._syncing_scroll = False
+
+    def cb_left_hscroll_changed(self, adj: Gtk.Adjustment) -> None:
+        """
+        Synchronize horizontal scroll from left to right.
+        """
+        if self._syncing_scroll:
+            return
+        self._syncing_scroll = True
+        try:
+            right_hadj = self.right_panel["scrolled"].get_hadjustment()
+            val = adj.get_value()
+            clamped = max(right_hadj.get_lower(), min(val, right_hadj.get_upper() - right_hadj.get_page_size()))
+            right_hadj.set_value(clamped)
+        except Exception:
+            pass
+        finally:
+            self._syncing_scroll = False
+
+    def cb_right_hscroll_changed(self, adj: Gtk.Adjustment) -> None:
+        """
+        Synchronize horizontal scroll from right to left.
+        """
+        if self._syncing_scroll:
+            return
+        self._syncing_scroll = True
+        try:
+            left_hadj = self.left_panel["scrolled"].get_hadjustment()
+            val = adj.get_value()
+            clamped = max(left_hadj.get_lower(), min(val, left_hadj.get_upper() - left_hadj.get_page_size()))
+            left_hadj.set_value(clamped)
+        except Exception:
+            pass
+        finally:
+            self._syncing_scroll = False
