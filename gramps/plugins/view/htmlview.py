@@ -40,9 +40,15 @@ LOG = logging.getLogger(".htmlview")
 # GTK/Gnome modules
 #
 # -------------------------------------------------------------------------
+_HAS_WEBKIT = False
 try:
     from gi.repository import Gtk
     from gi.repository import Gdk
+    try:
+        from gi.repository import WebKit2
+        _HAS_WEBKIT = True
+    except ImportError:
+        pass
 except ImportError:
     pass
 
@@ -203,6 +209,7 @@ class HTMLView(PageView):
         self.text_view = None
         self.text_buffer = None
         self.render_label = None
+        self.web_view = None
 
     @classmethod
     def set_html_text(cls, text: str) -> None:
@@ -270,24 +277,28 @@ class HTMLView(PageView):
         notebook.connect("switch-page", self.cb_switch_tab)
 
         # Tab 1: Render View
-        render_scroll = Gtk.ScrolledWindow()
-        render_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        render_scroll.set_shadow_type(Gtk.ShadowType.IN)
+        if _HAS_WEBKIT:
+            self.web_view = WebKit2.WebView()
+            notebook.append_page(self.web_view, Gtk.Label(label=_("Render")))
+        else:
+            render_scroll = Gtk.ScrolledWindow()
+            render_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            render_scroll.set_shadow_type(Gtk.ShadowType.IN)
 
-        self.render_label = Gtk.Label()
-        self.render_label.set_alignment(0.0, 0.0)
-        self.render_label.set_xalign(0.0)
-        self.render_label.set_yalign(0.0)
-        self.render_label.set_line_wrap(True)
-        self.render_label.set_selectable(True)
-        self.render_label.set_use_markup(True)
-        self.render_label.set_margin_top(12)
-        self.render_label.set_margin_bottom(12)
-        self.render_label.set_margin_left(12)
-        self.render_label.set_margin_right(12)
+            self.render_label = Gtk.Label()
+            self.render_label.set_alignment(0.0, 0.0)
+            self.render_label.set_xalign(0.0)
+            self.render_label.set_yalign(0.0)
+            self.render_label.set_line_wrap(True)
+            self.render_label.set_selectable(True)
+            self.render_label.set_use_markup(True)
+            self.render_label.set_margin_top(12)
+            self.render_label.set_margin_bottom(12)
+            self.render_label.set_margin_left(12)
+            self.render_label.set_margin_right(12)
 
-        render_scroll.add(self.render_label)
-        notebook.append_page(render_scroll, Gtk.Label(label=_("Render")))
+            render_scroll.add(self.render_label)
+            notebook.append_page(render_scroll, Gtk.Label(label=_("Render")))
 
         # Tab 2: Source View
         source_scroll = Gtk.ScrolledWindow()
@@ -332,13 +343,20 @@ class HTMLView(PageView):
 
     def _update_rendered_html(self) -> None:
         """
-        Parse raw HTML from the text buffer and update the Pango-formatted label.
+        Parse raw HTML from the text buffer and update the rendered view.
         """
-        if self.text_buffer is None or self.render_label is None:
+        if self.text_buffer is None:
             return
 
         start_iter, end_iter = self.text_buffer.get_bounds()
         raw_html = self.text_buffer.get_text(start_iter, end_iter, True)
+
+        if _HAS_WEBKIT and self.web_view is not None:
+            self.web_view.load_html(raw_html, "http://localhost")
+            return
+
+        if self.render_label is None:
+            return
 
         if not raw_html.strip():
             self.render_label.set_markup("")
@@ -362,7 +380,9 @@ class HTMLView(PageView):
         """
         if self.text_buffer is not None:
             self.text_buffer.set_text("")
-        if self.render_label is not None:
+        if _HAS_WEBKIT and self.web_view is not None:
+            self.web_view.load_html("", "http://localhost")
+        elif self.render_label is not None:
             self.render_label.set_markup("")
 
     def cb_paste_text(self, widget: Gtk.Button) -> None:
