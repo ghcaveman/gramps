@@ -620,10 +620,198 @@ class GrizardMergeDialog(Gtk.Dialog):
         button.set_sensitive(False)
         self._resolutions[key] = "source"
 
+    def _find_dangling_references(self) -> dict[str, list[str]]:
+        """
+        Scan selected resolutions to find referenced objects (Notes, Media,
+        Citations, Sources, Repositories) that do not exist in target DB.
+        """
+        missing = {
+            "note": set(),
+            "media": set(),
+            "source": set(),
+            "citation": set(),
+            "repository": set(),
+        }
+
+        # Gather the primary source objects that will be copied/merged
+        events_to_scan = []
+        people_to_scan = []
+
+        if not self.target_handle:  # Adding as new person
+            people_to_scan.append(self.source_person)
+            # Birth / death
+            sb_ref = self.source_person.get_birth_ref()
+            if sb_ref:
+                events_to_scan.append(sb_ref.ref)
+            sd_ref = self.source_person.get_death_ref()
+            if sd_ref:
+                events_to_scan.append(sd_ref.ref)
+        else:
+            # Merging
+            # Check birth_event
+            if self._resolutions.get("birth_event") == "source":
+                sb_ref = self.source_person.get_birth_ref()
+                if sb_ref:
+                    events_to_scan.append(sb_ref.ref)
+            # Check death_event
+            if self._resolutions.get("death_event") == "source":
+                sd_ref = self.source_person.get_death_ref()
+                if sd_ref:
+                    events_to_scan.append(sd_ref.ref)
+            # Check other custom events
+            for key, val in self._resolutions.items():
+                if val == "source" and key.startswith("event:"):
+                    s_evt_h = key.split(":", 1)[1]
+                    events_to_scan.append(s_evt_h)
+
+        # Helper to check target DB existence
+        def target_has_note(h):
+            try:
+                return bool(self.target_db.get_note_from_handle(h))
+            except Exception:
+                return False
+
+        def target_has_media(h):
+            try:
+                return bool(self.target_db.get_media_from_handle(h))
+            except Exception:
+                return False
+
+        def target_has_citation(h):
+            try:
+                return bool(self.target_db.get_citation_from_handle(h))
+            except Exception:
+                return False
+
+        def target_has_source(h):
+            try:
+                return bool(self.target_db.get_source_from_handle(h))
+            except Exception:
+                return False
+
+        def target_has_repo(h):
+            try:
+                return bool(self.target_db.get_repository_from_handle(h))
+            except Exception:
+                return False
+
+        # Recursively resolve references
+        def scan_notes(nh_list):
+            for nh in nh_list:
+                if nh and not target_has_note(nh):
+                    missing["note"].add(nh)
+
+        def scan_media(mref_list):
+            for mref in mref_list:
+                mh = mref.get_reference_handle()
+                if mh and not target_has_media(mh):
+                    missing["media"].add(mh)
+                    # Scan media notes
+                    try:
+                        s_med = self.source_db.get_media_from_handle(mh)
+                        if s_med:
+                            scan_notes(s_med.get_note_list())
+                    except Exception:
+                        pass
+
+        def scan_repository(rh):
+            if rh and not target_has_repo(rh):
+                missing["repository"].add(rh)
+                # Scan repo notes
+                try:
+                    s_rep = self.source_db.get_repository_from_handle(rh)
+                    if s_rep:
+                        scan_notes(s_rep.get_note_list())
+                except Exception:
+                    pass
+
+        def scan_source(sh):
+            if sh and not target_has_source(sh):
+                missing["source"].add(sh)
+                try:
+                    s_src = self.source_db.get_source_from_handle(sh)
+                    if s_src:
+                        scan_notes(s_src.get_note_list())
+                        scan_media(s_src.media_list)
+                        for rref in s_src.reporef_list:
+                            scan_repository(rref.get_reference_handle())
+                except Exception:
+                    pass
+
+        def scan_citation(ch):
+            if ch and not target_has_citation(ch):
+                missing["citation"].add(ch)
+                try:
+                    s_cit = self.source_db.get_citation_from_handle(ch)
+                    if s_cit:
+                        scan_notes(s_cit.get_note_list())
+                        scan_media(s_cit.media_list)
+                        scan_source(s_cit.get_reference_handle())
+                except Exception:
+                    pass
+
+        for p_obj in people_to_scan:
+            scan_notes(p_obj.get_note_list())
+            scan_media(p_obj.media_list)
+            for ch in p_obj.get_citation_list():
+                scan_citation(ch)
+
+        for eh in events_to_scan:
+            try:
+                s_evt = self.source_db.get_event_from_handle(eh)
+                if s_evt:
+                    scan_notes(s_evt.get_note_list())
+                    scan_media(s_evt.media_list)
+                    for ch in s_evt.get_citation_list():
+                        scan_citation(ch)
+            except Exception:
+                pass
+
+        return {k: list(v) for k, v in missing.items()}
+
     def cb_apply(self, _button: Gtk.Button) -> None:
         """
         Run the apply step for the collected resolutions and close.
         """
+        missing = self._find_dangling_references()
+        total_missing = sum(len(lst) for lst in missing.values())
+
+        if total_missing > 0:
+            details = []
+            if missing["citation"]:
+                details.append(_("%d Citations") % len(missing["citation"]))
+            if missing["source"]:
+                details.append(_("%d Sources") % len(missing["source"]))
+            if missing["note"]:
+                details.append(_("%d Notes") % len(missing["note"]))
+            if missing["media"]:
+                details.append(_("%d Media Records") % len(missing["media"]))
+            if missing["repository"]:
+                details.append(_("%d Repositories") % len(missing["repository"]))
+
+            msg = _(
+                "The data being merged contains references to external objects that "
+                "do not exist in your family tree:\n\n"
+                "%s\n\n"
+                "To prevent broken links, these missing references must be imported "
+                "along with your selected details. Do you confirm importing these "
+                "missing references?"
+            ) % ", ".join(details)
+
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                modal=True,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text=_("Confirm Importing Missing References"),
+            )
+            dialog.format_secondary_text(msg)
+            response = dialog.run()
+            dialog.destroy()
+
+            if response != Gtk.ResponseType.YES:
+                return
+
         try:
             self.grizard.run_step(
                 "apply",
