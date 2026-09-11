@@ -89,7 +89,7 @@ UIDEFAULT = (
         </item>
         <item groups='RW'>
           <attribute name="action">win.GrizardCompare</attribute>
-          <attribute name="label" translatable="yes">Grizard _Compare with GEDCOM...</attribute>
+          <attribute name="label" translatable="yes">Grizard Data _Merge...</attribute>
         </item>
         <item>
           <attribute name="action">win.Export</attribute>
