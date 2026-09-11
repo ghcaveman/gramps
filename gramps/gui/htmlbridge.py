@@ -65,15 +65,16 @@ class HtmlBridge:
             LOG.debug("HTMLView is not loaded or active: %s", err)
 
         # 2. Conditional routing path: Route to Grizard if the addon is installed
-        try:
-            # Check if Grizard package/modules are installed/importable
-            from gramps.gui.grizard.grizardassistant import GrizardAssistant
-
-            LOG.info(
-                "Grizard is installed. Routing HTML to Grizard for parsing: %s", url
-            )
-            # If Grizard assistant implements a receiver, we can route it here:
-            # GrizardAssistant.receive_html(url, html_content)
-        except ImportError:
-            # Grizard is not installed, skip gracefully
-            LOG.debug("Grizard addon is not installed, skipping Grizard routing.")
+        # (GrizardAssistant removed - this code path is no longer available)
+        # try:
+        #     from gramps.gui.grizard.grizardassistant import GrizardAssistant
+        #
+        #     LOG.info(
+        #         "Grizard is installed. Routing HTML to Grizard for parsing: %s", url
+        #     )
+        #     # If Grizard assistant implements a receiver, we can route it here:
+        #     # GrizardAssistant.receive_html(url, html_content)
+        # except ImportError:
+        #     # Grizard is not installed, skip gracefully
+        #     LOG.debug("Grizard addon is not installed, skipping Grizard routing.")
+        pass  # GrizardAssistant has been removed
