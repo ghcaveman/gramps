@@ -67,13 +67,58 @@ class HtmlBridge:
         # 2. Conditional routing path: Route to Grizard if the addon is installed
         try:
             # Check if Grizard package/modules are installed/importable
-            from gramps.gui.grizard.grizardassistant import GrizardAssistant
+            from gramps.gui.grizard.grizardcompare import GrizardCompareWindow
+            from gramps.gen.grizard.gedcom import GedGrizard
+            from gi.repository import Gtk
+            from gramps.gen.const import GRAMPS_LOCALE as glocale
+            import gc
+            from gramps.gui.viewmanager import ViewManager
 
-            LOG.info(
-                "Grizard is installed. Routing HTML to Grizard for parsing: %s", url
-            )
-            # If Grizard assistant implements a receiver, we can route it here:
-            # GrizardAssistant.receive_html(url, html_content)
+            _ = glocale.translation.gettext
+
+            vm = None
+            for obj in gc.get_objects():
+                if isinstance(obj, ViewManager):
+                    vm = obj
+                    break
+
+            if vm and vm.dbstate.is_open():
+                LOG.info(
+                    "Grizard is installed. Routing HTML to Grizard for parsing: %s", url
+                )
+
+                chooser = Gtk.FileChooserDialog(
+                    title=_("Select GEDCOM File to Compare/Merge with captured HTML data"),
+                    transient_for=vm.window,
+                    action=Gtk.FileChooserAction.OPEN,
+                )
+                chooser.add_buttons(
+                    Gtk.STOCK_CANCEL,
+                    Gtk.ResponseType.CANCEL,
+                    Gtk.STOCK_OPEN,
+                    Gtk.ResponseType.OK,
+                )
+
+                filter_ged = Gtk.FileFilter()
+                filter_ged.set_name(_("GEDCOM files (*.ged)"))
+                filter_ged.add_pattern("*.ged")
+                chooser.add_filter(filter_ged)
+
+                response = chooser.run()
+                if response == Gtk.ResponseType.OK:
+                    filename = chooser.get_filename()
+                    chooser.destroy()
+
+                    grizard = GedGrizard(vm.dbstate.db)
+                    grizard.run_step("connect", gedcom_path=filename)
+                    grizard.run_step("load")
+
+                    compare_win = GrizardCompareWindow(
+                        vm.uistate, vm.dbstate, grizard, parent=vm.window
+                    )
+                    compare_win.show()
+                else:
+                    chooser.destroy()
         except ImportError:
             # Grizard is not installed, skip gracefully
             LOG.debug("Grizard addon is not installed, skipping Grizard routing.")

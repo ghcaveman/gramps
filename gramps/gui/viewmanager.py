@@ -1297,7 +1297,7 @@ class ViewManager(CLIManager):
         from gramps.gen.grizard.gedcom import GedGrizard
 
         chooser = Gtk.FileChooserDialog(
-            title=_("Select GEDCOM File to Compare"),
+            title=_("Select File to Compare"),
             transient_for=self.window,
             action=Gtk.FileChooserAction.OPEN,
         )

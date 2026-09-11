@@ -23,7 +23,9 @@ Grizard GUI framework presentation package.
 from __future__ import annotations
 
 from .grizardmergedialog import GrizardMergeDialog
+from .grizardwebimporter import GrizardWebImporter
 
 __all__ = [
     "GrizardMergeDialog",
+    "GrizardWebImporter",
 ]
