@@ -529,12 +529,12 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         btn_close.connect("clicked", self.cb_close)
         bar.pack_end(btn_close, False, False, 0)
 
-        self.btn_merge = Gtk.Button(label=_("Merge..."))
-        self.btn_merge.set_tooltip_text(
+        self.btn_merge_dialog = Gtk.Button(label=_("Merge..."))
+        self.btn_merge_dialog.set_tooltip_text(
             _("Open the field-by-field merge dialog for the selected pair")
         )
-        self.btn_merge.connect("clicked", self.cb_merge_dialog)
-        bar.pack_end(self.btn_merge, False, False, 0)
+        self.btn_merge_dialog.connect("clicked", self.cb_merge_dialog)
+        bar.pack_end(self.btn_merge_dialog, False, False, 0)
 
         self.btn_next = Gtk.Button(label=_("Next"))
         self.btn_next.connect("clicked", self.cb_next)
@@ -833,7 +833,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         has_diffs = is_people and bool(self.diff_list)
         self.btn_prev.set_sensitive(has_diffs)
         self.btn_next.set_sensitive(has_diffs)
-        self.btn_merge.set_sensitive(
+        self.btn_merge_dialog.set_sensitive(
             is_people and self._get_selected_pair() is not None
         )
         self.btn_merge_dialog.set_sensitive(
