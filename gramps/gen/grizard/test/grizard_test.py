@@ -339,3 +339,81 @@ class GrizardTest(unittest.TestCase):
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
+    def test_ged_grizard_resolve_dangling_references(self) -> None:
+        """
+        Verify that dangling references (Notes, Citations, Sources) are
+        recursively copied and linked correctly when merging a person or event.
+        """
+        # GEDCOM file containing nested note, citation, source structure
+        gedcom_data = """0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME John /Doe/
+2 GIVN John
+2 SURN Doe
+1 SEX M
+1 BIRT
+2 DATE 15 JUN 1980
+2 SOUR @S1@
+3 PAGE 42
+0 @S1@ SOUR
+1 TITL Famous Book of Doe
+1 NOTE @N1@
+0 @N1@ NOTE This is a linked note for a source.
+0 TRLR
+"""
+        with tempfile.NamedTemporaryFile(suffix=".ged", mode="w", delete=False) as f:
+            f.write(gedcom_data)
+            temp_path = f.name
+
+        try:
+            grizard = GedGrizard(self.db)
+            grizard.run_step("connect", gedcom_path=temp_path)
+            people = grizard.run_step("load")
+            source_person = people[0]
+
+            resolutions = {
+                "given_name": "source",
+                "surname": "source",
+                "gender": "source",
+                "birth_event": "source",
+            }
+            success = grizard.run_step(
+                "apply",
+                source_person_handle=source_person.handle,
+                target_person_handle=self.target_person.handle,
+                resolutions=resolutions,
+            )
+            self.assertTrue(success)
+
+            # Get the merged birth event from the target database
+            updated_person = self.db.get_person_from_handle(self.target_person.handle)
+            birth_ref = updated_person.get_birth_ref()
+            self.assertIsNotNone(birth_ref)
+            birth_event = self.db.get_event_from_handle(birth_ref.ref)
+            self.assertIsNotNone(birth_event)
+
+            # Verify that the birth event has a Citation
+            citation_handles = birth_event.get_citation_list()
+            self.assertTrue(len(citation_handles) > 0)
+            citation = self.db.get_citation_from_handle(citation_handles[0])
+            self.assertIsNotNone(citation)
+
+            # Verify that the Citation references the correct Source in the target DB
+            source_handle = citation.get_reference_handle()
+            self.assertIsNotNone(source_handle)
+            source = self.db.get_source_from_handle(source_handle)
+            self.assertIsNotNone(source)
+            self.assertEqual(source.title, "Famous Book of Doe")
+
+            # Verify that the Source references the Note in the target DB
+            note_handles = source.get_note_list()
+            self.assertTrue(len(note_handles) > 0)
+            note = self.db.get_note_from_handle(note_handles[0])
+            self.assertIsNotNone(note)
+            self.assertIn("linked note", note.get_text())
+
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)

@@ -402,6 +402,195 @@ class GedGrizard(GrizardBase):
                 pass
             return None
 
+        # Helper to copy note
+        def copy_note(s_note_handle: str | None, trans: Any) -> str | None:
+            if not s_note_handle:
+                return None
+            try:
+                if self.db.get_note_from_handle(s_note_handle):
+                    return s_note_handle
+            except Exception:
+                pass
+            try:
+                s_note = source_db.get_note_from_handle(s_note_handle)
+                if not s_note:
+                    return None
+                new_note = copy.deepcopy(s_note)
+                self.db.add_note(new_note, trans)
+                return new_note.handle
+            except Exception:
+                pass
+            return None
+
+        # Helper to copy media
+        def copy_media(s_media_handle: str | None, trans: Any) -> str | None:
+            if not s_media_handle:
+                return None
+            try:
+                if self.db.get_media_from_handle(s_media_handle):
+                    return s_media_handle
+            except Exception:
+                pass
+            try:
+                s_media = source_db.get_media_from_handle(s_media_handle)
+                if not s_media:
+                    return None
+                new_media = copy.deepcopy(s_media)
+                new_notes = []
+                for nh in new_media.get_note_list():
+                    new_nh = copy_note(nh, trans)
+                    if new_nh:
+                        new_notes.append(new_nh)
+                new_media.set_note_list(new_notes)
+
+                self.db.add_media(new_media, trans)
+                return new_media.handle
+            except Exception:
+                pass
+            return None
+
+        # Helper to copy repository
+        def copy_repository(s_repo_handle: str | None, trans: Any) -> str | None:
+            if not s_repo_handle:
+                return None
+            try:
+                if self.db.get_repository_from_handle(s_repo_handle):
+                    return s_repo_handle
+            except Exception:
+                pass
+            try:
+                s_repo = source_db.get_repository_from_handle(s_repo_handle)
+                if not s_repo:
+                    return None
+                new_repo = copy.deepcopy(s_repo)
+                new_notes = []
+                for nh in new_repo.get_note_list():
+                    new_nh = copy_note(nh, trans)
+                    if new_nh:
+                        new_notes.append(new_nh)
+                new_repo.set_note_list(new_notes)
+
+                self.db.add_repository(new_repo, trans)
+                return new_repo.handle
+            except Exception:
+                pass
+            return None
+
+        # Helper to copy source
+        def copy_source(s_source_handle: str | None, trans: Any) -> str | None:
+            if not s_source_handle:
+                return None
+            try:
+                if self.db.get_source_from_handle(s_source_handle):
+                    return s_source_handle
+            except Exception:
+                pass
+            try:
+                s_source = source_db.get_source_from_handle(s_source_handle)
+                if not s_source:
+                    return None
+                new_source = copy.deepcopy(s_source)
+                new_notes = []
+                for nh in new_source.get_note_list():
+                    new_nh = copy_note(nh, trans)
+                    if new_nh:
+                        new_notes.append(new_nh)
+                new_source.set_note_list(new_notes)
+
+                for mref in new_source.media_list:
+                    new_mh = copy_media(mref.get_reference_handle(), trans)
+                    if new_mh:
+                        mref.set_reference_handle(new_mh)
+
+                for rref in new_source.reporef_list:
+                    new_rh = copy_repository(rref.get_reference_handle(), trans)
+                    if new_rh:
+                        rref.set_reference_handle(new_rh)
+
+                self.db.add_source(new_source, trans)
+                return new_source.handle
+            except Exception:
+                pass
+            return None
+
+        # Helper to copy citation
+        def copy_citation(s_citation_handle: str | None, trans: Any) -> str | None:
+            if not s_citation_handle:
+                return None
+            try:
+                if self.db.get_citation_from_handle(s_citation_handle):
+                    return s_citation_handle
+            except Exception:
+                pass
+            try:
+                s_citation = source_db.get_citation_from_handle(s_citation_handle)
+                if not s_citation:
+                    return None
+                new_citation = copy.deepcopy(s_citation)
+                new_notes = []
+                for nh in new_citation.get_note_list():
+                    new_nh = copy_note(nh, trans)
+                    if new_nh:
+                        new_notes.append(new_nh)
+                new_citation.set_note_list(new_notes)
+
+                for mref in new_citation.media_list:
+                    new_mh = copy_media(mref.get_reference_handle(), trans)
+                    if new_mh:
+                        mref.set_reference_handle(new_mh)
+
+                new_sh = copy_source(new_citation.get_reference_handle(), trans)
+                if new_sh:
+                    new_citation.set_reference_handle(new_sh)
+
+                self.db.add_citation(new_citation, trans)
+                return new_citation.handle
+            except Exception:
+                pass
+            return None
+
+        # Helper to resolve references on an Event
+        def resolve_references_for_event(new_event: Any, trans: Any) -> None:
+            new_notes = []
+            for nh in new_event.get_note_list():
+                new_nh = copy_note(nh, trans)
+                if new_nh:
+                    new_notes.append(new_nh)
+            new_event.set_note_list(new_notes)
+
+            for mref in new_event.media_list:
+                new_mh = copy_media(mref.get_reference_handle(), trans)
+                if new_mh:
+                    mref.set_reference_handle(new_mh)
+
+            new_citations = []
+            for ch in new_event.get_citation_list():
+                new_ch = copy_citation(ch, trans)
+                if new_ch:
+                    new_citations.append(new_ch)
+            new_event.set_citation_list(new_citations)
+
+        # Helper to resolve references on a Person
+        def resolve_references_for_person(new_person: Any, trans: Any) -> None:
+            new_notes = []
+            for nh in new_person.get_note_list():
+                new_nh = copy_note(nh, trans)
+                if new_nh:
+                    new_notes.append(new_nh)
+            new_person.set_note_list(new_notes)
+
+            for mref in new_person.media_list:
+                new_mh = copy_media(mref.get_reference_handle(), trans)
+                if new_mh:
+                    mref.set_reference_handle(new_mh)
+
+            new_citations = []
+            for ch in new_person.get_citation_list():
+                new_ch = copy_citation(ch, trans)
+                if new_ch:
+                    new_citations.append(new_ch)
+            new_person.set_citation_list(new_citations)
+
         # Helper to copy event
         def copy_event(s_evt_handle: str | None, trans: Any) -> str | None:
             if not s_evt_handle:
@@ -414,6 +603,7 @@ class GedGrizard(GrizardBase):
                 new_event = copy.deepcopy(s_event)
                 new_place = get_or_create_place(s_event.get_place_handle(), trans)
                 new_event.set_place_handle(new_place)
+                resolve_references_for_event(new_event, trans)
                 self.db.add_event(new_event, trans)
                 return new_event.handle
             except Exception:
@@ -424,6 +614,7 @@ class GedGrizard(GrizardBase):
             if target_person_handle is None:
                 # Add as entirely new person
                 new_person = copy.deepcopy(s_person)
+                resolve_references_for_person(new_person, trans)
                 # Copy birth event if exists
                 s_birth_ref = s_person.get_birth_ref()
                 if s_birth_ref:
