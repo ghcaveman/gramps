@@ -743,7 +743,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         parts = []
         birth_year = GrizardCompareWindow._get_event_year(person.get_birth_ref(), db)
         if birth_year:
-            parts.append("b." + birth_year)
+            parts.append("b. " + birth_year)
         birth_place = GrizardCompareWindow._get_event_place(person.get_birth_ref(), db)
         if birth_place:
             parts.append(birth_place)
@@ -755,7 +755,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         Return the death summary (``d.<year>``) for the person.
         """
         death_year = GrizardCompareWindow._get_event_year(person.get_death_ref(), db)
-        return "d." + death_year if death_year else ""
+        return "d. " + death_year if death_year else ""
 
     @staticmethod
     def _get_parent_names(
@@ -1141,7 +1141,8 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
     ) -> str:
         """
         Render section lines as Pango markup, marking lines that are not
-        present in the counterpart's lines in bold italic.
+        present in the counterpart's lines with italic styling, and bolding
+        only the specific words that differ.
 
         :param lines: This side's plain-text section lines.
         :param other_lines: Counterpart's lines, or None for no comparison.
@@ -1162,16 +1163,91 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         escaped = [GLib.markup_escape_text(line) for line in cleaned]
         if not other_lines:
             return "\n".join(escaped)
-        other_set = {" ".join(line.split()) for line in other_lines if line.strip()}
+        other_cleaned = [" ".join(line.split()) for line in other_lines if line.strip()]
+        other_set = set(other_cleaned)
         out = []
-        for line, esc in zip(cleaned, escaped):
+        for i, (line, esc) in enumerate(zip(cleaned, escaped)):
             if line in other_set or any(
                 line.startswith(prefix) for prefix in skip_prefixes
             ):
                 out.append(esc)
             else:
-                out.append("<b><i>%s</i></b>" % esc)
+                # Find the counterpart line at the same position, if available
+                other_line = other_cleaned[i] if i < len(other_cleaned) else None
+                # Entire line is italic, but only the differing words are bold
+                out.append(
+                    GrizardCompareWindow._italicize_with_bold_diffs(
+                        line, esc, other_line
+                    )
+                )
         return "\n".join(out)
+
+    @staticmethod
+    def _italicize_with_bold_diffs(
+        line: str,
+        escaped_line: str,
+        other_line: str | None,
+    ) -> str:
+        """
+        Render a line with italic styling for the entire line, and bold
+        styling for individual words that differ from another line.
+
+        :param line: The original unescaped line text.
+        :param escaped_line: The Pango-escaped line text.
+        :param other_line: The counterpart line to compare against, or None.
+        :returns: Pango markup string with italic and bold spans.
+        """
+        if not other_line:
+            # No counterpart to compare against; just italicize the whole line
+            return "<i>%s</i>" % escaped_line
+
+        # If the entire lines are identical, return plain text (no styling)
+        if line == other_line:
+            return escaped_line
+
+        # Split both lines into words for word-level comparison
+        words = line.split()
+        other_words = other_line.split()
+
+        # Build the markup with bold spans for differing words
+        # Each word gets its own escaped version
+        escaped_words = [GLib.markup_escape_text(w) for w in words]
+        other_escaped_words = [GLib.markup_escape_text(w) for w in other_words]
+
+        def _strip_trailing_punct(word: str) -> tuple[str, str]:
+            """Split a word into (word_part, trailing_punct).
+
+            :param word: Escaped word text.
+            :returns: Tuple of (cleaned_word, trailing_punctuation).
+            """
+            idx = len(word)
+            while idx > 0 and word[idx - 1] in ",.;:!?)}":
+                idx -= 1
+            return word[:idx], word[idx:]
+
+        parts: list[str] = []
+        for i, (word_esc, other_esc) in enumerate(
+            zip(escaped_words, other_escaped_words)
+        ):
+            # Compare after stripping trailing punctuation
+            left_content, left_punct = _strip_trailing_punct(word_esc)
+            right_content, _ = _strip_trailing_punct(other_esc)
+            if left_content == right_content:
+                # Word matches (ignoring trailing punctuation) - just italic
+                parts.append("<i>%s</i>" % word_esc)
+            else:
+                # Word differs or counterpart is missing - italic + bold,
+                # but only bold the word content, keep punct in italic
+                parts.append("<i><b>%s</b></i>%s" % (left_content, left_punct))
+
+        # Handle extra words in the current line (if current line is longer)
+        if len(words) > len(other_words):
+            for word_esc in escaped_words[len(other_words) :]:
+                left_content, left_punct = _strip_trailing_punct(word_esc)
+                parts.append("<i><b>%s</b></i>%s" % (left_content, left_punct))
+
+        # Join with spaces and wrap entire result in italic
+        return " ".join(parts)
 
     def _individual_lines(self, person: Person, db: Any) -> list[str]:
         """
@@ -1193,7 +1269,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         birth_place = GrizardCompareWindow._get_event_place(person.get_birth_ref(), db)
         birth_part = ""
         if birth_year:
-            birth_part = "b." + birth_year
+            birth_part = "b. " + birth_year
             if birth_place:
                 birth_part += " (%s)" % birth_place
         vitals = " ".join(
@@ -1399,8 +1475,8 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         return " ".join(
             part
             for part in (
-                "b." + birth_year if birth_year else "",
-                "d." + death_year if death_year else "",
+                "b. " + birth_year if birth_year else "",
+                "d. " + death_year if death_year else "",
             )
             if part
         )

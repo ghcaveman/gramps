@@ -42,6 +42,7 @@ from typing import Any
 # -------------------------------------------------------------------------
 from gi.repository import Gtk
 from gi.repository import GLib
+from gi.repository import Pango
 
 # -------------------------------------------------------------------------
 #
@@ -123,6 +124,85 @@ class GrizardMergeDialog(Gtk.Dialog):
         bar.pack_start(btn_apply, False, False, 0)
 
         self.show_all()
+
+    # ------------------------------------------------------------------
+    # Styling helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _format_diff_line(
+        label: str,
+        left_val: str,
+        right_val: str,
+        show_label: bool,
+        is_left: bool,
+    ) -> str:
+        """
+        Format a line with Pango markup for the merge dialog.
+
+        The entire line is rendered in italic. Words that differ between
+        the left and right values are rendered in bold.
+
+        :param label: The field label (e.g., "Given Name").
+        :param left_val: The value for this side.
+        :param right_val: The value for the other side (for comparison).
+        :param show_label: Whether to include the label in the display.
+        :param is_left: True if this is the left cell, False for right.
+        :returns: Pango markup string.
+        """
+        # If values are the same, just return plain text (no highlighting)
+        if left_val == right_val:
+            if show_label:
+                return glocale.translation.gettext("%s: %s") % (label, left_val)
+            else:
+                return left_val
+
+        # Split into words for word-level comparison
+        left_words = left_val.split()
+        right_words = right_val.split()
+        left_esc_words = [GLib.markup_escape_text(w) for w in left_words]
+
+        def _strip_trailing_punct(word: str) -> tuple[str, str]:
+            """Split a word into (word_part, trailing_punct).
+
+            :param word: Escaped word text.
+            :returns: Tuple of (cleaned_word, trailing_punctuation).
+            """
+            idx = len(word)
+            while idx > 0 and word[idx - 1] in ",.;:!?)}":
+                idx -= 1
+            return word[:idx], word[idx:]
+
+        # Word-by-word comparison
+        parts: list[str] = []
+        for i, word_esc in enumerate(left_esc_words):
+            if i < len(right_words):
+                other_esc = GLib.markup_escape_text(right_words[i])
+                # Compare after stripping trailing punctuation
+                left_content, left_punct = _strip_trailing_punct(word_esc)
+                right_content, _ = _strip_trailing_punct(other_esc)
+                if left_content == right_content:
+                    # Word matches (ignoring trailing punctuation) - just italic
+                    parts.append("<i>%s</i>" % word_esc)
+                else:
+                    # Word differs - bold only the word content, keep punct in italic
+                    parts.append("<i><b>%s</b></i>%s" % (left_content, left_punct))
+            else:
+                # Extra word in left_val - bold the content, keep punct in italic
+                left_content, left_punct = _strip_trailing_punct(word_esc)
+                parts.append("<i><b>%s</b></i>%s" % (left_content, left_punct))
+
+        value_markup = " ".join(parts)
+
+        if show_label:
+            # Add the label in italic before the value
+            label_esc = GLib.markup_escape_text(
+                glocale.translation.gettext("%s:") % label
+            )
+            # Remove inner <i> tags since they're redundant when wrapped in outer <i>
+            value_no_i = value_markup.replace("<i>", "").replace("</i>", "")
+            return "<i>%s %s</i>" % (label_esc, value_no_i)
+        else:
+            return value_markup
 
     # ------------------------------------------------------------------
     # UI construction
@@ -209,14 +289,25 @@ class GrizardMergeDialog(Gtk.Dialog):
             same = ls == rs
             if is_nullable_identity:
                 same = bool(ls) == bool(rs)
-            left_text = _("%s: %s") % (label, ls) if show_label else ls
-            right_text = _("%s: %s") % (label, rs) if show_label else rs
-            left_cell = Gtk.Label(label=left_text)
+
+            # Build Pango markup with italic for entire line and bold for diffs
+            left_text = self._format_diff_line(label, ls, rs, show_label, is_left=True)
+            right_text = self._format_diff_line(
+                label, rs, ls, show_label, is_left=False
+            )
+
+            left_cell = Gtk.Label()
+            left_cell.set_markup(left_text)
             left_cell.set_xalign(0.0)
             left_cell.set_line_wrap(True)
-            right_cell = Gtk.Label(label=right_text)
+            if not same:
+                left_cell.get_style_context().add_class("diff-line")
+            right_cell = Gtk.Label()
+            right_cell.set_markup(right_text)
             right_cell.set_xalign(1.0)
             right_cell.set_line_wrap(True)
+            if not same:
+                right_cell.get_style_context().add_class("diff-line")
             btn = None
             if key is not None:
                 if is_nullable_identity:
