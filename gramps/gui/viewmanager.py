@@ -594,7 +594,6 @@ class ViewManager(CLIManager):
             ("UndoHistory", self.undo_history, "<PRIMARY>H"),
             # --------------------------------------
             ("Import", self.import_data, "<PRIMARY>i"),
-            ("GrizardImport", self.grizard_import, "<PRIMARY>g"),
             ("GrizardCompare", self.grizard_compare, "<PRIMARY><shift>g"),
             ("Tools", self.tools_clicked),
             # ('BookMenu', None, _('_Bookmarks')),
@@ -1285,16 +1284,6 @@ class ViewManager(CLIManager):
             if infotxt:
                 InfoDialog(_("Import Statistics"), infotxt, parent=self.window)
             self.__post_load()
-
-    def grizard_import(self, *obj):
-        """
-        Open the Grizard import assistant.
-        """
-        if self.dbstate.is_open():
-            from .grizard.grizardassistant import GrizardAssistant
-
-            dialog = GrizardAssistant(self.uistate, self.dbstate, self.window)
-            dialog.show()
 
     def grizard_compare(self, *obj):
         """

@@ -5,12 +5,12 @@ This document lists the tasks and enhancements required to bring the Grizard GED
 ---
 
 ## [HIGH PRIORITY] 1. Shared Primary Object Copying (Dangling Reference Fixes)
-- [ ] **Recursive Reference Resolution**: When adding a new person or copying an event, detect and copy referenced secondary/shared objects to avoid broken handle pointers:
-  - [ ] **Notes**: Import and add `Note` records referenced in `note_ref_list`.
-  - [ ] **Media**: Import and add `Media` records referenced in `media_ref_list`.
-  - [ ] **Citations**: Import and add `Citation` records referenced in `citation_ref_list`.
-  - [ ] **Sources**: When importing citations, resolve and import the parent `Source` records.
-  - [ ] **Repositories**: When importing sources, resolve and import the linked `Repository` records.
+- [x] **Recursive Reference Resolution**: When adding a new person or copying an event, detect and copy referenced secondary/shared objects to avoid broken handle pointers:
+  - [x] **Notes**: Import and add `Note` records referenced in `note_ref_list`.
+  - [x] **Media**: Import and add `Media` records referenced in `media_ref_list`.
+  - [x] **Citations**: Import and add `Citation` records referenced in `citation_ref_list`.
+  - [x] **Sources**: When importing citations, resolve and import the parent `Source` records.
+  - [x] **Repositories**: When importing sources, resolve and import the linked `Repository` records.
 
 ---
 
