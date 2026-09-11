@@ -1543,7 +1543,10 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         try:
             right_vadj = self.right_panel["scrolled"].get_vadjustment()
             val = adj.get_value()
-            clamped = max(right_vadj.get_lower(), min(val, right_vadj.get_upper() - right_vadj.get_page_size()))
+            clamped = max(
+                right_vadj.get_lower(),
+                min(val, right_vadj.get_upper() - right_vadj.get_page_size()),
+            )
             right_vadj.set_value(clamped)
         except Exception:
             pass
@@ -1560,7 +1563,10 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         try:
             left_vadj = self.left_panel["scrolled"].get_vadjustment()
             val = adj.get_value()
-            clamped = max(left_vadj.get_lower(), min(val, left_vadj.get_upper() - left_vadj.get_page_size()))
+            clamped = max(
+                left_vadj.get_lower(),
+                min(val, left_vadj.get_upper() - left_vadj.get_page_size()),
+            )
             left_vadj.set_value(clamped)
         except Exception:
             pass
@@ -1577,7 +1583,10 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         try:
             right_hadj = self.right_panel["scrolled"].get_hadjustment()
             val = adj.get_value()
-            clamped = max(right_hadj.get_lower(), min(val, right_hadj.get_upper() - right_hadj.get_page_size()))
+            clamped = max(
+                right_hadj.get_lower(),
+                min(val, right_hadj.get_upper() - right_hadj.get_page_size()),
+            )
             right_hadj.set_value(clamped)
         except Exception:
             pass
@@ -1594,7 +1603,10 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         try:
             left_hadj = self.left_panel["scrolled"].get_hadjustment()
             val = adj.get_value()
-            clamped = max(left_hadj.get_lower(), min(val, left_hadj.get_upper() - left_hadj.get_page_size()))
+            clamped = max(
+                left_hadj.get_lower(),
+                min(val, left_hadj.get_upper() - left_hadj.get_page_size()),
+            )
             left_hadj.set_value(clamped)
         except Exception:
             pass
