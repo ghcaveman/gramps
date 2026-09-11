@@ -134,8 +134,6 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         main_box.set_border_width(6)
         outer.pack_start(main_box, True, True, 0)
 
-        main_box.pack_start(self._build_sidebar(), False, False, 0)
-
         self.paned = Gtk.HPaned()
         main_box.pack_start(self.paned, True, True, 0)
 
@@ -552,31 +550,6 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
 
         return bar
 
-    def _build_sidebar(self) -> Gtk.Widget:
-        """
-        Build the left-hand category sidebar.
-        """
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_size_request(85, -1)
-
-        self.category_listbox = Gtk.ListBox()
-        self.category_listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        for key, title, _iter in CATEGORIES:
-            row = Gtk.ListBoxRow()
-            row.category = key
-            label = Gtk.Label(label=title, xalign=0.0)
-            label.set_margin_top(6)
-            label.set_margin_bottom(6)
-            label.set_margin_start(4)
-            label.set_ellipsize(Pango.EllipsizeMode.END)
-            row.add(label)
-            self.category_listbox.add(row)
-        self.category_listbox.connect("row-selected", self.cb_category_selected)
-
-        scrolled.add(self.category_listbox)
-        return scrolled
-
     def _build_panel(self, title: str) -> dict[str, Any]:
         """
         Build one side-by-side comparison panel.
@@ -958,18 +931,6 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
     # ------------------------------------------------------------------
     # Callbacks
     # ------------------------------------------------------------------
-    def cb_category_selected(
-        self, listbox: Gtk.ListBox, row: Gtk.ListBoxRow | None
-    ) -> None:
-        """
-        Handle a sidebar category selection.
-        """
-        if row is None:
-            return
-        category = getattr(row, "category", None)
-        if category and category != self.current_category:
-            self.select_category(category)
-
     def cb_record_selected(self, tree_selection: Gtk.TreeSelection) -> None:
         """
         Handle a record selection change; update the detail pane, mirror
