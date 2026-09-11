@@ -47,6 +47,9 @@ from gramps.gen.lib import (
     EventRef,
     Place,
     Name,
+    Family,
+    ChildRef,
+    Attribute,
     EventRoleType,
     EventType,
 )
@@ -501,6 +504,195 @@ class GedGrizard(GrizardBase):
                         new_death_ref.ref = t_death_h
                         new_death_ref.set_role(EventRoleType.PRIMARY)
                         t_person.set_death_ref(new_death_ref)
+
+                # Helpers for field-level items beyond the standard rows
+                def best_target_person(s_handle: str) -> str | None:
+                    """
+                    Find the target person that best matches the source
+                    person with the given handle.
+                    """
+                    rel = source_db.get_person_from_handle(s_handle)
+                    if not rel:
+                        return None
+                    matches = CandidateMatcher(self.db).find_matches(rel, threshold=0.5)
+                    if not matches:
+                        return None
+                    matches.sort(key=lambda m: m[1], reverse=True)
+                    return matches[0][0]
+
+                def ensure_parent_family(trans: Any) -> Family:
+                    """
+                    Return the target person's first parent family,
+                    creating it (with the target person as child) if
+                    needed.
+                    """
+                    for fh in t_person.get_parent_family_handle_list():
+                        fam = self.db.get_family_from_handle(fh)
+                        if fam:
+                            return fam
+                    fam = Family()
+                    child_ref = ChildRef()
+                    child_ref.ref = t_person.handle
+                    fam.add_child_ref(child_ref)
+                    self.db.add_family(fam, trans)
+                    t_person.add_parent_family_handle(fam.handle)
+                    return fam
+
+                def source_fs_id() -> str:
+                    """
+                    Return the FamilySearch ID of the source person from
+                    the _FSFTID attribute, falling back to the _FSLINK
+                    event URL tail.
+                    """
+                    for attr in s_person.get_attribute_list():
+                        try:
+                            if str(attr.get_type()) == "_FSFTID":
+                                return attr.get_value() or ""
+                        except Exception:
+                            continue
+                    for ref in s_person.get_event_ref_list():
+                        try:
+                            event = source_db.get_event_from_handle(ref.ref)
+                            if event and str(event.get_type()) == "_FSLINK":
+                                desc = event.get_description() or ""
+                                tail = desc.rstrip("/").split("/")[-1]
+                                if tail and tail != "details":
+                                    return tail
+                        except Exception:
+                            continue
+                    return ""
+
+                s_birth_h = get_source_event_handle(s_person, EventType.BIRTH)
+                s_death_h = get_source_event_handle(s_person, EventType.DEATH)
+
+                for key, res in resolutions.items():
+                    if res != "source" or target_person_handle is None:
+                        continue
+
+                    # 6. Other events: key is "event:<source event handle>"
+                    if key.startswith("event:"):
+                        s_evt_h = key.split(":", 1)[1]
+                        if s_evt_h in (s_birth_h, s_death_h):
+                            continue
+                        t_evt_h = copy_event(s_evt_h, trans)
+                        if t_evt_h:
+                            event_ref = EventRef()
+                            event_ref.ref = t_evt_h
+                            event_ref.set_role(EventRoleType.CUSTOM)
+                            t_person.add_event_ref(event_ref)
+                        continue
+
+                    # 7. FamilySearch ID
+                    if key == "fsid":
+                        fs_id = source_fs_id()
+                        if fs_id:
+                            attr = Attribute()
+                            attr.set_type("_FSFTID")
+                            attr.set_value(fs_id)
+                            t_person.add_attribute(attr)
+                        continue
+
+                    # 8. Family relations: father/mother, keys are
+                    # "<role>:<source person handle>"; relatives are
+                    # linked through their best-matching target person.
+                    if key.startswith(("father:", "mother:")):
+                        role, s_handle = key.split(":", 1)
+                        t_rel_h = best_target_person(s_handle)
+                        if not t_rel_h:
+                            LOG.warning("No target match for %s; skipped", key)
+                            continue
+                        fam = ensure_parent_family(trans)
+                        if role == "father" and not fam.get_father_handle():
+                            fam.set_father_handle(t_rel_h)
+                        elif role == "mother" and not fam.get_mother_handle():
+                            fam.set_mother_handle(t_rel_h)
+                        else:
+                            LOG.warning("%s slot occupied; skipped", key)
+                            continue
+                        self.db.commit_family(fam, trans)
+                        continue
+
+                    # 9. Spouse, key is "spouse:<source person handle>".
+                    if key.startswith("spouse:"):
+                        s_handle = key.split(":", 1)[1]
+                        t_rel_h = best_target_person(s_handle)
+                        t_rel = (
+                            self.db.get_person_from_handle(t_rel_h) if t_rel_h else None
+                        )
+                        if not t_rel:
+                            LOG.warning("No target match for spouse; skipped")
+                            continue
+                        fam = None
+                        occupied = False
+                        for fh in t_person.get_family_handle_list():
+                            candidate = self.db.get_family_from_handle(fh)
+                            if not candidate:
+                                continue
+                            father_h = candidate.get_father_handle()
+                            mother_h = candidate.get_mother_handle()
+                            if t_rel_h in (father_h, mother_h):
+                                occupied = True
+                                break
+                            if t_person.handle in (father_h, mother_h) and (
+                                father_h is None or mother_h is None
+                            ):
+                                fam = candidate
+                                break
+                        if occupied:
+                            continue
+                        if fam is None:
+                            if t_person.get_gender() == Person.FEMALE:
+                                fam = Family()
+                                fam.set_mother_handle(t_person.handle)
+                                fam.set_father_handle(t_rel_h)
+                            else:
+                                fam = Family()
+                                fam.set_father_handle(t_person.handle)
+                                fam.set_mother_handle(t_rel_h)
+                            self.db.add_family(fam, trans)
+                            t_person.add_family_handle(fam.handle)
+                        elif fam.get_father_handle() is None:
+                            fam.set_father_handle(t_rel_h)
+                        else:
+                            fam.set_mother_handle(t_rel_h)
+                        self.db.commit_family(fam, trans)
+                        t_rel.add_family_handle(fam.handle)
+                        self.db.commit_person(t_rel, trans)
+                        continue
+
+                    # 10. Child, key is "child:<source person handle>".
+                    if key.startswith("child:"):
+                        s_handle = key.split(":", 1)[1]
+                        t_rel_h = best_target_person(s_handle)
+                        if not t_rel_h:
+                            LOG.warning("No target match for child; skipped")
+                            continue
+                        fam = None
+                        for fh in t_person.get_family_handle_list():
+                            candidate = self.db.get_family_from_handle(fh)
+                            if candidate and t_person.handle in (
+                                candidate.get_father_handle(),
+                                candidate.get_mother_handle(),
+                            ):
+                                fam = candidate
+                                break
+                        if fam is None:
+                            fam = Family()
+                            if t_person.get_gender() == Person.FEMALE:
+                                fam.set_mother_handle(t_person.handle)
+                            else:
+                                fam.set_father_handle(t_person.handle)
+                            self.db.add_family(fam, trans)
+                            t_person.add_family_handle(fam.handle)
+                        child_ref = ChildRef()
+                        child_ref.ref = t_rel_h
+                        fam.add_child_ref(child_ref)
+                        self.db.commit_family(fam, trans)
+                        t_rel = self.db.get_person_from_handle(t_rel_h)
+                        if t_rel:
+                            t_rel.add_parent_family_handle(fam.handle)
+                            self.db.commit_person(t_rel, trans)
+                        continue
 
                 self.db.commit_person(t_person, trans)
                 LOG.info("Merged changes into person: %s", t_person.handle)

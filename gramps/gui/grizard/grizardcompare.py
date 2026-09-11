@@ -457,9 +457,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                 group_iter = store.get_iter(row.path)
                 break
         if group_iter is None:
-            group_iter = store.append(
-                None, ["", group, "", "", "", "", "", ""]
-            )
+            group_iter = store.append(None, ["", group, "", "", "", "", "", ""])
         store.append(
             group_iter,
             [
@@ -537,6 +535,13 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         self.btn_merge.connect("clicked", self.cb_merge)
         bar.pack_end(self.btn_merge, False, False, 0)
 
+        self.btn_merge_dialog = Gtk.Button(label=_("Merge Dialog"))
+        self.btn_merge_dialog.set_tooltip_text(
+            _("Open the field-by-field merge dialog for the selected pair")
+        )
+        self.btn_merge_dialog.connect("clicked", self.cb_merge_dialog)
+        bar.pack_end(self.btn_merge_dialog, False, False, 0)
+
         self.btn_next = Gtk.Button(label=_("Next"))
         self.btn_next.connect("clicked", self.cb_next)
         bar.pack_end(self.btn_next, False, False, 0)
@@ -591,9 +596,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         # Group rows use handle '' and blanks for the other columns.
         # A TreeStore is used for all categories: flat for generic
         # categories, two-level (surname group -> person) for people.
-        store = Gtk.TreeStore(
-            str, str, str, str, str, str, str, str
-        )
+        store = Gtk.TreeStore(str, str, str, str, str, str, str, str)
         tree = Gtk.TreeView(model=store)
         col_diff = Gtk.TreeViewColumn(_("Diff"), Gtk.CellRendererText(), text=7)
         col_diff.set_resizable(False)
@@ -656,8 +659,8 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             section_label.set_selectable(True)
             section_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             header = Gtk.Label()
-            header.set_xalign(0.0)
-            header.set_markup("<b>%s</b>" % title)
+            header.set_xalign(0.5)
+            header.set_markup("<b>%s</b>" % GLib.markup_escape_text(title))
             section_box.pack_start(header, False, False, 0)
             section_box.pack_start(section_label, False, False, 0)
             separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
@@ -738,14 +741,10 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         Return the birth summary (``b.<year> <place>``) for the person.
         """
         parts = []
-        birth_year = GrizardCompareWindow._get_event_year(
-            person.get_birth_ref(), db
-        )
+        birth_year = GrizardCompareWindow._get_event_year(person.get_birth_ref(), db)
         if birth_year:
             parts.append("b." + birth_year)
-        birth_place = GrizardCompareWindow._get_event_place(
-            person.get_birth_ref(), db
-        )
+        birth_place = GrizardCompareWindow._get_event_place(person.get_birth_ref(), db)
         if birth_place:
             parts.append(birth_place)
         return " ".join(parts)
@@ -755,9 +754,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         Return the death summary (``d.<year>``) for the person.
         """
-        death_year = GrizardCompareWindow._get_event_year(
-            person.get_death_ref(), db
-        )
+        death_year = GrizardCompareWindow._get_event_year(person.get_death_ref(), db)
         return "d." + death_year if death_year else ""
 
     @staticmethod
@@ -869,6 +866,11 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         self.btn_next.set_sensitive(has_diffs)
         self.btn_merge.set_sensitive(
             is_people and self._get_selected_pair() is not None
+        )
+        self.btn_merge_dialog.set_sensitive(
+            is_people
+            and self._get_selected_pair() is not None
+            and self._get_selected_pair()[1] is not None
         )
         if is_people:
             total = len(self.diff_list)
@@ -1074,30 +1076,34 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                 skip = (_("ID:"),)
                 individual_text = self._build_section_markup(
                     self._individual_lines(person, db),
-                    self._individual_lines(other_person, other_db)
-                    if other_person
-                    else None,
+                    (
+                        self._individual_lines(other_person, other_db)
+                        if other_person
+                        else None
+                    ),
                     skip,
                 )
                 family_text = self._build_section_markup(
                     self._family_lines(person, db),
-                    self._family_lines(other_person, other_db)
-                    if other_person
-                    else None,
+                    (
+                        self._family_lines(other_person, other_db)
+                        if other_person
+                        else None
+                    ),
                     skip,
                 )
                 children_text = self._build_section_markup(
                     self._children_lines(person, db),
-                    self._children_lines(other_person, other_db)
-                    if other_person
-                    else None,
+                    (
+                        self._children_lines(other_person, other_db)
+                        if other_person
+                        else None
+                    ),
                     skip,
                 )
                 events_text = self._build_section_markup(
                     self._event_lines(person, db),
-                    self._event_lines(other_person, other_db)
-                    if other_person
-                    else None,
+                    self._event_lines(other_person, other_db) if other_person else None,
                     skip,
                 )
                 if not events_text:
@@ -1156,9 +1162,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         escaped = [GLib.markup_escape_text(line) for line in cleaned]
         if not other_lines:
             return "\n".join(escaped)
-        other_set = {
-            " ".join(line.split()) for line in other_lines if line.strip()
-        }
+        other_set = {" ".join(line.split()) for line in other_lines if line.strip()}
         out = []
         for line, esc in zip(cleaned, escaped):
             if line in other_set or any(
@@ -1184,15 +1188,9 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         lines.append(_("Gender: %s") % gender)
         if person.gramps_id:
             lines.append(_("ID: %s") % person.gramps_id)
-        birth_year = GrizardCompareWindow._get_event_year(
-            person.get_birth_ref(), db
-        )
-        death_year = GrizardCompareWindow._get_event_year(
-            person.get_death_ref(), db
-        )
-        birth_place = GrizardCompareWindow._get_event_place(
-            person.get_birth_ref(), db
-        )
+        birth_year = GrizardCompareWindow._get_event_year(person.get_birth_ref(), db)
+        death_year = GrizardCompareWindow._get_event_year(person.get_death_ref(), db)
+        birth_place = GrizardCompareWindow._get_event_place(person.get_birth_ref(), db)
         birth_part = ""
         if birth_year:
             birth_part = "b." + birth_year
@@ -1266,14 +1264,13 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         Format one event or fact as a ``Type: date, place (description)``
         line. Missing parts are omitted cleanly.
         """
+
         def clean(text: str) -> str:
             # Collapse embedded newlines/extra whitespace into spaces.
             return " ".join(text.split())
 
         type_name = clean(str(event.get_type()))
-        date_str = clean(
-            glocale.date_displayer.display(event.get_date_object())
-        )
+        date_str = clean(glocale.date_displayer.display(event.get_date_object()))
         place = ""
         place_handle = event.get_place_handle()
         if place_handle:
@@ -1297,12 +1294,8 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         lines = []
         for label, names in (
-            (_("Father"), self._get_parent_persons(
-                person, db, family_role="father"
-            )),
-            (_("Mother"), self._get_parent_persons(
-                person, db, family_role="mother"
-            )),
+            (_("Father"), self._get_parent_persons(person, db, family_role="father")),
+            (_("Mother"), self._get_parent_persons(person, db, family_role="mother")),
         ):
             for name in names:
                 lines.append(_("%s: %s") % (label, name))
@@ -1318,24 +1311,21 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         lines = []
         for label, relateds in (
-            (_("Father"), self._get_parent_persons(
-                person, db, family_role="father"
-            )),
-            (_("Mother"), self._get_parent_persons(
-                person, db, family_role="mother"
-            )),
+            (_("Father"), self._get_parent_persons(person, db, family_role="father")),
+            (_("Mother"), self._get_parent_persons(person, db, family_role="mother")),
         ):
             for related in relateds:
                 lines.append(
-                    _("%s: %s") % (label,
-                    self._related_name_with_vitals(related, db))
+                    _("%s: %s") % (label, self._related_name_with_vitals(related, db))
                 )
         spouses = self._get_spouse_persons(person, db)
         if spouses:
-            lines.append(_("Spouse: %s") % ", ".join(
-                self._related_name_with_vitals(spouse, db)
-                for spouse in spouses
-            ))
+            lines.append(
+                _("Spouse: %s")
+                % ", ".join(
+                    self._related_name_with_vitals(spouse, db) for spouse in spouses
+                )
+            )
         return lines
 
     def _get_parent_persons(
@@ -1404,12 +1394,8 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         Return the compact vital summary (``b.<year> d.<year>``) of a
         related person, or ''.
         """
-        birth_year = GrizardCompareWindow._get_event_year(
-            related.get_birth_ref(), db
-        )
-        death_year = GrizardCompareWindow._get_event_year(
-            related.get_death_ref(), db
-        )
+        birth_year = GrizardCompareWindow._get_event_year(related.get_birth_ref(), db)
+        death_year = GrizardCompareWindow._get_event_year(related.get_death_ref(), db)
         return " ".join(
             part
             for part in (
@@ -1433,9 +1419,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                 for child_ref in family.get_child_ref_list():
                     child = db.get_person_from_handle(child_ref.ref)
                     if child:
-                        lines.append(
-                            self._related_name_with_vitals(child, db)
-                        )
+                        lines.append(self._related_name_with_vitals(child, db))
         except Exception as e:
             LOG.warning("Children lookup failed: %s", e)
         return lines
@@ -1471,6 +1455,32 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             return
         self.diff_index = (self.diff_index + 1) % len(self.diff_list)
         self._highlight_diff()
+
+    def cb_merge_dialog(self, _button: Gtk.Button) -> None:
+        """
+        Open the modal field-by-field merge dialog for the currently
+        selected record pair.
+        """
+        pair = self._get_selected_pair()
+        if pair is None:
+            return
+        source_handle, target_handle = pair
+        if target_handle is None:
+            LOG.info("No existing target for this person; add as new.")
+            return
+        from .grizardmergedialog import GrizardMergeDialog
+
+        dialog = GrizardMergeDialog(
+            self.dbstate,
+            self.grizard,
+            source_handle,
+            target_handle,
+            parent=self.get_transient_for(),
+        )
+        dialog.run()
+        # Rebuild both panels so any merged data and the diff list
+        # reflect the new state.
+        self.select_category("person")
 
     def cb_merge(self, _button: Gtk.Button) -> None:
         """
