@@ -417,3 +417,75 @@ class GrizardTest(unittest.TestCase):
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
+    def test_dialog_find_dangling_references(self) -> None:
+        """
+        Verify that GrizardMergeDialog._find_dangling_references correctly
+        detects and categorizes missing references prior to merge.
+        """
+        gedcom_data = """0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME John /Doe/
+2 GIVN John
+2 SURN Doe
+1 SEX M
+1 BIRT
+2 DATE 15 JUN 1980
+2 SOUR @S1@
+3 PAGE 42
+0 @S1@ SOUR
+1 TITL Famous Book of Doe
+1 NOTE @N1@
+0 @N1@ NOTE This is a linked note for a source.
+0 TRLR
+"""
+        with tempfile.NamedTemporaryFile(suffix=".ged", mode="w", delete=False) as f:
+            f.write(gedcom_data)
+            temp_path = f.name
+
+        try:
+            grizard = GedGrizard(self.db)
+            grizard.run_step("connect", gedcom_path=temp_path)
+            people = grizard.run_step("load")
+            source_person = people[0]
+
+            # Construct mock/real DbState
+            class MockDbState:
+                def __init__(self, db):
+                    self.db = db
+
+            # GrizardMergeDialog can be instantiated headlessly with GDK_BACKEND=-
+            dbstate = MockDbState(self.db)
+            dialog = GrizardMergeDialog(
+                dbstate=dbstate,
+                grizard=grizard,
+                source_handle=source_person.handle,
+                target_handle=self.target_person.handle,
+            )
+
+            # Select birth event resolution as 'source'
+            dialog._resolutions = {
+                "birth_event": "source",
+            }
+
+            missing = dialog._find_dangling_references()
+
+            # Assert that the dialog correctly finds missing citation, source, and note
+            self.assertTrue(len(missing["citation"]) > 0)
+            self.assertTrue(len(missing["source"]) > 0)
+            self.assertTrue(len(missing["note"]) > 0)
+
+            # If birth_event is not resolved, no missing references should be detected for birth
+            dialog._resolutions = {}
+            missing_empty = dialog._find_dangling_references()
+            self.assertEqual(len(missing_empty["citation"]), 0)
+            self.assertEqual(len(missing_empty["source"]), 0)
+            self.assertEqual(len(missing_empty["note"]), 0)
+
+            # Cleanup dialog
+            dialog.destroy()
+
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
