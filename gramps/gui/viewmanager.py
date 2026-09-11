@@ -1304,10 +1304,31 @@ class ViewManager(CLIManager):
         chooser.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_OK"), Gtk.ResponseType.OK
         )
-        file_filter = Gtk.FileFilter()
-        file_filter.set_name(_("GEDCOM Files (*.ged)"))
-        file_filter.add_pattern("*.ged")
-        chooser.add_filter(file_filter)
+        # Supported Files
+        filter_supported = Gtk.FileFilter()
+        filter_supported.set_name(_("Supported Files (*.ged, *.xml, *.gramps)"))
+        filter_supported.add_pattern("*.ged")
+        filter_supported.add_pattern("*.xml")
+        filter_supported.add_pattern("*.gramps")
+        chooser.add_filter(filter_supported)
+
+        # GEDCOM Files
+        filter_ged = Gtk.FileFilter()
+        filter_ged.set_name(_("GEDCOM Files (*.ged)"))
+        filter_ged.add_pattern("*.ged")
+        chooser.add_filter(filter_ged)
+
+        # XML / XML-GEDCOM Files
+        filter_xml = Gtk.FileFilter()
+        filter_xml.set_name(_("XML Files (*.xml)"))
+        filter_xml.add_pattern("*.xml")
+        chooser.add_filter(filter_xml)
+
+        # Gramps XML Files
+        filter_gramps = Gtk.FileFilter()
+        filter_gramps.set_name(_("Gramps XML Files (*.gramps)"))
+        filter_gramps.add_pattern("*.gramps")
+        chooser.add_filter(filter_gramps)
 
         response = chooser.run()
         path = chooser.get_filename()
