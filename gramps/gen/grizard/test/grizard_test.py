@@ -255,16 +255,22 @@ class GrizardTest(unittest.TestCase):
         Pango-highlighted differences between values.
         """
         # Exact match (should be plain)
-        res = GrizardMergeDialog._format_diff_line("Given Name", "John", "John", show_label=False, is_left=True)
+        res = GrizardMergeDialog._format_diff_line(
+            "Given Name", "John", "John", show_label=False, is_left=True
+        )
         self.assertEqual(res, "John")
 
         # Differ (one word differs)
-        res_diff = GrizardMergeDialog._format_diff_line("Given Name", "John James", "John Paul", show_label=False, is_left=True)
+        res_diff = GrizardMergeDialog._format_diff_line(
+            "Given Name", "John James", "John Paul", show_label=False, is_left=True
+        )
         # "James" differs, so it should be bolded, while "John" is matched and just italicized
         self.assertIn("James", res_diff)
 
         # Show label
-        res_label = GrizardMergeDialog._format_diff_line("Given Name", "John", "John", show_label=True, is_left=True)
+        res_label = GrizardMergeDialog._format_diff_line(
+            "Given Name", "John", "John", show_label=True, is_left=True
+        )
         self.assertEqual(res_label, "Given Name: John")
 
     def test_ged_grizard_apply_merge_relationships(self) -> None:
@@ -312,8 +318,12 @@ class GrizardTest(unittest.TestCase):
             grizard = GedGrizard(self.db)
             grizard.run_step("connect", gedcom_path=temp_path)
             people = grizard.run_step("load")
-            source_john = [p for p in people if p.get_primary_name().first_name == "John"][0]
-            source_jane = [p for p in people if p.get_primary_name().first_name == "Jane"][0]
+            source_john = [
+                p for p in people if p.get_primary_name().first_name == "John"
+            ][0]
+            source_jane = [
+                p for p in people if p.get_primary_name().first_name == "Jane"
+            ][0]
 
             # Merge spouse relation
             resolutions = {
@@ -509,9 +519,9 @@ class GrizardTest(unittest.TestCase):
                     {
                         "source_title": "Web Census 1990",
                         "page": "12",
-                        "citation_note": "Footnote reference"
+                        "citation_note": "Footnote reference",
                     }
-                ]
+                ],
             }
         ]
 
@@ -548,7 +558,7 @@ class GrizardTest(unittest.TestCase):
         birth_event = self.db.get_event_from_handle(updated_person.get_birth_ref().ref)
         self.assertIsNotNone(birth_event)
         self.assertEqual(birth_event.date_val.get_text(), "10 JAN 1990")
-        
+
         place_handle = birth_event.get_place_handle()
         self.assertIsNotNone(place_handle)
         place = self.db.get_place_from_handle(place_handle)
@@ -592,6 +602,7 @@ class GrizardTest(unittest.TestCase):
         class MockDbState:
             def __init__(self, db):
                 self.db = db
+
             def is_open(self):
                 return True
 
