@@ -115,7 +115,9 @@ class WebScrapedGrizard(GrizardBase):
         """
         scraped_results = self.context.get("scraped_results")
         if scraped_results is None:
-            raise ValueError("No scraped_results found in context. Call connect step first.")
+            raise ValueError(
+                "No scraped_results found in context. Call connect step first."
+            )
 
         # Create temporary in-memory database
         source_db = make_database("sqlite")
@@ -127,16 +129,16 @@ class WebScrapedGrizard(GrizardBase):
         with DbTxn(_("Populate Web Scraped Grizard"), source_db) as trans:
             for item in scraped_results:
                 person = Person()
-                
+
                 # Primary name
                 name = Name()
                 name.first_name = item.get("first_name", "")
-                
+
                 surn = Surname()
                 surn.surname = item.get("last_name", "")
                 name.add_surname(surn)
                 person.set_primary_name(name)
-                
+
                 # Gender
                 gender_str = item.get("gender", "U")
                 person.set_gender(Person.Gender.from_str(gender_str))
@@ -162,7 +164,7 @@ class WebScrapedGrizard(GrizardBase):
                             if s and s.title == src_title:
                                 src_handle = sh
                                 break
-                        
+
                         if not src_handle:
                             source_obj = Source()
                             source_obj.title = src_title
@@ -172,7 +174,7 @@ class WebScrapedGrizard(GrizardBase):
                     citation_obj = Citation()
                     citation_obj.set_reference_handle(src_handle)
                     citation_obj.page = cit_item.get("page", "")
-                    
+
                     cit_note = cit_item.get("citation_note")
                     if cit_note:
                         note = Note()
@@ -184,16 +186,21 @@ class WebScrapedGrizard(GrizardBase):
                     person.add_citation_handle(citation_obj.handle)
 
                 # Events: Birth & Death
-                for evt_type_name, key_prefix in [("birth", "birth"), ("death", "death")]:
+                for evt_type_name, key_prefix in [
+                    ("birth", "birth"),
+                    ("death", "death"),
+                ]:
                     evt_date = item.get(f"{key_prefix}_date")
                     evt_place = item.get(f"{key_prefix}_place")
-                    
+
                     if evt_date or evt_place:
                         event = Event()
                         event.type.set(
-                            EventType.BIRTH if evt_type_name == "birth" else EventType.DEATH
+                            EventType.BIRTH
+                            if evt_type_name == "birth"
+                            else EventType.DEATH
                         )
-                        
+
                         if evt_date:
                             event.date_val.set_as_text(evt_date)
 
@@ -205,7 +212,7 @@ class WebScrapedGrizard(GrizardBase):
                             event.set_place_handle(place.handle)
 
                         source_db.add_event(event, trans)
-                        
+
                         ref = EventRef()
                         ref.ref = event.handle
                         ref.set_role(EventRoleType.PRIMARY)
