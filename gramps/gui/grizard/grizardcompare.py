@@ -1192,14 +1192,13 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         other_words = other_line.split()
 
         # Build the markup with bold spans for differing words
-        # Each word gets its own escaped version
-        escaped_words = [GLib.markup_escape_text(w) for w in words]
-        other_escaped_words = [GLib.markup_escape_text(w) for w in other_words]
-
+        # IMPORTANT: We compare words using UNESCAPED content and strip
+        # punctuation from the unescaped word BEFORE escaping, so that
+        # entity characters like &quot; are not corrupted.
         def _strip_trailing_punct(word: str) -> tuple[str, str]:
-            """Split a word into (word_part, trailing_punct).
+            """Split an unescaped word into (word_part, trailing_punct).
 
-            :param word: Escaped word text.
+            :param word: Unescaped word text.
             :returns: Tuple of (cleaned_word, trailing_punctuation).
             """
             idx = len(word)
@@ -1208,25 +1207,38 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             return word[:idx], word[idx:]
 
         parts: list[str] = []
-        for i, (word_esc, other_esc) in enumerate(
-            zip(escaped_words, other_escaped_words)
-        ):
-            # Compare after stripping trailing punctuation
-            left_content, left_punct = _strip_trailing_punct(word_esc)
-            right_content, _ = _strip_trailing_punct(other_esc)
+        for i, (word, other_word) in enumerate(zip(words, other_words)):
+            # Strip punctuation from the UNESCAPED word
+            left_content, left_punct = _strip_trailing_punct(word)
+            right_content, _ = _strip_trailing_punct(other_word)
+
+            # Compare unescaped content
             if left_content == right_content:
                 # Word matches (ignoring trailing punctuation) - just italic
-                parts.append("<i>%s</i>" % word_esc)
+                parts.append("<i>%s</i>" % GLib.markup_escape_text(word))
             else:
                 # Word differs or counterpart is missing - italic + bold,
-                # but only bold the word content, keep punct in italic
-                parts.append("<i><b>%s</b></i>%s" % (left_content, left_punct))
+                # but only bold the word content; escape content and keep
+                # the original unescaped punctuation (escaped separately)
+                parts.append(
+                    "<i><b>%s</b></i>%s"
+                    % (
+                        GLib.markup_escape_text(left_content),
+                        GLib.markup_escape_text(left_punct),
+                    )
+                )
 
         # Handle extra words in the current line (if current line is longer)
         if len(words) > len(other_words):
-            for word_esc in escaped_words[len(other_words) :]:
-                left_content, left_punct = _strip_trailing_punct(word_esc)
-                parts.append("<i><b>%s</b></i>%s" % (left_content, left_punct))
+            for word in words[len(other_words) :]:
+                left_content, left_punct = _strip_trailing_punct(word)
+                parts.append(
+                    "<i><b>%s</b></i>%s"
+                    % (
+                        GLib.markup_escape_text(left_content),
+                        GLib.markup_escape_text(left_punct),
+                    )
+                )
 
         # Join with spaces and wrap entire result in italic
         return " ".join(parts)
