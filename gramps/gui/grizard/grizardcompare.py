@@ -146,8 +146,20 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         self._paned_positioned = False
         self.paned.connect("size-allocate", self.cb_paned_size_allocate)
 
-        # Synchronize scrolling between left and right panels
+        # Selection-based sync: when a row is selected in one panel, sync the
+        # other panel to show the matched counterpart (if any).
+        self._syncing_selection = False
+        self.left_panel["tree"].get_selection().connect(
+            "changed", self.cb_left_selection_changed
+        )
+        self.right_panel["tree"].get_selection().connect(
+            "changed", self.cb_right_selection_changed
+        )
+
+        # Scroll-based sync (debounced): sync after scrolling stops briefly
+        # to avoid freezing on large databases.
         self._syncing_scroll = False
+        self._scroll_debounce_id = None
         left_vadj = self.left_panel["scrolled"].get_vadjustment()
         right_vadj = self.right_panel["scrolled"].get_vadjustment()
         left_hadj = self.left_panel["scrolled"].get_hadjustment()
@@ -662,6 +674,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             "frame": frame,
             "store": store,
             "tree": tree,
+            "scrolled": scrolled,
             "detail": detail_box,
             "detail_individual": section_labels["individual"],
             "detail_family": section_labels["family"],
@@ -1533,82 +1546,224 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         self.close()
 
+    def cb_left_selection_changed(self, selection: Gtk.TreeSelection) -> None:
+        """
+        Synchronize selection from left to right panel.
+
+        When a person is selected in the left panel, scroll the right panel
+        to show the matched counterpart (if any), or the alphabetical
+        insertion point when no match exists.
+        """
+        if self._syncing_selection:
+            return
+        self._syncing_selection = True
+        try:
+            self._sync_selection(self.left_panel, self.right_panel)
+        finally:
+            self._syncing_selection = False
+
+    def cb_right_selection_changed(self, selection: Gtk.TreeSelection) -> None:
+        """
+        Synchronize selection from right to left panel.
+
+        When a person is selected in the right panel, scroll the left panel
+        to show the matched counterpart (if any), or the alphabetical
+        insertion point when no match exists.
+        """
+        if self._syncing_selection:
+            return
+        self._syncing_selection = True
+        try:
+            self._sync_selection(self.right_panel, self.left_panel)
+        finally:
+            self._syncing_selection = False
+
+    def _sync_selection(
+        self, source_panel: dict[str, Any], target_panel: dict[str, Any]
+    ) -> None:
+        """
+        Sync the target panel to show the counterpart of the source selection.
+
+        Uses the current selection in the source panel to look up the matched
+        counterpart in the other database via the pairing map, then scrolls
+        the target panel to show that counterpart's row.
+        """
+        source_tree = source_panel["tree"]
+        target_tree = target_panel["tree"]
+
+        # Get the current selection from the source tree
+        selection = source_tree.get_selection()
+        model, tree_iter = selection.get_selected()
+
+        if not tree_iter:
+            return
+
+        # Get the handle of the selected row
+        handle = model.get_value(tree_iter, 0)
+        if not handle:
+            # Empty handle means it's a group header; skip
+            return
+
+        # Determine which database the source handle belongs to
+        is_source_left = source_panel is self.left_panel
+        source_db = self.dbstate.db if is_source_left else self.source_db
+        target_db = self.source_db if is_source_left else self.dbstate.db
+
+        person = source_db.get_person_from_handle(handle)
+        if not person:
+            return
+
+        group = self._person_group_name(source_db, person)
+        name_str = name_displayer.display(person)
+
+        # Look up counterpart in the pairing map
+        counterpart = self._get_counterpart(handle)
+
+        if counterpart:
+            # Counterpart exists; select and scroll to it
+            self._select_person_or_position(
+                target_panel,
+                counterpart,
+                group=(
+                    self._person_group_name(
+                        target_db, target_db.get_person_from_handle(counterpart)
+                    )
+                    if target_db.get_person_from_handle(counterpart)
+                    else group
+                ),
+                name_str=name_str,
+            )
+        else:
+            # No counterpart; scroll to alphabetical insertion point
+            self._select_person_or_position(
+                target_panel,
+                None,
+                group=group,
+                name_str=name_str,
+            )
+
     def cb_left_vscroll_changed(self, adj: Gtk.Adjustment) -> None:
         """
-        Synchronize vertical scroll from left to right.
+        Debounced vertical scroll sync from left to right.
+
+        Schedules a sync after scrolling stops (200ms debounce) to avoid
+        excessive processing during continuous scroll operations.
         """
         if self._syncing_scroll:
             return
-        self._syncing_scroll = True
-        try:
-            right_vadj = self.right_panel["scrolled"].get_vadjustment()
-            val = adj.get_value()
-            clamped = max(
-                right_vadj.get_lower(),
-                min(val, right_vadj.get_upper() - right_vadj.get_page_size()),
-            )
-            right_vadj.set_value(clamped)
-        except Exception:
-            pass
-        finally:
-            self._syncing_scroll = False
+        self._schedule_scroll_sync(self.left_panel, self.right_panel)
 
     def cb_right_vscroll_changed(self, adj: Gtk.Adjustment) -> None:
         """
-        Synchronize vertical scroll from right to left.
+        Debounced vertical scroll sync from right to left.
+
+        Schedules a sync after scrolling stops (200ms debounce) to avoid
+        excessive processing during continuous scroll operations.
+        """
+        if self._syncing_scroll:
+            return
+        self._schedule_scroll_sync(self.right_panel, self.left_panel)
+
+    def _schedule_scroll_sync(
+        self, source_panel: dict[str, Any], target_panel: dict[str, Any]
+    ) -> None:
+        """
+        Schedule a debounced scroll sync after scrolling stops.
+        """
+        # Cancel any pending sync
+        if self._scroll_debounce_id is not None:
+            GLib.source_remove(self._scroll_debounce_id)
+            self._scroll_debounce_id = None
+
+        # Schedule a new sync after 200ms of no scroll activity
+        def do_sync() -> bool:
+            self._sync_scroll_panel(source_panel, target_panel)
+            self._scroll_debounce_id = None
+            return False  # Remove the source
+
+        self._scroll_debounce_id = GLib.timeout_add(200, do_sync)
+
+    def _sync_scroll_panel(
+        self, source_panel: dict[str, Any], target_panel: dict[str, Any]
+    ) -> None:
+        """
+        Sync target panel to show the counterpart of the source panel's
+        current selection.
+
+        Uses the currently selected row in the source panel to find the
+        matched counterpart, avoiding expensive iteration through all rows.
         """
         if self._syncing_scroll:
             return
         self._syncing_scroll = True
         try:
-            left_vadj = self.left_panel["scrolled"].get_vadjustment()
-            val = adj.get_value()
-            clamped = max(
-                left_vadj.get_lower(),
-                min(val, left_vadj.get_upper() - left_vadj.get_page_size()),
-            )
-            left_vadj.set_value(clamped)
-        except Exception:
-            pass
+            source_tree = source_panel["tree"]
+            target_tree = target_panel["tree"]
+
+            # Use the current selection (fast O(1) lookup)
+            selection = source_tree.get_selection()
+            model, tree_iter = selection.get_selected()
+
+            if not tree_iter:
+                return
+
+            handle = model.get_value(tree_iter, 0)
+            if not handle:
+                return
+
+            # Determine which database the source handle belongs to
+            is_source_left = source_panel is self.left_panel
+            source_db = self.dbstate.db if is_source_left else self.source_db
+            target_db = self.source_db if is_source_left else self.dbstate.db
+
+            person = source_db.get_person_from_handle(handle)
+            if not person:
+                return
+
+            group = self._person_group_name(source_db, person)
+            name_str = name_displayer.display(person)
+
+            # Look up counterpart in the pairing map
+            counterpart = self._get_counterpart(handle)
+
+            if counterpart:
+                # Counterpart exists; select and scroll to it
+                self._select_person_or_position(
+                    target_panel,
+                    counterpart,
+                    group=(
+                        self._person_group_name(
+                            target_db,
+                            target_db.get_person_from_handle(counterpart),
+                        )
+                        if target_db.get_person_from_handle(counterpart)
+                        else group
+                    ),
+                    name_str=name_str,
+                )
+            else:
+                # No counterpart; scroll to alphabetical insertion point
+                self._select_person_or_position(
+                    target_panel,
+                    None,
+                    group=group,
+                    name_str=name_str,
+                )
         finally:
             self._syncing_scroll = False
 
     def cb_left_hscroll_changed(self, adj: Gtk.Adjustment) -> None:
         """
-        Synchronize horizontal scroll from left to right.
+        Debounced horizontal scroll sync from left to right.
         """
         if self._syncing_scroll:
             return
-        self._syncing_scroll = True
-        try:
-            right_hadj = self.right_panel["scrolled"].get_hadjustment()
-            val = adj.get_value()
-            clamped = max(
-                right_hadj.get_lower(),
-                min(val, right_hadj.get_upper() - right_hadj.get_page_size()),
-            )
-            right_hadj.set_value(clamped)
-        except Exception:
-            pass
-        finally:
-            self._syncing_scroll = False
+        self._schedule_scroll_sync(self.left_panel, self.right_panel)
 
     def cb_right_hscroll_changed(self, adj: Gtk.Adjustment) -> None:
         """
-        Synchronize horizontal scroll from right to left.
+        Debounced horizontal scroll sync from right to left.
         """
         if self._syncing_scroll:
             return
-        self._syncing_scroll = True
-        try:
-            left_hadj = self.left_panel["scrolled"].get_hadjustment()
-            val = adj.get_value()
-            clamped = max(
-                left_hadj.get_lower(),
-                min(val, left_hadj.get_upper() - left_hadj.get_page_size()),
-            )
-            left_hadj.set_value(clamped)
-        except Exception:
-            pass
-        finally:
-            self._syncing_scroll = False
+        self._schedule_scroll_sync(self.right_panel, self.left_panel)
