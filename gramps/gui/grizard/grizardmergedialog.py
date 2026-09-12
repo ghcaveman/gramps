@@ -159,12 +159,11 @@ class GrizardMergeDialog(Gtk.Dialog):
         # Split into words for word-level comparison
         left_words = left_val.split()
         right_words = right_val.split()
-        left_esc_words = [GLib.markup_escape_text(w) for w in left_words]
 
         def _strip_trailing_punct(word: str) -> tuple[str, str]:
-            """Split a word into (word_part, trailing_punct).
+            """Split an unescaped word into (word_part, trailing_punct).
 
-            :param word: Escaped word text.
+            :param word: Unescaped word text.
             :returns: Tuple of (cleaned_word, trailing_punctuation).
             """
             idx = len(word)
@@ -174,22 +173,35 @@ class GrizardMergeDialog(Gtk.Dialog):
 
         # Word-by-word comparison
         parts: list[str] = []
-        for i, word_esc in enumerate(left_esc_words):
+        for i, word in enumerate(left_words):
+            # Strip punctuation from the UNESCAPED word
+            left_content, left_punct = _strip_trailing_punct(word)
+
             if i < len(right_words):
-                other_esc = GLib.markup_escape_text(right_words[i])
-                # Compare after stripping trailing punctuation
-                left_content, left_punct = _strip_trailing_punct(word_esc)
-                right_content, _ = _strip_trailing_punct(other_esc)
+                other_word = right_words[i]
+                right_content, _ = _strip_trailing_punct(other_word)
+                # Compare unescaped content
                 if left_content == right_content:
                     # Word matches (ignoring trailing punctuation) - just italic
-                    parts.append("<i>%s</i>" % word_esc)
+                    parts.append("<i>%s</i>" % GLib.markup_escape_text(word))
                 else:
                     # Word differs - bold only the word content, keep punct in italic
-                    parts.append("<i><b>%s</b></i>%s" % (left_content, left_punct))
+                    parts.append(
+                        "<i><b>%s</b></i>%s"
+                        % (
+                            GLib.markup_escape_text(left_content),
+                            GLib.markup_escape_text(left_punct),
+                        )
+                    )
             else:
                 # Extra word in left_val - bold the content, keep punct in italic
-                left_content, left_punct = _strip_trailing_punct(word_esc)
-                parts.append("<i><b>%s</b></i>%s" % (left_content, left_punct))
+                parts.append(
+                    "<i><b>%s</b></i>%s"
+                    % (
+                        GLib.markup_escape_text(left_content),
+                        GLib.markup_escape_text(left_punct),
+                    )
+                )
 
         value_markup = " ".join(parts)
 
