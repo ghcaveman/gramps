@@ -79,6 +79,16 @@ class HTMLToPangoParser(HTMLParser):
     A lightweight HTML parser that converts basic HTML markup to Pango markup.
     """
 
+    # Formatting tags that nest and must be tracked on the open-tags stack.
+    _STACKABLE = {"b", "strong", "i", "em", "u", "s", "sub", "sup"}
+
+    # Map each start tag to the canonical form used on the stack.
+    # "strong" and "b" both map to "b"; "em" and "i" both map to "i".
+    _CANONICAL: dict[str, str] = {
+        "strong": "b",
+        "em": "i",
+    }
+
     def __init__(self) -> None:
         """
         Initialise the parser.
@@ -87,6 +97,45 @@ class HTMLToPangoParser(HTMLParser):
         self.result: list[str] = []
         self.ignore_content = False
         self.ignore_tags = {"script", "style", "head", "title"}
+        # Set when inside an <a> tag without a href attribute.
+        # Such anchors are rendered as plain text because Pango markup
+        # requires href on every <a> element.
+        self.in_bare_a = False
+        # Stack of currently open formatting tags (canonical forms).
+        # Used to auto-close tags in the correct order when the HTML
+        # contains improperly nested tags (e.g. <b><i>text</b></i>).
+        self._open_tags: list[str] = []
+
+    def _canonical(self, tag: str) -> str:
+        """Return the canonical stack key for *tag*."""
+        return self._CANONICAL.get(tag, tag)
+
+    def _close_open_until(self, tag: str) -> None:
+        """Close formatting tags from the top of the stack down to and
+        including *tag* (canonical form).
+
+        Tags that are not on the stack are not closed.
+        """
+        while self._open_tags:
+            top = self._open_tags[-1]
+            if top == tag:
+                self._open_tags.pop()
+                self.result.append(f"</{top}>")
+                return
+            self._open_tags.pop()
+            self.result.append(f"</{top}>")
+
+    def _emit_start(self, tag: str) -> None:
+        """Emit a start tag and push its canonical form onto the stack."""
+        canon = self._canonical(tag)
+        self.result.append(f"<{canon}>")
+        self._open_tags.append(canon)
+
+    def done(self) -> None:
+        """Call after feeding all HTML to close any still-open formatting
+        tags. This ensures the resulting Pango markup is well-formed.
+        """
+        self._close_open_until(None)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """
@@ -99,21 +148,22 @@ class HTMLToPangoParser(HTMLParser):
             return
 
         if tag in ("b", "strong"):
-            self.result.append("<b>")
+            self._emit_start("b")
         elif tag in ("i", "em"):
-            self.result.append("<i>")
+            self._emit_start("i")
         elif tag == "u":
-            self.result.append("<u>")
+            self._emit_start("u")
         elif tag == "s":
-            self.result.append("<s>")
+            self._emit_start("s")
         elif tag == "sub":
-            self.result.append("<sub>")
+            self._emit_start("sub")
         elif tag == "sup":
-            self.result.append("<sup>")
+            self._emit_start("sup")
         elif tag in ("h1", "h2", "h3"):
-            self.result.append("\n\n<big><b>")
+            self.result.append("\n\n<big>")
+            self._emit_start("b")
         elif tag in ("h4", "h5", "h6"):
-            self.result.append("\n\n<b>")
+            self._emit_start("b")
         elif tag in ("p", "div"):
             self.result.append("\n\n")
         elif tag == "br":
@@ -125,9 +175,11 @@ class HTMLToPangoParser(HTMLParser):
                     href = html.escape(val)
                     break
             if href:
-                self.result.append(f'<a href="{href}">')
+                self._emit_start("a")
+                self.result[-1] = f'<a href="{href}">'
             else:
-                self.result.append("<a>")
+                # No href: render the link text as plain text only.
+                self.in_bare_a = True
 
     def handle_endtag(self, tag: str) -> None:
         """
@@ -140,25 +192,30 @@ class HTMLToPangoParser(HTMLParser):
             return
 
         if tag in ("b", "strong"):
-            self.result.append("</b>")
+            self._close_open_until("b")
         elif tag in ("i", "em"):
-            self.result.append("</i>")
+            self._close_open_until("i")
         elif tag == "u":
-            self.result.append("</u>")
+            self._close_open_until("u")
         elif tag == "s":
-            self.result.append("</s>")
+            self._close_open_until("s")
         elif tag == "sub":
-            self.result.append("</sub>")
+            self._close_open_until("sub")
         elif tag == "sup":
-            self.result.append("</sup>")
+            self._close_open_until("sup")
         elif tag in ("h1", "h2", "h3"):
-            self.result.append("</b></big>\n")
+            # Close any still-open formatting tags before the heading close.
+            self._close_open_until(None)
+            self.result.append("</big>\n")
         elif tag in ("h4", "h5", "h6"):
-            self.result.append("</b>\n")
+            self._close_open_until(None)
         elif tag in ("p", "div"):
+            self._close_open_until(None)
             self.result.append("\n")
         elif tag == "a":
-            self.result.append("</a>")
+            if not self.in_bare_a:
+                self._close_open_until("a")
+            self.in_bare_a = False
 
     def handle_data(self, data: str) -> None:
         """
@@ -175,6 +232,7 @@ class HTMLToPangoParser(HTMLParser):
         :returns: Pango XML markup text.
         :rtype: str
         """
+        self.done()
         text = "".join(self.result).strip()
         while "\n\n\n" in text:
             text = text.replace("\n\n\n", "\n\n")
