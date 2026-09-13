@@ -50,6 +50,18 @@ except ImportError:
 
 # -------------------------------------------------------------------------
 #
+# WebKit2 browser support (optional)
+#
+# -------------------------------------------------------------------------
+try:
+    from gi.repository import WebKit2
+
+    _HAS_WEBKIT2 = True
+except ImportError:
+    _HAS_WEBKIT2 = False
+
+# -------------------------------------------------------------------------
+#
 # Gramps modules
 #
 # -------------------------------------------------------------------------
@@ -270,8 +282,7 @@ class HTMLView(PageView):
         self.text_view = None
         self.text_buffer = None
         self.render_label = None
-        self.header_label = None
-        self._search_url = ""
+        self.web_view = None
 
     @classmethod
     def set_html_text(cls, text: str, url: str = "") -> None:
@@ -310,11 +321,25 @@ class HTMLView(PageView):
         if _HAS_GUI:
             HtmlBridge.flush_pending(self)
 
-    def set_inactive(self) -> None:
+    def load_url(self, url: str) -> None:
         """
-        Mark the view inactive.
+        Load a URL in the embedded WebKit2 browser, or fall back to
+        fetching the content as text when WebKit2 is not available.
+
+        :param url: The URL to load.
+        :type url: str
         """
-        PageView.set_inactive(self)
+        if self.web_view is not None:
+            self.web_view.load_uri(url)
+        else:
+            LOG.info(
+                "WebKit2 browser not available for HTMLView; "
+                "falling back to text mode for %s",
+                url,
+            )
+            html_content = HtmlBridge.fetch(url)
+            if html_content is not None:
+                self.set_text(html_content)
 
     def on_delete(self, *args):
         """
@@ -403,6 +428,26 @@ class HTMLView(PageView):
 
         source_scroll.add(self.text_view)
         notebook.append_page(source_scroll, Gtk.Label(label=_("Source")))
+
+        # Tab 3: Browser (WebKit2, if available)
+        if _HAS_WEBKIT2:
+            browser_scroll = Gtk.ScrolledWindow()
+            browser_scroll.set_policy(
+                Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC
+            )
+            browser_scroll.set_shadow_type(Gtk.ShadowType.IN)
+
+            self.web_view = WebKit2.WebView()
+            self.web_view.set_hexpand(True)
+            self.web_view.set_vexpand(True)
+
+            browser_scroll.add(self.web_view)
+            notebook.append_page(browser_scroll, Gtk.Label(label=_("Browser")))
+        else:
+            LOG.info(
+                "WebKit2 is not available; HTMLView will use Pango text mode "
+                "instead of the embedded browser."
+            )
 
         box.pack_start(notebook, True, True, 0)
 
@@ -600,6 +645,8 @@ class HTMLView(PageView):
             self.text_buffer.set_text("")
         if self.render_label is not None:
             self.render_label.set_markup("")
+        if self.web_view is not None:
+            self.web_view.load_uri("about:blank")
 
     def cb_paste_text(self, widget: Gtk.Button) -> None:
         """
