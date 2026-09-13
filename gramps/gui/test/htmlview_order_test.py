@@ -182,3 +182,126 @@ class HtmlViewOrderTest(unittest.TestCase):
         categories = [group[0][0].category[0] for group in result if group]
         self.assertNotIn("HTML", categories)
         self.assertEqual(categories, ["Dashboard"])
+
+
+# -------------------------------------------------------------------------
+#
+# Inline tests for HtmlBridge queue/flush/live-reload lifecycle.
+# These run directly via python3 -m unittest gramps.gui.test.htmlview_order_test.
+#
+# -------------------------------------------------------------------------
+class HtmlBridgeQueueTest(unittest.TestCase):
+    """
+    Tests that HtmlBridge's pending-queue does not crash when flushing
+    a URL that was queued without fetched content (html_content is None).
+    """
+
+    # ---------- setUp / tearDown ----------
+
+    def setUp(self):
+        # Import the real HtmlBridge and snapshot/clean its class-level state
+        # so each test starts from a clean slate.
+        import sys
+        from gramps.gui import htmlbridge as _hb_mod
+
+        # Ensure the module is loaded under the gramps.gui package so the
+        # relative import of htmlview.py still resolves in the same process.
+        _hb_mod.__package__ = "gramps.gui"
+        if "gramps.gui.htmlbridge" not in sys.modules:
+            sys.modules["gramps.gui.htmlbridge"] = _hb_mod
+
+        from gramps.gui.htmlbridge import HtmlBridge
+
+        self._HtmlBridge = HtmlBridge
+        self._orig_pending = HtmlBridge.pending_html
+        self._orig_active = HtmlBridge.active_view
+        self._orig_route_html = HtmlBridge.route_html
+        self._orig_route_url = HtmlBridge.route_url
+        HtmlBridge.pending_html = None
+        HtmlBridge.active_view = None
+
+    def tearDown(self):
+        HtmlBridge = self._HtmlBridge
+        HtmlBridge.pending_html = self._orig_pending
+        HtmlBridge.active_view = self._orig_active
+        HtmlBridge.route_html = self._orig_route_html
+        HtmlBridge.route_url = self._orig_route_url
+
+    # ---------- helpers ----------
+
+    def _fake_route(self, html_mock, url_mock):
+        """Install MagicMock route_html/route_url on the real HtmlBridge."""
+        self._HtmlBridge.route_html = html_mock
+        self._HtmlBridge.route_url = url_mock
+
+    def _queue_url(self, url: str, html_content: str | None = None):
+        """Simulate what route_url does when no view is registered."""
+        self._HtmlBridge.pending_html = (url, html_content)
+
+    # ---------- flush_pending ----------
+
+    def test_flush_pending_with_html_content_calls_route_html(self):
+        """
+        When pending_html holds (url, html), flush_pending delivers it via route_html.
+        """
+        route_html = MagicMock()
+        route_url = MagicMock()
+        active_view = MagicMock()
+        self._HtmlBridge.active_view = active_view
+        self._fake_route(route_html, route_url)
+        self._queue_url("http://example.test/queued", "<p>hello</p>")
+        self._HtmlBridge.flush_pending(active_view)
+        route_html.assert_called_once_with("http://example.test/queued", "<p>hello</p>")
+        self.assertIsNone(self._HtmlBridge.pending_html)
+        self.assertEqual(route_url.call_count, 0)
+
+    def test_flush_pending_with_none_html_calls_route_url(self):
+        """
+        When pending_html holds (url, None), flush_pending re-fetches live
+        via route_url instead of passing None to route_html (avoids the
+        set_text(None) crash when the view opens).
+        """
+        route_html = MagicMock()
+        route_url = MagicMock()
+        active_view = MagicMock()
+        self._HtmlBridge.active_view = active_view
+        self._fake_route(route_html, route_url)
+        self._queue_url("http://example.test/queued", None)
+        self._HtmlBridge.flush_pending(active_view)
+        route_url.assert_called_once_with("http://example.test/queued")
+        self.assertIsNone(self._HtmlBridge.pending_html)
+        self.assertEqual(route_html.call_count, 0)
+
+    def test_flush_pending_ignores_when_view_mismatch(self):
+        """
+        flush_pending is a no-op when the live active_view is a different
+        instance than the one being asked to flush (view was re-opened or
+        a stale flush call arrives).
+        """
+        route_html = MagicMock()
+        route_url = MagicMock()
+        live = MagicMock()
+        other = MagicMock()
+        self._HtmlBridge.active_view = live
+        self._fake_route(route_html, route_url)
+        self._queue_url("http://example.test/queued", "<p>x</p>")
+        self._HtmlBridge.flush_pending(other)
+        self.assertEqual(
+            self._HtmlBridge.pending_html, ("http://example.test/queued", "<p>x</p>")
+        )
+        self.assertEqual(route_html.call_count, 0)
+        self.assertEqual(route_url.call_count, 0)
+
+    def test_flush_pending_ignores_when_nothing_queued(self):
+        """
+        flush_pending is a no-op when pending_html is None.
+        """
+        route_html = MagicMock()
+        route_url = MagicMock()
+        view = MagicMock()
+        self._HtmlBridge.active_view = view
+        self._fake_route(route_html, route_url)
+        self._HtmlBridge.flush_pending(view)
+        self.assertIsNone(self._HtmlBridge.pending_html)
+        self.assertEqual(route_html.call_count, 0)
+        self.assertEqual(route_url.call_count, 0)

@@ -195,12 +195,15 @@ class PageView(DbGUIElement, metaclass=ABCMeta):
         # get current width of pane
         width = widget.get_allocated_width()
         # default will use natural size for sidebar until it gets to 400 pix
-        side_ch = self.sidebar.get_children()  # Gtk Notebook
-        try:
-            vp_ch = side_ch[0].get_children()  # Gtk Viewport child
-            ch_width = vp_ch[0].get_preferred_width()[0] + 3
-        except AttributeError:
-            ch_width = 300  # needed if no Gramplet installed
+        if self.sidebar is None:
+            ch_width = 300
+        else:
+            side_ch = self.sidebar.get_children()  # Gtk Notebook
+            try:
+                vp_ch = side_ch[0].get_children()  # Gtk Viewport child
+                ch_width = vp_ch[0].get_preferred_width()[0] + 3
+            except AttributeError:
+                ch_width = 300  # needed if no Gramplet installed
         pos = width - min(ch_width, 400)
         self._setup_slider_config(widget, "hpane.slider-position", position=pos)
 
@@ -223,6 +226,8 @@ class PageView(DbGUIElement, metaclass=ABCMeta):
         Called when the sidebar is toggled.
         """
         action.set_state(value)  # change GUI
+        if self.sidebar is None:
+            return
         if value.get_boolean():
             self.sidebar.show()
             self.sidebar_toggled(True)
@@ -235,6 +240,8 @@ class PageView(DbGUIElement, metaclass=ABCMeta):
         Called when the bottombar is toggled.
         """
         action.set_state(value)  # change GUI
+        if self.bottombar is None:
+            return
         if value.get_boolean():
             self.bottombar.show()
         else:
@@ -357,8 +364,10 @@ class PageView(DbGUIElement, metaclass=ABCMeta):
         Called with the PageView is set as active. If the page is "dirty",
         then we rebuild the data.
         """
-        self.sidebar.set_active()
-        self.bottombar.set_active()
+        if self.sidebar is not None:
+            self.sidebar.set_active()
+        if self.bottombar is not None:
+            self.bottombar.set_active()
         self.active = True
         new_title = "%s - %s - Gramps" % (
             self.dbstate.db.get_dbname(),
@@ -374,8 +383,10 @@ class PageView(DbGUIElement, metaclass=ABCMeta):
         """
         Marks page as being inactive (not currently displayed)
         """
-        self.sidebar.set_inactive()
-        self.bottombar.set_inactive()
+        if self.sidebar is not None:
+            self.sidebar.set_inactive()
+        if self.bottombar is not None:
+            self.bottombar.set_inactive()
         self.active = False
 
     def post_create(self):
@@ -473,17 +484,27 @@ class PageView(DbGUIElement, metaclass=ABCMeta):
         View. The user typically defines self.action_list and
         self.action_toggle_list in this function.
         """
+        sidebar_visible = (
+            self.sidebar.get_property("visible")
+            if self.sidebar is not None
+            else True
+        )
+        bottombar_visible = (
+            self.bottombar.get_property("visible")
+            if self.bottombar is not None
+            else True
+        )
         self._add_toggle_action(
             "Sidebar",
             self.__sidebar_toggled,
             "<shift><PRIMARY>R",
-            self.sidebar.get_property("visible"),
+            sidebar_visible,
         )
         self._add_toggle_action(
             "Bottombar",
             self.__bottombar_toggled,
             "<shift><PRIMARY>B",
-            self.bottombar.get_property("visible"),
+            bottombar_visible,
         )
 
     def __build_action_group(self):
@@ -543,8 +564,10 @@ class PageView(DbGUIElement, metaclass=ABCMeta):
         Method called on shutdown. Data views should put code here
         that should be called when quiting the main application.
         """
-        self.sidebar.on_delete()
-        self.bottombar.on_delete()
+        if self.sidebar is not None:
+            self.sidebar.on_delete()
+        if self.bottombar is not None:
+            self.bottombar.on_delete()
         self._config.save()
 
     def init_config(self):

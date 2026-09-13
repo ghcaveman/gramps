@@ -53,6 +53,7 @@ except ImportError:
 # -------------------------------------------------------------------------
 try:
     from gramps.gui.views.pageview import PageView
+    from gramps.gui.htmlbridge import HtmlBridge
 
     _HAS_GUI = True
 except ImportError:
@@ -199,6 +200,8 @@ class HTMLView(PageView):
         PageView.__init__(self, _("HTML"), pdata, dbstate, uistate)
         self.ui_def = []  # No special menu for HTML, simple popup if needed
         HTMLView._instance = self
+        if _HAS_GUI:
+            HtmlBridge.register_view(self)
 
         self.text_view = None
         self.text_buffer = None
@@ -225,6 +228,23 @@ class HTMLView(PageView):
         """
         if cls._instance is not None:
             cls._instance.append_text(text)
+
+    def set_active(self) -> None:
+        """
+        Set the view active and deliver any content routed to the
+        bridge before this page was opened.
+        """
+        PageView.set_active(self)
+        if _HAS_GUI:
+            HtmlBridge.flush_pending(self)
+
+    def on_delete(self, *args):
+        """
+        Unregister from the bridge when the view page is destroyed.
+        """
+        if _HAS_GUI:
+            HtmlBridge.unregister_view(self)
+        return PageView.on_delete(self, *args)
 
     def build_interface(self):
         """
