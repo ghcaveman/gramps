@@ -165,6 +165,9 @@ class HTMLToPangoParser(HTMLParser):
         elif tag in ("h4", "h5", "h6"):
             self._emit_start("b")
         elif tag in ("p", "div"):
+            # Browsers break inline formatting at block boundaries:
+            # close any open formatting tags before appending a paragraph break.
+            self._close_open_until(None)
             self.result.append("\n\n")
         elif tag == "br":
             self.result.append("\n")

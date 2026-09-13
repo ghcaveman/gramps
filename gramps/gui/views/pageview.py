@@ -485,9 +485,7 @@ class PageView(DbGUIElement, metaclass=ABCMeta):
         self.action_toggle_list in this function.
         """
         sidebar_visible = (
-            self.sidebar.get_property("visible")
-            if self.sidebar is not None
-            else True
+            self.sidebar.get_property("visible") if self.sidebar is not None else True
         )
         bottombar_visible = (
             self.bottombar.get_property("visible")
