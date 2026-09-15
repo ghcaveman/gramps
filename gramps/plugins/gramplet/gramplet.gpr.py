@@ -468,6 +468,22 @@ register(
 
 register(
     GRAMPLET,
+    id="GrizardResults",
+    name=_("Grizard Results"),
+    description=_("Gramplet searching genealogy websites for the active person"),
+    version="1.0.0",
+    gramps_target_version=MODULE_VERSION,
+    status=STABLE,
+    fname="grizardresultsgramplet.py",
+    height=280,
+    gramplet="GrizardResultsGramplet",
+    gramplet_title=_("Grizard Results"),
+    navtypes=["Person"],
+    help_url=GRAMPLET_HELP,
+)
+
+register(
+    GRAMPLET,
     id="Repository Details",
     name=_("Repository Details"),
     description=_("Gramplet showing details of a repository"),

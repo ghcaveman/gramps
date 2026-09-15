@@ -103,6 +103,9 @@ class HtmlBridge:
         # 1. Default routing path: send to the registered HTMLView page.
         view = cls.active_view
         if view is not None:
+            # Let the view show the origin website in its header.
+            if hasattr(view, "set_search_url"):
+                view.set_search_url(url)
             view.set_text(html_content)
             LOG.info(
                 "Routed %d chars of HTML from %s to HTMLView",
