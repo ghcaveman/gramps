@@ -616,7 +616,7 @@ class GedGrizard(GrizardBase):
                 pass
             return None
 
-        with DbTxn(_("Grizard GEDCOM Merge"), self.db) as trans:
+        with DbTxn(_("Grizard Data Merge"), self.db) as trans:
             if target_person_handle is None:
                 # Add as entirely new person
                 new_person = copy.deepcopy(s_person)
