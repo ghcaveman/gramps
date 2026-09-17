@@ -275,6 +275,7 @@ class CandidateMatcher:
                 except Exception:
                     pass
 
+        s_lookup_db = source_db if source_db is not None else self.db
         # Given name match
         s_given = s_name.first_name.strip()
         t_given = t_name.first_name.strip()

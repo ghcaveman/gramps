@@ -698,6 +698,7 @@ gramps/plugins/gramplet/statsgramplet.py
 gramps/plugins/gramplet/surnamecloudgramplet.py
 gramps/plugins/gramplet/todo.py
 gramps/plugins/gramplet/todogramplet.py
+gramps/plugins/gramplet/grizardgramplet.py
 gramps/plugins/gramplet/topsurnamesgramplet.py
 gramps/plugins/gramplet/welcomegramplet.py
 gramps/plugins/gramplet/whatsnext.py
