@@ -140,12 +140,18 @@ class GedGrizard(GrizardBase):
 
         :param source_person_handle: Handle of the person in the source database.
         :type source_person_handle: str
+        :param threshold: Minimum matching score required to include a candidate.
+        :type threshold: float
         :returns: List of target candidates with details.
         :rtype: list[dict[str, Any]]
         """
         source_person_handle = kwargs.get("source_person_handle")
         if not source_person_handle:
             raise ValueError("source_person_handle parameter is required.")
+        try:
+            threshold = float(kwargs.get("threshold", 0.5))
+        except (TypeError, ValueError):
+            threshold = 0.5
 
         source_db = self.context.get("source_db")
         if not source_db:
@@ -158,7 +164,7 @@ class GedGrizard(GrizardBase):
             )
 
         matcher = CandidateMatcher(self.db)
-        matches = matcher.find_matches(source_person, threshold=0.5)
+        matches = matcher.find_matches(source_person, threshold=threshold)
 
         candidates: list[dict[str, Any]] = []
         for target_handle, score in matches:
