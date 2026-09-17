@@ -1616,8 +1616,8 @@ register(
 
 register(
     GRAMPLET,
-    id="Grizard GEDCOM",
-    name=_("Grizard GEDCOM"),
+    id="Grizard Data Merge",
+    name=_("Grizard Data Merge"),
     description=_("Load a GEDCOM file and find merge candidates"),
     version="0.1.0",
     gramps_target_version=MODULE_VERSION,
@@ -1626,7 +1626,7 @@ register(
     height=300,
     expand=True,
     gramplet="GrizardGramplet",
-    gramplet_title=_("Grizard Import"),
+    gramplet_title=_("Grizard Data Merge"),
     navtypes=["Person"],
     help_url=GRAMPLET_HELP,
 )
