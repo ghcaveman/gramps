@@ -164,7 +164,9 @@ class GedGrizard(GrizardBase):
             )
 
         matcher = CandidateMatcher(self.db)
-        matches = matcher.find_matches(source_person, threshold=threshold)
+        matches = matcher.find_matches(
+            source_person, threshold=threshold, source_db=source_db
+        )
 
         candidates: list[dict[str, Any]] = []
         for target_handle, score in matches:
@@ -711,7 +713,9 @@ class GedGrizard(GrizardBase):
                     rel = source_db.get_person_from_handle(s_handle)
                     if not rel:
                         return None
-                    matches = CandidateMatcher(self.db).find_matches(rel, threshold=0.5)
+                    matches = CandidateMatcher(self.db).find_matches(
+                        rel, threshold=0.5, source_db=source_db
+                    )
                     if not matches:
                         return None
                     matches.sort(key=lambda m: m[1], reverse=True)

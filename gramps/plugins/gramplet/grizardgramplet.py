@@ -107,6 +107,30 @@ def build_status_text(
     )
 
 
+def resolve_compare_pair(
+    candidates: list[dict[str, Any]],
+    source_handle: str | None,
+    selected_target_handle: str | None,
+) -> tuple[str | None, str | None]:
+    """
+    Resolve the (source, target) pair to open in the compare window.
+
+    :param candidates: Match candidate dicts from the match step.
+    :param source_handle: Handle of the source person currently matched.
+    :param selected_target_handle: Target handle from the selected row,
+        or None when no row is selected.
+    :returns: (source_handle, target_handle) tuple; target may be None
+        for the Add-as-New case.
+    """
+    if source_handle is None:
+        return None, None
+    target_handle = selected_target_handle
+    if not target_handle and candidates:
+        fallback = candidates[0].get("handle") or None
+        target_handle = str(fallback) if fallback else None
+    return source_handle, target_handle
+
+
 def clamp_threshold(value: Any) -> float:
     """
     Clamp a threshold option value into the 0.0-4.0 range.
@@ -171,6 +195,8 @@ class GrizardGramplet(Gramplet):
             column = Gtk.TreeViewColumn(title, renderer, text=index)
             tree.append_column(column)
         self.tree = tree
+        self.tree.get_selection().connect("changed", self.cb_candidate_selected)
+        self.tree.connect("row-activated", self.cb_candidate_activated)
         scrolled.add(tree)
         top.pack_start(scrolled, True, True, 0)
         self.compare_button = Gtk.Button(label=_("Open Compare..."))
@@ -204,8 +230,6 @@ class GrizardGramplet(Gramplet):
         self.grizard = None
         self.source_people = []
         self.candidates = []
-        self.connect_signal("Person", self._active_changed)
-        self.update()
 
     def main(self) -> Any:
         """Refresh the status line and candidate list."""
@@ -260,19 +284,57 @@ class GrizardGramplet(Gramplet):
         """Re-run matching for the active person."""
         self.refresh_matches()
 
-    def cb_compare_clicked(self, _button: Gtk.Button) -> None:
-        """Open the side-by-side compare window for the loaded GEDCOM."""
-        from gramps.gui.grizard.grizardcompare import GrizardCompareWindow
-
+    def cb_compare_clicked(self, _button: Gtk.Button | None) -> None:
+        """Open the side-by-side compare window for the selected pair."""
         if self.grizard is None:
             return
+        source_handle, target_handle = resolve_compare_pair(
+            self.candidates,
+            self._selected_source_handle(),
+            self._selected_candidate_handle(),
+        )
+        if source_handle is None:
+            return
+        from gramps.gui.grizard.grizardcompare import GrizardCompareWindow
+
         window = GrizardCompareWindow(
             self.uistate,
             self.dbstate,
             self.grizard,
             parent=self.gui.uistate.window,
         )
+        window.select_pair(source_handle, target_handle)
         window.show()
+
+    def _selected_candidate_handle(self) -> str | None:
+        """Return the target handle of the selected candidate row."""
+        try:
+            model, tree_iter = self.tree.get_selection().get_selected()
+        except Exception:
+            return None
+        if not tree_iter:
+            return None
+        try:
+            handle = model.get_value(tree_iter, 2)
+        except Exception:
+            return None
+        return str(handle) if handle else None
+
+    def cb_candidate_selected(self, _selection: Gtk.TreeSelection) -> None:
+        """Enable Compare when a candidate row is selected."""
+        if hasattr(self, "compare_button"):
+            self.compare_button.set_sensitive(
+                self.grizard is not None and self._selected_source_handle() is not None
+            )
+
+    def cb_candidate_activated(
+        self,
+        _tree: Gtk.TreeView,
+        _path: Gtk.TreePath,
+        _column: Gtk.TreeViewColumn | None,
+    ) -> None:
+        """Open Compare on double-click or Enter."""
+        self.cb_compare_clicked(None)
 
     def _load_gedcom(self, path: str) -> None:
         """Run the GedGrizard connect and load steps."""
@@ -340,11 +402,12 @@ class GrizardGramplet(Gramplet):
                 from gramps.gen.grizard.grizard import CandidateMatcher
 
                 matcher = CandidateMatcher(self.dbstate.db)
+                source_db = self.grizard.context.get("source_db")
                 best: Person | None = None
                 best_score = -1.0
                 for person in self.source_people:
                     try:
-                        score = matcher.score_match(person, active)
+                        score = matcher.score_match(person, active, source_db=source_db)
                     except Exception:
                         continue
                     if score > best_score:

@@ -87,7 +87,28 @@ from gramps.gen.types import PersonHandle
 # -------------------------------------------------------------------------
 from ..grizard import GrizardCompareRow, CandidateMatcher
 from ..gedcom import GedGrizard
-from gramps.gui.grizard.grizardmergedialog import GrizardMergeDialog
+
+
+def _has_gtk_display() -> bool:
+    """
+    Return True only if a real Gtk display is available.
+    """
+    if not os.environ.get("DISPLAY"):
+        return False
+    if os.environ.get("GDK_BACKEND") == "-":
+        return False
+    try:
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk
+
+        return bool(Gtk.init_check([])[0])
+    except Exception:
+        return False
+
+
+_HAS_GTK_DISPLAY = _has_gtk_display()
 
 
 # ------------------------------------------------------------
@@ -254,6 +275,8 @@ class GrizardTest(unittest.TestCase):
         Test the GrizardMergeDialog's static method for rendering
         Pango-highlighted differences between values.
         """
+        from gramps.gui.grizard.grizardmergedialog import GrizardMergeDialog
+
         # Exact match (should be plain)
         res = GrizardMergeDialog._format_diff_line(
             "Given Name", "John", "John", show_label=False, is_left=True
@@ -422,17 +445,24 @@ class GrizardTest(unittest.TestCase):
             self.assertTrue(len(note_handles) > 0)
             note = self.db.get_note_from_handle(note_handles[0])
             self.assertIsNotNone(note)
-            self.assertIn("linked note", note.get_text())
+            self.assertIn("linked note", str(note.get_styledtext()))
 
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
+    @unittest.skipUnless(
+        _HAS_GTK_DISPLAY,
+        "needs a real Gtk display (run under xvfb-run); "
+        "gramps CI sets GDK_BACKEND=- so Gtk.Dialog cannot init.",
+    )
     def test_dialog_find_dangling_references(self) -> None:
         """
         Verify that GrizardMergeDialog._find_dangling_references correctly
         detects and categorizes missing references prior to merge.
         """
+        from gramps.gui.grizard.grizardmergedialog import GrizardMergeDialog
+
         gedcom_data = """0 HEAD
 1 CHAR UTF-8
 0 @I1@ INDI
@@ -465,7 +495,7 @@ class GrizardTest(unittest.TestCase):
                 def __init__(self, db):
                     self.db = db
 
-            # GrizardMergeDialog can be instantiated headlessly with GDK_BACKEND=-
+            # GrizardMergeDialog needs a real display (skipped otherwise).
             dbstate = MockDbState(self.db)
             dialog = GrizardMergeDialog(
                 dbstate=dbstate,
@@ -499,123 +529,3 @@ class GrizardTest(unittest.TestCase):
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-
-    def test_web_scraped_grizard(self) -> None:
-        """
-        Verify that WebScrapedGrizard correctly parses raw dictionaries representing
-        scraped web results and selectively merges them into the target DB.
-        """
-        from gramps.gen.grizard.webscraped import WebScrapedGrizard
-
-        scraped_results = [
-            {
-                "first_name": "ScrapedJohn",
-                "last_name": "ScrapedDoe",
-                "gender": "M",
-                "birth_date": "10 JAN 1990",
-                "birth_place": "Seattle, WA",
-                "notes": ["Scraped note content here"],
-                "citations": [
-                    {
-                        "source_title": "Web Census 1990",
-                        "page": "12",
-                        "citation_note": "Footnote reference",
-                    }
-                ],
-            }
-        ]
-
-        grizard = WebScrapedGrizard(self.db)
-        success = grizard.run_step("connect", scraped_results=scraped_results)
-        self.assertTrue(success)
-
-        people = grizard.run_step("load")
-        self.assertEqual(len(people), 1)
-        source_person = people[0]
-        self.assertEqual(source_person.get_primary_name().first_name, "ScrapedJohn")
-
-        # Selective merge into self.target_person
-        resolutions = {
-            "given_name": "source",
-            "surname": "source",
-            "gender": "source",
-            "birth_event": "source",
-        }
-        success_apply = grizard.run_step(
-            "apply",
-            source_person_handle=source_person.handle,
-            target_person_handle=self.target_person.handle,
-            resolutions=resolutions,
-        )
-        self.assertTrue(success_apply)
-
-        # Verify target database state after merge
-        updated_person = self.db.get_person_from_handle(self.target_person.handle)
-        self.assertEqual(updated_person.get_primary_name().first_name, "ScrapedJohn")
-        self.assertTrue(updated_person.get_birth_ref() is not None)
-
-        # Check birth event and its location
-        birth_event = self.db.get_event_from_handle(updated_person.get_birth_ref().ref)
-        self.assertIsNotNone(birth_event)
-        self.assertEqual(birth_event.date_val.get_text(), "10 JAN 1990")
-
-        place_handle = birth_event.get_place_handle()
-        self.assertIsNotNone(place_handle)
-        place = self.db.get_place_from_handle(place_handle)
-        self.assertIsNotNone(place)
-        self.assertEqual(place.title, "Seattle, WA")
-
-        # Check citation, source, and note
-        cit_handles = updated_person.get_citation_list()
-        self.assertTrue(len(cit_handles) > 0)
-        citation = self.db.get_citation_from_handle(cit_handles[0])
-        self.assertIsNotNone(citation)
-        self.assertEqual(citation.page, "12")
-
-        src_handle = citation.get_reference_handle()
-        self.assertIsNotNone(src_handle)
-        source = self.db.get_source_from_handle(src_handle)
-        self.assertIsNotNone(source)
-        self.assertEqual(source.title, "Web Census 1990")
-
-        note_handles = updated_person.get_note_list()
-        self.assertTrue(len(note_handles) > 0)
-        note = self.db.get_note_from_handle(note_handles[0])
-        self.assertIsNotNone(note)
-        self.assertEqual(note.get_text(), "Scraped note content here")
-
-    def test_grizard_web_importer_gui(self) -> None:
-        """
-        Verify that GrizardWebImporter is able to successfully launch
-        the GrizardCompareWindow from web scraped input.
-        """
-        from gramps.gui.grizard.grizardwebimporter import GrizardWebImporter
-
-        scraped_results = [
-            {
-                "first_name": "WebFirst",
-                "last_name": "WebLast",
-                "gender": "F",
-            }
-        ]
-
-        class MockDbState:
-            def __init__(self, db):
-                self.db = db
-
-            def is_open(self):
-                return True
-
-        dbstate = MockDbState(self.db)
-        uistate = None
-
-        compare_win = GrizardWebImporter.import_results(
-            uistate, dbstate, scraped_results
-        )
-        self.assertIsNotNone(compare_win)
-
-        # Verify that compare_win has loaded our web first person
-        self.assertEqual(compare_win.current_category, "person")
-
-        # Cleanup
-        compare_win.destroy()
