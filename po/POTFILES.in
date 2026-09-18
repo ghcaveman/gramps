@@ -698,7 +698,6 @@ gramps/plugins/gramplet/statsgramplet.py
 gramps/plugins/gramplet/surnamecloudgramplet.py
 gramps/plugins/gramplet/todo.py
 gramps/plugins/gramplet/todogramplet.py
-gramps/plugins/gramplet/grizardgramplet.py
 gramps/plugins/gramplet/topsurnamesgramplet.py
 gramps/plugins/gramplet/welcomegramplet.py
 gramps/plugins/gramplet/whatsnext.py
@@ -787,6 +786,7 @@ gramps/plugins/tool/eventnames.py
 gramps/plugins/tool/finddupes.glade
 gramps/plugins/tool/finddupes.py
 gramps/plugins/tool/findloop.py
+gramps/plugins/tool/grizardmerge.py
 gramps/plugins/tool/mediamanager.py
 gramps/plugins/tool/mergecitations.glade
 gramps/plugins/tool/mergecitations.py
