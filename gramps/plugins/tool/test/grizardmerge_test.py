@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Unittests for Grizard gramplet helper functions."""
+"""Unittests for Grizard merge tool helper functions."""
 
 # -------------------------------------------------------------------------
 #
@@ -32,50 +32,44 @@ import unittest
 # Gramps modules
 #
 # -------------------------------------------------------------------------
-from gramps.plugins.gramplet.grizardgramplet import (
-    build_status_text,
+from gramps.plugins.tool.grizardmerge import (
+    build_candidate_label,
     clamp_threshold,
-    format_candidate_label,
     resolve_compare_pair,
 )
 
 
 # ------------------------------------------------------------------
 #
-# GrizardGrampletHelperTest
+# GrizardMergeToolHelperTest
 #
 # ------------------------------------------------------------------
-class GrizardGrampletHelperTest(unittest.TestCase):
-    """Test the GTK-free helpers used by the Grizard gramplet."""
+class GrizardMergeToolHelperTest(unittest.TestCase):
+    """Test the GTK-free helpers used by the Grizard merge tool."""
 
-    def test_format_candidate_label_with_birth(self) -> None:
+    def test_build_candidate_label_with_birth(self) -> None:
         """A candidate with name, year and score formats fully."""
-        label = format_candidate_label(
-            {"name": "John Smith", "birth_year": "1901", "score": 2.5}
+        label = build_candidate_label(
+            {"name": "John Smith", "birth_year": "1901", "score": 0.75}
         )
-        self.assertEqual(label, "John Smith (b. 1901) [2.50]")
+        self.assertEqual(label, "John Smith (b. 1901) [0.75]")
 
-    def test_format_candidate_label_without_birth(self) -> None:
+    def test_build_candidate_label_without_birth(self) -> None:
         """A candidate without a birth year omits the birth part."""
-        label = format_candidate_label({"name": "Jane Doe", "score": 1.0})
+        label = build_candidate_label({"name": "Jane Doe", "score": 1.0})
         self.assertEqual(label, "Jane Doe [1.00]")
 
-    def test_build_status_text_without_path(self) -> None:
-        """No path produces the empty-state prompt."""
-        self.assertIn("GEDCOM", build_status_text(None, 0, 0))
-
-    def test_build_status_text_with_counts(self) -> None:
-        """Loaded files report counts and the active name."""
-        text = build_status_text("/tmp/test.ged", 10, 3, "John Smith")
-        self.assertIn("10", text)
-        self.assertIn("3", text)
-        self.assertIn("John Smith", text)
+    def test_build_candidate_label_bad_score(self) -> None:
+        """A non-numeric score renders as unknown."""
+        label = build_candidate_label({"name": "Jane Doe", "score": "bad"})
+        self.assertEqual(label, "Jane Doe [?]")
 
     def test_clamp_threshold_bounds(self) -> None:
-        """Thresholds clamp into range with a sane fallback."""
-        self.assertEqual(clamp_threshold(1.5), 1.5)
-        self.assertEqual(clamp_threshold(99.0), 4.0)
+        """Thresholds clamp into the 0.0-1.0 range with a sane fallback."""
+        self.assertEqual(clamp_threshold(1.5), 1.0)
+        self.assertEqual(clamp_threshold(99.0), 1.0)
         self.assertEqual(clamp_threshold(-1.0), 0.0)
+        self.assertEqual(clamp_threshold(0.75), 0.75)
         self.assertEqual(clamp_threshold("bad"), 0.5)
 
     def test_resolve_compare_pair_selected(self) -> None:
