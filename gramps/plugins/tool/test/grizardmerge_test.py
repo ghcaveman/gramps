@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Unittests for Grizard merge tool helper functions."""
+"""Unittests for the Grizard merge tool launcher."""
 
 # -------------------------------------------------------------------------
 #
@@ -32,11 +32,7 @@ import unittest
 # Gramps modules
 #
 # -------------------------------------------------------------------------
-from gramps.plugins.tool.grizardmerge import (
-    build_candidate_label,
-    clamp_threshold,
-    resolve_compare_pair,
-)
+from gramps.gui.grizard.grizardlauncher import _case_insensitive_pattern
 
 
 # ------------------------------------------------------------------
@@ -45,52 +41,23 @@ from gramps.plugins.tool.grizardmerge import (
 #
 # ------------------------------------------------------------------
 class GrizardMergeToolHelperTest(unittest.TestCase):
-    """Test the GTK-free helpers used by the Grizard merge tool."""
+    """Test the GTK-free helpers used by the Grizard merge flow."""
 
-    def test_build_candidate_label_with_birth(self) -> None:
-        """A candidate with name, year and score formats fully."""
-        label = build_candidate_label(
-            {"name": "John Smith", "birth_year": "1901", "score": 0.75}
-        )
-        self.assertEqual(label, "John Smith (b. 1901) [0.75]")
-
-    def test_build_candidate_label_without_birth(self) -> None:
-        """A candidate without a birth year omits the birth part."""
-        label = build_candidate_label({"name": "Jane Doe", "score": 1.0})
-        self.assertEqual(label, "Jane Doe [1.00]")
-
-    def test_build_candidate_label_bad_score(self) -> None:
-        """A non-numeric score renders as unknown."""
-        label = build_candidate_label({"name": "Jane Doe", "score": "bad"})
-        self.assertEqual(label, "Jane Doe [?]")
-
-    def test_clamp_threshold_bounds(self) -> None:
-        """Thresholds clamp into the 0.0-1.0 range with a sane fallback."""
-        self.assertEqual(clamp_threshold(1.5), 1.0)
-        self.assertEqual(clamp_threshold(99.0), 1.0)
-        self.assertEqual(clamp_threshold(-1.0), 0.0)
-        self.assertEqual(clamp_threshold(0.75), 0.75)
-        self.assertEqual(clamp_threshold("bad"), 0.5)
-
-    def test_resolve_compare_pair_selected(self) -> None:
-        """Selected row target is used for the compare pair."""
-        candidates = [{"handle": "t1", "score": 2.0}, {"handle": "t2"}]
-        self.assertEqual(resolve_compare_pair(candidates, "s1", "t2"), ("s1", "t2"))
-
-    def test_resolve_compare_pair_fallback_first(self) -> None:
-        """No selection falls back to the top candidate."""
-        candidates = [{"handle": "t1", "score": 2.0}]
-        self.assertEqual(resolve_compare_pair(candidates, "s1", None), ("s1", "t1"))
-
-    def test_resolve_compare_pair_add_as_new(self) -> None:
-        """No candidates means Add-as-New with a None target."""
-        self.assertEqual(resolve_compare_pair([], "s1", None), ("s1", None))
-
-    def test_resolve_compare_pair_no_source(self) -> None:
-        """No source handle resolves to an empty pair."""
+    def test_case_insensitive_pattern(self) -> None:
+        """Extension patterns match upper and lower case."""
+        self.assertEqual(_case_insensitive_pattern("ged"), "*.[gG][eE][dD]")
         self.assertEqual(
-            resolve_compare_pair([{"handle": "t1"}], None, "t1"), (None, None)
+            _case_insensitive_pattern("gramps"), "*.[gG][rR][aA][mM][pP][sS]"
         )
+
+    def test_build_source_file_filters_fallback(self) -> None:
+        """Filters always include genealogy types and an All files entry."""
+        from gramps.gui.grizard.grizardlauncher import build_source_file_filters
+
+        filters = build_source_file_filters()
+        names = [f.get_name() for f in filters]
+        self.assertTrue(any("All files" in name for name in names))
+        self.assertTrue(len(filters) >= 2)
 
 
 if __name__ == "__main__":

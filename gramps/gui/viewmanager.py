@@ -1287,74 +1287,17 @@ class ViewManager(CLIManager):
 
     def grizard_compare(self, *obj):
         """
-        Ask for a GEDCOM file, load it, and open the side-by-side
-        comparison window against the current tree.
+        Ask for a genealogy file, load it, and open side-by-side comparison.
+
+        Shares run_grizard_merge_flow() with the Tools plugin so both
+        menu entries behave identically.
         """
         if not self.dbstate.is_open():
             return
 
-        from .grizard.grizardcompare import GrizardCompareWindow
-        from gramps.gen.grizard.gedcom import GedGrizard
+        from .grizard.grizardlauncher import run_grizard_merge_flow
 
-        chooser = Gtk.FileChooserDialog(
-            title=_("Select File to Compare"),
-            transient_for=self.window,
-            action=Gtk.FileChooserAction.OPEN,
-        )
-        chooser.add_buttons(
-            _("_Cancel"), Gtk.ResponseType.CANCEL, _("_OK"), Gtk.ResponseType.OK
-        )
-        # Supported Files
-        filter_supported = Gtk.FileFilter()
-        filter_supported.set_name(_("Supported Files (*.ged, *.xml, *.gramps)"))
-        filter_supported.add_pattern("*.ged")
-        filter_supported.add_pattern("*.xml")
-        filter_supported.add_pattern("*.gramps")
-        chooser.add_filter(filter_supported)
-
-        # GEDCOM Files
-        filter_ged = Gtk.FileFilter()
-        filter_ged.set_name(_("GEDCOM Files (*.ged)"))
-        filter_ged.add_pattern("*.ged")
-        chooser.add_filter(filter_ged)
-
-        # XML / XML-GEDCOM Files
-        filter_xml = Gtk.FileFilter()
-        filter_xml.set_name(_("XML Files (*.xml)"))
-        filter_xml.add_pattern("*.xml")
-        chooser.add_filter(filter_xml)
-
-        # Gramps XML Files
-        filter_gramps = Gtk.FileFilter()
-        filter_gramps.set_name(_("Gramps XML Files (*.gramps)"))
-        filter_gramps.add_pattern("*.gramps")
-        chooser.add_filter(filter_gramps)
-
-        response = chooser.run()
-        path = chooser.get_filename()
-        chooser.destroy()
-        if response != Gtk.ResponseType.OK or not path:
-            return
-
-        grizard = GedGrizard(self.dbstate.db)
-        if not grizard.run_step("connect", gedcom_path=path):
-            ErrorDialog(
-                _("Load Failed"),
-                _("Could not read the GEDCOM file."),
-                parent=self.window,
-            )
-            return
-        try:
-            grizard.run_step("load")
-        except Exception as e:
-            LOG.error("Failed to load GEDCOM for comparison: %s", e)
-            ErrorDialog(_("Load Failed"), str(e), parent=self.window)
-            return
-
-        window = GrizardCompareWindow(
-            self.uistate, self.dbstate, grizard, parent=self.window
-        )
-        window.show()
+        run_grizard_merge_flow(self.uistate, self.dbstate, parent=self.window)
 
     def __open_activate(self, obj, value):
         """
