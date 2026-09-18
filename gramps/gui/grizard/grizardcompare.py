@@ -441,7 +441,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             target = self.dbstate.db.get_person_from_handle(handle)
             if not target:
                 continue
-            score = matcher.score_match(source, target)
+            score = matcher.score_match(source, target, source_db=self.source_db)
             if score > best_score:
                 best_score = score
                 best_handle = handle
@@ -872,6 +872,35 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             self.diff_label.set_text(_("Differences: %d of %d") % (pos, total))
         else:
             self.diff_label.set_text("")
+
+    def select_pair(self, source_handle: str, target_handle: str | None) -> bool:
+        """
+        Pre-select a (source, optional target) person pair.
+
+        :param source_handle: Handle in the incoming GEDCOM (source) tree.
+        :param target_handle: Handle in the current tree, or None for the
+            Add-as-New case (source row selected, insertion point mirrored).
+        :returns: True when the source row was found and selected.
+        """
+        if self.current_category != "person":
+            self.select_category("person")
+        found = self._select_handle(self.right_panel, source_handle)
+        try:
+            if target_handle:
+                self._select_handle(self.left_panel, target_handle)
+            else:
+                person = self.source_db.get_person_from_handle(source_handle)
+                if person is not None:
+                    self._select_person_or_position(
+                        self.left_panel,
+                        None,
+                        group=self._person_group_name(self.source_db, person),
+                        name_str=name_displayer.display(person),
+                    )
+        except Exception:
+            LOG.debug("select_pair mirror failed", exc_info=True)
+        self._update_diff_status()
+        return found
 
     def _select_first_diff(self) -> None:
         """

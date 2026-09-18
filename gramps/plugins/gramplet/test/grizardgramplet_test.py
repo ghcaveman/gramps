@@ -36,6 +36,7 @@ from gramps.plugins.gramplet.grizardgramplet import (
     build_status_text,
     clamp_threshold,
     format_candidate_label,
+    resolve_compare_pair,
 )
 
 
@@ -76,6 +77,26 @@ class GrizardGrampletHelperTest(unittest.TestCase):
         self.assertEqual(clamp_threshold(99.0), 4.0)
         self.assertEqual(clamp_threshold(-1.0), 0.0)
         self.assertEqual(clamp_threshold("bad"), 0.5)
+
+    def test_resolve_compare_pair_selected(self) -> None:
+        """Selected row target is used for the compare pair."""
+        candidates = [{"handle": "t1", "score": 2.0}, {"handle": "t2"}]
+        self.assertEqual(resolve_compare_pair(candidates, "s1", "t2"), ("s1", "t2"))
+
+    def test_resolve_compare_pair_fallback_first(self) -> None:
+        """No selection falls back to the top candidate."""
+        candidates = [{"handle": "t1", "score": 2.0}]
+        self.assertEqual(resolve_compare_pair(candidates, "s1", None), ("s1", "t1"))
+
+    def test_resolve_compare_pair_add_as_new(self) -> None:
+        """No candidates means Add-as-New with a None target."""
+        self.assertEqual(resolve_compare_pair([], "s1", None), ("s1", None))
+
+    def test_resolve_compare_pair_no_source(self) -> None:
+        """No source handle resolves to an empty pair."""
+        self.assertEqual(
+            resolve_compare_pair([{"handle": "t1"}], None, "t1"), (None, None)
+        )
 
 
 if __name__ == "__main__":

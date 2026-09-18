@@ -236,13 +236,20 @@ class CandidateMatcher:
             [s.get_surname() for s in name.get_surname_list() if s.get_surname()]
         )
 
-    def score_match(self, source: Person, target: Person) -> float:
+    def score_match(
+        self,
+        source: Person,
+        target: Person,
+        source_db: Any | None = None,
+    ) -> float:
         """
         Score how closely two Person records match. Returns -1.0 for a complete mismatch,
         otherwise a non-negative float matching score.
 
         :param source: The source person object.
         :param target: The target person object.
+        :param source_db: Database holding the source person (for birth events).
+            Defaults to the target database when omitted.
         :returns: The calculated match score or -1.0.
         :rtype: float
         """
@@ -292,7 +299,7 @@ class CandidateMatcher:
 
         if s_birth_ref and t_birth_ref:
             try:
-                s_birth = self.db.get_event_from_handle(s_birth_ref.ref)
+                s_birth = s_lookup_db.get_event_from_handle(s_birth_ref.ref)
                 t_birth = self.db.get_event_from_handle(t_birth_ref.ref)
                 s_date = s_birth.get_date_object()
                 t_date = t_birth.get_date_object()
@@ -310,13 +317,17 @@ class CandidateMatcher:
         return score
 
     def find_matches(
-        self, source: Person, threshold: float = 1.0
+        self,
+        source: Person,
+        threshold: float = 1.0,
+        source_db: Any | None = None,
     ) -> list[tuple[PersonHandle, float]]:
         """
         Search the target database for potential matching candidates.
 
         :param source: The source person object to find matches for.
         :param threshold: The minimum matching score required to include a candidate.
+        :param source_db: Database holding the source person (for birth events).
         :returns: List of tuples containing target person handles and their match scores.
         :rtype: list[tuple[PersonHandle, float]]
         """
@@ -325,7 +336,7 @@ class CandidateMatcher:
         for handle in self.db.iter_person_handles():
             try:
                 target = self.db.get_person_from_handle(handle)
-                score = self.score_match(source, target)
+                score = self.score_match(source, target, source_db=source_db)
                 if score >= threshold:
                     results.append((PersonHandle(handle), score))
             except Exception:
