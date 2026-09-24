@@ -51,7 +51,45 @@ from gramps.gen.soundex import soundex
 from gramps.gen.types import PersonHandle
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.fs.utils.attributes import get_fsftid
+
+try:
+    from gramps.gen.fs.utils.attributes import get_fsftid
+except ImportError:  # Gramps < 6.1 has no gramps.gen.fs package
+
+    def get_fsftid(gr_obj: Any) -> str:
+        """Return the ``_FSFTID`` attribute value, else ``""``."""
+        if not gr_obj:
+            return ""
+        try:
+            attrs = (
+                gr_obj.get_attribute_list()
+                if hasattr(gr_obj, "get_attribute_list")
+                else getattr(gr_obj, "attribute_list", []) or []
+            )
+        except Exception:
+            return ""
+        for attr in attrs or []:
+            try:
+                type_names = []
+                attr_type = attr.get_type()
+                for getter in ("xml_str", "__str__"):
+                    try:
+                        value = (
+                            attr_type.xml_str()
+                            if getter == "xml_str"
+                            else str(attr_type)
+                        )
+                        if value:
+                            type_names.append(str(value))
+                    except Exception:
+                        continue
+                if "_FSFTID" in type_names:
+                    return attr.get_value() or ""
+            except Exception:
+                continue
+        return ""
+
+
 from gramps.gui.managedwindow import ManagedWindow
 from gramps.gui.dialog import ErrorDialog
 
