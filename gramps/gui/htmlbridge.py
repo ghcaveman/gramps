@@ -169,18 +169,37 @@ class HtmlBridge:
         # HTMLView page opens and registers itself.
         cls.pending_html = (url, None)
         LOG.info("URL %s queued until the HTML view page is opened.", url)
-        return True
-
-    @classmethod
     def _fetch_url(cls, url: str) -> str | None:
-        """
-        Fetch the content of the given URL with browser-like headers.
+        """Fetch the content of *url*.
 
-        :param url: The URL to fetch.
-        :type url: str
-        :returns: The decoded content, or None on failure.
-        :rtype: str | None
+        The original implementation performed a plain ``urllib`` request with
+        a browser‑like ``User‑Agent`` header.  That works for static pages but
+        fails for sites that require JavaScript.  When Selenium is available we
+        now use the same ``scrape_page_async`` helper that ``HTMLView`` uses –
+        it runs a head‑less browser, executes JavaScript and returns the fully
+        rendered HTML.
+
+        If Selenium cannot be started we fall back to the original ``urllib``
+        request so the function never raises an exception.
         """
+        # -----------------------------------------------------------------
+        # 1️⃣  Try Selenium first (if the flag is True and the scraper can be
+        #     imported).  This mirrors the logic in ``HTMLView.set_text``.
+        # -----------------------------------------------------------------
+        try:
+            from gramps.plugins.gramplet.scraper import scrape_page_sync  # type: ignore
+            # ``scrape_page_sync`` is a tiny wrapper that blocks until the page
+            # is fetched – we import it lazily so the module is only required
+            # when Selenium is actually usable.
+            LOG.info("HtmlBridge: using Selenium to fetch %s", url)
+            return scrape_page_sync(url)
+        except Exception:
+            # Selenium not available or failed – fall back to plain HTTP.
+            pass
+
+        # -----------------------------------------------------------------
+        # 2️⃣  Plain HTTP fallback (original behaviour).
+        # -----------------------------------------------------------------
         import urllib.parse
         import urllib.request
 
@@ -198,10 +217,13 @@ class HtmlBridge:
         try:
             parsed = urllib.parse.urlsplit(url)
             headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
-            url = urllib.parse.quote(url, safe=";/?:@&=+$,~*!'()#%[]")
-        except Exception:
-            pass
-        try:
+            request = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request) as response:
+                charset = response.headers.get_content_charset() or "utf-8"
+                return response.read().decode(charset, errors="replace")
+        except Exception as exc:  # pragma: no cover – defensive fallback
+            LOG.error("Failed to fetch URL %s: %s", url, exc)
+            return None
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as response:
                 return response.read().decode("utf-8", errors="ignore")
