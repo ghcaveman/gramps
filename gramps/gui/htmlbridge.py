@@ -233,9 +233,25 @@ class HtmlBridge:
             # uniformly and log a warning.
             try:
                 resp = curl_requests.get(url, headers=headers, timeout=10)
-                # ``resp.content`` is bytes; decode using the same fallback as
-                # urllib.
-                return resp.content.decode("utf-8", errors="ignore")
+                content = resp.content.decode("utf-8", errors="ignore")
+                # Detect sites that require JavaScript (common placeholder).
+                if "Javascript is required for this site" in content:
+                    LOG.info("Page requires JavaScript – attempting Playwright fallback")
+                    # Try Playwright if available.
+                    try:
+                        from playwright.sync_api import sync_playwright  # type: ignore
+                        with sync_playwright() as p:
+                            browser = p.chromium.launch(headless=True)
+                            page = browser.new_page()
+                            page.goto(url, timeout=10000)
+                            # Wait for network idle to allow JS execution.
+                            page.wait_for_load_state("networkidle", timeout=10000)
+                            js_content = page.content()
+                            browser.close()
+                            return js_content
+                    except Exception as pw_err:
+                        LOG.warning("Playwright fallback failed: %s", pw_err)
+                return content
             except Exception as err:  # pragma: no cover – exercised on network error
                 LOG.warning("Failed to fetch URL with curl_cffi for HTMLView: %s", err)
                 return None

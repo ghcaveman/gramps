@@ -989,13 +989,21 @@ class HTMLView(PageView):
         info_label.set_margin_bottom(4)
         info_label.set_selectable(True)
 
-        # ``Gtk.Paned`` does not support ``pack_start``; instead we create a
-        # vertical ``Gtk.Box`` that holds the label above the original paned.
-        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        container.pack_start(info_label, False, False, 0)
-        container.pack_start(paned, True, True, 0)
-        container.show_all()
-        return container
+        # ``Gtk.Paned`` does not support ``pack_start``; we create a vertical
+        # ``Gtk.Box`` that holds a horizontal box for the label (right‑aligned)
+        # and the original paned below it.
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        # Horizontal container for the label aligned to the right.
+        top_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        # Add a spacer to push the label to the right.
+        spacer = Gtk.Box()
+        top_hbox.pack_start(spacer, True, True, 0)
+        top_hbox.pack_start(info_label, False, False, 0)
+        outer.pack_start(top_hbox, False, False, 0)
+        outer.pack_start(paned, True, True, 0)
+        outer.show_all()
+        return outer
 
     def get_default_gramplets(self):
         """
