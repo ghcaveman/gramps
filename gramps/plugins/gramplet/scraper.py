@@ -164,3 +164,43 @@ def scrape_page_sync(url: str) -> str:
     # Wait for the background thread to finish fetching.
     done.wait()
     return result[0] if result else ""
+
+
+def scrape_page_direct(url: str) -> str:
+    """Fetch *url* synchronously using Selenium without a background thread.
+
+    This function is used by non‑GTK code paths (e.g. ``HtmlBridge._fetch_url``)
+    where the GLib idle‑add mechanism would never fire, causing a dead‑lock.
+    It creates a head‑less Chrome driver, loads the page, extracts the HTML
+    and quits the driver before returning the result.
+    """
+    try:
+        options = Options()
+        options.binary_location = CHROME_BINARY
+        options.add_argument("--headless=new")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+
+        service = Service()
+        driver = webdriver.Chrome(service=service, options=options)
+        # Apply stealth tricks – same as in the thread version.
+        stealth(
+            driver,
+            languages=["en-US", "en"],
+            vendor="Google Inc.",
+            platform="Win32",
+            webgl_vendor="Intel Inc.",
+            renderer="Intel Iris OpenGL Engine",
+            fix_hairline=True,
+        )
+        driver.get(url)
+        html = driver.page_source
+    except Exception as exc:  # pragma: no cover – defensive
+        html = f"<!-- Scrape error: {exc} -->"
+    finally:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+    return html
