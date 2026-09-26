@@ -80,12 +80,59 @@ class _ScrapeThread(threading.Thread):
     callback: Callable[[str], bool]
         Function called on the GTK main thread with the page HTML. It must
         return ``True`` to keep the idle handler alive or ``False`` to stop.
-    """
-
     def __init__(self, url: str, callback: Callable[[str], bool]):
         super().__init__(daemon=True)
         self.url = url
         self.callback = callback
+
+    def run(self) -> None:  # pragma: no cover – exercised via integration test
+        """Execute the Selenium scrape in a background thread.
+
+        Mirrors :func:`scrape_page_direct` but returns the result via
+        ``GLib.idle_add`` to the provided callback.
+        """
+        try:
+            options = Options()
+            if CHROME_BINARY:
+                options.binary_location = CHROME_BINARY
+            options.add_argument("--headless=new")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-extensions")
+            options.add_argument("--disable-infobars")
+
+            driver_path = ChromeDriverManager().install()
+            service = Service(driver_path)
+            driver = webdriver.Chrome(service=service, options=options)
+
+            stealth(
+                driver,
+                languages=["en-US", "en"],
+                vendor="Google Inc.",
+                platform="Win32",
+                webgl_vendor="Intel Inc.",
+                renderer="Intel Iris OpenGL Engine",
+                fix_hairline=True,
+            )
+
+            driver.set_page_load_timeout(30)
+            driver.get(self.url)
+
+            from selenium.webdriver.support.ui import WebDriverWait
+            WebDriverWait(driver, 30).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
+            html = driver.page_source
+        except Exception as exc:  # pragma: no cover – defensive fallback
+            html = f"<!-- Scrape error: {exc} -->"
+        finally:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+        GLib.idle_add(self.callback, html)
 
     def run(self) -> None:  # pragma: no cover – exercised via integration test
         try:
