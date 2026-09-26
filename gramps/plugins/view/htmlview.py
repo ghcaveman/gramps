@@ -971,10 +971,13 @@ class HTMLView(PageView):
 
         # Determine which rendering engine is in use – ``curl_cffi`` if available,
         # otherwise the fallback ``urllib`` implementation.
-        try:
-            from curl_cffi import requests as _curl_requests  # type: ignore
+        # Detect ``curl_cffi`` using ``importlib.util.find_spec`` to avoid import
+        # errors when the package is installed in a non‑standard location.
+        import importlib.util
+        spec = importlib.util.find_spec("curl_cffi")
+        if spec is not None:
             engine = "curl_cffi"
-        except Exception:  # pragma: no cover – exercised when curl_cffi missing
+        else:  # pragma: no cover – exercised when curl_cffi missing
             engine = "urllib"
         info_label = Gtk.Label(label=_("Rendering engine: {}").format(engine))
 

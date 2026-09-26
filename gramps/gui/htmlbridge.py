@@ -185,10 +185,15 @@ class HtmlBridge:
         # and respects system proxy settings. If it is not available we gracefully
         # fall back to the standard library ``urllib`` implementation that was
         # previously used.
-        try:
-            # ``curl_cffi`` provides a ``requests``‑compatible API.
+        # Detect ``curl_cffi`` without triggering an ImportError that can be
+        # masked by unusual ``sys.path`` configurations (e.g., when the package
+        # lives in a non‑standard location). ``importlib.util.find_spec`` works
+        # reliably across platforms.
+        import importlib.util
+        spec = importlib.util.find_spec("curl_cffi")
+        if spec is not None:
             from curl_cffi import requests as curl_requests  # type: ignore
-        except Exception:  # pragma: no cover – exercised when curl_cffi missing
+        else:  # pragma: no cover – exercised when curl_cffi missing
             curl_requests = None
 
         # Common header preparation – identical for both back‑ends.
