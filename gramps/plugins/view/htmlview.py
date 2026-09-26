@@ -363,7 +363,9 @@ class HTMLView(PageView):
             label=_("Capturing debug input for WebSearch and Grizard functionality")
         )
         info_label.set_alignment(1.0, 0.5)
-        toolbar.pack_end(info_label, True, True, 0)
+        # Align the label text to the right edge of its container.
+        info_label.set_xalign(1.0)
+        top_hbox.pack_end(info_label, False, False, 0)
 
         box.pack_start(toolbar, False, False, 0)
 
