@@ -966,21 +966,25 @@ class HTMLView(PageView):
         Builds the container widget for the interface.
         Returns a gtk container widget.
         """
-        top = PageView.build_interface(self)
-        # Insert a small informational box that indicates which rendering
-        # engine is being used for fetching HTML content. The engine is
-        # determined by the availability of ``curl_cffi`` – the same logic as
-        # in ``HtmlBridge._fetch_url``.
+        # Build the standard page view interface (a ``Gtk.Paned`` container).
+        paned = PageView.build_interface(self)
+
+        # Determine which rendering engine is in use – ``curl_cffi`` if available,
+        # otherwise the fallback ``urllib`` implementation.
         try:
             from curl_cffi import requests as _curl_requests  # type: ignore
             engine = "curl_cffi"
         except Exception:  # pragma: no cover – exercised when curl_cffi missing
             engine = "urllib"
         info_label = Gtk.Label(label=_("Rendering engine: {}").format(engine))
-        # Place the label at the top of the view container.
-        top.pack_start(info_label, False, False, 0)
-        top.show_all()
-        return top
+
+        # ``Gtk.Paned`` does not support ``pack_start``; instead we create a
+        # vertical ``Gtk.Box`` that holds the label above the original paned.
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        container.pack_start(info_label, False, False, 0)
+        container.pack_start(paned, True, True, 0)
+        container.show_all()
+        return container
 
     def get_default_gramplets(self):
         """
