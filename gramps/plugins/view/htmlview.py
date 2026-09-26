@@ -369,17 +369,26 @@ class HTMLView(PageView):
         paste_btn.connect("clicked", self.cb_paste_text)
         toolbar.pack_start(paste_btn, False, False, 0)
 
-        # Container for the info label – placed on the right side of the toolbar.
+        # Container for the rendering engine label and info label – mirrors the
+        # layout from the html_view_pango branch.
         top_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         top_hbox.set_homogeneous(False)
+
+        # Rendering engine display (e.g., "Selenium" or "Pango").
+        engine_label = Gtk.Label()
+        engine_label.set_selectable(True)
+        engine_name = "Selenium" if _USE_SELENIUM else "Pango"
+        engine_label.set_markup(f"<b>{engine_name}</b>")
+        self.engine_label = engine_label
+        top_hbox.pack_start(engine_label, False, False, 0)
+
         info_label = Gtk.Label(
             label=_("Capturing debug input for WebSearch and Grizard functionality")
         )
         info_label.set_alignment(1.0, 0.5)
-        # Align the label text to the right edge of its container.
         info_label.set_xalign(1.0)
         top_hbox.pack_end(info_label, False, False, 0)
-        # Add the info container to the main toolbar box.
+
         toolbar.pack_start(top_hbox, True, True, 0)
 
         box.pack_start(toolbar, False, False, 0)
