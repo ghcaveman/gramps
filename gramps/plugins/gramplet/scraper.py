@@ -89,21 +89,21 @@ class _ScrapeThread(threading.Thread):
 
     def run(self) -> None:  # pragma: no cover – exercised via integration test
         try:
-        options = Options()
-        options.binary_location = CHROME_BINARY
-        # Headless mode – use the new headless implementation
-        options.add_argument("--headless=new")
-        options.add_argument("--disable-gpu")
-        # Prevent Chrome from showing dialogs that could block the thread
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        # Chrome needs a writable temporary user‑data directory.  On Windows the
-        # default location can be a protected folder, causing the
-        # "cannot create temp dir for user data dir" error.  We explicitly point
-        # it to a safe temporary directory.
-        import tempfile, os
-        temp_dir = tempfile.mkdtemp(prefix="chromedriver_user_data_")
-        options.add_argument(f"--user-data-dir={temp_dir}")
+            options = Options()
+            options.binary_location = CHROME_BINARY
+            # Headless mode – use the new headless implementation
+            options.add_argument("--headless=new")
+            options.add_argument("--disable-gpu")
+            # Prevent Chrome from showing dialogs that could block the thread
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            # Chrome needs a writable temporary user‑data directory.  On Windows the
+            # default location can be a protected folder, causing the
+            # "cannot create temp dir for user data dir" error.  We explicitly point
+            # it to a safe temporary directory.
+            import tempfile, os
+            temp_dir = tempfile.mkdtemp(prefix="chromedriver_user_data_")
+            options.add_argument(f"--user-data-dir={temp_dir}")
 
             # Selenium manager will download the driver if needed via webdriver‑manager
             driver_path = ChromeDriverManager().install()
