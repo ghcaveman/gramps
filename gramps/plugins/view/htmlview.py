@@ -74,6 +74,11 @@ try:
 
     _USE_SELENIUM = True
 except Exception:  # pragma: no cover – Selenium not available
+    # Selenium (and a compatible WebDriver) could not be imported, so the HTML
+    # view will fall back to the original Pango rendering engine.  Install the
+    # ``selenium`` package (and a driver such as ChromeDriver or GeckoDriver)
+    # in the same Python environment that runs Gramps to enable JavaScript
+    # rendering via Selenium.
     _USE_SELENIUM = False
 
 from gramps.gen.const import GRAMPS_LOCALE as glocale
