@@ -114,11 +114,18 @@ class _ScrapeThread(threading.Thread):
             # exists and is unique for each Selenium run, avoiding permission or
             # path‑length issues that trigger the "cannot create temp dir for user
             # data dir" error.
-            import tempfile, os
-            temp_dir = tempfile.mkdtemp(prefix="chromedriver_user_data_")
-            # Ensure the path is absolute and short (Windows has a 260‑char limit
-            # for many APIs). ``mkdtemp`` already returns an absolute path.
-            options.add_argument(f"--user-data-dir={temp_dir}")
+            import os
+            # Build a safe, fully‑accessible directory inside the current Windows
+            # user profile.  This mirrors the recommended approach from Google AI
+            # and guarantees the process has write permission.
+            user_home = os.environ.get("USERPROFILE")  # e.g. C:\Users\YourName
+            custom_temp_dir = os.path.join(
+                user_home, "AppData", "Local", "Temp", "selenium_chrome"
+            )
+            # Ensure the folder exists (create it if necessary).
+            os.makedirs(custom_temp_dir, exist_ok=True)
+            # Tell Chrome to use this directory for its temporary profile.
+            options.add_argument(f"--user-data-dir={custom_temp_dir}")
 
             # Selenium manager will download the driver if needed via webdriver‑manager
             driver_path = ChromeDriverManager().install()
