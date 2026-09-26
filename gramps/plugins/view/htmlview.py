@@ -73,6 +73,23 @@ try:
     from gramps.plugins.gramplet.scraper import scrape_page_async  # noqa: F401
 
     _USE_SELENIUM = True
+    # When Selenium is available we emit a log line.  By default this goes to
+    # the standard Gramps log (stdout/stderr).  To make it easier for users to
+    # see, also write a short message to a file in the user's config directory.
+    try:
+        import os
+        from pathlib import Path
+        # Gramps stores user data under ``~/.local/share/gramps`` on Linux and
+        # under ``%APPDATA%\gramps`` on Windows.  Use the environment variable
+        # ``GRAMPS_RESOURCES`` if it is set, otherwise fall back to a simple
+        # ``gramps`` folder in the user's home.
+        base_dir = os.getenv("GRAMPS_RESOURCES") or str(Path.home() / "gramps")
+        Path(base_dir).mkdir(parents=True, exist_ok=True)
+        log_path = Path(base_dir) / "htmlview.log"
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write("Selenium support enabled – JavaScript rendering available\n")
+    except Exception:  # pragma: no cover – logging to file is optional
+        pass
 except Exception:  # pragma: no cover – Selenium not available
     # Selenium (and a compatible WebDriver) could not be imported, so the HTML
     # view will fall back to the original Pango rendering engine.  Install the
