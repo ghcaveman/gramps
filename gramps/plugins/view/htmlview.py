@@ -974,12 +974,20 @@ class HTMLView(PageView):
         # Detect ``curl_cffi`` using ``importlib.util.find_spec`` to avoid import
         # errors when the package is installed in a non‑standard location.
         import importlib.util
+
         spec = importlib.util.find_spec("curl_cffi")
         if spec is not None:
             engine = "curl_cffi"
         else:  # pragma: no cover – exercised when curl_cffi missing
-            engine = "urllib"
+            engine = "pango"
+        # Create a label that mirrors the styling used in the playwright branch.
         info_label = Gtk.Label(label=_("Rendering engine: {}").format(engine))
+        info_label.set_xalign(0.0)  # left‑align text
+        info_label.set_margin_start(6)
+        info_label.set_margin_end(6)
+        info_label.set_margin_top(4)
+        info_label.set_margin_bottom(4)
+        info_label.set_selectable(True)
 
         # ``Gtk.Paned`` does not support ``pack_start``; instead we create a
         # vertical ``Gtk.Box`` that holds the label above the original paned.

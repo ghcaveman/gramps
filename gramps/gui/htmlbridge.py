@@ -190,6 +190,7 @@ class HtmlBridge:
         # lives in a non‑standard location). ``importlib.util.find_spec`` works
         # reliably across platforms.
         import importlib.util
+
         spec = importlib.util.find_spec("curl_cffi")
         if spec is not None:
             from curl_cffi import requests as curl_requests  # type: ignore
