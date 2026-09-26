@@ -66,6 +66,16 @@ except ImportError:
 
     _HAS_GUI = False
 
+# Determine whether Selenium (via our scraper helper) can be used.  The
+# ``scraper`` module imports Selenium lazily, so we only need to check that the
+# import succeeds.  If it fails we fall back to the original Pango rendering.
+try:
+    from gramps.plugins.gramplet.scraper import scrape_page_async  # noqa: F401
+
+    _USE_SELENIUM = True
+except Exception:  # pragma: no cover – Selenium not available
+    _USE_SELENIUM = False
+
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 
 _ = glocale.translation.gettext
@@ -541,6 +551,29 @@ class HTMLView(PageView):
         :param text: The text to set.
         :type text: str
         """
+        # If Selenium (via our scraper utility) is available and the incoming
+        # ``text`` looks like a URL, fetch the page asynchronously and update
+        # the buffer when the HTML is retrieved.  This avoids blocking the UI
+        # and provides a richer rendering for pages that rely on JavaScript.
+        if _USE_SELENIUM and isinstance(text, str) and text.strip().lower().startswith("http"):
+            # Use the scraper module to fetch the page in a background thread.
+            try:
+                from gramps.plugins.gramplet.scraper import scrape_page_async
+
+                def _on_html_fetched(html: str) -> bool:
+                    if self.text_buffer is not None:
+                        self.text_buffer.set_text(html)
+                    # After the HTML is set, update the rendered view as usual.
+                    self._update_rendered_html()
+                    self._maybe_append_filtered_results()
+                    return False  # stop the idle handler
+
+                scrape_page_async(text, _on_html_fetched)
+                # Return early – the UI will be updated when the callback runs.
+                return
+            except Exception as exc:  # pragma: no cover – defensive fallback
+                LOG.error("Failed to start Selenium scraper: %s", exc)
+        # Fallback: treat ``text`` as raw HTML and display it directly.
         if self.text_buffer is not None:
             self.text_buffer.set_text(text)
         self._update_rendered_html()
