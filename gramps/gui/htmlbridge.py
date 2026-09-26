@@ -195,12 +195,15 @@ class HtmlBridge:
         # native DLLs. ``importlib.util.find_spec`` tells us whether the module is
         # importable; we then attempt the import inside a guarded block.
         import importlib.util
+
         spec = importlib.util.find_spec("curl_cffi")
         if spec is not None:
             try:
                 from curl_cffi import requests as curl_requests  # type: ignore
             except Exception:  # pragma: no cover – DLL load failure etc.
-                LOG.debug("curl_cffi found but could not be imported; falling back to urllib")
+                LOG.debug(
+                    "curl_cffi found but could not be imported; falling back to urllib"
+                )
                 curl_requests = None
         else:  # pragma: no cover – exercised when curl_cffi missing
             curl_requests = None
@@ -234,17 +237,26 @@ class HtmlBridge:
             try:
                 resp = curl_requests.get(url, headers=headers, timeout=10)
                 content = resp.content.decode("utf-8", errors="ignore")
-                # Detect sites that require JavaScript (common placeholder).
-                if "Javascript is required for this site" in content:
-                    LOG.info("Page requires JavaScript – attempting Playwright fallback")
-                    # Try Playwright if available.
+                # Detect sites that likely need JavaScript. Common phrases are
+                # checked; if any match we attempt a Playwright fallback.
+                js_indicators = [
+                    "Javascript is required for this site",
+                    "It looks like you're offline",
+                    "Please click here if you are not redirected",
+                    "Your web browser is not fully supported",
+                ]
+                needs_js = any(ind in content for ind in js_indicators)
+                if needs_js:
+                    LOG.info(
+                        "Page appears to require JavaScript – attempting Playwright fallback"
+                    )
                     try:
                         from playwright.sync_api import sync_playwright  # type: ignore
+
                         with sync_playwright() as p:
                             browser = p.chromium.launch(headless=True)
                             page = browser.new_page()
                             page.goto(url, timeout=10000)
-                            # Wait for network idle to allow JS execution.
                             page.wait_for_load_state("networkidle", timeout=10000)
                             js_content = page.content()
                             browser.close()
