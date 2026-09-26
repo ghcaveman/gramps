@@ -33,9 +33,24 @@ import html
 import urllib.parse
 from typing import Any
 import logging
+import os
 from html.parser import HTMLParser
 
 LOG = logging.getLogger(".htmlview")
+
+# -------------------------------------------------------------------------
+# Optional Playwright‑Stealth support
+# -------------------------------------------------------------------------
+try:
+    # Playwright sync API and the stealth helper. These are optional – the
+    # HTML view works without them; if they are missing we simply fall back to
+    # the existing static HTML rendering.
+    from playwright.sync_api import sync_playwright, Browser, Page  # type: ignore
+    from playwright_stealth import stealth_sync  # type: ignore
+    PLAYWRIGHT_AVAILABLE = True
+except Exception:  # pragma: no cover – import may fail on many systems
+    PLAYWRIGHT_AVAILABLE = False
+    LOG.debug("Playwright‑Stealth not available; HTMLView will use static rendering.")
 
 # -------------------------------------------------------------------------
 #
@@ -272,6 +287,8 @@ class HTMLView(PageView):
         self.render_label = None
         self.header_label = None
         self._search_url = ""
+        # Enable Playwright rendering when the optional dependency is present.
+        self._use_playwright = PLAYWRIGHT_AVAILABLE
 
     @classmethod
     def set_html_text(cls, text: str, url: str = "") -> None:
@@ -570,6 +587,21 @@ class HTMLView(PageView):
             self.render_label.set_markup("")
             return
 
+        # -----------------------------------------------------------------
+        # Optional Playwright rendering – if the optional dependency is
+        # available and the user (or the view) has supplied a URL, we ask Playwright
+        # to render the page and give us the fully‑processed HTML (including
+        # JavaScript‑generated content).  This HTML then replaces the raw buffer
+        # content for the Pango conversion.
+        # -----------------------------------------------------------------
+        if self._use_playwright and self._search_url:
+            try:
+                rendered = self._render_with_playwright(self._search_url)
+                if rendered:
+                    raw_html = rendered
+            except Exception as exc:  # pragma: no cover – defensive
+                LOG.debug("Playwright rendering failed, falling back to static HTML: %s", exc)
+
         parser = HTMLToPangoParser()
         try:
             parser.feed(raw_html)
@@ -578,6 +610,29 @@ class HTMLView(PageView):
         except Exception as err:
             LOG.warning("Failed parsing HTML to Pango: %s", err)
             self.render_label.set_text(raw_html)
+
+    def _render_with_playwright(self, url: str) -> str:
+        """Render *url* with Playwright‑Stealth and return the final HTML.
+
+        If Playwright is not available or an error occurs, an empty string is
+        returned and the caller will fall back to the original static HTML.
+        """
+        if not PLAYWRIGHT_AVAILABLE:
+            return ""
+        try:
+            headless = os.getenv("GRAMPSS_HTMLVIEW_HEADLESS", "1") != "0"
+            with sync_playwright() as pw:
+                browser: Browser = pw.chromium.launch(headless=headless)
+                context = browser.new_context()
+                page: Page = context.new_page()
+                stealth_sync(page)
+                page.goto(url, wait_until="networkidle")
+                html_content = page.content()
+                browser.close()
+                return html_content
+        except Exception as exc:  # pragma: no cover
+            LOG.debug("Playwright rendering exception: %s", exc)
+            return ""
 
     def clear(self) -> None:
         """
