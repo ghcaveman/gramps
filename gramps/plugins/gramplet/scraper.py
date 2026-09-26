@@ -105,27 +105,11 @@ class _ScrapeThread(threading.Thread):
             # Additional flags that improve stability on Windows
             options.add_argument("--disable-extensions")
             options.add_argument("--disable-infobars")
-            # Chrome needs a writable temporary user‑data directory.  On Windows the
-            # default location can be a protected folder, causing the
-            # "cannot create temp dir for user data dir" error.  We explicitly point
-            # it to a safe temporary directory.
-            # Explicitly create a short, writable temporary directory for Chrome's
-            # user‑data profile.  Using ``tempfile.mkdtemp`` guarantees the folder
-            # exists and is unique for each Selenium run, avoiding permission or
-            # path‑length issues that trigger the "cannot create temp dir for user
-            # data dir" error.
-            import os
-            # Build a safe, fully‑accessible directory inside the current Windows
-            # user profile.  This mirrors the recommended approach from Google AI
-            # and guarantees the process has write permission.
-            user_home = os.environ.get("USERPROFILE")  # e.g. C:\Users\YourName
-            custom_temp_dir = os.path.join(
-                user_home, "AppData", "Local", "Temp", "selenium_chrome"
-            )
-            # Ensure the folder exists (create it if necessary).
-            os.makedirs(custom_temp_dir, exist_ok=True)
-            # Tell Chrome to use this directory for its temporary profile.
-            options.add_argument(f"--user-data-dir={custom_temp_dir}")
+            # Do **not** set a custom user‑data directory.  By omitting the
+            # `--user-data-dir` flag Chrome will use its default temporary
+            # profile location, which respects the system %TEMP% / %TMP%
+            # environment variables.  This lets you test whether the default
+            # temporary directory works on your machine.
 
             # Selenium manager will download the driver if needed via webdriver‑manager
             driver_path = ChromeDriverManager().install()
