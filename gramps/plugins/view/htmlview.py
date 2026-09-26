@@ -376,10 +376,17 @@ class HTMLView(PageView):
         paste_btn.connect("clicked", self.cb_paste_text)
         toolbar.pack_start(paste_btn, False, False, 0)
 
+        # Small status label that shows which rendering backend is active.
+        self.render_mode_label = Gtk.Label(label=_("Renderer: Pango"))
+        self.render_mode_label.set_alignment(0.0, 0.5)
+
         info_label = Gtk.Label(
             label=_("Capturing debug input for WebSearch and Grizard functionality")
         )
         info_label.set_alignment(1.0, 0.5)
+
+        # Pack the mode label on the left side of the toolbar and the info label on the right.
+        toolbar.pack_start(self.render_mode_label, False, False, 0)
         toolbar.pack_end(info_label, True, True, 0)
 
         box.pack_start(toolbar, False, False, 0)
@@ -589,18 +596,27 @@ class HTMLView(PageView):
 
         # -----------------------------------------------------------------
         # Optional Playwright rendering – if the optional dependency is
-        # available and the user (or the view) has supplied a URL, we ask Playwright
-        # to render the page and give us the fully‑processed HTML (including
-        # JavaScript‑generated content).  This HTML then replaces the raw buffer
-        # content for the Pango conversion.
+        # available and the view has a source URL, we ask Playwright to render the
+        # page and give us the fully‑processed HTML (including JavaScript‑generated
+        # content).  This HTML then replaces the raw buffer content for the Pango
+        # conversion.
         # -----------------------------------------------------------------
         if self._use_playwright and self._search_url:
             try:
                 rendered = self._render_with_playwright(self._search_url)
                 if rendered:
                     raw_html = rendered
+                    # Update the mode label to indicate Playwright was used.
+                    if hasattr(self, "render_mode_label"):
+                        self.render_mode_label.set_label(_("Renderer: Playwright"))
             except Exception as exc:  # pragma: no cover – defensive
                 LOG.debug("Playwright rendering failed, falling back to static HTML: %s", exc)
+                if hasattr(self, "render_mode_label"):
+                    self.render_mode_label.set_label(_("Renderer: Pango"))
+        else:
+            # Ensure the label reflects the fallback path.
+            if hasattr(self, "render_mode_label"):
+                self.render_mode_label.set_label(_("Renderer: Pango"))
 
         parser = HTMLToPangoParser()
         try:
