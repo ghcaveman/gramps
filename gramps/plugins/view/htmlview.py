@@ -359,12 +359,22 @@ class HTMLView(PageView):
         paste_btn.connect("clicked", self.cb_paste_text)
         toolbar.pack_start(paste_btn, False, False, 0)
 
+        # Container for the info label and rendering‑engine textbox.
+        top_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        top_hbox.set_homogeneous(False)
+
         info_label = Gtk.Label(
             label=_("Capturing debug input for WebSearch and Grizard functionality")
         )
         info_label.set_alignment(1.0, 0.5)
         # Align the label text to the right edge of its container.
         info_label.set_xalign(1.0)
+
+        # Rendering engine textbox – placed to the left of the info label.
+        engine_entry = Gtk.Entry()
+        engine_entry.set_placeholder_text(_("Rendering engine"))
+
+        top_hbox.pack_start(engine_entry, False, False, 0)
         top_hbox.pack_end(info_label, False, False, 0)
 
         box.pack_start(toolbar, False, False, 0)
