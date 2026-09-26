@@ -166,13 +166,19 @@ def scrape_page_sync(url: str) -> str:
     return result[0] if result else ""
 
 
-def scrape_page_direct(url: str) -> str:
-    """Fetch *url* synchronously using Selenium without a background thread.
+def scrape_page_direct(url: str, wait_selector: str | None = None, timeout: int = 30) -> str:
+    """Fetch *url* synchronously using Selenium and return the rendered HTML.
 
-    This function is used by non‑GTK code paths (e.g. ``HtmlBridge._fetch_url``)
-    where the GLib idle‑add mechanism would never fire, causing a dead‑lock.
-    It creates a head‑less Chrome driver, loads the page, extracts the HTML
-    and quits the driver before returning the result.
+    * **Head‑less Chrome** is started, the page is loaded, and we wait until the
+      browser reports that the document is fully loaded (``document.readyState ==
+      "complete"``).  If *wait_selector* is supplied we additionally wait for an
+      element matching that CSS selector to appear – this is useful for pages
+      that load content via AJAX after the initial document load.
+    * The driver is **always quit** before the function returns, so no stray
+      Chrome windows remain.
+    * Any exception is caught and turned into an HTML comment so the caller
+      never crashes; the comment is also written to ``htmlview.log`` for
+      debugging.
     """
     try:
         options = Options()
@@ -184,7 +190,8 @@ def scrape_page_direct(url: str) -> str:
 
         service = Service()
         driver = webdriver.Chrome(service=service, options=options)
-        # Apply stealth tricks – same as in the thread version.
+
+        # Apply the same stealth tricks used in the async version.
         stealth(
             driver,
             languages=["en-US", "en"],
@@ -194,10 +201,40 @@ def scrape_page_direct(url: str) -> str:
             renderer="Intel Iris OpenGL Engine",
             fix_hairline=True,
         )
+
+        driver.set_page_load_timeout(timeout)
         driver.get(url)
+
+        # -----------------------------------------------------------------
+        # 1️⃣  Wait for the document to be fully loaded.
+        # -----------------------------------------------------------------
+        driver.execute_script("return document.readyState")  # force a poll
+        from selenium.webdriver.support.ui import WebDriverWait
+        WebDriverWait(driver, timeout).until(
+            lambda d: d.execute_script("return document.readyState") == "complete"
+        )
+
+        # -----------------------------------------------------------------
+        # 2️⃣  Optional extra wait for a specific element (useful for AJAX).
+        # -----------------------------------------------------------------
+        if wait_selector:
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support import expected_conditions as EC
+            WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, wait_selector))
+            )
+
         html = driver.page_source
-    except Exception as exc:  # pragma: no cover – defensive
+    except Exception as exc:  # pragma: no cover – defensive fallback
         html = f"<!-- Scrape error: {exc} -->"
+        # Write a short note to the workspace log for easier debugging.
+        try:
+            from pathlib import Path
+            Path("htmlview.log").open("a", encoding="utf-8").write(
+                f"Selenium scrape failed for {url}: {exc}\n"
+            )
+        except Exception:
+            pass
     finally:
         try:
             driver.quit()
