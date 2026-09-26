@@ -191,9 +191,17 @@ class HtmlBridge:
         # reliably across platforms.
         import importlib.util
 
+        # Detect ``curl_cffi`` without triggering import errors caused by missing
+        # native DLLs. ``importlib.util.find_spec`` tells us whether the module is
+        # importable; we then attempt the import inside a guarded block.
+        import importlib.util
         spec = importlib.util.find_spec("curl_cffi")
         if spec is not None:
-            from curl_cffi import requests as curl_requests  # type: ignore
+            try:
+                from curl_cffi import requests as curl_requests  # type: ignore
+            except Exception:  # pragma: no cover – DLL load failure etc.
+                LOG.debug("curl_cffi found but could not be imported; falling back to urllib")
+                curl_requests = None
         else:  # pragma: no cover – exercised when curl_cffi missing
             curl_requests = None
 
