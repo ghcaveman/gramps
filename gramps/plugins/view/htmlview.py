@@ -967,6 +967,18 @@ class HTMLView(PageView):
         Returns a gtk container widget.
         """
         top = PageView.build_interface(self)
+        # Insert a small informational box that indicates which rendering
+        # engine is being used for fetching HTML content. The engine is
+        # determined by the availability of ``curl_cffi`` – the same logic as
+        # in ``HtmlBridge._fetch_url``.
+        try:
+            from curl_cffi import requests as _curl_requests  # type: ignore
+            engine = "curl_cffi"
+        except Exception:  # pragma: no cover – exercised when curl_cffi missing
+            engine = "urllib"
+        info_label = Gtk.Label(label=_("Rendering engine: {}").format(engine))
+        # Place the label at the top of the view container.
+        top.pack_start(info_label, False, False, 0)
         top.show_all()
         return top
 
