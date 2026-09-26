@@ -101,8 +101,15 @@ class _ScrapeThread(threading.Thread):
             # default location can be a protected folder, causing the
             # "cannot create temp dir for user data dir" error.  We explicitly point
             # it to a safe temporary directory.
-            import tempfile, os
-            temp_dir = tempfile.mkdtemp(prefix="chromedriver_user_data_")
+            import tempfile, os, pathlib
+            # Use the system temporary directory (which is always writable) and
+            # create a short sub‑directory for Chrome's user data.  Using a
+            # short, absolute path avoids Windows path‑length or permission
+            # issues that cause the "cannot create temp dir for user data dir"
+            # error.
+            base_tmp = pathlib.Path(tempfile.gettempdir())
+            temp_dir = base_tmp / f"chromedriver_user_data_{os.getpid()}"
+            temp_dir.mkdir(parents=True, exist_ok=True)
             options.add_argument(f"--user-data-dir={temp_dir}")
 
             # Selenium manager will download the driver if needed via webdriver‑manager
