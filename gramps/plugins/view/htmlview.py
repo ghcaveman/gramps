@@ -377,7 +377,8 @@ class HTMLView(PageView):
         toolbar.pack_start(paste_btn, False, False, 0)
 
         # Small status label that shows which rendering backend is active.
-        self.render_mode_label = Gtk.Label(label=_("Renderer: Pango"))
+        engine_name = "Selenium" if _USE_SELENIUM else "Pango"
+        self.render_mode_label = Gtk.Label(label=_(f"Renderer: {engine_name}"))
         self.render_mode_label.set_alignment(0.0, 0.5)
 
         info_label = Gtk.Label(
