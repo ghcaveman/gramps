@@ -181,8 +181,18 @@ class HtmlBridge:
         :returns: The decoded content, or None on failure.
         :rtype: str | None
         """
+        # Prefer ``curl_cffi`` for fetching because it offers better TLS handling
+        # and respects system proxy settings. If it is not available we gracefully
+        # fall back to the standard library ``urllib`` implementation that was
+        # previously used.
+        try:
+            # ``curl_cffi`` provides a ``requests``‑compatible API.
+            from curl_cffi import requests as curl_requests  # type: ignore
+        except Exception:  # pragma: no cover – exercised when curl_cffi missing
+            curl_requests = None
+
+        # Common header preparation – identical for both back‑ends.
         import urllib.parse
-        import urllib.request
 
         headers = {
             "User-Agent": (
@@ -198,13 +208,31 @@ class HtmlBridge:
         try:
             parsed = urllib.parse.urlsplit(url)
             headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
+            # ``urllib.parse.quote`` is safe for both back‑ends.
             url = urllib.parse.quote(url, safe=";/?:@&=+$,~*!'()#%[]")
         except Exception:
+            # If URL parsing fails we simply continue with the original string.
             pass
-        try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as response:
-                return response.read().decode("utf-8", errors="ignore")
-        except Exception as err:
-            LOG.warning("Failed to fetch URL for HTMLView: %s", err)
-            return None
+
+        if curl_requests is not None:
+            # ``curl_cffi`` raises ``CurlError`` on failure; we treat any exception
+            # uniformly and log a warning.
+            try:
+                resp = curl_requests.get(url, headers=headers, timeout=10)
+                # ``resp.content`` is bytes; decode using the same fallback as
+                # urllib.
+                return resp.content.decode("utf-8", errors="ignore")
+            except Exception as err:  # pragma: no cover – exercised on network error
+                LOG.warning("Failed to fetch URL with curl_cffi for HTMLView: %s", err)
+                return None
+        else:
+            # Fallback to urllib implementation (unchanged semantics).
+            import urllib.request
+
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    return response.read().decode("utf-8", errors="ignore")
+            except Exception as err:
+                LOG.warning("Failed to fetch URL for HTMLView: %s", err)
+                return None
