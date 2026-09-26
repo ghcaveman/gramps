@@ -376,6 +376,8 @@ class HTMLView(PageView):
 
         top_hbox.pack_start(engine_entry, False, False, 0)
         top_hbox.pack_end(info_label, False, False, 0)
+        # Add the container to the toolbar so it becomes visible.
+        toolbar.pack_start(top_hbox, True, True, 0)
 
         box.pack_start(toolbar, False, False, 0)
 
