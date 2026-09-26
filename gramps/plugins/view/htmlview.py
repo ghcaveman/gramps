@@ -70,6 +70,15 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 
 _ = glocale.translation.gettext
 
+# Determine if Selenium scraping support is available.  This mirrors the logic
+# used in the html_view_playwright branch where the rendering engine label
+# reflects the backend in use.
+try:
+    from gramps.plugins.gramplet.scraper import scrape_page_async  # noqa: F401
+    _USE_SELENIUM = True
+except Exception:  # pragma: no cover – Selenium not installed
+    _USE_SELENIUM = False
+
 
 # ------------------------------------------------------------
 #
