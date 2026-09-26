@@ -129,6 +129,18 @@ class _ScrapeThread(threading.Thread):
             )
 
             driver.get(self.url)
+            # Wait until the page reports that it is fully loaded.  This guards
+            # against Chrome returning the initial HTML (which often contains a
+            # "JavaScript required" placeholder) before the scripts have run.
+            from selenium.webdriver.support.ui import WebDriverWait
+            WebDriverWait(driver, 30).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            driver.get(url)
+            # Ensure the page has finished loading before we capture the source.
+            from selenium.webdriver.support.ui import WebDriverWait
+            WebDriverWait(driver, 30).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
             html = driver.page_source
         except Exception as exc:  # pragma: no cover – defensive
             html = f"<!-- Scrape error: {exc} -->"
