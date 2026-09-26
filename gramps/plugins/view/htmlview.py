@@ -74,20 +74,20 @@ try:
 
     _USE_SELENIUM = True
     # When Selenium is available we emit a log line.  By default this goes to
-    # the standard Gramps log (stdout/stderr).  To make it easier for users to
-    # see, also write a short message to a file in the user's config directory.
     try:
         import os
         from pathlib import Path
-        # Gramps stores user data under ``~/.local/share/gramps`` on Linux and
-        # under ``%APPDATA%\gramps`` on Windows.  Use the environment variable
-        # ``GRAMPS_RESOURCES`` if it is set, otherwise fall back to a simple
-        # ``gramps`` folder in the user's home.
-        base_dir = os.getenv("GRAMPS_RESOURCES") or str(Path.home() / "gramps")
-        Path(base_dir).mkdir(parents=True, exist_ok=True)
-        log_path = Path(base_dir) / "htmlview.log"
+        # Write the log file into the workspace so it is easy to locate during
+        # development and testing.  The workspace root is the parent of the
+        # ``gramps`` package directory.
+        workspace_root = Path(__file__).resolve().parents[3]
+        log_path = workspace_root / "htmlview.log"
+        # Ensure the directory exists (it will, but be defensive).
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8") as f:
             f.write("Selenium support enabled – JavaScript rendering available\n")
+    except Exception:  # pragma: no cover – logging to file is optional
+        pass
     except Exception:  # pragma: no cover – logging to file is optional
         pass
 except Exception:  # pragma: no cover – Selenium not available
