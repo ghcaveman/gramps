@@ -996,10 +996,9 @@ class HTMLView(PageView):
 
         # Horizontal container for the label aligned to the right.
         top_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        # Add a spacer to push the label to the right.
-        spacer = Gtk.Box()
-        top_hbox.pack_start(spacer, True, True, 0)
-        top_hbox.pack_start(info_label, False, False, 0)
+        # Pack the label at the end so it sits on the right without adding a
+        # spacer that pushes other content down.
+        top_hbox.pack_end(info_label, False, False, 0)
         outer.pack_start(top_hbox, False, False, 0)
         outer.pack_start(paned, True, True, 0)
         outer.show_all()
