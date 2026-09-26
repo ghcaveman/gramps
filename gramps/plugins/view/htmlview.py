@@ -47,6 +47,7 @@ try:
     # the existing static HTML rendering.
     from playwright.sync_api import sync_playwright, Browser, Page  # type: ignore
     from playwright_stealth import stealth_sync  # type: ignore
+
     PLAYWRIGHT_AVAILABLE = True
 except Exception:  # pragma: no cover – import may fail on many systems
     PLAYWRIGHT_AVAILABLE = False
@@ -394,20 +395,16 @@ class HTMLView(PageView):
             label=_("Capturing debug input for WebSearch and Grizard functionality")
         )
         info_label.set_alignment(1.0, 0.5)
-        # Align the label text to the right edge of its container.
         info_label.set_xalign(1.0)
 
-        # Rendering engine display – mirrors the Playwright branch which shows the
-        # name of the engine (e.g., "Selenium") in a non‑editable label.
-        engine_label = Gtk.Label()
-        engine_label.set_selectable(True)
-        # Show the engine being used; fallback to "Selenium" if unknown.
+        # Rendering engine display
         engine_name = "Selenium" if _USE_SELENIUM else "Pango"
-        engine_label.set_markup(f"<b>{engine_name}</b>")
+        self.render_mode_label = Gtk.Label(label=_(f"Renderer: {engine_name}"))
+        self.render_mode_label.set_alignment(0.0, 0.5)
+        self.render_mode_label.set_selectable(True)
 
-        top_hbox.pack_start(engine_label, False, False, 0)
+        top_hbox.pack_start(self.render_mode_label, False, False, 0)
         top_hbox.pack_end(info_label, False, False, 0)
-        # Add the container to the toolbar so it becomes visible.
         toolbar.pack_start(top_hbox, True, True, 0)
 
         box.pack_start(toolbar, False, False, 0)
@@ -617,18 +614,29 @@ class HTMLView(PageView):
 
         # -----------------------------------------------------------------
         # Optional Playwright rendering – if the optional dependency is
-        # available and the user (or the view) has supplied a URL, we ask Playwright
-        # to render the page and give us the fully‑processed HTML (including
-        # JavaScript‑generated content).  This HTML then replaces the raw buffer
-        # content for the Pango conversion.
+        # available and the view has a source URL, we ask Playwright to render the
+        # page and give us the fully‑processed HTML (including JavaScript‑generated
+        # content).  This HTML then replaces the raw buffer content for the Pango
+        # conversion.
         # -----------------------------------------------------------------
         if self._use_playwright and self._search_url:
             try:
                 rendered = self._render_with_playwright(self._search_url)
                 if rendered:
                     raw_html = rendered
+                    # Update the mode label to indicate Playwright was used.
+                    if hasattr(self, "render_mode_label"):
+                        self.render_mode_label.set_label(_("Renderer: Playwright"))
             except Exception as exc:  # pragma: no cover – defensive
-                LOG.debug("Playwright rendering failed, falling back to static HTML: %s", exc)
+                LOG.debug(
+                    "Playwright rendering failed, falling back to static HTML: %s", exc
+                )
+                if hasattr(self, "render_mode_label"):
+                    self.render_mode_label.set_label(_("Renderer: Pango"))
+        else:
+            # Ensure the label reflects the fallback path.
+            if hasattr(self, "render_mode_label"):
+                self.render_mode_label.set_label(_("Renderer: Pango"))
 
         parser = HTMLToPangoParser()
         try:
