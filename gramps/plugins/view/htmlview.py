@@ -370,11 +370,15 @@ class HTMLView(PageView):
         # Align the label text to the right edge of its container.
         info_label.set_xalign(1.0)
 
-        # Rendering engine textbox – placed to the left of the info label.
-        engine_entry = Gtk.Entry()
-        engine_entry.set_placeholder_text(_("Rendering engine"))
+        # Rendering engine display – mirrors the Playwright branch which shows the
+        # name of the engine (e.g., "Selenium") in a non‑editable label.
+        engine_label = Gtk.Label()
+        engine_label.set_selectable(True)
+        # Show the engine being used; fallback to "Selenium" if unknown.
+        engine_name = "Selenium" if _USE_SELENIUM else "Pango"
+        engine_label.set_markup(f"<b>{engine_name}</b>")
 
-        top_hbox.pack_start(engine_entry, False, False, 0)
+        top_hbox.pack_start(engine_label, False, False, 0)
         top_hbox.pack_end(info_label, False, False, 0)
         # Add the container to the toolbar so it becomes visible.
         toolbar.pack_start(top_hbox, True, True, 0)
