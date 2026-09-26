@@ -136,3 +136,31 @@ def scrape_page_async(url: str, callback: Callable[[str], bool]) -> None:
 
     thread = _ScrapeThread(url, callback)
     thread.start()
+
+
+def scrape_page_sync(url: str) -> str:
+    """Fetch *url* synchronously and return the rendered HTML.
+
+    This helper is used by the non‑GTK parts of Gramps (e.g. ``HtmlBridge``)
+    where we need the HTML immediately.  It starts a ``_ScrapeThread`` with a
+    tiny callback that stores the result in a list and signals a ``threading``
+    ``Event``.  The calling thread then blocks on the event until the scrape
+    finishes and returns the captured HTML string.
+    """
+    # Container for the result – using a list avoids the need for ``nonlocal``
+    # in the inner callback.
+    result: list[str] = []
+    done = threading.Event()
+
+    def _cb(html: str) -> bool:
+        result.append(html)
+        done.set()
+        # Returning ``False`` tells GLib to remove the idle handler (not that it
+        # matters here because we are not in the GTK main loop).
+        return False
+
+    thread = _ScrapeThread(url, _cb)
+    thread.start()
+    # Wait for the background thread to finish fetching.
+    done.wait()
+    return result[0] if result else ""

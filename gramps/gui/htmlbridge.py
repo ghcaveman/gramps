@@ -169,6 +169,7 @@ class HtmlBridge:
         # HTMLView page opens and registers itself.
         cls.pending_html = (url, None)
         LOG.info("URL %s queued until the HTML view page is opened.", url)
+    @classmethod
     def _fetch_url(cls, url: str) -> str | None:
         """Fetch the content of *url*.
 
