@@ -20,7 +20,7 @@
 #
 # ---------------------------------------------------------------
 
-"""Utility for asynchronous web‑scraping using Selenium.
+"""Utility for asynchronous web-scraping using Selenium.
 
 The :func:`scrape_page_async` function starts a background thread that
 loads the given URL with a headless Chrome instance, applies the
@@ -40,7 +40,7 @@ Typical usage from a GTK widget::
     scrape_page_async("https://example.com", on_page_ready)
 
 The implementation respects the project's coding standards: type hints,
-Black‑compatible formatting, and a GPL‑2.0‑or‑later header.
+Black-compatible formatting, and a GPL-2.0-or-later header.
 """
 
 # -------------------------------------------------------------------------
@@ -55,12 +55,12 @@ from typing import Callable
 from gi.repository import GLib
 
 # -------------------------------------------------------------------------
-# Third‑party modules
+# Third-party modules
 # -------------------------------------------------------------------------
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-# webdriver‑manager will download a matching ChromeDriver automatically
+# webdriver-manager will download a matching ChromeDriver automatically
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium_stealth import stealth
 
@@ -137,10 +137,10 @@ class _ScrapeThread(threading.Thread):
     def run(self) -> None:  # pragma: no cover – exercised via integration test
         try:
             options = Options()
-            # Let Chrome locate its own binary; specifying an explicit path can
-            # cause permission issues on some Windows installations.
-            # If you still need to point to a non‑standard location, set
-            # ``CHROME_BINARY`` accordingly.
+# Let Chrome locate its own binary; specifying an explicit path can
+# cause permission issues on some Windows installations.
+# If you still need to point to a non-standard location, set
+# ``CHROME_BINARY`` accordingly.
             if CHROME_BINARY:
                 options.binary_location = CHROME_BINARY
             # Headless mode – use the new headless implementation
@@ -152,13 +152,13 @@ class _ScrapeThread(threading.Thread):
             # Additional flags that improve stability on Windows
             options.add_argument("--disable-extensions")
             options.add_argument("--disable-infobars")
-            # Do **not** set a custom user‑data directory.  By omitting the
-            # `--user-data-dir` flag Chrome will use its default temporary
-            # profile location, which respects the system %TEMP% / %TMP%
+# Do **not** set a custom user-data directory.  By omitting the
+# `--user-data-dir` flag Chrome will use its default temporary
+# profile location, which respects the system %TEMP% / %TMP%
             # environment variables.  This lets you test whether the default
             # temporary directory works on your machine.
 
-            # Selenium manager will download the driver if needed via webdriver‑manager
+# Selenium manager will download the driver if needed via webdriver-manager
             driver_path = ChromeDriverManager().install()
             service = Service(driver_path)
             driver = webdriver.Chrome(service=service, options=options)
@@ -208,6 +208,7 @@ def scrape_page_async(url: str, callback: Callable[[str], bool]) -> None:
     thread via :func:`GLib.idle_add`. The callback should return ``False`` to
     indicate that the idle handler can be removed.
     """
+    """
 
     thread = _ScrapeThread(url, callback)
     thread.start()
@@ -216,7 +217,7 @@ def scrape_page_async(url: str, callback: Callable[[str], bool]) -> None:
 def scrape_page_sync(url: str) -> str:
     """Fetch *url* synchronously and return the rendered HTML.
 
-    This helper is used by the non‑GTK parts of Gramps (e.g. ``HtmlBridge``)
+    This helper is used by the non-GTK parts of Gramps (e.g. ``HtmlBridge``)
     where we need the HTML immediately.  It starts a ``_ScrapeThread`` with a
     tiny callback that stores the result in a list and signals a ``threading``
     ``Event``.  The calling thread then blocks on the event until the scrape
@@ -244,10 +245,10 @@ def scrape_page_sync(url: str) -> str:
 def scrape_page_direct(url: str, wait_selector: str | None = None, timeout: int = 30) -> str:
     """Fetch *url* synchronously using Selenium and return the rendered HTML.
 
-    * **Head‑less Chrome** is started, the page is loaded, and we wait until the
+    * **Head-less Chrome** is started, the page is loaded, and we wait until the
       browser reports that the document is fully loaded (``document.readyState ==
       "complete"``).  If *wait_selector* is supplied we additionally wait for an
-      element matching that CSS selector to appear – this is useful for pages
+       element matching that CSS selector to appear - this is useful for pages
       that load content via AJAX after the initial document load.
     * The driver is **always quit** before the function returns, so no stray
       Chrome windows remain.
