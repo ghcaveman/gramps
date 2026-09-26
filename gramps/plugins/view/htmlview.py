@@ -387,6 +387,8 @@ class HTMLView(PageView):
         # Notebook for Render and Source tabs
         notebook = Gtk.Notebook()
         notebook.connect("switch-page", self.cb_switch_tab)
+        # Show the Render tab by default so the rendered view is visible when the window opens.
+        notebook.set_current_page(0)
 
         # Tab 1: Render View
         render_scroll = Gtk.ScrolledWindow()
