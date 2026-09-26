@@ -190,7 +190,11 @@ class HtmlBridge:
         try:
             from gramps.plugins.gramplet.scraper import scrape_page_direct  # type: ignore
             LOG.info("HtmlBridge: using Selenium to fetch %s", url)
-            return scrape_page_direct(url)
+            # Use a longer timeout to give JavaScript‑heavy pages more time to
+            # finish loading.  A generic selector is not provided here because
+            # the HTMLView does not know which element signals completion for a
+            # given site.
+            return scrape_page_direct(url, timeout=60)
         except Exception as exc:  # pragma: no cover – defensive fallback
             LOG.error("Selenium fetch failed for %s: %s", url, exc)
             # Fall back to the plain HTTP request below.
