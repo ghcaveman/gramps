@@ -589,29 +589,48 @@ class HTMLView(PageView):
         :param text: The text to set.
         :type text: str
         """
-        # If Selenium (via our scraper utility) is available and the incoming
-        # ``text`` looks like a URL, fetch the page asynchronously and update
-        # the buffer when the HTML is retrieved.  This avoids blocking the UI
-        # and provides a richer rendering for pages that rely on JavaScript.
-        if _USE_SELENIUM and isinstance(text, str) and text.strip().lower().startswith("http"):
-            # Use the scraper module to fetch the page in a background thread.
+        # -----------------------------------------------------------------
+        # 1️⃣  If the incoming ``text`` looks like a URL we *always* try to
+        #     fetch it with Selenium, regardless of the flag state.  This
+        #     guarantees that the HTMLView will attempt a JavaScript‑enabled
+        #     fetch for every URL the WebSearch gramplet sends.
+        # -----------------------------------------------------------------
+        is_url = isinstance(text, str) and text.strip().lower().startswith("http")
+        if is_url:
             try:
+                # Import lazily – the import itself tells us whether Selenium
+                # is available in the current environment.
                 from gramps.plugins.gramplet.scraper import scrape_page_async
+
+                LOG.info("HTMLView: invoking Selenium scraper for %s", text)
+                # Write a short note to the workspace log so you can see that
+                # the scraper was actually called.
+                try:
+                    from pathlib import Path
+                    Path("htmlview.log").open("a", encoding="utf-8").write(
+                        f"Selenium scraper started for {text}\n"
+                    )
+                except Exception:
+                    pass
 
                 def _on_html_fetched(html: str) -> bool:
                     if self.text_buffer is not None:
                         self.text_buffer.set_text(html)
-                    # After the HTML is set, update the rendered view as usual.
                     self._update_rendered_html()
                     self._maybe_append_filtered_results()
-                    return False  # stop the idle handler
+                    return False
 
                 scrape_page_async(text, _on_html_fetched)
                 # Return early – the UI will be updated when the callback runs.
                 return
             except Exception as exc:  # pragma: no cover – defensive fallback
                 LOG.error("Failed to start Selenium scraper: %s", exc)
-        # Fallback: treat ``text`` as raw HTML and display it directly.
+                # Fall through to the raw‑HTML path so the view still shows
+                # something rather than staying empty.
+
+        # -----------------------------------------------------------------
+        # 2️⃣  Fallback: treat ``text`` as raw HTML (or as the original placeholder)
+        # -----------------------------------------------------------------
         if self.text_buffer is not None:
             self.text_buffer.set_text(text)
         self._update_rendered_html()
