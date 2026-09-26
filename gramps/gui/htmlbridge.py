@@ -188,14 +188,12 @@ class HtmlBridge:
         #     imported).  This mirrors the logic in ``HTMLView.set_text``.
         # -----------------------------------------------------------------
         try:
-            from gramps.plugins.gramplet.scraper import scrape_page_sync  # type: ignore
-            # ``scrape_page_sync`` is a tiny wrapper that blocks until the page
-            # is fetched – we import it lazily so the module is only required
-            # when Selenium is actually usable.
+            from gramps.plugins.gramplet.scraper import scrape_page_direct  # type: ignore
             LOG.info("HtmlBridge: using Selenium to fetch %s", url)
-            return scrape_page_sync(url)
-        except Exception:
-            # Selenium not available or failed – fall back to plain HTTP.
+            return scrape_page_direct(url)
+        except Exception as exc:  # pragma: no cover – defensive fallback
+            LOG.error("Selenium fetch failed for %s: %s", url, exc)
+            # Fall back to the plain HTTP request below.
             pass
 
         # -----------------------------------------------------------------
