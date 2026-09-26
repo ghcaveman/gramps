@@ -60,6 +60,8 @@ from gi.repository import GLib
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+# webdriver‑manager will download a matching ChromeDriver automatically
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium_stealth import stealth
 
 # -------------------------------------------------------------------------
@@ -96,8 +98,9 @@ class _ScrapeThread(threading.Thread):
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
 
-            # Selenium manager will download the driver if needed
-            service = Service()
+            # Selenium manager will download the driver if needed via webdriver‑manager
+            driver_path = ChromeDriverManager().install()
+            service = Service(driver_path)
             driver = webdriver.Chrome(service=service, options=options)
 
             # Apply stealth tricks – these are the defaults recommended by the
@@ -188,7 +191,8 @@ def scrape_page_direct(url: str, wait_selector: str | None = None, timeout: int 
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
 
-        service = Service()
+        driver_path = ChromeDriverManager().install()
+        service = Service(driver_path)
         driver = webdriver.Chrome(service=service, options=options)
 
         # Apply the same stealth tricks used in the async version.
