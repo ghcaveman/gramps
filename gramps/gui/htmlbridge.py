@@ -28,11 +28,28 @@ HTML Bridge for routing raw web data between WebSearch and HTMLView.
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+
 from collections.abc import Callable
+from typing import Protocol
 
 import logging
 
 LOG = logging.getLogger(".htmlbridge")
+
+
+# ------------------------------------------------------------
+#
+# HTMLViewProtocol
+#
+# ------------------------------------------------------------
+class HTMLViewProtocol(Protocol):
+    """The small interface HtmlBridge needs from the HTML view."""
+
+    def set_search_url(self, url: str) -> None:
+        """Set the URL shown for the current page."""
+
+    def set_text(self, text: str) -> None:
+        """Display HTML content in the view."""
 
 
 # ------------------------------------------------------------
@@ -53,13 +70,13 @@ class HtmlBridge:
     active_view: HTMLViewProtocol | None = None
 
     # Content fetched before the view was opened, delivered on registration.
-    pending_html: tuple[str, str] | None = None
+    pending_html: tuple[str, str | None] | None = None
 
     # Optional consumer for HTML routed through the bridge.
     html_callback: Callable[[str, str], None] | None = None
 
     @classmethod
-    def register_view(cls, view) -> None:
+    def register_view(cls, view: HTMLViewProtocol) -> None:
         """
         Register the live HTMLView page so routed content can reach it.
 
@@ -68,7 +85,7 @@ class HtmlBridge:
         cls.active_view = view
 
     @classmethod
-    def unregister_view(cls, view) -> None:
+    def unregister_view(cls, view: HTMLViewProtocol) -> None:
         """
         Unregister the HTMLView page when it is destroyed.
 
@@ -97,7 +114,7 @@ class HtmlBridge:
             cls.html_callback = None
 
     @classmethod
-    def flush_pending(cls, view) -> None:
+    def flush_pending(cls, view: HTMLViewProtocol) -> None:
         """
         Deliver any content that was routed before the view was ready.
 
@@ -127,8 +144,7 @@ class HtmlBridge:
         view = cls.active_view
         if view is not None:
             # Let the view show the origin website in its header.
-            if hasattr(view, "set_search_url"):
-                view.set_search_url(url)
+            view.set_search_url(url)
             view.set_text(html_content)
             LOG.info(
                 "Routed %d chars of HTML from %s to HTMLView",
