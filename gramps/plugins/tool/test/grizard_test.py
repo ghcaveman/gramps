@@ -102,7 +102,7 @@ from gramps.gen.grizard.grizard import (
     surname_prefix_text,
     surname_text,
 )
-from gramps.gen.grizard.gedcom import GedGrizard
+from gramps.gen.grizard.grizardgedcom import GedGrizard
 
 
 def _has_gtk_display() -> bool:

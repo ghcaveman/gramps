@@ -94,7 +94,7 @@ DEFAULT_GRAMPS_TARGET = "6.0"
 
 # Map of archive member name -> source file relative to the repo root.
 SOURCES: dict[str, str] = {
-    "gedcom.py": "gramps/gen/grizard/gedcom.py",
+    "grizardgedcom.py": "gramps/gen/grizard/grizardgedcom.py",
     "grizard.py": "gramps/gen/grizard/grizard.py",
     "grizardcompare.py": "gramps/gui/grizard/grizardcompare.py",
     "grizardlauncher.py": "gramps/gui/grizard/grizardlauncher.py",
@@ -148,6 +148,7 @@ SIBLINGS = (
     "gedcom",
     "grizard",
     "grizardcompare",
+    "grizardgedcom",
     "grizardlauncher",
     "grizardmerge",
     "grizardmergedialog",
@@ -157,8 +158,8 @@ SIBLINGS = (
 # Order matters: longest prefixes first.
 REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     (
-        re.compile(r"from\s+gramps\.gen\.grizard\.gedcom\s+import\b"),
-        "from gedcom import",
+        re.compile(r"from\s+gramps\.gen\.grizard\.grizardgedcom\s+import\b"),
+        "from grizardgedcom import",
     ),
     (
         re.compile(r"from\s+gramps\.gen\.grizard\.grizard\s+import\b"),
@@ -188,8 +189,8 @@ REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
-            r"from\s+\.(gedcom|grizard|grizardcompare|grizardlauncher|"
-            r"grizardmerge|grizardmergedialog)\s+import\b"
+            r"from\s+\.(gedcom|grizard|grizardcompare|grizardgedcom|"
+            r"grizardlauncher|grizardmerge|grizardmergedialog)\s+import\b"
         ),
         r"from \1 import",
     ),
