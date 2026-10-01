@@ -173,8 +173,9 @@ def create_diff_cell(markup: str, differs: bool, xalign: float) -> Gtk.Label:
     Build one value cell of a merge dialog row.
 
     The ``diff-line`` CSS class is added when the two sides of the row
-    differ, so the cell is tinted by the rule in ``data/gramps.css`` even
-    when no push arrow applies (a value present on only one side).
+    differ, so the cell is tinted by the embedded ``DIFF_CSS_DATA`` rule
+    (installed by ``ensure_diff_styles_installed()``) even when no push
+    arrow applies (a value present on only one side).
 
     :param markup: Pango markup holding the cell text.
     :param differs: True when the two sides of the row differ.
