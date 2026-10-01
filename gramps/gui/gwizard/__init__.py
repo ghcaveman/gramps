@@ -17,7 +17,7 @@
 #
 
 """
-Grizard GUI framework presentation package.
+GWizard GUI framework presentation package.
 """
 
 from __future__ import annotations

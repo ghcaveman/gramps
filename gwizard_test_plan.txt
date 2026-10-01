@@ -1,6 +1,6 @@
-# Grizard GEDCOM Compare/Merge Unit Test Plan
+# GWizard GEDCOM Compare/Merge Unit Test Plan
 
-This document outlines the testing strategy, test flows, and execution methods to comprehensively test the Grizard GEDCOM compare/merge framework.
+This document outlines the testing strategy, test flows, and execution methods to comprehensively test the GWizard GEDCOM compare/merge framework.
 
 ---
 
@@ -8,7 +8,7 @@ This document outlines the testing strategy, test flows, and execution methods t
 
 **Do the unit tests start with a partial Gramps database and merge in all possible GEDCOM element data additions?**
 
-**Yes.** In order to accurately simulate a real user scenario, the test suite is designed to start with an active, partially populated, in-memory Gramps database (the target database) containing existing person records, events, and relationship structures. The tests then load an external GEDCOM file containing overlapping, conflicting, and new genealogical records, and run the Grizard matching, side-by-side comparison, and selective merge resolutions.
+**Yes.** In order to accurately simulate a real user scenario, the test suite is designed to start with an active, partially populated, in-memory Gramps database (the target database) containing existing person records, events, and relationship structures. The tests then load an external GEDCOM file containing overlapping, conflicting, and new genealogical records, and run the GWizard matching, side-by-side comparison, and selective merge resolutions.
 
 ### Initialization & Fixtures
 1. **Target Gramps DB**: Built in-memory using `make_database("sqlite")`. It is seeded with:
@@ -27,12 +27,12 @@ The unit tests exercise the compare/merge logic across all critical components:
 - **Inexact Matches**: Asserts that phonetic surname matching (using Soundex) and birth year differences calculate proper intermediate weights.
 - **Hard Mismatches**: Asserts that gender discrepancies or highly divergent details result in a negative score (-1.0), filtering them out as candidates.
 
-### B. End-to-End Import & Merge Flow (`GedGrizard`)
+### B. End-to-End Import & Merge Flow (`GedGWizard`)
 The tests execute the step-by-step workflow (`connect` -> `load` -> `match` -> `compare` -> `apply`):
 1. **Connect**: Verifies file verification and error handling for missing/corrupt GEDCOM paths.
 2. **Load**: Verifies that `import_as_dict` successfully reads the GEDCOM into a temporary source DB and iterates all handles correctly.
 3. **Match**: Asserts that potential candidates in the target DB are surfaced with matching scores.
-4. **Compare**: Verifies that `_compare` yields the correct `GrizardCompareRow` records with precise statuses (`match`, `differ`, `source_only`, `target_only`) and data payloads.
+4. **Compare**: Verifies that `_compare` yields the correct `GWizardCompareRow` records with precise statuses (`match`, `differ`, `source_only`, `target_only`) and data payloads.
 5. **Apply (Selective Merge)**:
    - **Fields Overwrite**: Resolves fields with `"source"`, asserting that target fields are updated.
    - **Fields Preserved**: Resolves fields with `"target"`, asserting that target fields remain untouched.
@@ -42,8 +42,8 @@ The tests execute the step-by-step workflow (`connect` -> `load` -> `match` -> `
 - **Spouse / Family Merging**: Verifies that merging a spouse relationship (`spouse:<source_handle>`) successfully resolves the relative's counterpart in the target DB, instantiates a `Family` object if one doesn't exist, and links HUSB/WIFE roles accordingly.
 - **Children / Parent Linking**: Asserts that merging child/parent relationships creates the proper family associations and updates parent/family reference lists.
 
-### D. UI Layout & Representation Logic (`GrizardMergeDialog`)
-- **Pango Text Highlighting**: Unit tests the headless static helper `_format_diff_line` of `GrizardMergeDialog`.
+### D. UI Layout & Representation Logic (`GWizardMergeDialog`)
+- **Pango Text Highlighting**: Unit tests the headless static helper `_format_diff_line` of `GWizardMergeDialog`.
   - Asserts that matching strings return plain strings.
   - Asserts that word-level discrepancies are wrapped in Pango markup tags (`<i><b>...</b></i>`) for rendering in the GTK tree view.
   - Verifies trailing punctuation handling and labels rendering.

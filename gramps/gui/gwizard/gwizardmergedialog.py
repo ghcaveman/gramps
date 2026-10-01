@@ -1,7 +1,7 @@
 #
 # Gramps - a GTK+/GNOME based genealogy program
 #
-# Copyright (C) 2026  Grizard Merge Dialog
+# Copyright (C) 2026  GWizard Merge Dialog
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 """
-Modal merge dialog for Grizard.
+Modal merge dialog for GWizard.
 
 Shows the incoming GEDCOM tree on the left and the current family tree
 (destination) on the right, with a per-field arrow button (=>) between
@@ -239,7 +239,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         :param parent: Parent window (translates to a modal dialog).
         """
         Gtk.Dialog.__init__(self, transient_for=parent, modal=True)
-        self.set_title(_("Grizard Merge"))
+        self.set_title(_("GWizard Merge"))
         self.set_default_size(620, 850)
         self.set_border_width(6)
         ensure_diff_styles_installed()
@@ -419,7 +419,7 @@ class GWizardMergeDialog(Gtk.Dialog):
 
     def _populate_fields(self) -> None:
         """
-        Fill the grid with the four sections used by the GrizardCompare
+        Fill the grid with the four sections used by the GWizardCompare
         details panel (Individual Details, Family Relations, Children,
         Events & Other Records), each row showing the source value on the
         left and the target (destination) value on the right with an

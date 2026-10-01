@@ -17,7 +17,7 @@
 #
 
 """
-Base class and interfaces for the Grizard import framework.
+Base class and interfaces for the GWizard import framework.
 """
 
 # -------------------------------------------------------------------------
@@ -82,7 +82,7 @@ class GWizardCompareRow(NamedTuple):
 # ------------------------------------------------------------
 class GWizardBase(abc.ABC):
     """
-    Abstract base class representing the step-by-step wizard workflow (Grizard).
+    Abstract base class representing the step-by-step wizard workflow (GWizard).
 
     The workflow sequence is:
     connect -> load -> match -> compare -> apply.
@@ -90,7 +90,7 @@ class GWizardBase(abc.ABC):
 
     def __init__(self, db: DbWriteBase) -> None:
         """
-        Initialize the Grizard workflow.
+        Initialize the GWizard workflow.
 
         :param db: The target Gramps database instance.
         """
@@ -149,7 +149,7 @@ class GWizardBase(abc.ABC):
         :returns: The result of the step execution.
         """
         self.current_step = step
-        LOG.debug("Running Grizard step: %s with args: %s", step, kwargs)
+        LOG.debug("Running GWizard step: %s with args: %s", step, kwargs)
 
         if step == "connect":
             return self._connect(**kwargs)

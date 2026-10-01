@@ -17,7 +17,7 @@
 #
 
 """
-GEDCOM implementation of the Grizard import framework.
+GEDCOM implementation of the GWizard import framework.
 """
 
 # -------------------------------------------------------------------------
@@ -93,7 +93,7 @@ _ = glocale.translation.gettext
 # ------------------------------------------------------------
 class GedGWizard(GWizardBase):
     """
-    Concrete Grizard implementation for importing data from GEDCOM (.ged)
+    Concrete GWizard implementation for importing data from GEDCOM (.ged)
     and Gramps XML (.gramps, .xml) files.
     """
 
@@ -727,7 +727,7 @@ class GedGWizard(GWizardBase):
                 pass
             return None
 
-        with DbTxn(_("Grizard Data Merge"), self.db) as trans:
+        with DbTxn(_("GWizard Data Merge"), self.db) as trans:
             if target_person_handle is None:
                 # Add as entirely new person
                 new_person = copy.deepcopy(s_person)

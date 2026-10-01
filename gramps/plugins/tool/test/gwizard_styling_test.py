@@ -1,7 +1,7 @@
 #
 # Gramps - a GTK+/GNOME based genealogy program
 #
-# Copyright (C) 2026  Grizard Compare Styling Tests
+# Copyright (C) 2026  GWizard Compare Styling Tests
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 #
 
 """
-Unit tests for the Grizard compare styling functions.
+Unit tests for the GWizard compare styling functions.
 """
 
 # -------------------------------------------------------------------------

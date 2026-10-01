@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Shared launcher for the Grizard Data Merge flow."""
+"""Shared launcher for the GWizard Data Merge flow."""
 
 # -------------------------------------------------------------------------
 #
@@ -49,7 +49,7 @@ LOG = logging.getLogger(__name__)
 
 # ------------------------------------------------------------
 #
-# Grizard launcher helpers
+# GWizard launcher helpers
 #
 # ------------------------------------------------------------
 def _case_insensitive_pattern(extension: str) -> str:
@@ -130,7 +130,7 @@ def ask_source_file(parent: Any, title: str | None = None) -> str | None:
 
 def load_source_gwizard(db: Any, path: str) -> Any:
     """
-    Connect and load a source file into a Grizard session.
+    Connect and load a source file into a GWizard session.
     """
     import os
 

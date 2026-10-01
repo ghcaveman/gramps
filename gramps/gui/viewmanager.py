@@ -594,7 +594,7 @@ class ViewManager(CLIManager):
             ("UndoHistory", self.undo_history, "<PRIMARY>H"),
             # --------------------------------------
             ("Import", self.import_data, "<PRIMARY>i"),
-            ("GrizardCompare", self.gwizard_compare, "<PRIMARY><shift>g"),
+            ("GWizardCompare", self.gwizard_compare, "<PRIMARY><shift>g"),
             ("Tools", self.tools_clicked),
             # ('BookMenu', None, _('_Bookmarks')),
             # ('ToolsMenu', None, _('_Tools')),

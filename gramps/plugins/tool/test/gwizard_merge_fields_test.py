@@ -1,7 +1,7 @@
 #
 # Gramps - a GTK+/GNOME based genealogy program
 #
-# Copyright (C) 2026  Grizard Merge Field Tests
+# Copyright (C) 2026  GWizard Merge Field Tests
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 #
 
 """
-Tests for the field rows built by the Grizard merge dialog.
+Tests for the field rows built by the GWizard merge dialog.
 
 These cover the surname rows, where a GEDCOM surname prefix (``SPFX``)
 and additional surnames must not be mistaken for a match.

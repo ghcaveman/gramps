@@ -1,6 +1,6 @@
-# Grizard GEDCOM Compare/Merge Functionality Explained
+# GWizard GEDCOM Compare/Merge Functionality Explained
 
-This document describes the GEDCOM data hierarchy, how the Grizard import/merge framework compares and merges these elements, and what gaps must be addressed to ensure robust, production-grade operation in Gramps.
+This document describes the GEDCOM data hierarchy, how the GWizard import/merge framework compares and merges these elements, and what gaps must be addressed to ensure robust, production-grade operation in Gramps.
 
 ---
 
@@ -34,11 +34,11 @@ GEDCOM (Genealogical Data Communication) is structured hierarchically. Lines beg
 
 ---
 
-## 2. How Grizard Compare/Merge Works
+## 2. How GWizard Compare/Merge Works
 
 ### Comparative Logic (`_compare` in `gedcom.py`)
-Grizard uses a two-stage parsing approach. First, it imports the entire external GEDCOM file into an isolated in-memory dictionary database (`source_db`).
-When a user selects a source person and a potential target person, `GedGrizard._compare` produces side-by-side rows representing differences:
+GWizard uses a two-stage parsing approach. First, it imports the entire external GEDCOM file into an isolated in-memory dictionary database (`source_db`).
+When a user selects a source person and a potential target person, `GedGWizard._compare` produces side-by-side rows representing differences:
 1. **Given Name**: Compares `first_name` on primary name.
 2. **Surname**: Compares surnames on primary name.
 3. **Gender**: Compares the gender code.
@@ -72,11 +72,11 @@ The following gaps must be resolved to prevent database corruption, broken links
 - **Needed**: A recursive reference resolver in `_apply` that detects when an entity contains references to `Note`, `Media`, `Citation`, or `Source` records. It must copy those records from `source_db` to the target database and update the handles on the merged person or event accordingly.
 
 ### B. Family-Level Events
-- **Problem**: Grizard handles the structural connections of a family (Husband, Wife, Children) but completely ignores family-level events like Marriage (`MARR`), Divorce (`DIV`), and Engagement (`ENGA`).
+- **Problem**: GWizard handles the structural connections of a family (Husband, Wife, Children) but completely ignores family-level events like Marriage (`MARR`), Divorce (`DIV`), and Engagement (`ENGA`).
 - **Needed**: Side-by-side comparison and resolutions for family-level events, transferring these event records to the matched or newly created target `Family` record.
 
 ### C. Alternate Names
-- **Problem**: In Gramps, individuals can have multiple names. Currently, `Grizard` only compares and merges the primary name. Any alternate names on the source record are lost during a merge (though they are preserved during a complete "add new" operation).
+- **Problem**: In Gramps, individuals can have multiple names. Currently, `GWizard` only compares and merges the primary name. Any alternate names on the source record are lost during a merge (though they are preserved during a complete "add new" operation).
 - **Needed**: Logic to compare alternate names and merge new alternate name records into the target person's name list.
 
 ### D. Personal Attributes (Facts)

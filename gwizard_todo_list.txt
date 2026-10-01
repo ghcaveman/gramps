@@ -1,6 +1,6 @@
-# Grizard GEDCOM Compare/Merge To-Do List
+# GWizard GEDCOM Compare/Merge To-Do List
 
-This document lists the tasks and enhancements required to bring the Grizard GEDCOM import and merge functionality to a robust, production-grade, and error-free level.
+This document lists the tasks and enhancements required to bring the GWizard GEDCOM import and merge functionality to a robust, production-grade, and error-free level.
 
 ---
 

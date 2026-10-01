@@ -258,7 +258,7 @@ class HTMLView(PageView):
         toolbar.pack_start(paste_btn, False, False, 0)
 
         info_label = Gtk.Label(
-            label=_("Capturing debug input for WebSearch and Grizard functionality")
+            label=_("Capturing debug input for WebSearch and GWizard functionality")
         )
         info_label.set_alignment(1.0, 0.5)
         toolbar.pack_end(info_label, True, True, 0)

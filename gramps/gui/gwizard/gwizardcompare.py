@@ -160,7 +160,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         Gtk.Window.__init__(self)
         ManagedWindow.__init__(self, uistate, [], self.__class__)
-        self.set_window(self, None, _("Grizard Compare"), isWindow=True)
+        self.set_window(self, None, _("GWizard Compare"), isWindow=True)
 
         self.dbstate = dbstate
         self.gwizard = gwizard
@@ -176,7 +176,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         self._syncing = False
         self._rejected: dict[str, set[str]] = {}
 
-        self.set_title(_("Grizard Compare"))
+        self.set_title(_("GWizard Compare"))
         self.set_default_size(1600, 900)
         if parent:
             self.set_transient_for(parent)

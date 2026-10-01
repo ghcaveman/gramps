@@ -20,7 +20,7 @@
 
 """Build the standalone ``GWizardMerge.zip`` addon package.
 
-Collects the Grizard backend, GUI, and tool modules scattered across
+Collects the GWizard backend, GUI, and tool modules scattered across
 ``gramps/gen/gwizard``, ``gramps/gui/gwizard``, and ``gramps/plugins/tool``
 into a single flat ``GWizardDataMerge/`` addon directory inside a zip file,
 rewriting the ``gramps.gen.gwizard`` / ``gramps.gui.gwizard`` absolute
@@ -28,7 +28,7 @@ imports and intra-package relative imports to flat sibling imports so the
 bundle loads under Gramps' plugin importer (which imports the tool module
 top-level via ``__import__`` with the addon directory on ``sys.path``).
 Also embeds the standalone addon registration file
-``GWizardDataMerge/GWizardDataMerge.gpr.py`` (mirroring the ``grizardmerge``
+``GWizardDataMerge/GWizardDataMerge.gpr.py`` (mirroring the ``gwizardmerge``
 entry in ``gramps/plugins/tool/tools.gpr.py``) and places all of the
 gwizard-related tests in ``GWizardDataMerge/test/`` with a single merged
 ``__init__.py``. Newlines are normalized to LF so the output is identical
@@ -61,7 +61,7 @@ GPR_FILENAME = "GWizardDataMerge.gpr.py"
 # description. No formatting placeholders: the template is emitted verbatim
 # so the root file stays the single source of truth for registration content.
 GPR_TEMPLATE = """\
-# Gramps registration file for the Grizard Data Merge tool.
+# Gramps registration file for the GWizard Data Merge tool.
 
 from gramps.gen.plug._pluginreg import (
     TOOL,
@@ -78,8 +78,8 @@ _ = glocale.translation.gettext
 if (5, 2, 0) <= VERSION_TUPLE <= (6, 2, 0):
     register(
         TOOL,
-        id="grizardmerge",
-        name=_("Grizard Data Merge"),
+        id="gwizardmerge",
+        name=_("GWizard Data Merge"),
         description=_(
             "Family Tree Processing Tool to compare another genealogy file "
             "(GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree "
@@ -112,8 +112,8 @@ SOURCES: dict[str, str] = {
     "gwizardmergedialog.py": "gramps/gui/gwizard/gwizardmergedialog.py",
 }
 
-# Grizard-related tests, consolidated under ``gramps/plugins/tool/test/`` as
-# part of the permanent migration of Grizard to a standalone addon plugin.
+# GWizard-related tests, consolidated under ``gramps/plugins/tool/test/`` as
+# part of the permanent migration of GWizard to a standalone addon plugin.
 # Map of archive member name -> source file relative to the repo root. All
 # members live in the ``test/`` subfolder of the addon directory.
 TEST_SOURCES: dict[str, str] = {
@@ -133,11 +133,11 @@ TEST_SOURCES: dict[str, str] = {
 # sibling imports rewritten into the bundled tests resolve when the tests
 # run standalone from the installed addon.
 TEST_INIT_TEMPLATE = """\
-\"\"\"Unit tests for the Grizard Data Merge addon.
+\"\"\"Unit tests for the GWizard Data Merge addon.
 
 Consolidated from ``gramps.gen.gwizard.test`` (backend import framework
 and GEDCOM tests) and ``gramps.gui.gwizard.test`` (merge dialog field
-and styling tests) as part of the permanent migration of Grizard to a
+and styling tests) as part of the permanent migration of GWizard to a
 standalone addon plugin.
 \"\"\"
 
@@ -149,7 +149,7 @@ if _addon_dir not in _sys.path:
     _sys.path.insert(0, _addon_dir)
 """
 
-# Grizard sibling modules bundled flat in the addon directory. Gramps loads
+# GWizard sibling modules bundled flat in the addon directory. Gramps loads
 # the tool module top-level (``__import__("gwizardmerge")`` with the addon
 # directory on ``sys.path``), so intra-bundle imports must be flat as well:
 # both ``gramps.gen.gwizard.X`` / ``gramps.gui.gwizard.X`` absolute imports
@@ -208,14 +208,14 @@ REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
 
 
 def rewrite_imports(text: str) -> str:
-    """Rewrite Grizard imports to flat sibling imports."""
+    """Rewrite GWizard imports to flat sibling imports."""
     for pattern, replacement in REWRITES:
         text = pattern.sub(replacement, text)
     return text
 
 
 def rewrite_imports_bytes(data: bytes) -> bytes:
-    """Rewrite Grizard imports, normalizing to LF newlines."""
+    """Rewrite GWizard imports, normalizing to LF newlines."""
     lines = data.decode("utf-8").splitlines(keepends=False)
     rewritten = [rewrite_imports(line) for line in lines]
     return ("\n".join(rewritten) + "\n").encode("utf-8")

@@ -17,7 +17,7 @@
 #
 
 """
-Grizard framework: generic wizard workflow for importing and exporting data.
+GWizard framework: generic wizard workflow for importing and exporting data.
 """
 
 from __future__ import annotations

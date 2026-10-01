@@ -88,8 +88,8 @@ UIDEFAULT = (
           <attribute name="label" translatable="yes">_Import...</attribute>
         </item>
         <item groups='RW'>
-          <attribute name="action">win.GrizardCompare</attribute>
-          <attribute name="label" translatable="yes">Grizard Data _Merge...</attribute>
+          <attribute name="action">win.GWizardCompare</attribute>
+          <attribute name="label" translatable="yes">GWizard Data _Merge...</attribute>
         </item>
         <item>
           <attribute name="action">win.Export</attribute>

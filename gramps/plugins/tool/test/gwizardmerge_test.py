@@ -18,11 +18,11 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Unit tests for the Grizard Data Merge tool.
+"""Unit tests for the GWizard Data Merge tool.
 
 Consolidated from ``gramps.gen.gwizard.test`` (backend import framework
 and GEDCOM tests) and ``gramps.gui.gwizard.test`` (merge dialog field
-and styling tests) as part of the permanent migration of Grizard to a
+and styling tests) as part of the permanent migration of GWizard to a
 standalone addon plugin.
 """
 
@@ -47,7 +47,7 @@ from gramps.gui.gwizard.gwizardlauncher import _case_insensitive_pattern
 #
 # ------------------------------------------------------------------
 class GWizardMergeToolHelperTest(unittest.TestCase):
-    """Test the GTK-free helpers used by the Grizard merge flow."""
+    """Test the GTK-free helpers used by the GWizard merge flow."""
 
     def test_case_insensitive_pattern(self) -> None:
         """Extension patterns match upper and lower case."""

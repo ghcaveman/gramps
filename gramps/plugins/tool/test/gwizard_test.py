@@ -17,7 +17,7 @@
 #
 
 """
-Unit tests for the Grizard import framework and GEDCOM implementation.
+Unit tests for the GWizard import framework and GEDCOM implementation.
 """
 
 # -------------------------------------------------------------------------
@@ -86,7 +86,7 @@ from gramps.gen.types import PersonHandle
 
 # -------------------------------------------------------------------------
 #
-# Grizard modules (backend logic under test)
+# GWizard modules (backend logic under test)
 #
 # -------------------------------------------------------------------------
 from gramps.gen.gwizard.gwizard import (
@@ -137,7 +137,7 @@ _HAS_GTK_DISPLAY = _has_gtk_display()
 # ------------------------------------------------------------
 class GWizardTest(unittest.TestCase):
     """
-    Test cases for Grizard core framework, CandidateMatcher, and GedGWizard.
+    Test cases for GWizard core framework, CandidateMatcher, and GedGWizard.
     """
 
     def setUp(self) -> None:
