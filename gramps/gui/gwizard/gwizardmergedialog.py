@@ -466,7 +466,6 @@ class GWizardMergeDialog(Gtk.Dialog):
         grid.attach(Gtk.Label(label=""), 1, 0, 1, 1)
         grid.attach(header(right_title), 2, 0, 1, 1)
         grid.attach(Gtk.Label(label=""), 1, 0, 1, 1)
-        grid.attach(header(_("Current Family Tree")), 2, 0, 1, 1)
         self._row_index = 1
 
         def section(title: str) -> None:
