@@ -441,7 +441,30 @@ class GWizardMergeDialog(Gtk.Dialog):
             return lab
 
         # Column headers at the top (match the compare window panel titles).
-        grid.attach(header(_("Incoming GEDCOM Tree")), 0, 0, 1, 1)
+        incoming_title = _("Incoming GEDCOM Tree")
+        gedcom_path = getattr(self.gwizard, "context", {}).get("gedcom_path", "")
+        if gedcom_path:
+            filename = os.path.basename(gedcom_path)
+            max_len = 30
+            if len(filename) > max_len:
+                name, ext = os.path.splitext(filename)
+                keep = max_len - len(ext) - 3
+                if keep > 0:
+                    filename = f"{name[:keep]}...{ext}"
+                else:
+                    filename = f"{filename[:max_len-3]}..."
+            incoming_title = f"{incoming_title} ({filename})"
+        # Right side title with database name (no extension).
+        right_title = _("Current Family Tree")
+        try:
+            db_name = self.dbstate.db.get_dbname()
+        except Exception:
+            db_name = ""
+        if db_name:
+            right_title = f"{right_title} ({db_name})"
+        grid.attach(header(incoming_title), 0, 0, 1, 1)
+        grid.attach(Gtk.Label(label=""), 1, 0, 1, 1)
+        grid.attach(header(right_title), 2, 0, 1, 1)
         grid.attach(Gtk.Label(label=""), 1, 0, 1, 1)
         grid.attach(header(_("Current Family Tree")), 2, 0, 1, 1)
         self._row_index = 1

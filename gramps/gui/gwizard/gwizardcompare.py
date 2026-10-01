@@ -28,6 +28,7 @@ side with the existing Gramps tree (destination on the right).
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import logging
+import os
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -193,8 +194,34 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         self.paned = Gtk.HPaned()
         main_box.pack_start(self.paned, True, True, 0)
 
-        self.left_panel = self._build_panel(_("Incoming GEDCOM Tree"))
-        self.right_panel = self._build_panel(_("Current Family Tree"))
+        # Build panel titles, appending the incoming GEDCOM filename (if available).
+        incoming_title = _("Incoming GEDCOM Tree")
+        # Retrieve the GEDCOM path from the gwizard context; may be absent in tests.
+        gedcom_path = getattr(self.gwizard, "context", {}).get("gedcom_path", "")
+        if gedcom_path:
+            filename = os.path.basename(gedcom_path)
+            # Truncate long filenames while preserving the extension.
+            max_len = 30
+            if len(filename) > max_len:
+                name, ext = os.path.splitext(filename)
+                # Keep the extension and as much of the name as fits.
+                keep = max_len - len(ext) - 3  # space for "..."
+                if keep > 0:
+                    filename = f"{name[:keep]}...{ext}"
+                else:
+                    # If even the extension doesn't fit, just truncate aggressively.
+                    filename = f"{filename[:max_len-3]}..."
+            incoming_title = f"{incoming_title} ({filename})"
+        self.left_panel = self._build_panel(incoming_title)
+        # Build right panel title with database name if available.
+        right_title = _("Current Family Tree")
+        try:
+            db_name = self.dbstate.db.get_dbname()
+        except Exception:
+            db_name = ""
+        if db_name:
+            right_title = f"{right_title} ({db_name})"
+        self.right_panel = self._build_panel(right_title)
         self.paned.pack1(self.left_panel["frame"], True, False)
         self.paned.pack2(self.right_panel["frame"], True, False)
         # Split the two panels exactly in half once the window has been
