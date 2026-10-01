@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Unit tests for the GWizard Data Merge tool.
+"""Unit tests for the GWizard File Merge tool.
 
 Consolidated from ``gramps.gen.gwizard.test`` (backend import framework
 and GEDCOM tests) and ``gramps.gui.gwizard.test`` (merge dialog field

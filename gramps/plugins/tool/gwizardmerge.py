@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Tools/Family Tree Processing/GWizard Data Merge."""
+"""Tools/Family Tree Processing/GWizard File Merge."""
 
 # -------------------------------------------------------------------------
 #
@@ -63,7 +63,7 @@ class GWizardMergeToolOptions(tool.ToolOptions):
 # ------------------------------------------------------------
 class GWizardMergeTool(tool.Tool):
     """
-    Launch the GWizard Data Merge flow.
+    Launch the GWizard File Merge flow.
 
     Thin wrapper around the shared launcher: ask for a source file,
     load it, and open the side-by-side compare window. Identical to

@@ -727,7 +727,7 @@ class GedGWizard(GWizardBase):
                 pass
             return None
 
-        with DbTxn(_("GWizard Data Merge"), self.db) as trans:
+        with DbTxn(_("GWizard File Merge"), self.db) as trans:
             if target_person_handle is None:
                 # Add as entirely new person
                 new_person = copy.deepcopy(s_person)

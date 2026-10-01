@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Shared launcher for the GWizard Data Merge flow."""
+"""Shared launcher for the GWizard File Merge flow."""
 
 # -------------------------------------------------------------------------
 #

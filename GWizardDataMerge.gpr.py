@@ -1,4 +1,4 @@
-# Gramps registration file for the GWizard Data Merge tool.
+# Gramps registration file for the GWizard File Merge tool.
 
 from gramps.gen.plug._pluginreg import (
     TOOL,
@@ -16,7 +16,7 @@ if (5, 2, 0) <= VERSION_TUPLE <= (6, 2, 0):
     register(
         TOOL,
         id="gwizardmerge",
-        name=_("GWizard Data Merge"),
+        name=_("GWizard File Merge"),
         description=_(
             "Family Tree Processing Tool to compare another genealogy file "
             "(GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree "

@@ -188,14 +188,14 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard Data Merge
+# GWizard File Merge
 #
 # ------------------------------------------------------------------------
 
 register(
     TOOL,
     id="gwizardmerge",
-    name=_("GWizard Data Merge"),
+    name=_("GWizard File Merge"),
     description=_(
         "Loads a GEDCOM file and finds people that may "
         "represent the same person for merging."

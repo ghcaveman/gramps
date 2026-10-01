@@ -61,7 +61,7 @@ GPR_FILENAME = "GWizardDataMerge.gpr.py"
 # description. No formatting placeholders: the template is emitted verbatim
 # so the root file stays the single source of truth for registration content.
 GPR_TEMPLATE = """\
-# Gramps registration file for the GWizard Data Merge tool.
+# Gramps registration file for the GWizard File Merge tool.
 
 from gramps.gen.plug._pluginreg import (
     TOOL,
@@ -79,7 +79,7 @@ if (5, 2, 0) <= VERSION_TUPLE <= (6, 2, 0):
     register(
         TOOL,
         id="gwizardmerge",
-        name=_("GWizard Data Merge"),
+        name=_("GWizard File Merge"),
         description=_(
             "Family Tree Processing Tool to compare another genealogy file "
             "(GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree "
@@ -133,7 +133,7 @@ TEST_SOURCES: dict[str, str] = {
 # sibling imports rewritten into the bundled tests resolve when the tests
 # run standalone from the installed addon.
 TEST_INIT_TEMPLATE = """\
-\"\"\"Unit tests for the GWizard Data Merge addon.
+\"\"\"Unit tests for the GWizard File Merge addon.
 
 Consolidated from ``gramps.gen.gwizard.test`` (backend import framework
 and GEDCOM tests) and ``gramps.gui.gwizard.test`` (merge dialog field
