@@ -56,10 +56,10 @@ _ = glocale.translation.gettext
 
 # ------------------------------------------------------------
 #
-# GrizardCompareRow
+# GWizardCompareRow
 #
 # ------------------------------------------------------------
-class GrizardCompareRow(NamedTuple):
+class GWizardCompareRow(NamedTuple):
     """
     Represent a single side-by-side comparative difference between a source
     and a target person record.
@@ -77,10 +77,10 @@ class GrizardCompareRow(NamedTuple):
 
 # ------------------------------------------------------------
 #
-# GrizardBase
+# GWizardBase
 #
 # ------------------------------------------------------------
-class GrizardBase(abc.ABC):
+class GWizardBase(abc.ABC):
     """
     Abstract base class representing the step-by-step wizard workflow (Grizard).
 
@@ -191,12 +191,12 @@ class GrizardBase(abc.ABC):
         """
 
     @abc.abstractmethod
-    def _compare(self, **kwargs: Any) -> list[GrizardCompareRow]:
+    def _compare(self, **kwargs: Any) -> list[GWizardCompareRow]:
         """
         Perform a field-by-field comparison of a source person and target person.
 
         :returns: List of comparison rows.
-        :rtype: list[GrizardCompareRow]
+        :rtype: list[GWizardCompareRow]
         """
 
     @abc.abstractmethod

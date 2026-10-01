@@ -64,8 +64,8 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 #
 # -------------------------------------------------------------------------
 from .gwizard import (
-    GrizardBase,
-    GrizardCompareRow,
+    GWizardBase,
+    GWizardCompareRow,
     CandidateMatcher,
     surname_prefix_text,
     surname_text,
@@ -88,10 +88,10 @@ _ = glocale.translation.gettext
 
 # ------------------------------------------------------------
 #
-# GedGrizard
+# GedGWizard
 #
 # ------------------------------------------------------------
-class GedGrizard(GrizardBase):
+class GedGWizard(GWizardBase):
     """
     Concrete Grizard implementation for importing data from GEDCOM (.ged)
     and Gramps XML (.gramps, .xml) files.
@@ -105,7 +105,7 @@ class GedGrizard(GrizardBase):
 
     def __init__(self, db: DbWriteBase) -> None:
         """
-        Initialize the GedGrizard.
+        Initialize the GedGWizard.
 
         :param db: The target database to merge data into.
         """
@@ -294,7 +294,7 @@ class GedGrizard(GrizardBase):
 
         return candidates
 
-    def _compare(self, **kwargs: Any) -> list[GrizardCompareRow]:
+    def _compare(self, **kwargs: Any) -> list[GWizardCompareRow]:
         """
         Generate comparative side-by-side rows between a source person and target person.
 
@@ -303,7 +303,7 @@ class GedGrizard(GrizardBase):
         :param target_person_handle: Handle of the person in the target database.
         :type target_person_handle: PersonHandle
         :returns: List of comparison rows.
-        :rtype: list[GrizardCompareRow]
+        :rtype: list[GWizardCompareRow]
         """
         source_person_handle = kwargs.get("source_person_handle")
         target_person_handle = kwargs.get("target_person_handle")
@@ -323,7 +323,7 @@ class GedGrizard(GrizardBase):
         if not s_person or not t_person:
             raise ValueError("Source or target person record not found.")
 
-        rows: list[GrizardCompareRow] = []
+        rows: list[GWizardCompareRow] = []
 
         # Helper for statuses
         def get_status(s_val: str, t_val: str) -> str:
@@ -341,7 +341,7 @@ class GedGrizard(GrizardBase):
         s_given = s_person.get_primary_name().first_name
         t_given = t_person.get_primary_name().first_name
         rows.append(
-            GrizardCompareRow(
+            GWizardCompareRow(
                 status=get_status(s_given, t_given),
                 field=_("Given Name"),
                 source_val=s_given,
@@ -354,7 +354,7 @@ class GedGrizard(GrizardBase):
         s_surname = surname_text(s_person.get_primary_name())
         t_surname = surname_text(t_person.get_primary_name())
         rows.append(
-            GrizardCompareRow(
+            GWizardCompareRow(
                 status=get_status(s_surname, t_surname),
                 field=_("Surname"),
                 source_val=s_surname,
@@ -367,7 +367,7 @@ class GedGrizard(GrizardBase):
         s_prefix = surname_prefix_text(s_person.get_primary_name())
         t_prefix = surname_prefix_text(t_person.get_primary_name())
         rows.append(
-            GrizardCompareRow(
+            GWizardCompareRow(
                 status=get_status(s_prefix, t_prefix),
                 field=_("Surname Prefix"),
                 source_val=s_prefix,
@@ -389,7 +389,7 @@ class GedGrizard(GrizardBase):
         s_gender_str = format_gender(s_person.get_gender())
         t_gender_str = format_gender(t_person.get_gender())
         rows.append(
-            GrizardCompareRow(
+            GWizardCompareRow(
                 status=get_status(s_gender_str, t_gender_str),
                 field=_("Gender"),
                 source_val=s_gender_str,
@@ -430,7 +430,7 @@ class GedGrizard(GrizardBase):
         t_birth_val = f"{t_birth_dt} ({t_birth_pl})" if t_birth_pl else t_birth_dt
 
         rows.append(
-            GrizardCompareRow(
+            GWizardCompareRow(
                 status=get_status(s_birth_val, t_birth_val),
                 field=_("Birth"),
                 source_val=s_birth_val,
@@ -454,7 +454,7 @@ class GedGrizard(GrizardBase):
         t_death_val = f"{t_death_dt} ({t_death_pl})" if t_death_pl else t_death_dt
 
         rows.append(
-            GrizardCompareRow(
+            GWizardCompareRow(
                 status=get_status(s_death_val, t_death_val),
                 field=_("Death"),
                 source_val=s_death_val,

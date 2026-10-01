@@ -594,7 +594,7 @@ class ViewManager(CLIManager):
             ("UndoHistory", self.undo_history, "<PRIMARY>H"),
             # --------------------------------------
             ("Import", self.import_data, "<PRIMARY>i"),
-            ("GrizardCompare", self.grizard_compare, "<PRIMARY><shift>g"),
+            ("GrizardCompare", self.gwizard_compare, "<PRIMARY><shift>g"),
             ("Tools", self.tools_clicked),
             # ('BookMenu', None, _('_Bookmarks')),
             # ('ToolsMenu', None, _('_Tools')),
@@ -1285,19 +1285,19 @@ class ViewManager(CLIManager):
                 InfoDialog(_("Import Statistics"), infotxt, parent=self.window)
             self.__post_load()
 
-    def grizard_compare(self, *obj):
+    def gwizard_compare(self, *obj):
         """
         Ask for a genealogy file, load it, and open side-by-side comparison.
 
-        Shares run_grizard_merge_flow() with the Tools plugin so both
+        Shares run_gwizard_merge_flow() with the Tools plugin so both
         menu entries behave identically.
         """
         if not self.dbstate.is_open():
             return
 
-        from .gwizard.gwizardlauncher import run_grizard_merge_flow
+        from .gwizard.gwizardlauncher import run_gwizard_merge_flow
 
-        run_grizard_merge_flow(self.uistate, self.dbstate, parent=self.window)
+        run_gwizard_merge_flow(self.uistate, self.dbstate, parent=self.window)
 
     def __open_activate(self, obj, value):
         """

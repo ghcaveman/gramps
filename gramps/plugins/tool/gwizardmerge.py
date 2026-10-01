@@ -43,10 +43,10 @@ LOG = logging.getLogger(__name__)
 
 # ------------------------------------------------------------
 #
-# GrizardMergeToolOptions
+# GWizardMergeToolOptions
 #
 # ------------------------------------------------------------
-class GrizardMergeToolOptions(tool.ToolOptions):
+class GWizardMergeToolOptions(tool.ToolOptions):
     """Defines options and provides handling interface."""
 
     def __init__(self, name: str, person_id: str | None = None) -> None:
@@ -58,10 +58,10 @@ class GrizardMergeToolOptions(tool.ToolOptions):
 
 # ------------------------------------------------------------
 #
-# GrizardMergeTool
+# GWizardMergeTool
 #
 # ------------------------------------------------------------
-class GrizardMergeTool(tool.Tool):
+class GWizardMergeTool(tool.Tool):
     """
     Launch the Grizard Data Merge flow.
 
@@ -92,11 +92,11 @@ class GrizardMergeTool(tool.Tool):
         if _addon_dir not in _sys.path:
             _sys.path.insert(0, _addon_dir)
         try:
-            from gwizardlauncher import run_grizard_merge_flow
+            from gwizardlauncher import run_gwizard_merge_flow
         except ImportError:
             # Running from the source tree: fall back to the core location.
             from gramps.gui.gwizard.gwizardlauncher import (
-                run_grizard_merge_flow,
+                run_gwizard_merge_flow,
             )
 
-        run_grizard_merge_flow(uistate, dbstate, parent=uistate.window)
+        run_gwizard_merge_flow(uistate, dbstate, parent=uistate.window)

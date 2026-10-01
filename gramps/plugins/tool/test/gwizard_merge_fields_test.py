@@ -64,7 +64,7 @@ def _person(first: str, surnames: list[tuple[str, str]]) -> Person:
     return person
 
 
-class GrizardMergeFieldRowsTest(unittest.TestCase):
+class GWizardMergeFieldRowsTest(unittest.TestCase):
     """Field row values for names that differ only by prefix or extra surname."""
 
     def test_surname_prefix_difference_is_flagged(self) -> None:

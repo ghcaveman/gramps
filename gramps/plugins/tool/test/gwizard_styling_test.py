@@ -58,17 +58,17 @@ def _has_gtk_display() -> bool:
 _HAS_GTK_DISPLAY = _has_gtk_display()
 
 
-class TestGrizardStyling(unittest.TestCase):
-    """Test cases for Pango markup rendering in grizard compare/merge dialogs."""
+class TestGWizardStyling(unittest.TestCase):
+    """Test cases for Pango markup rendering in gwizard compare/merge dialogs."""
 
     def test_compare_bold_only_content_not_punct(self):
         """Test that in compare window, only word content is bold, not punct."""
         from gramps.gui.gwizard.gwizardcompare import (
-            GrizardCompareWindow,
+            GWizardCompareWindow,
         )
 
         # "b. 1234," vs "b. 5678," - only numbers differ, comma should NOT be bold
-        result = GrizardCompareWindow._italicize_with_bold_diffs(
+        result = GWizardCompareWindow._italicize_with_bold_diffs(
             "b. 1234,", "b. 1234,", "b. 5678,"
         )
         # "b." should be italic but not bold
@@ -84,11 +84,11 @@ class TestGrizardStyling(unittest.TestCase):
     def test_compare_matching_words_not_bold(self):
         """Test that matching words are not bold."""
         from gramps.gui.gwizard.gwizardcompare import (
-            GrizardCompareWindow,
+            GWizardCompareWindow,
         )
 
         # "John Smith" vs "John Doe" - only "Smith" differs
-        result = GrizardCompareWindow._italicize_with_bold_diffs(
+        result = GWizardCompareWindow._italicize_with_bold_diffs(
             "John Smith", "John Smith", "John Doe"
         )
         # "John" should be italic but NOT bold
@@ -100,11 +100,11 @@ class TestGrizardStyling(unittest.TestCase):
     def test_compare_punctuation_not_bold(self):
         """Test various punctuation types are handled correctly."""
         from gramps.gui.gwizard.gwizardcompare import (
-            GrizardCompareWindow,
+            GWizardCompareWindow,
         )
 
         # Test with comma
-        result = GrizardCompareWindow._italicize_with_bold_diffs(
+        result = GWizardCompareWindow._italicize_with_bold_diffs(
             "hello,", "hello,", "world,"
         )
         import re
@@ -114,7 +114,7 @@ class TestGrizardStyling(unittest.TestCase):
         self.assertNotIn(",", bold_content)  # comma should NOT be in bold
 
         # Test with period
-        result = GrizardCompareWindow._italicize_with_bold_diffs(
+        result = GWizardCompareWindow._italicize_with_bold_diffs(
             "test.", "test.", "demo."
         )
         bold_content = re.findall(r"<b>(.*?)</b>", result)
@@ -124,11 +124,11 @@ class TestGrizardStyling(unittest.TestCase):
     def test_merge_bold_only_content_not_punct(self):
         """Test that in merge dialog, only word content is bold, not punct."""
         from gramps.gui.gwizard.gwizardmergedialog import (
-            GrizardMergeDialog,
+            GWizardMergeDialog,
         )
 
         # Test without label - this tests the core logic
-        result = GrizardMergeDialog._format_diff_line(
+        result = GWizardMergeDialog._format_diff_line(
             "ignored", "Boston,", "New York,", show_label=False, is_left=True
         )
         # "Boston" should be bold
@@ -142,11 +142,11 @@ class TestGrizardStyling(unittest.TestCase):
     def test_merge_location_comma_not_bold(self):
         """Test that comma in location is not bold."""
         from gramps.gui.gwizard.gwizardmergedialog import (
-            GrizardMergeDialog,
+            GWizardMergeDialog,
         )
 
         # "Boston, MA" vs "New York, NY" - compare word by word
-        result = GrizardMergeDialog._format_diff_line(
+        result = GWizardMergeDialog._format_diff_line(
             "ignored", "Boston, MA", "New York, NY", show_label=False, is_left=True
         )
         # "Boston" should be bold
@@ -160,13 +160,13 @@ class TestGrizardStyling(unittest.TestCase):
         self.assertNotIn(",", bold_content)
 
 
-class TestGrizardCompareDiffStatus(unittest.TestCase):
+class TestGWizardCompareDiffStatus(unittest.TestCase):
     """Test matched-pair and Add as New button behavior."""
 
     def test_dict_diff_entry_does_not_break_matched_pair_buttons(self) -> None:
         from types import SimpleNamespace
 
-        from gramps.gui.gwizard.gwizardcompare import GrizardCompareWindow
+        from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
 
         window = SimpleNamespace(
             current_category="person",
@@ -180,7 +180,7 @@ class TestGrizardCompareDiffStatus(unittest.TestCase):
             diff_label=Mock(),
         )
 
-        GrizardCompareWindow._update_diff_status(window)
+        GWizardCompareWindow._update_diff_status(window)
 
         window.btn_merge_dialog.set_sensitive.assert_called_once_with(True)
         window.btn_add_new.set_label.assert_called_once_with("Not a Match")
@@ -189,7 +189,7 @@ class TestGrizardCompareDiffStatus(unittest.TestCase):
     def test_unmatched_pair_shows_add_as_new(self) -> None:
         from types import SimpleNamespace
 
-        from gramps.gui.gwizard.gwizardcompare import GrizardCompareWindow
+        from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
 
         window = SimpleNamespace(
             current_category="person",
@@ -203,7 +203,7 @@ class TestGrizardCompareDiffStatus(unittest.TestCase):
             diff_label=Mock(),
         )
 
-        GrizardCompareWindow._update_diff_status(window)
+        GWizardCompareWindow._update_diff_status(window)
 
         window.btn_merge_dialog.set_sensitive.assert_called_once_with(False)
         window.btn_add_new.set_label.assert_called_once_with("Add as New...")
@@ -212,7 +212,7 @@ class TestGrizardCompareDiffStatus(unittest.TestCase):
     def test_reject_pair_updates_maps_and_keeps_diff_dict(self) -> None:
         from types import SimpleNamespace
 
-        from gramps.gui.gwizard.gwizardcompare import GrizardCompareWindow
+        from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
 
         window = SimpleNamespace(
             _rejected={},
@@ -228,7 +228,7 @@ class TestGrizardCompareDiffStatus(unittest.TestCase):
             _update_diff_status=Mock(),
         )
 
-        GrizardCompareWindow._reject_pair(window, "source", "target")
+        GWizardCompareWindow._reject_pair(window, "source", "target")
 
         self.assertEqual(window._rejected, {"source": {"target"}})
         self.assertIsNone(window._pair_map["source"])
@@ -239,13 +239,13 @@ class TestGrizardCompareDiffStatus(unittest.TestCase):
         window._match_key = lambda _person: ("surname", "i")
         window._target_index = {("surname", "i"): ["target"]}
         self.assertIsNone(
-            GrizardCompareWindow._best_match(
+            GWizardCompareWindow._best_match(
                 window, Mock(), SimpleNamespace(handle="source")
             )
         )
 
 
-class TestGrizardDiffHighlight(unittest.TestCase):
+class TestGWizardDiffHighlight(unittest.TestCase):
     """Test cases for the diff-line row highlight used by the merge dialog."""
 
     def test_diff_line_rule_defines_background(self) -> None:

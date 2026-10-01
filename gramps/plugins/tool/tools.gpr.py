@@ -207,8 +207,8 @@ register(
     authors=["Kevin White"],
     authors_email=["gocaveman@gmail.com"],
     category=TOOL_DBPROC,
-    toolclass="GrizardMergeTool",
-    optionclass="GrizardMergeToolOptions",
+    toolclass="GWizardMergeTool",
+    optionclass="GWizardMergeToolOptions",
     tool_modes=[TOOL_MODE_GUI],
     help_url=TOOLS_HELP,
 )

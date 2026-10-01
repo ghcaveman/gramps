@@ -90,7 +90,7 @@ from gramps.gen.types import PersonHandle
 #
 # -------------------------------------------------------------------------
 from gramps.gen.gwizard.gwizard import (
-    GrizardCompareRow,
+    GWizardCompareRow,
     CandidateMatcher,
     safe_get,
     safe_get_event,
@@ -102,7 +102,7 @@ from gramps.gen.gwizard.gwizard import (
     surname_prefix_text,
     surname_text,
 )
-from gramps.gen.gwizard.gwizardgedcom import GedGrizard
+from gramps.gen.gwizard.gwizardgedcom import GedGWizard
 
 
 def _has_gtk_display() -> bool:
@@ -132,12 +132,12 @@ _HAS_GTK_DISPLAY = _has_gtk_display()
 
 # ------------------------------------------------------------
 #
-# GrizardTest
+# GWizardTest
 #
 # ------------------------------------------------------------
-class GrizardTest(unittest.TestCase):
+class GWizardTest(unittest.TestCase):
     """
-    Test cases for Grizard core framework, CandidateMatcher, and GedGrizard.
+    Test cases for Grizard core framework, CandidateMatcher, and GedGWizard.
     """
 
     def setUp(self) -> None:
@@ -314,9 +314,9 @@ class GrizardTest(unittest.TestCase):
                 t_person.set_primary_name(t_name)
                 target_db.add_person(t_person, trans)
                 t_handle = t_person.handle
-            grizard = GedGrizard(target_db)
-            grizard.context["source_db"] = source_db
-            rows = grizard.run_step(
+            gwizard = GedGWizard(target_db)
+            gwizard.context["source_db"] = source_db
+            rows = gwizard.run_step(
                 "compare",
                 source_person_handle=s_handle,
                 target_person_handle=t_handle,
@@ -362,9 +362,9 @@ class GrizardTest(unittest.TestCase):
                 t_person.set_primary_name(t_name)
                 target_db.add_person(t_person, trans)
                 t_handle = t_person.handle
-            grizard = GedGrizard(target_db)
-            grizard.context["source_db"] = source_db
-            grizard.run_step(
+            gwizard = GedGWizard(target_db)
+            gwizard.context["source_db"] = source_db
+            gwizard.run_step(
                 "apply",
                 source_person_handle=s_handle,
                 target_person_handle=t_handle,
@@ -419,9 +419,9 @@ class GrizardTest(unittest.TestCase):
         finally:
             source_db.close()
 
-    def test_ged_grizard_flow(self) -> None:
+    def test_ged_gwizard_flow(self) -> None:
         """
-        Test the end-to-end GedGrizard workflow sequence (connect, load, match, compare, apply).
+        Test the end-to-end GedGWizard workflow sequence (connect, load, match, compare, apply).
         """
         # Create a simple valid minimal GEDCOM file
         gedcom_data = """0 HEAD
@@ -441,19 +441,19 @@ class GrizardTest(unittest.TestCase):
             temp_path = f.name
 
         try:
-            grizard = GedGrizard(self.db)
+            gwizard = GedGWizard(self.db)
 
             # 1. Connect
-            self.assertTrue(grizard.run_step("connect", gedcom_path=temp_path))
+            self.assertTrue(gwizard.run_step("connect", gedcom_path=temp_path))
 
             # 2. Load
-            people = grizard.run_step("load")
+            people = gwizard.run_step("load")
             self.assertEqual(len(people), 1)
             source_person = people[0]
             self.assertEqual(source_person.get_primary_name().first_name, "John")
 
             # 3. Match
-            matches = grizard.run_step(
+            matches = gwizard.run_step(
                 "match", source_person_handle=source_person.handle
             )
             self.assertEqual(len(matches), 1)
@@ -462,7 +462,7 @@ class GrizardTest(unittest.TestCase):
             self.assertGreater(match["score"], 1.0)
 
             # 4. Compare
-            comparison = grizard.run_step(
+            comparison = gwizard.run_step(
                 "compare",
                 source_person_handle=source_person.handle,
                 target_person_handle=self.target_person.handle,
@@ -481,7 +481,7 @@ class GrizardTest(unittest.TestCase):
                 "gender": "target",
                 "birth_event": "source",
             }
-            success = grizard.run_step(
+            success = gwizard.run_step(
                 "apply",
                 source_person_handle=source_person.handle,
                 target_person_handle=self.target_person.handle,
@@ -497,7 +497,7 @@ class GrizardTest(unittest.TestCase):
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
-    def test_ged_grizard_add_new_clears_source_database_handles(self) -> None:
+    def test_ged_gwizard_add_new_clears_source_database_handles(self) -> None:
         """Add as New must not retain links into the temporary source DB."""
         gedcom_data = """0 HEAD
 1 CHAR UTF-8
@@ -522,9 +522,9 @@ class GrizardTest(unittest.TestCase):
             temp_path = f.name
 
         try:
-            grizard = GedGrizard(self.db)
-            grizard.run_step("connect", gedcom_path=temp_path)
-            people = grizard.run_step("load")
+            gwizard = GedGWizard(self.db)
+            gwizard.run_step("connect", gedcom_path=temp_path)
+            people = gwizard.run_step("load")
             source_person = next(
                 person
                 for person in people
@@ -535,7 +535,7 @@ class GrizardTest(unittest.TestCase):
 
             existing_handles = set(self.db.iter_person_handles())
             self.assertTrue(
-                grizard.run_step(
+                gwizard.run_step(
                     "apply",
                     source_person_handle=source_person.handle,
                     target_person_handle=None,
@@ -579,10 +579,10 @@ class GrizardTest(unittest.TestCase):
                     os.path.join(TEST_DIR, source_name),
                     temp_path,
                 )
-                grizard = GedGrizard(self.db)
-                self.assertTrue(grizard.run_step("connect", gedcom_path=temp_path))
-                self.assertTrue(grizard._is_gramps_xml_file(temp_path))
-                people = grizard.run_step("load")
+                gwizard = GedGWizard(self.db)
+                self.assertTrue(gwizard.run_step("connect", gedcom_path=temp_path))
+                self.assertTrue(gwizard._is_gramps_xml_file(temp_path))
+                people = gwizard.run_step("load")
                 self.assertEqual(len(people), expected_count)
             finally:
                 if os.path.exists(temp_path):
@@ -604,39 +604,39 @@ class GrizardTest(unittest.TestCase):
             handle.write(gedcom_data)
             temp_path = handle.name
         try:
-            grizard = GedGrizard(self.db)
-            self.assertFalse(grizard._is_gramps_xml_file(temp_path))
+            gwizard = GedGWizard(self.db)
+            self.assertFalse(gwizard._is_gramps_xml_file(temp_path))
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
     def test_format_diff_line(self) -> None:
         """
-        Test the GrizardMergeDialog's static method for rendering
+        Test the GWizardMergeDialog's static method for rendering
         Pango-highlighted differences between values.
         """
-        from gramps.gui.gwizard.gwizardmergedialog import GrizardMergeDialog
+        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
 
         # Exact match (should be plain)
-        res = GrizardMergeDialog._format_diff_line(
+        res = GWizardMergeDialog._format_diff_line(
             "Given Name", "John", "John", show_label=False, is_left=True
         )
         self.assertEqual(res, "John")
 
         # Differ (one word differs)
-        res_diff = GrizardMergeDialog._format_diff_line(
+        res_diff = GWizardMergeDialog._format_diff_line(
             "Given Name", "John James", "John Paul", show_label=False, is_left=True
         )
         # "James" differs, so it should be bolded, while "John" is matched and just italicized
         self.assertIn("James", res_diff)
 
         # Show label
-        res_label = GrizardMergeDialog._format_diff_line(
+        res_label = GWizardMergeDialog._format_diff_line(
             "Given Name", "John", "John", show_label=True, is_left=True
         )
         self.assertEqual(res_label, "Given Name: John")
 
-    def test_ged_grizard_apply_merge_relationships(self) -> None:
+    def test_ged_gwizard_apply_merge_relationships(self) -> None:
         """
         Test merging complex family relationships (spouse, child, parents)
         where the relative is mapped using best_target_person lookup.
@@ -678,9 +678,9 @@ class GrizardTest(unittest.TestCase):
             temp_path = f.name
 
         try:
-            grizard = GedGrizard(self.db)
-            grizard.run_step("connect", gedcom_path=temp_path)
-            people = grizard.run_step("load")
+            gwizard = GedGWizard(self.db)
+            gwizard.run_step("connect", gedcom_path=temp_path)
+            people = gwizard.run_step("load")
             source_john = [
                 p for p in people if p.get_primary_name().first_name == "John"
             ][0]
@@ -692,7 +692,7 @@ class GrizardTest(unittest.TestCase):
             resolutions = {
                 f"spouse:{source_jane.handle}": "source",
             }
-            success = grizard.run_step(
+            success = gwizard.run_step(
                 "apply",
                 source_person_handle=source_john.handle,
                 target_person_handle=self.target_person.handle,
@@ -713,7 +713,7 @@ class GrizardTest(unittest.TestCase):
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
-    def test_ged_grizard_resolve_dangling_references(self) -> None:
+    def test_ged_gwizard_resolve_dangling_references(self) -> None:
         """
         Verify that dangling references (Notes, Citations, Sources) are
         recursively copied and linked correctly when merging a person or event.
@@ -741,9 +741,9 @@ class GrizardTest(unittest.TestCase):
             temp_path = f.name
 
         try:
-            grizard = GedGrizard(self.db)
-            grizard.run_step("connect", gedcom_path=temp_path)
-            people = grizard.run_step("load")
+            gwizard = GedGWizard(self.db)
+            gwizard.run_step("connect", gedcom_path=temp_path)
+            people = gwizard.run_step("load")
             source_person = people[0]
 
             resolutions = {
@@ -752,7 +752,7 @@ class GrizardTest(unittest.TestCase):
                 "gender": "source",
                 "birth_event": "source",
             }
-            success = grizard.run_step(
+            success = gwizard.run_step(
                 "apply",
                 source_person_handle=source_person.handle,
                 target_person_handle=self.target_person.handle,
@@ -798,10 +798,10 @@ class GrizardTest(unittest.TestCase):
     )
     def test_dialog_find_dangling_references(self) -> None:
         """
-        Verify that GrizardMergeDialog._find_dangling_references correctly
+        Verify that GWizardMergeDialog._find_dangling_references correctly
         detects and categorizes missing references prior to merge.
         """
-        from gramps.gui.gwizard.gwizardmergedialog import GrizardMergeDialog
+        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
 
         gedcom_data = """0 HEAD
 1 CHAR UTF-8
@@ -825,9 +825,9 @@ class GrizardTest(unittest.TestCase):
             temp_path = f.name
 
         try:
-            grizard = GedGrizard(self.db)
-            grizard.run_step("connect", gedcom_path=temp_path)
-            people = grizard.run_step("load")
+            gwizard = GedGWizard(self.db)
+            gwizard.run_step("connect", gedcom_path=temp_path)
+            people = gwizard.run_step("load")
             source_person = people[0]
 
             # Construct mock/real DbState
@@ -835,11 +835,11 @@ class GrizardTest(unittest.TestCase):
                 def __init__(self, db):
                     self.db = db
 
-            # GrizardMergeDialog needs a real display (skipped otherwise).
+            # GWizardMergeDialog needs a real display (skipped otherwise).
             dbstate = MockDbState(self.db)
-            dialog = GrizardMergeDialog(
+            dialog = GWizardMergeDialog(
                 dbstate=dbstate,
-                grizard=grizard,
+                gwizard=gwizard,
                 source_handle=source_person.handle,
                 target_handle=self.target_person.handle,
             )
@@ -881,7 +881,7 @@ class GrizardTest(unittest.TestCase):
         must raise HandleError instead of failing later with an
         AttributeError on a None person.
         """
-        from gramps.gui.gwizard.gwizardmergedialog import GrizardMergeDialog
+        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
 
         class MockDbState:
             def __init__(self, db):
@@ -900,13 +900,13 @@ class GrizardTest(unittest.TestCase):
             temp_path = f.name
 
         try:
-            grizard = GedGrizard(self.db)
-            grizard.run_step("connect", gedcom_path=temp_path)
+            gwizard = GedGWizard(self.db)
+            gwizard.run_step("connect", gedcom_path=temp_path)
 
             with self.assertRaises(HandleError):
-                GrizardMergeDialog(
+                GWizardMergeDialog(
                     dbstate=MockDbState(self.db),
-                    grizard=grizard,
+                    gwizard=gwizard,
                     source_handle="0000006e0000006e",
                     target_handle=None,
                 )
@@ -924,7 +924,7 @@ class GrizardTest(unittest.TestCase):
         With no target handle the dialog must still build, since the
         compare window opens it that way for unmatched people.
         """
-        from gramps.gui.gwizard.gwizardmergedialog import GrizardMergeDialog
+        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
 
         gedcom_data = """0 HEAD
 1 CHAR UTF-8
@@ -939,18 +939,18 @@ class GrizardTest(unittest.TestCase):
             temp_path = f.name
 
         try:
-            grizard = GedGrizard(self.db)
-            grizard.run_step("connect", gedcom_path=temp_path)
-            people = grizard.run_step("load")
+            gwizard = GedGWizard(self.db)
+            gwizard.run_step("connect", gedcom_path=temp_path)
+            people = gwizard.run_step("load")
             source_person = people[0]
 
             class MockDbState:
                 def __init__(self, db):
                     self.db = db
 
-            dialog = GrizardMergeDialog(
+            dialog = GWizardMergeDialog(
                 dbstate=MockDbState(self.db),
-                grizard=grizard,
+                gwizard=gwizard,
                 source_handle=source_person.handle,
                 target_handle=None,
             )
@@ -964,10 +964,10 @@ class GrizardTest(unittest.TestCase):
 
 # ------------------------------------------------------------
 #
-# GrizardSafeLookupTest
+# GWizardSafeLookupTest
 #
 # ------------------------------------------------------------
-class GrizardSafeLookupTest(unittest.TestCase):
+class GWizardSafeLookupTest(unittest.TestCase):
     """
     Test the safe handle lookup helpers.
 
@@ -998,7 +998,7 @@ class GrizardSafeLookupTest(unittest.TestCase):
 
     def test_safe_get_returns_none_for_dangling_handle(self):
         """A dangling handle yields None instead of raising HandleError."""
-        db = GrizardSafeLookupTest._RaisingDb()
+        db = GWizardSafeLookupTest._RaisingDb()
         self.assertIsNone(safe_get_person(db, "0000006e0000006e"))
         self.assertIsNone(safe_get_family(db, "0000006e0000006e"))
         self.assertIsNone(safe_get_event(db, "0000006e0000006e"))
@@ -1007,7 +1007,7 @@ class GrizardSafeLookupTest(unittest.TestCase):
 
     def test_safe_get_short_circuits_empty_handle(self):
         """An empty or None handle never reaches the database."""
-        db = GrizardSafeLookupTest._RaisingDb()
+        db = GWizardSafeLookupTest._RaisingDb()
         for handle in (None, ""):
             self.assertIsNone(safe_get_person(db, handle))
         # No exception means the getter was never invoked.
@@ -1026,7 +1026,7 @@ class GrizardSafeLookupTest(unittest.TestCase):
     def test_safe_get_dispatches_by_getter_name(self):
         """The generic helper forwards to the named getter method."""
         sentinel = object()
-        db = GrizardSafeLookupTest._RaisingDb()
+        db = GWizardSafeLookupTest._RaisingDb()
         db.get_note_from_handle = lambda handle: sentinel
         self.assertIs(safe_get(db, "h", "get_note_from_handle", "note"), sentinel)
         # An unknown getter still surfaces its own error rather than

@@ -128,41 +128,41 @@ def ask_source_file(parent: Any, title: str | None = None) -> str | None:
     return str(path)
 
 
-def load_source_grizard(db: Any, path: str) -> Any:
+def load_source_gwizard(db: Any, path: str) -> Any:
     """
     Connect and load a source file into a Grizard session.
     """
     import os
 
-    from gramps.gen.gwizard.gwizardgedcom import GedGrizard
+    from gramps.gen.gwizard.gwizardgedcom import GedGWizard
 
     if not path or not os.path.isfile(path):
         raise ValueError(str(_("The selected file is missing.")))
-    grizard = GedGrizard(db)
-    if not grizard.run_step("connect", gedcom_path=path):
+    gwizard = GedGWizard(db)
+    if not gwizard.run_step("connect", gedcom_path=path):
         raise ValueError(str(_("Could not read the selected file.")))
     try:
-        grizard.run_step("load")
+        gwizard.run_step("load")
     except Exception as error:
         LOG.error("Failed to load source file for comparison: %s", error)
         raise RuntimeError(str(error)) from error
-    return grizard
+    return gwizard
 
 
 def open_compare_window(
-    uistate: Any, dbstate: Any, grizard: Any, parent: Any = None
+    uistate: Any, dbstate: Any, gwizard: Any, parent: Any = None
 ) -> Any:
     """
     Open the side-by-side comparison window for a loaded session.
     """
-    from gramps.gui.gwizard.gwizardcompare import GrizardCompareWindow
+    from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
 
-    window = GrizardCompareWindow(uistate, dbstate, grizard, parent=parent)
+    window = GWizardCompareWindow(uistate, dbstate, gwizard, parent=parent)
     window.show()
     return window
 
 
-def run_grizard_merge_flow(uistate: Any, dbstate: Any, parent: Any = None) -> bool:
+def run_gwizard_merge_flow(uistate: Any, dbstate: Any, parent: Any = None) -> bool:
     """
     Run the full flow: ask for a file, load it, open compare.
 
@@ -190,7 +190,7 @@ def run_grizard_merge_flow(uistate: Any, dbstate: Any, parent: Any = None) -> bo
     )
     meter.step()
     try:
-        grizard = load_source_grizard(dbstate.db, path)
+        gwizard = load_source_gwizard(dbstate.db, path)
     except (ValueError, RuntimeError) as error:
         meter.close()
         ErrorDialog(_("Load Failed"), str(error), parent=parent)
@@ -198,7 +198,7 @@ def run_grizard_merge_flow(uistate: Any, dbstate: Any, parent: Any = None) -> bo
     meter.set_header(str(_("Building the comparison window...")))
     meter.step()
     try:
-        open_compare_window(uistate, dbstate, grizard, parent=parent)
+        open_compare_window(uistate, dbstate, gwizard, parent=parent)
     finally:
         meter.close()
     return True

@@ -22,11 +22,11 @@ Grizard framework: generic wizard workflow for importing and exporting data.
 
 from __future__ import annotations
 
-from .gwizard import GrizardBase, GrizardCompareRow
-from .gwizardgedcom import GedGrizard
+from .gwizard import GWizardBase, GWizardCompareRow
+from .gwizardgedcom import GedGWizard
 
 __all__ = [
-    "GrizardBase",
-    "GrizardCompareRow",
-    "GedGrizard",
+    "GWizardBase",
+    "GWizardCompareRow",
+    "GedGWizard",
 ]

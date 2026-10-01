@@ -23,7 +23,7 @@ Modal merge dialog for Grizard.
 Shows the incoming GEDCOM tree on the left and the current family tree
 (destination) on the right, with a per-field arrow button (=>) between
 them for any data that does not match exactly. Clicking Apply runs the
-gen-side GedGrizard._apply for the collected field resolutions.
+gen-side GedGWizard._apply for the collected field resolutions.
 """
 
 # -------------------------------------------------------------------------
@@ -55,7 +55,7 @@ from gramps.gen.lib import Person
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.errors import HandleError
-from gramps.gen.gwizard.gwizardgedcom import GedGrizard
+from gramps.gen.gwizard.gwizardgedcom import GedGWizard
 from gramps.gen.gwizard.gwizard import (
     safe_get_event,
     safe_get_family,
@@ -211,10 +211,10 @@ def field_values_differ(left_val: Any, right_val: Any) -> bool:
 
 # -------------------------------------------------------------------------
 #
-# GrizardMergeDialog
+# GWizardMergeDialog
 #
 # -------------------------------------------------------------------------
-class GrizardMergeDialog(Gtk.Dialog):
+class GWizardMergeDialog(Gtk.Dialog):
     """
     Modal dialog to review one source/target person pair and move
     fields between the two trees before committing to the database.
@@ -223,7 +223,7 @@ class GrizardMergeDialog(Gtk.Dialog):
     def __init__(
         self,
         dbstate: Any,
-        grizard: GedGrizard,
+        gwizard: GedGWizard,
         source_handle: str,
         target_handle: str | None,
         parent: Gtk.Window | None = None,
@@ -232,7 +232,7 @@ class GrizardMergeDialog(Gtk.Dialog):
         Build the modal merge dialog for one source/target person pair.
 
         :param dbstate: Active Gramps DB state manager (target tree).
-        :param grizard: A GedGrizard whose connect/load steps already ran.
+        :param gwizard: A GedGWizard whose connect/load steps already ran.
         :param source_handle: Handle of the person in the GEDCOM (source) DB.
         :param target_handle: Handle of the person in the target DB, or None
             to add the source person as a new one.
@@ -244,8 +244,8 @@ class GrizardMergeDialog(Gtk.Dialog):
         self.set_border_width(6)
         ensure_diff_styles_installed()
 
-        self.grizard = grizard
-        source_db = grizard.context.get("source_db")
+        self.gwizard = gwizard
+        source_db = gwizard.context.get("source_db")
         if source_db is None:
             raise HandleError(_("No source database available for merge"))
         self.source_db = source_db
@@ -983,7 +983,7 @@ class GrizardMergeDialog(Gtk.Dialog):
                 return
 
         try:
-            self.grizard.run_step(
+            self.gwizard.run_step(
                 "apply",
                 source_person_handle=self.source_handle,
                 target_person_handle=self.target_handle,

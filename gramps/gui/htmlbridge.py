@@ -67,8 +67,8 @@ class HtmlBridge:
         # 2. Conditional routing path: Route to Grizard if the addon is installed
         try:
             # Check if Grizard package/modules are installed/importable
-            from gramps.gui.gwizard.gwizardcompare import GrizardCompareWindow
-            from gramps.gen.gwizard.gwizardgedcom import GedGrizard
+            from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
+            from gramps.gen.gwizard.gwizardgedcom import GedGWizard
             from gi.repository import Gtk
             from gramps.gen.const import GRAMPS_LOCALE as glocale
             import gc
@@ -130,12 +130,12 @@ class HtmlBridge:
                     filename = chooser.get_filename()
                     chooser.destroy()
 
-                    grizard = GedGrizard(vm.dbstate.db)
-                    grizard.run_step("connect", gedcom_path=filename)
-                    grizard.run_step("load")
+                    gwizard = GedGWizard(vm.dbstate.db)
+                    gwizard.run_step("connect", gedcom_path=filename)
+                    gwizard.run_step("load")
 
-                    compare_win = GrizardCompareWindow(
-                        vm.uistate, vm.dbstate, grizard, parent=vm.window
+                    compare_win = GWizardCompareWindow(
+                        vm.uistate, vm.dbstate, gwizard, parent=vm.window
                     )
                     compare_win.show()
                 else:

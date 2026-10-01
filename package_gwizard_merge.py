@@ -30,7 +30,7 @@ top-level via ``__import__`` with the addon directory on ``sys.path``).
 Also embeds the standalone addon registration file
 ``GWizardDataMerge/GWizardDataMerge.gpr.py`` (mirroring the ``grizardmerge``
 entry in ``gramps/plugins/tool/tools.gpr.py``) and places all of the
-grizard-related tests in ``GWizardDataMerge/test/`` with a single merged
+gwizard-related tests in ``GWizardDataMerge/test/`` with a single merged
 ``__init__.py``. Newlines are normalized to LF so the output is identical
 regardless of the checkout's line-ending setting.
 """
@@ -93,8 +93,8 @@ if (5, 2, 0) <= VERSION_TUPLE <= (6, 2, 0):
         authors=["Kevin White"],
         authors_email=["gocaveman@gmail.com"],
         category=TOOL_DBPROC,
-        toolclass="GrizardMergeTool",
-        optionclass="GrizardMergeToolOptions",
+        toolclass="GWizardMergeTool",
+        optionclass="GWizardMergeToolOptions",
         tool_modes=[TOOL_MODE_GUI],
         help_url=("https://gramps.discourse.group/t/10027")
     )

@@ -46,7 +46,7 @@ from gi.repository import GLib
 # -------------------------------------------------------------------------
 from gramps.gen.lib import Person
 from gramps.gen.errors import HandleError
-from gramps.gen.gwizard.gwizardgedcom import GedGrizard
+from gramps.gen.gwizard.gwizardgedcom import GedGWizard
 from gramps.gen.gwizard.gwizard import (
     CandidateMatcher,
     safe_get_event,
@@ -125,10 +125,10 @@ CATEGORIES = [
 
 # ------------------------------------------------------------
 #
-# GrizardCompareWindow
+# GWizardCompareWindow
 #
 # ------------------------------------------------------------
-class GrizardCompareWindow(ManagedWindow, Gtk.Window):
+class GWizardCompareWindow(ManagedWindow, Gtk.Window):
     """
     Side-by-side comparison of a loaded GEDCOM tree (left) against the
     current Gramps tree (destination, right), with Previous/Next
@@ -146,7 +146,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         self,
         uistate: Any,
         dbstate: Any,
-        grizard: GedGrizard,
+        gwizard: GedGWizard,
         parent: Gtk.Window | None = None,
     ) -> None:
         """
@@ -154,7 +154,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
 
         :param uistate: Active Gramps UI state manager.
         :param dbstate: Active Gramps DB state manager.
-        :param grizard: A GedGrizard instance whose connect and load steps
+        :param gwizard: A GedGWizard instance whose connect and load steps
             have already been run (source_db present in its context).
         :param parent: Parent window.
         """
@@ -163,8 +163,8 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         self.set_window(self, None, _("Grizard Compare"), isWindow=True)
 
         self.dbstate = dbstate
-        self.grizard = grizard
-        source_db = grizard.context.get("source_db")
+        self.gwizard = gwizard
+        source_db = gwizard.context.get("source_db")
         if source_db is None:
             raise HandleError(_("No source database available for comparison"))
         self.source_db: Any = source_db
@@ -439,7 +439,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                         {"source_handle": handle, "target_handle": None}
                     )
                 else:
-                    rows = self.grizard.run_step(
+                    rows = self.gwizard.run_step(
                         "compare",
                         source_person_handle=handle,
                         target_person_handle=target_handle,
@@ -579,7 +579,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                     db_for_person = (
                         self.source_db if person is source else self.dbstate.db
                     )
-                    year = GrizardCompareWindow._get_event_year(ev, db_for_person)
+                    year = GWizardCompareWindow._get_event_year(ev, db_for_person)
                     if year:
                         return year
                 return None
@@ -619,10 +619,10 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         if not group:
             surname_list = person.get_primary_name().surname_list
             group = surname_list[0].surname if surname_list else "???"
-        born = GrizardCompareWindow._get_born_text(person, db)
-        died = GrizardCompareWindow._get_died_text(person, db)
-        parents = GrizardCompareWindow._get_parent_names(person, db)
-        spouse = GrizardCompareWindow._get_spouse_names(person, db)
+        born = GWizardCompareWindow._get_born_text(person, db)
+        died = GWizardCompareWindow._get_died_text(person, db)
+        parents = GWizardCompareWindow._get_parent_names(person, db)
+        spouse = GWizardCompareWindow._get_spouse_names(person, db)
 
         # Find or create the group row (group rows carry handle '')
         group_iter = None
@@ -896,14 +896,14 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         parts = []
         try:
-            birth_year = GrizardCompareWindow._get_event_year(
+            birth_year = GWizardCompareWindow._get_event_year(
                 person.get_birth_ref(), db
             )
         except Exception:
             birth_year = ""
         if birth_year:
             parts.append("b. " + birth_year)
-        birth_place = GrizardCompareWindow._get_event_place(person.get_birth_ref(), db)
+        birth_place = GWizardCompareWindow._get_event_place(person.get_birth_ref(), db)
         if birth_place:
             parts.append(birth_place)
         return " ".join(parts)
@@ -914,7 +914,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         Return the death summary (``d.<year>``) for the person.
         """
         try:
-            death_year = GrizardCompareWindow._get_event_year(
+            death_year = GWizardCompareWindow._get_event_year(
                 person.get_death_ref(), db
             )
         except Exception:
@@ -1370,7 +1370,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
                 other_line = other_cleaned[i] if i < len(other_cleaned) else None
                 # Entire line is italic, but only the differing words are bold
                 out.append(
-                    GrizardCompareWindow._italicize_with_bold_diffs(
+                    GWizardCompareWindow._italicize_with_bold_diffs(
                         line, esc, other_line
                     )
                 )
@@ -1470,9 +1470,9 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         lines.append(_("Gender: %s") % gender)
         if person.gramps_id:
             lines.append(_("ID: %s") % person.gramps_id)
-        birth_year = GrizardCompareWindow._get_event_year(person.get_birth_ref(), db)
-        death_year = GrizardCompareWindow._get_event_year(person.get_death_ref(), db)
-        birth_place = GrizardCompareWindow._get_event_place(person.get_birth_ref(), db)
+        birth_year = GWizardCompareWindow._get_event_year(person.get_birth_ref(), db)
+        death_year = GWizardCompareWindow._get_event_year(person.get_death_ref(), db)
+        birth_place = GWizardCompareWindow._get_event_place(person.get_birth_ref(), db)
         birth_part = ""
         if birth_year:
             birth_part = "b. " + birth_year
@@ -1660,13 +1660,13 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         related person, or ''.
         """
         try:
-            birth_year = GrizardCompareWindow._get_event_year(
+            birth_year = GWizardCompareWindow._get_event_year(
                 related.get_birth_ref(), db
             )
         except Exception:
             birth_year = ""
         try:
-            death_year = GrizardCompareWindow._get_event_year(
+            death_year = GWizardCompareWindow._get_event_year(
                 related.get_death_ref(), db
             )
         except Exception:
@@ -1743,11 +1743,11 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         if target_handle is None:
             LOG.info("No existing target for this person; add as new.")
             return
-        from .gwizardmergedialog import GrizardMergeDialog
+        from .gwizardmergedialog import GWizardMergeDialog
 
-        dialog = GrizardMergeDialog(
+        dialog = GWizardMergeDialog(
             self.dbstate,
-            self.grizard,
+            self.gwizard,
             source_handle,
             target_handle,
             parent=self,
@@ -1813,7 +1813,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
             return
         source_handle = pair[0]
         try:
-            self.grizard.run_step(
+            self.gwizard.run_step(
                 "apply",
                 source_person_handle=source_handle,
                 target_person_handle=None,

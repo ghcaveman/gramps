@@ -22,20 +22,20 @@ Grizard GUI framework presentation package.
 
 from __future__ import annotations
 
-from .gwizardmergedialog import GrizardMergeDialog
+from .gwizardmergedialog import GWizardMergeDialog
 from .gwizardlauncher import (
-    run_grizard_merge_flow,
+    run_gwizard_merge_flow,
     open_compare_window,
-    load_source_grizard,
+    load_source_gwizard,
     ask_source_file,
     build_source_file_filters,
 )
 
 __all__ = [
-    "GrizardMergeDialog",
-    "run_grizard_merge_flow",
+    "GWizardMergeDialog",
+    "run_gwizard_merge_flow",
     "open_compare_window",
-    "load_source_grizard",
+    "load_source_gwizard",
     "ask_source_file",
     "build_source_file_filters",
 ]
