@@ -18,7 +18,13 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Unittests for the Grizard merge tool launcher."""
+"""Unit tests for the Grizard Data Merge tool.
+
+Consolidated from ``gramps.gen.grizard.test`` (backend import framework
+and GEDCOM tests) and ``gramps.gui.grizard.test`` (merge dialog field
+and styling tests) as part of the permanent migration of Grizard to a
+standalone addon plugin.
+"""
 
 # -------------------------------------------------------------------------
 #

@@ -33,8 +33,10 @@ import tempfile
 import unittest
 
 # Set up test resources environment variables before importing any Gramps module
+# Repo root is four levels above this file
+# (gramps/plugins/tool/test/ -> tool -> plugins -> gramps -> root).
 ROOT_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..")
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
 )
 resource_path = os.environ.get("GRAMPS_RESOURCES")
 if not resource_path or not os.path.exists(
@@ -84,10 +86,10 @@ from gramps.gen.types import PersonHandle
 
 # -------------------------------------------------------------------------
 #
-# Local imports
+# Grizard modules (backend logic under test)
 #
 # -------------------------------------------------------------------------
-from ..grizard import (
+from gramps.gen.grizard.grizard import (
     GrizardCompareRow,
     CandidateMatcher,
     safe_get,
@@ -100,7 +102,7 @@ from ..grizard import (
     surname_prefix_text,
     surname_text,
 )
-from ..gedcom import GedGrizard
+from gramps.gen.grizard.gedcom import GedGrizard
 
 
 def _has_gtk_display() -> bool:

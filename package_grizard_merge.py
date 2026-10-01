@@ -29,9 +29,10 @@ bundle loads under Gramps' plugin importer (which imports the tool module
 top-level via ``__import__`` with the addon directory on ``sys.path``).
 Also embeds the standalone addon registration file
 ``GrizardDataMerge/GrizardDataMerge.gpr.py`` (mirroring the ``grizardmerge``
-entry in ``gramps/plugins/tool/tools.gpr.py``). Newlines are normalized to
-LF so the output is identical regardless of the checkout's line-ending
-setting.
+entry in ``gramps/plugins/tool/tools.gpr.py``) and places all of the
+grizard-related tests in ``GrizardDataMerge/test/`` with a single merged
+``__init__.py``. Newlines are normalized to LF so the output is identical
+regardless of the checkout's line-ending setting.
 """
 
 # -------------------------------------------------------------------------
@@ -101,6 +102,43 @@ SOURCES: dict[str, str] = {
     "grizardmergedialog.py": "gramps/gui/grizard/grizardmergedialog.py",
 }
 
+# Grizard-related tests, consolidated under ``gramps/plugins/tool/test/`` as
+# part of the permanent migration of Grizard to a standalone addon plugin.
+# Map of archive member name -> source file relative to the repo root. All
+# members live in the ``test/`` subfolder of the addon directory.
+TEST_SOURCES: dict[str, str] = {
+    "test/grizard_test.py": "gramps/plugins/tool/test/grizard_test.py",
+    "test/grizard_merge_fields_test.py": (
+        "gramps/plugins/tool/test/grizard_merge_fields_test.py"
+    ),
+    "test/grizard_styling_test.py": (
+        "gramps/plugins/tool/test/grizard_styling_test.py"
+    ),
+    "test/grizardmerge_test.py": "gramps/plugins/tool/test/grizardmerge_test.py",
+}
+
+# Single merged ``test/__init__.py`` for the bundle, replacing the former
+# ``gramps.gen.grizard.test`` and ``gramps.gui.grizard.test`` package
+# markers. It also puts the addon directory on ``sys.path`` so the flat
+# sibling imports rewritten into the bundled tests resolve when the tests
+# run standalone from the installed addon.
+TEST_INIT_TEMPLATE = """\
+\"\"\"Unit tests for the Grizard Data Merge addon.
+
+Consolidated from ``gramps.gen.grizard.test`` (backend import framework
+and GEDCOM tests) and ``gramps.gui.grizard.test`` (merge dialog field
+and styling tests) as part of the permanent migration of Grizard to a
+standalone addon plugin.
+\"\"\"
+
+import os as _os
+import sys as _sys
+
+_addon_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+if _addon_dir not in _sys.path:
+    _sys.path.insert(0, _addon_dir)
+"""
+
 # Grizard sibling modules bundled flat in the addon directory. Gramps loads
 # the tool module top-level (``__import__("grizardmerge")`` with the addon
 # directory on ``sys.path``), so intra-bundle imports must be flat as well:
@@ -141,6 +179,14 @@ REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
         "from grizardmergedialog import",
     ),
     (
+        re.compile(r"from\s+gramps\.gen\.grizard\s+import\b"),
+        "import",
+    ),
+    (
+        re.compile(r"from\s+gramps\.gui\.grizard\s+import\b"),
+        "import",
+    ),
+    (
         re.compile(
             r"from\s+\.(gedcom|grizard|grizardcompare|grizardlauncher|"
             r"grizardmerge|grizardmergedialog)\s+import\b"
@@ -179,6 +225,14 @@ def build_zip(repo_root: Path, output: Path, gramps_target: str) -> Path:
         text = path.read_bytes()
         members[member] = rewrite_imports_bytes(text)
         LOG.debug("Added %s (%d bytes)", source, len(members[member]))
+    test_members: dict[str, bytes] = {}
+    for member, source in TEST_SOURCES.items():
+        path = repo_root / source
+        if not path.is_file():
+            raise FileNotFoundError(f"Missing source file: {path}")
+        text = path.read_bytes()
+        test_members[member] = rewrite_imports_bytes(text)
+        LOG.debug("Added %s (%d bytes)", source, len(test_members[member]))
     output.unlink(missing_ok=True)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(PACKAGE + "/", b"")
@@ -186,6 +240,12 @@ def build_zip(repo_root: Path, output: Path, gramps_target: str) -> Path:
         archive.writestr(f"{PACKAGE}/{GPR_FILENAME}", build_gpr(gramps_target))
         for member in sorted(members):
             archive.writestr(f"{PACKAGE}/{member}", members[member])
+        archive.writestr(f"{PACKAGE}/test/", b"")
+        archive.writestr(
+            f"{PACKAGE}/test/__init__.py", TEST_INIT_TEMPLATE.encode("utf-8")
+        )
+        for member in sorted(test_members):
+            archive.writestr(f"{PACKAGE}/{member}", test_members[member])
     LOG.info("Wrote %s (%d bytes)", output, output.stat().st_size)
     return output
 
