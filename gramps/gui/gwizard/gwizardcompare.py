@@ -46,8 +46,8 @@ from gi.repository import GLib
 # -------------------------------------------------------------------------
 from gramps.gen.lib import Person
 from gramps.gen.errors import HandleError
-from gramps.gen.grizard.grizardgedcom import GedGrizard
-from gramps.gen.grizard.grizard import (
+from gramps.gen.gwizard.gwizardgedcom import GedGrizard
+from gramps.gen.gwizard.gwizard import (
     CandidateMatcher,
     safe_get_event,
     safe_get_family,
@@ -1743,7 +1743,7 @@ class GrizardCompareWindow(ManagedWindow, Gtk.Window):
         if target_handle is None:
             LOG.info("No existing target for this person; add as new.")
             return
-        from .grizardmergedialog import GrizardMergeDialog
+        from .gwizardmergedialog import GrizardMergeDialog
 
         dialog = GrizardMergeDialog(
             self.dbstate,

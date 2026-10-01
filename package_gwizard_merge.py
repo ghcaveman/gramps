@@ -18,19 +18,19 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Build the standalone ``GrizardMerge.zip`` addon package.
+"""Build the standalone ``GWizardMerge.zip`` addon package.
 
 Collects the Grizard backend, GUI, and tool modules scattered across
-``gramps/gen/grizard``, ``gramps/gui/grizard``, and ``gramps/plugins/tool``
-into a single flat ``GrizardDataMerge/`` addon directory inside a zip file,
-rewriting the ``gramps.gen.grizard`` / ``gramps.gui.grizard`` absolute
+``gramps/gen/gwizard``, ``gramps/gui/gwizard``, and ``gramps/plugins/tool``
+into a single flat ``GWizardDataMerge/`` addon directory inside a zip file,
+rewriting the ``gramps.gen.gwizard`` / ``gramps.gui.gwizard`` absolute
 imports and intra-package relative imports to flat sibling imports so the
 bundle loads under Gramps' plugin importer (which imports the tool module
 top-level via ``__import__`` with the addon directory on ``sys.path``).
 Also embeds the standalone addon registration file
-``GrizardDataMerge/GrizardDataMerge.gpr.py`` (mirroring the ``grizardmerge``
+``GWizardDataMerge/GWizardDataMerge.gpr.py`` (mirroring the ``grizardmerge``
 entry in ``gramps/plugins/tool/tools.gpr.py``) and places all of the
-grizard-related tests in ``GrizardDataMerge/test/`` with a single merged
+grizard-related tests in ``GWizardDataMerge/test/`` with a single merged
 ``__init__.py``. Newlines are normalized to LF so the output is identical
 regardless of the checkout's line-ending setting.
 """
@@ -49,13 +49,13 @@ from pathlib import Path
 
 LOG = logging.getLogger(__name__)
 
-PACKAGE = "GrizardDataMerge"
+PACKAGE = "GWizardDataMerge"
 
-GPR_FILENAME = "GrizardDataMerge.gpr.py"
+GPR_FILENAME = "GWizardDataMerge.gpr.py"
 
 # Standalone addon registration file, written into the bundle as
-# ``GrizardDataMerge/GrizardDataMerge.gpr.py``. Mirrors the template in
-# ``GrizardDataMerge.gpr.py`` at the repo root: version-gated with
+# ``GWizardDataMerge/GWizardDataMerge.gpr.py``. Mirrors the template in
+# ``GWizardDataMerge.gpr.py`` at the repo root: version-gated with
 # ``VERSION_TUPLE``, ``EXPERIMENTAL`` status and ``EXPERT`` audience, dynamic
 # ``gramps_target_version``, forum ``help_url``, and the full side-by-side
 # description. No formatting placeholders: the template is emitted verbatim
@@ -89,7 +89,7 @@ if (5, 2, 0) <= VERSION_TUPLE <= (6, 2, 0):
         gramps_target_version=major_version,
         status=EXPERIMENTAL,
         audience=EXPERT,
-        fname="grizardmerge.py",
+        fname="gwizardmerge.py",
         authors=["Kevin White"],
         authors_email=["gocaveman@gmail.com"],
         category=TOOL_DBPROC,
@@ -104,12 +104,12 @@ DEFAULT_GRAMPS_TARGET = "6.0"
 
 # Map of archive member name -> source file relative to the repo root.
 SOURCES: dict[str, str] = {
-    "grizardgedcom.py": "gramps/gen/grizard/grizardgedcom.py",
-    "grizard.py": "gramps/gen/grizard/grizard.py",
-    "grizardcompare.py": "gramps/gui/grizard/grizardcompare.py",
-    "grizardlauncher.py": "gramps/gui/grizard/grizardlauncher.py",
-    "grizardmerge.py": "gramps/plugins/tool/grizardmerge.py",
-    "grizardmergedialog.py": "gramps/gui/grizard/grizardmergedialog.py",
+    "gwizardgedcom.py": "gramps/gen/gwizard/gwizardgedcom.py",
+    "gwizard.py": "gramps/gen/gwizard/gwizard.py",
+    "gwizardcompare.py": "gramps/gui/gwizard/gwizardcompare.py",
+    "gwizardlauncher.py": "gramps/gui/gwizard/gwizardlauncher.py",
+    "gwizardmerge.py": "gramps/plugins/tool/gwizardmerge.py",
+    "gwizardmergedialog.py": "gramps/gui/gwizard/gwizardmergedialog.py",
 }
 
 # Grizard-related tests, consolidated under ``gramps/plugins/tool/test/`` as
@@ -117,26 +117,26 @@ SOURCES: dict[str, str] = {
 # Map of archive member name -> source file relative to the repo root. All
 # members live in the ``test/`` subfolder of the addon directory.
 TEST_SOURCES: dict[str, str] = {
-    "test/grizard_test.py": "gramps/plugins/tool/test/grizard_test.py",
-    "test/grizard_merge_fields_test.py": (
-        "gramps/plugins/tool/test/grizard_merge_fields_test.py"
+    "test/gwizard_test.py": "gramps/plugins/tool/test/gwizard_test.py",
+    "test/gwizard_merge_fields_test.py": (
+        "gramps/plugins/tool/test/gwizard_merge_fields_test.py"
     ),
-    "test/grizard_styling_test.py": (
-        "gramps/plugins/tool/test/grizard_styling_test.py"
+    "test/gwizard_styling_test.py": (
+        "gramps/plugins/tool/test/gwizard_styling_test.py"
     ),
-    "test/grizardmerge_test.py": "gramps/plugins/tool/test/grizardmerge_test.py",
+    "test/gwizardmerge_test.py": "gramps/plugins/tool/test/gwizardmerge_test.py",
 }
 
 # Single merged ``test/__init__.py`` for the bundle, replacing the former
-# ``gramps.gen.grizard.test`` and ``gramps.gui.grizard.test`` package
+# ``gramps.gen.gwizard.test`` and ``gramps.gui.gwizard.test`` package
 # markers. It also puts the addon directory on ``sys.path`` so the flat
 # sibling imports rewritten into the bundled tests resolve when the tests
 # run standalone from the installed addon.
 TEST_INIT_TEMPLATE = """\
 \"\"\"Unit tests for the Grizard Data Merge addon.
 
-Consolidated from ``gramps.gen.grizard.test`` (backend import framework
-and GEDCOM tests) and ``gramps.gui.grizard.test`` (merge dialog field
+Consolidated from ``gramps.gen.gwizard.test`` (backend import framework
+and GEDCOM tests) and ``gramps.gui.gwizard.test`` (merge dialog field
 and styling tests) as part of the permanent migration of Grizard to a
 standalone addon plugin.
 \"\"\"
@@ -150,57 +150,57 @@ if _addon_dir not in _sys.path:
 """
 
 # Grizard sibling modules bundled flat in the addon directory. Gramps loads
-# the tool module top-level (``__import__("grizardmerge")`` with the addon
+# the tool module top-level (``__import__("gwizardmerge")`` with the addon
 # directory on ``sys.path``), so intra-bundle imports must be flat as well:
-# both ``gramps.gen.grizard.X`` / ``gramps.gui.grizard.X`` absolute imports
+# both ``gramps.gen.gwizard.X`` / ``gramps.gui.gwizard.X`` absolute imports
 # and ``.X`` relative imports become ``X`` sibling imports.
 SIBLINGS = (
     "gedcom",
-    "grizard",
-    "grizardcompare",
-    "grizardgedcom",
-    "grizardlauncher",
-    "grizardmerge",
-    "grizardmergedialog",
+    "gwizard",
+    "gwizardcompare",
+    "gwizardgedcom",
+    "gwizardlauncher",
+    "gwizardmerge",
+    "gwizardmergedialog",
 )
 
 # Absolute imports that must become flat sibling imports in the bundle.
 # Order matters: longest prefixes first.
 REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     (
-        re.compile(r"from\s+gramps\.gen\.grizard\.grizardgedcom\s+import\b"),
-        "from grizardgedcom import",
+        re.compile(r"from\s+gramps\.gen\.gwizard\.gwizardgedcom\s+import\b"),
+        "from gwizardgedcom import",
     ),
     (
-        re.compile(r"from\s+gramps\.gen\.grizard\.grizard\s+import\b"),
-        "from grizard import",
+        re.compile(r"from\s+gramps\.gen\.gwizard\.gwizard\s+import\b"),
+        "from gwizard import",
     ),
     (
-        re.compile(r"from\s+gramps\.gui\.grizard\.grizardcompare\s+import\b"),
-        "from grizardcompare import",
+        re.compile(r"from\s+gramps\.gui\.gwizard\.gwizardcompare\s+import\b"),
+        "from gwizardcompare import",
     ),
     (
         re.compile(
-            r"from\s+gramps\.gui\.grizard\.grizardlauncher\s+import\b" r"(?!\s*\()",
+            r"from\s+gramps\.gui\.gwizard\.gwizardlauncher\s+import\b" r"(?!\s*\()",
         ),
-        "from grizardlauncher import",
+        "from gwizardlauncher import",
     ),
     (
-        re.compile(r"from\s+gramps\.gui\.grizard\.grizardmergedialog\s+import\b"),
-        "from grizardmergedialog import",
+        re.compile(r"from\s+gramps\.gui\.gwizard\.gwizardmergedialog\s+import\b"),
+        "from gwizardmergedialog import",
     ),
     (
-        re.compile(r"from\s+gramps\.gen\.grizard\s+import\b"),
+        re.compile(r"from\s+gramps\.gen\.gwizard\s+import\b"),
         "import",
     ),
     (
-        re.compile(r"from\s+gramps\.gui\.grizard\s+import\b"),
+        re.compile(r"from\s+gramps\.gui\.gwizard\s+import\b"),
         "import",
     ),
     (
         re.compile(
-            r"from\s+\.(gedcom|grizard|grizardcompare|grizardgedcom|"
-            r"grizardlauncher|grizardmerge|grizardmergedialog)\s+import\b"
+            r"from\s+\.(gedcom|gwizard|gwizardcompare|gwizardgedcom|"
+            r"gwizardlauncher|gwizardmerge|gwizardmergedialog)\s+import\b"
         ),
         r"from \1 import",
     ),
@@ -227,7 +227,7 @@ def build_gpr() -> bytes:
 
 
 def build_zip(repo_root: Path, output: Path) -> Path:
-    """Build the ``GrizardMerge.zip`` bundle next to this script."""
+    """Build the ``GWizardMerge.zip`` bundle next to this script."""
     members: dict[str, bytes] = {}
     for member, source in SOURCES.items():
         path = repo_root / source
@@ -264,14 +264,14 @@ def build_zip(repo_root: Path, output: Path) -> Path:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Build the standalone GrizardMerge.zip addon package."
+        description="Build the standalone GWizardMerge.zip addon package."
     )
     parser.add_argument(
         "-o",
         "--output",
         type=Path,
-        default=Path(__file__).resolve().parent / "GrizardMerge.zip",
-        help="Destination zip file (default: GrizardMerge.zip next to the script).",
+        default=Path(__file__).resolve().parent / "GWizardMerge.zip",
+        help="Destination zip file (default: GWizardMerge.zip next to the script).",
     )
     parser.add_argument(
         "--gramps-target",

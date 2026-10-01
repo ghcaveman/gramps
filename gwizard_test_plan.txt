@@ -60,5 +60,5 @@ export GDK_BACKEND=-
 export GRAMPS_RESOURCES=build/share
 export LANGUAGE=
 export LANG=en_US.utf-8
-python3 -m unittest gramps.plugins.tool.test.grizard_test gramps.plugins.tool.test.grizard_merge_fields_test gramps.plugins.tool.test.grizard_styling_test gramps.plugins.tool.test.grizardmerge_test
+python3 -m unittest gramps.plugins.tool.test.gwizard_test gramps.plugins.tool.test.gwizard_merge_fields_test gramps.plugins.tool.test.gwizard_styling_test gramps.plugins.tool.test.gwizardmerge_test
 ```

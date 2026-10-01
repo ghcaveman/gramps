@@ -39,8 +39,8 @@ import unittest
 #
 # -------------------------------------------------------------------------
 from gramps.gen.lib import Name, Person, Surname
-from gramps.gen.grizard.grizard import surname_prefix_text, surname_text
-from gramps.gui.grizard.grizardmergedialog import field_values_differ
+from gramps.gen.gwizard.gwizard import surname_prefix_text, surname_text
+from gramps.gui.gwizard.gwizardmergedialog import field_values_differ
 
 
 def _person(first: str, surnames: list[tuple[str, str]]) -> Person:

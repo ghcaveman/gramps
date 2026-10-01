@@ -22,8 +22,8 @@ Grizard framework: generic wizard workflow for importing and exporting data.
 
 from __future__ import annotations
 
-from .grizard import GrizardBase, GrizardCompareRow
-from .grizardgedcom import GedGrizard
+from .gwizard import GrizardBase, GrizardCompareRow
+from .gwizardgedcom import GedGrizard
 
 __all__ = [
     "GrizardBase",

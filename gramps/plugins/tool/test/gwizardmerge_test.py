@@ -20,8 +20,8 @@
 
 """Unit tests for the Grizard Data Merge tool.
 
-Consolidated from ``gramps.gen.grizard.test`` (backend import framework
-and GEDCOM tests) and ``gramps.gui.grizard.test`` (merge dialog field
+Consolidated from ``gramps.gen.gwizard.test`` (backend import framework
+and GEDCOM tests) and ``gramps.gui.gwizard.test`` (merge dialog field
 and styling tests) as part of the permanent migration of Grizard to a
 standalone addon plugin.
 """
@@ -38,7 +38,7 @@ import unittest
 # Gramps modules
 #
 # -------------------------------------------------------------------------
-from gramps.gui.grizard.grizardlauncher import _case_insensitive_pattern
+from gramps.gui.gwizard.gwizardlauncher import _case_insensitive_pattern
 
 
 # ------------------------------------------------------------------
@@ -58,7 +58,7 @@ class GrizardMergeToolHelperTest(unittest.TestCase):
 
     def test_build_source_file_filters_fallback(self) -> None:
         """Filters always include genealogy types and an All files entry."""
-        from gramps.gui.grizard.grizardlauncher import build_source_file_filters
+        from gramps.gui.gwizard.gwizardlauncher import build_source_file_filters
 
         filters = build_source_file_filters()
         names = [f.get_name() for f in filters]

@@ -22,8 +22,8 @@ Grizard GUI framework presentation package.
 
 from __future__ import annotations
 
-from .grizardmergedialog import GrizardMergeDialog
-from .grizardlauncher import (
+from .gwizardmergedialog import GrizardMergeDialog
+from .gwizardlauncher import (
     run_grizard_merge_flow,
     open_compare_window,
     load_source_grizard,

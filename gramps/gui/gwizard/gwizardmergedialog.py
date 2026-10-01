@@ -55,8 +55,8 @@ from gramps.gen.lib import Person
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.errors import HandleError
-from gramps.gen.grizard.grizardgedcom import GedGrizard
-from gramps.gen.grizard.grizard import (
+from gramps.gen.gwizard.gwizardgedcom import GedGrizard
+from gramps.gen.gwizard.gwizard import (
     safe_get_event,
     safe_get_family,
     safe_get_person,

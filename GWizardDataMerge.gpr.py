@@ -26,7 +26,7 @@ if (5, 2, 0) <= VERSION_TUPLE <= (6, 2, 0):
         gramps_target_version=major_version,
         status=EXPERIMENTAL,
         audience=EXPERT,
-        fname="grizardmerge.py",
+        fname="gwizardmerge.py",
         authors=["Kevin White"],
         authors_email=["gocaveman@gmail.com"],
         category=TOOL_DBPROC,

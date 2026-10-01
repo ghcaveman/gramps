@@ -134,7 +134,7 @@ def load_source_grizard(db: Any, path: str) -> Any:
     """
     import os
 
-    from gramps.gen.grizard.grizardgedcom import GedGrizard
+    from gramps.gen.gwizard.gwizardgedcom import GedGrizard
 
     if not path or not os.path.isfile(path):
         raise ValueError(str(_("The selected file is missing.")))
@@ -155,7 +155,7 @@ def open_compare_window(
     """
     Open the side-by-side comparison window for a loaded session.
     """
-    from gramps.gui.grizard.grizardcompare import GrizardCompareWindow
+    from gramps.gui.gwizard.gwizardcompare import GrizardCompareWindow
 
     window = GrizardCompareWindow(uistate, dbstate, grizard, parent=parent)
     window.show()

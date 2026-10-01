@@ -203,7 +203,7 @@ register(
     version="0.1.0",
     gramps_target_version=MODULE_VERSION,
     status=UNSTABLE,
-    fname="grizardmerge.py",
+    fname="gwizardmerge.py",
     authors=["Kevin White"],
     authors_email=["gocaveman@gmail.com"],
     category=TOOL_DBPROC,

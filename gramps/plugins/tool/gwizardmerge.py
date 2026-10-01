@@ -83,7 +83,7 @@ class GrizardMergeTool(tool.Tool):
         tool.Tool.__init__(self, dbstate, options_class, name)
         # When installed as a standalone addon, sibling modules live in the
         # addon directory, which Gramps removes from sys.path after import.
-        # Re-add it so "from grizardlauncher import ..." keeps working here
+        # Re-add it so "from gwizardlauncher import ..." keeps working here
         # and inside the sibling modules themselves.
         import os as _os
         import sys as _sys
@@ -92,10 +92,10 @@ class GrizardMergeTool(tool.Tool):
         if _addon_dir not in _sys.path:
             _sys.path.insert(0, _addon_dir)
         try:
-            from grizardlauncher import run_grizard_merge_flow
+            from gwizardlauncher import run_grizard_merge_flow
         except ImportError:
             # Running from the source tree: fall back to the core location.
-            from gramps.gui.grizard.grizardlauncher import (
+            from gramps.gui.gwizard.gwizardlauncher import (
                 run_grizard_merge_flow,
             )
 

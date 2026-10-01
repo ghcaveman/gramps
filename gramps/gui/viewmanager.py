@@ -1295,7 +1295,7 @@ class ViewManager(CLIManager):
         if not self.dbstate.is_open():
             return
 
-        from .grizard.grizardlauncher import run_grizard_merge_flow
+        from .gwizard.gwizardlauncher import run_grizard_merge_flow
 
         run_grizard_merge_flow(self.uistate, self.dbstate, parent=self.window)
 

@@ -89,7 +89,7 @@ from gramps.gen.types import PersonHandle
 # Grizard modules (backend logic under test)
 #
 # -------------------------------------------------------------------------
-from gramps.gen.grizard.grizard import (
+from gramps.gen.gwizard.gwizard import (
     GrizardCompareRow,
     CandidateMatcher,
     safe_get,
@@ -102,7 +102,7 @@ from gramps.gen.grizard.grizard import (
     surname_prefix_text,
     surname_text,
 )
-from gramps.gen.grizard.grizardgedcom import GedGrizard
+from gramps.gen.gwizard.gwizardgedcom import GedGrizard
 
 
 def _has_gtk_display() -> bool:
@@ -572,7 +572,7 @@ class GrizardTest(unittest.TestCase):
         for source_name, expected_count in cases:
             temp_path = os.path.join(
                 tempfile.gettempdir(),
-                os.path.splitext(source_name)[0] + "_grizard_test.xml",
+                os.path.splitext(source_name)[0] + "_gwizard_test.xml",
             )
             try:
                 shutil.copyfile(
@@ -615,7 +615,7 @@ class GrizardTest(unittest.TestCase):
         Test the GrizardMergeDialog's static method for rendering
         Pango-highlighted differences between values.
         """
-        from gramps.gui.grizard.grizardmergedialog import GrizardMergeDialog
+        from gramps.gui.gwizard.gwizardmergedialog import GrizardMergeDialog
 
         # Exact match (should be plain)
         res = GrizardMergeDialog._format_diff_line(
@@ -801,7 +801,7 @@ class GrizardTest(unittest.TestCase):
         Verify that GrizardMergeDialog._find_dangling_references correctly
         detects and categorizes missing references prior to merge.
         """
-        from gramps.gui.grizard.grizardmergedialog import GrizardMergeDialog
+        from gramps.gui.gwizard.gwizardmergedialog import GrizardMergeDialog
 
         gedcom_data = """0 HEAD
 1 CHAR UTF-8
@@ -881,7 +881,7 @@ class GrizardTest(unittest.TestCase):
         must raise HandleError instead of failing later with an
         AttributeError on a None person.
         """
-        from gramps.gui.grizard.grizardmergedialog import GrizardMergeDialog
+        from gramps.gui.gwizard.gwizardmergedialog import GrizardMergeDialog
 
         class MockDbState:
             def __init__(self, db):
@@ -924,7 +924,7 @@ class GrizardTest(unittest.TestCase):
         With no target handle the dialog must still build, since the
         compare window opens it that way for unmatched people.
         """
-        from gramps.gui.grizard.grizardmergedialog import GrizardMergeDialog
+        from gramps.gui.gwizard.gwizardmergedialog import GrizardMergeDialog
 
         gedcom_data = """0 HEAD
 1 CHAR UTF-8
