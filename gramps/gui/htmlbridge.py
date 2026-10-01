@@ -19,7 +19,7 @@
 #
 
 """
-HTML Bridge for routing raw web data between WebSearch, HTMLView, and Grizard.
+HTML Bridge for routing raw web data between WebSearch and HTMLView.
 """
 
 # -------------------------------------------------------------------------
@@ -28,6 +28,7 @@ HTML Bridge for routing raw web data between WebSearch, HTMLView, and Grizard.
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+from collections.abc import Callable
 
 import logging
 
@@ -42,7 +43,7 @@ LOG = logging.getLogger(".htmlbridge")
 class HtmlBridge:
     """
     HtmlBridge handles routing downloaded HTML content from WebSearch
-    to either HTMLView or Grizard based on availability.
+    to the registered HTMLView and optional registered receivers.
     """
 
     # The live HTMLView page, registered by the view when it is created.
@@ -53,6 +54,9 @@ class HtmlBridge:
 
     # Content fetched before the view was opened, delivered on registration.
     pending_html: tuple[str, str] | None = None
+
+    # Optional consumer for HTML routed through the bridge.
+    html_callback: Callable[[str, str], None] | None = None
 
     @classmethod
     def register_view(cls, view) -> None:
@@ -74,6 +78,25 @@ class HtmlBridge:
             cls.active_view = None
 
     @classmethod
+    def register_html_callback(cls, callback: Callable[[str, str], None]) -> None:
+        """
+        Register an optional receiver for routed HTML.
+
+        :param callback: Function called with the origin URL and HTML content.
+        """
+        cls.html_callback = callback
+
+    @classmethod
+    def unregister_html_callback(cls, callback: Callable[[str, str], None]) -> None:
+        """
+        Unregister the receiver if it is still the registered callback.
+
+        :param callback: The callback to unregister.
+        """
+        if cls.html_callback == callback:
+            cls.html_callback = None
+
+    @classmethod
     def flush_pending(cls, view) -> None:
         """
         Deliver any content that was routed before the view was ready.
@@ -93,7 +116,7 @@ class HtmlBridge:
         """
         Route HTML content. By default, sends it to the registered HTMLView.
         If no view is registered, queues the content until the view opens.
-        If Grizard is installed, it also routes to Grizard.
+        If a receiver is registered, it also receives the content.
 
         :param url: The origin URL of the HTML content.
         :type url: str
@@ -123,19 +146,13 @@ class HtmlBridge:
                 len(html_content),
             )
 
-        # 3. Conditional routing path: Route to Grizard if the addon is installed
-        try:
-            # Check if Grizard package/modules are installed/importable
-            from gramps.gui.grizard.grizardassistant import GrizardAssistant
-
-            LOG.info(
-                "Grizard is installed. Routing HTML to Grizard for parsing: %s", url
-            )
-            # If Grizard assistant implements a receiver, we can route it here:
-            # GrizardAssistant.receive_html(url, html_content)
-        except ImportError:
-            # Grizard is not installed, skip gracefully
-            LOG.debug("Grizard addon is not installed, skipping Grizard routing.")
+        # Notify optional consumers registered by their owning components.
+        callback = cls.html_callback
+        if callback is not None:
+            try:
+                callback(url, html_content)
+            except Exception:
+                LOG.exception("HTML receiver callback failed for %s", url)
 
     # -------------------------------------------------------------------------
     #

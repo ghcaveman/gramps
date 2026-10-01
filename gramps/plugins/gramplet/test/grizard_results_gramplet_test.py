@@ -21,14 +21,40 @@
 Unit tests for the Grizard Results gramplet's pure helper functions.
 """
 
+import os
 import unittest
+from unittest.mock import patch
 
 # -------------------------------------------------------------------------
 #
 # Gramps modules
 #
 # -------------------------------------------------------------------------
-from gramps.plugins.gramplet.grizardresultsgramplet import build_result_markup
+from gramps.plugins.gramplet.grizardresultsgramplet import (
+    GrizardResultsGramplet,
+    build_result_markup,
+)
+
+
+class ResultLinkActivationTest(unittest.TestCase):
+    """Test the external-browser fallback when HTML routing fails."""
+
+    def test_external_uri_opener_used_when_html_routing_fails(self):
+        uri = "https://example.test/person"
+        with patch.dict(os.environ, {"GRAMPS_HTML": "1"}):
+            with patch(
+                "gramps.gui.htmlbridge.HtmlBridge.route_url", return_value=False
+            ) as route_url:
+                with patch(
+                    "gramps.plugins.gramplet.grizardresultsgramplet.Gio.AppInfo.launch_default_for_uri"
+                ) as launch_uri:
+                    handled = GrizardResultsGramplet.cb_result_link_activated(
+                        None, None, uri
+                    )
+
+        self.assertTrue(handled)
+        route_url.assert_called_once_with(uri)
+        launch_uri.assert_called_once_with(uri)
 
 
 class BuildResultMarkupTest(unittest.TestCase):

@@ -215,15 +215,18 @@ class HtmlBridgeQueueTest(unittest.TestCase):
         self._HtmlBridge = HtmlBridge
         self._orig_pending = HtmlBridge.pending_html
         self._orig_active = HtmlBridge.active_view
+        self._orig_html_callback = HtmlBridge.html_callback
         self._orig_route_html = HtmlBridge.route_html
         self._orig_route_url = HtmlBridge.route_url
         HtmlBridge.pending_html = None
         HtmlBridge.active_view = None
+        HtmlBridge.html_callback = None
 
     def tearDown(self):
         HtmlBridge = self._HtmlBridge
         HtmlBridge.pending_html = self._orig_pending
         HtmlBridge.active_view = self._orig_active
+        HtmlBridge.html_callback = self._orig_html_callback
         HtmlBridge.route_html = self._orig_route_html
         HtmlBridge.route_url = self._orig_route_url
 
@@ -305,3 +308,17 @@ class HtmlBridgeQueueTest(unittest.TestCase):
         self.assertIsNone(self._HtmlBridge.pending_html)
         self.assertEqual(route_html.call_count, 0)
         self.assertEqual(route_url.call_count, 0)
+
+    def test_route_html_calls_registered_callback_until_unregistered(self):
+        """
+        Registered HTML receivers get routed content and can unregister.
+        """
+        callback = MagicMock()
+        self._HtmlBridge.register_html_callback(callback)
+
+        self._HtmlBridge.route_html("http://example.test/first", "<p>first</p>")
+        callback.assert_called_once_with("http://example.test/first", "<p>first</p>")
+
+        self._HtmlBridge.unregister_html_callback(callback)
+        self._HtmlBridge.route_html("http://example.test/second", "<p>second</p>")
+        callback.assert_called_once()

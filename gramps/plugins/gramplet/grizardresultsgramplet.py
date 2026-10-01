@@ -29,6 +29,7 @@ active person and display the filtered results as a table.
 # -------------------------------------------------------------------------
 from __future__ import annotations
 
+import os
 import threading
 from html import escape as html_escape
 from typing import Any
@@ -39,6 +40,7 @@ from typing import Any
 #
 # -------------------------------------------------------------------------
 from gi.repository import GLib
+from gi.repository import Gio
 from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
@@ -148,6 +150,8 @@ class GrizardResultsGramplet(Gramplet):
         self.results_label.set_line_wrap(True)
         self.results_label.set_xalign(0.0)
         self.results_label.set_yalign(0.0)
+        if os.environ.get("GRAMPS_HTML"):
+            self.results_label.connect("activate-link", self.cb_result_link_activated)
 
         results_scroll = Gtk.ScrolledWindow()
         results_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -327,6 +331,30 @@ class GrizardResultsGramplet(Gramplet):
     # HTML view passthrough
     #
     # -------------------------------------------------------------------------
+
+    def cb_result_link_activated(self, label: Gtk.Label, uri: str) -> bool:
+        """
+        Route result links to HTMLView when it is enabled.
+
+        :param label: The label whose link was activated.
+        :param uri: The activated result URL.
+        :returns: True if HTMLView handled the URL, otherwise False.
+        """
+        if not uri.lower().startswith(("http://", "https://")):
+            return False
+
+        try:
+            from gramps.gui.htmlbridge import HtmlBridge
+
+            if HtmlBridge.route_url(uri):
+                return True
+        except Exception:
+            pass
+        try:
+            Gio.AppInfo.launch_default_for_uri(uri)
+        except GLib.Error:
+            return False
+        return True
 
     def cb_view_in_html(self, widget: Gtk.Button) -> None:
         """
