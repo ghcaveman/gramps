@@ -74,6 +74,10 @@ from .gwizard import (
     safe_get_person,
     safe_get_place,
     safe_get_source,
+    SOURCE_AMBIGUOUS,
+    SourceMatcher,
+    normalize_source_text,
+    source_signature,
 )
 
 # -------------------------------------------------------------------------
@@ -496,6 +500,13 @@ class GedGWizard(GWizardBase):
         if not s_person:
             raise ValueError("Source person not found.")
 
+        source_matcher = SourceMatcher(self.db)
+
+        def fresh_gramps_id(obj: Any, has_gramps_id: Any) -> None:
+            """Clear a Gramps ID the target already uses so a new one is assigned."""
+            if obj.gramps_id and has_gramps_id(obj.gramps_id):
+                obj.set_gramps_id("")
+
         # Helper to get/create place
         def get_or_create_place(s_pl_handle: str | None, trans: Any) -> str | None:
             if not s_pl_handle:
@@ -513,6 +524,7 @@ class GedGWizard(GWizardBase):
                         return h
 
                 new_place = copy.deepcopy(s_place)
+                fresh_gramps_id(new_place, self.db.has_place_gramps_id)
                 self.db.add_place(new_place, trans)
                 return new_place.handle
             except Exception:
@@ -537,6 +549,7 @@ class GedGWizard(GWizardBase):
                 if not s_note:
                     return None
                 new_note = copy.deepcopy(s_note)
+                fresh_gramps_id(new_note, self.db.has_note_gramps_id)
                 self.db.add_note(new_note, trans)
                 return new_note.handle
             except Exception:
@@ -568,6 +581,7 @@ class GedGWizard(GWizardBase):
                         new_notes.append(new_nh)
                 new_media.set_note_list(new_notes)
 
+                fresh_gramps_id(new_media, self.db.has_media_gramps_id)
                 self.db.add_media(new_media, trans)
                 return new_media.handle
             except Exception:
@@ -599,6 +613,7 @@ class GedGWizard(GWizardBase):
                         new_notes.append(new_nh)
                 new_repo.set_note_list(new_notes)
 
+                fresh_gramps_id(new_repo, self.db.has_repository_gramps_id)
                 self.db.add_repository(new_repo, trans)
                 return new_repo.handle
             except Exception:
@@ -622,6 +637,20 @@ class GedGWizard(GWizardBase):
                 s_source = safe_get_source(source_db, s_source_handle)
                 if not s_source:
                     return None
+                existing_handle, status = source_matcher.find(s_source)
+                if existing_handle:
+                    LOG.info(
+                        "Source %r matches existing source %s; reusing it",
+                        s_source.get_title(),
+                        existing_handle,
+                    )
+                    return existing_handle
+                if status == SOURCE_AMBIGUOUS:
+                    LOG.warning(
+                        "Source %r matches several sources in the family tree; "
+                        "adding it as a new source",
+                        s_source.get_title(),
+                    )
                 new_source = copy.deepcopy(s_source)
                 new_notes = []
                 for nh in new_source.get_note_list():
@@ -640,7 +669,9 @@ class GedGWizard(GWizardBase):
                     if new_rh:
                         rref.set_reference_handle(new_rh)
 
+                fresh_gramps_id(new_source, self.db.has_source_gramps_id)
                 self.db.add_source(new_source, trans)
+                source_matcher.add(new_source)
                 return new_source.handle
             except Exception:
                 LOG.warning(
@@ -680,6 +711,7 @@ class GedGWizard(GWizardBase):
                 if new_sh:
                     new_citation.set_reference_handle(new_sh)
 
+                fresh_gramps_id(new_citation, self.db.has_citation_gramps_id)
                 self.db.add_citation(new_citation, trans)
                 return new_citation.handle
             except Exception:
@@ -745,6 +777,7 @@ class GedGWizard(GWizardBase):
                 new_place = get_or_create_place(s_event.get_place_handle(), trans)
                 new_event.set_place_handle(new_place)
                 resolve_references_for_event(new_event, trans)
+                fresh_gramps_id(new_event, self.db.has_event_gramps_id)
                 self.db.add_event(new_event, trans)
                 return new_event.handle
             except Exception:
@@ -757,25 +790,24 @@ class GedGWizard(GWizardBase):
 
         def citation_signature(db: Any, citation_handle: str) -> tuple[str, ...] | None:
             """
-            Return a (source title, source author, page) key for a citation.
+            Return a (source key, page) tuple for a citation.
 
-            Two citations with the same key cite the same thing, even when
-            their handles differ because they were created by separate
-            imports. Returns None when the citation cannot be read.
+            The source key is the matcher's (title, author, publication
+            info) key, so two citations compare equal when they cite the
+            same source and page even though their handles differ.
+            Returns None when the citation cannot be read.
             """
             try:
                 citation = db.get_citation_from_handle(citation_handle)
                 if not citation:
                     return None
                 source = safe_get_source(db, citation.get_reference_handle())
-                if source:
-                    ident: tuple[str, ...] = (
-                        (source.get_title() or "").strip().lower(),
-                        (source.get_author() or "").strip().lower(),
-                    )
-                else:
-                    ident = (citation.get_reference_handle() or "",)
-                return ident + ((citation.get_page() or "").strip().lower(),)
+                ident = (source_signature(source) if source else None) or (
+                    "handle",
+                    "",
+                    citation.get_reference_handle() or "",
+                )
+                return tuple(ident) + (normalize_source_text(citation.get_page()),)
             except Exception:
                 LOG.warning("Could not read citation %s", citation_handle, exc_info=True)
                 return None

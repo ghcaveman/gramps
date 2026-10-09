@@ -65,6 +65,7 @@ from gramps.gen.gwizard.gwizard import (
     safe_get_source,
     surname_prefix_text,
     surname_text,
+    SourceMatcher,
 )
 from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
 
@@ -352,6 +353,7 @@ class GWizardMergeDialog(Gtk.Dialog):
 
         self._resolutions: dict[str, str] = {}
         self._mergeable_count: int = 0
+        self._matched_sources: set[str] = set()
 
         box = self.get_content_area()
         self._people_row = self._build_people_row()
@@ -1026,6 +1028,9 @@ class GWizardMergeDialog(Gtk.Dialog):
         # Gather the primary source objects that will be copied/merged
         events_to_scan = []
         people_to_scan = []
+        source_matcher = SourceMatcher(self.target_db)
+        matched_sources: set[str] = set()
+        self._matched_sources = matched_sources
         extra_citations: list[str] = []
 
         if not self.target_handle:  # Adding as new person
@@ -1126,17 +1131,22 @@ class GWizardMergeDialog(Gtk.Dialog):
                     pass
 
         def scan_source(sh):
-            if sh and not target_has_source(sh):
-                missing["source"].add(sh)
-                try:
-                    s_src = safe_get_source(self.source_db, sh)
-                    if s_src:
-                        scan_notes(s_src.get_note_list())
-                        scan_media(s_src.media_list)
-                        for rref in s_src.reporef_list:
-                            scan_repository(rref.get_reference_handle())
-                except Exception:
-                    pass
+            if not sh or target_has_source(sh):
+                return
+            s_src = safe_get_source(self.source_db, sh)
+            if s_src is not None and source_matcher.find(s_src)[0]:
+                # Same source already in the tree: it is reused, not copied.
+                matched_sources.add(sh)
+                return
+            missing["source"].add(sh)
+            try:
+                if s_src:
+                    scan_notes(s_src.get_note_list())
+                    scan_media(s_src.media_list)
+                    for rref in s_src.reporef_list:
+                        scan_repository(rref.get_reference_handle())
+            except Exception:
+                pass
 
         def scan_citation(ch):
             if ch and not target_has_citation(ch):
@@ -1200,6 +1210,16 @@ class GWizardMergeDialog(Gtk.Dialog):
                 "along with your selected details. Do you confirm importing these "
                 "missing references?"
             ) % ", ".join(details)
+
+            if self._matched_sources:
+                count = len(self._matched_sources)
+                msg += "\n\n" + glocale.translation.ngettext(
+                    "%d source already in your family tree will be reused "
+                    "(matched by title, author and publication info).",
+                    "%d sources already in your family tree will be reused "
+                    "(matched by title, author and publication info).",
+                    count,
+                ) % count
 
             dialog = Gtk.MessageDialog(
                 transient_for=self,
