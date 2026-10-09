@@ -349,9 +349,9 @@ class TestGWizardDiffHighlight(unittest.TestCase):
         self.assertEqual(marked.get_xalign(), 0.0)
 
         matches = field_values_differ("Anna", "Anna")
-        plain = create_diff_cell("<i>Given Name: </i>Anna", matches, 1.0)
+        plain = create_diff_cell("<i>Given Name: </i>Anna", matches, 0.0)
         self.assertFalse(plain.get_style_context().has_class(DIFF_STYLE_CLASS))
-        self.assertEqual(plain.get_xalign(), 1.0)
+        self.assertEqual(plain.get_xalign(), 0.0)
 
 
 if __name__ == "__main__":

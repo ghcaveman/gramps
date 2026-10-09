@@ -400,9 +400,13 @@ class GWizardMergeDialog(Gtk.Dialog):
         # If values are the same, just return plain text (no highlighting)
         if left_val == right_val:
             if show_label:
-                return glocale.translation.gettext("%s: %s") % (label, left_val)
+                plain_text = glocale.translation.gettext("%s: %s") % (
+                    label,
+                    left_val,
+                )
             else:
-                return left_val
+                plain_text = left_val
+            return GLib.markup_escape_text(plain_text)
 
         # Split into words for word-level comparison
         left_words = left_val.split()
@@ -485,7 +489,7 @@ class GWizardMergeDialog(Gtk.Dialog):
                 else _("New person")
             )
         )
-        right.set_xalign(1.0)
+        right.set_xalign(0.0)
         row.pack_start(left, True, True, 0)
         row.pack_start(dash, False, False, 0)
         row.pack_start(right, True, True, 0)
@@ -547,7 +551,7 @@ class GWizardMergeDialog(Gtk.Dialog):
             current_title = _("Current Family Tree")
 
         left_header = header(incoming_title)
-        right_header = header(current_title, xalign=1.0)
+        right_header = header(current_title)
         self._value_column_size_group.add_widget(left_header)
         self._value_column_size_group.add_widget(right_header)
         grid.attach(left_header, 0, 0, 1, 1)
@@ -601,7 +605,7 @@ class GWizardMergeDialog(Gtk.Dialog):
                 )
 
             left_cell = create_diff_cell(left_text, not same, 0.0)
-            right_cell = create_diff_cell(right_text, not same, 1.0)
+            right_cell = create_diff_cell(right_text, not same, 0.0)
             self._value_column_size_group.add_widget(left_cell)
             self._value_column_size_group.add_widget(right_cell)
             btn = None
@@ -669,7 +673,9 @@ class GWizardMergeDialog(Gtk.Dialog):
                         ):
                             objs.append(fam)
                             objs.extend(
-                                r for r in fam.get_child_ref_list() if r.ref == person.handle
+                                r
+                                for r in fam.get_child_ref_list()
+                                if r.ref == person.handle
                             )
                 elif role == "spouse":
                     for fh in person.get_family_handle_list():
@@ -688,7 +694,9 @@ class GWizardMergeDialog(Gtk.Dialog):
                         fam = safe_get_family(db, fh)
                         if fam:
                             objs.extend(
-                                r for r in fam.get_child_ref_list() if r.ref == other.handle
+                                r
+                                for r in fam.get_child_ref_list()
+                                if r.ref == other.handle
                             )
             except Exception:
                 LOG.debug("Could not gather relationship citations", exc_info=True)
@@ -1213,13 +1221,17 @@ class GWizardMergeDialog(Gtk.Dialog):
 
             if self._matched_sources:
                 count = len(self._matched_sources)
-                msg += "\n\n" + glocale.translation.ngettext(
-                    "%d source already in your family tree will be reused "
-                    "(matched by title, author and publication info).",
-                    "%d sources already in your family tree will be reused "
-                    "(matched by title, author and publication info).",
-                    count,
-                ) % count
+                msg += (
+                    "\n\n"
+                    + glocale.translation.ngettext(
+                        "%d source already in your family tree will be reused "
+                        "(matched by title, author and publication info).",
+                        "%d sources already in your family tree will be reused "
+                        "(matched by title, author and publication info).",
+                        count,
+                    )
+                    % count
+                )
 
             dialog = Gtk.MessageDialog(
                 transient_for=self,
