@@ -507,6 +507,35 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard Data Merge
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardmerge",
+    name=_("GWizard Data Merge"),
+    description=_(
+        "Family Tree Processing Tool to compare another genealogy file "
+        "(GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree "
+        "and merge selected differences person by person."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizardmerge.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardMergeTool",
+    optionclass="GWizardMergeToolOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps.discourse.group/t/10027",
+)
+
+# ------------------------------------------------------------------------
+#
 # Find database Loop
 #
 # ------------------------------------------------------------------------
