@@ -136,6 +136,7 @@ class GWizardCitationSummaryTest(unittest.TestCase):
         citation = Mock()
         citation.get_reference_handle.return_value = "source-handle"
         citation.get_page.return_value = "42"
+        citation.get_note_list.return_value = []
         source = Mock()
         source.get_title.return_value = "1840 Census"
         source.get_author.return_value = ""

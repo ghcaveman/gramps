@@ -34,6 +34,7 @@ gen-side GedGWizard._apply for the collected field resolutions.
 from __future__ import annotations
 import logging
 import os
+import re
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -51,7 +52,7 @@ from gi.repository import Pango
 # Gramps modules
 #
 # -------------------------------------------------------------------------
-from gramps.gen.lib import Person
+from gramps.gen.lib import EventType, Person
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.errors import HandleError
@@ -212,35 +213,86 @@ def field_values_differ(left_val: Any, right_val: Any) -> bool:
     return left_str != right_str
 
 
+_TAG_RE = re.compile(r"</?[A-Za-z][^>]*>")
+_NOTE_MAX = 150
+
+
+def _plain_text(text: str) -> str:
+    """Return ``text`` without simple HTML tags and with collapsed whitespace."""
+    return " ".join(_TAG_RE.sub("", text or "").split())
+
+
 def citation_sources_summary(db: Any, obj: Any) -> str:
-    """Return a compact list of source titles and citation pages for an object."""
-    if obj is None or not hasattr(obj, "get_citation_list"):
+    """
+    Return a compact list of source titles, pages and citation notes.
+
+    :param db: Database that owns the citations.
+    :param obj: One object providing ``get_citation_list()``, or a list or
+        tuple of such objects (a family and its marriage event, say).
+    :returns: ``Title (page X) - note`` entries joined with ``"; "``, or ''.
+    """
+    if obj is None:
         return ""
+    objs = list(obj) if isinstance(obj, (list, tuple)) else [obj]
 
     summaries: list[str] = []
-    for citation_handle in obj.get_citation_list() or []:
-        try:
-            citation = db.get_citation_from_handle(citation_handle)
-            if not citation:
-                continue
-            source = safe_get_source(db, citation.get_reference_handle())
-            if not source:
-                continue
-
-            title = (
-                source.get_title()
-                or source.get_author()
-                or source.gramps_id
-                or _("Untitled source")
-            )
-            page = citation.get_page()
-            summary = f"{title} ({_('page %s') % page})" if page else title
-            if summary not in summaries:
-                summaries.append(summary)
-        except Exception:
+    for item in objs:
+        if item is None or not hasattr(item, "get_citation_list"):
             continue
+        for citation_handle in item.get_citation_list() or []:
+            try:
+                citation = db.get_citation_from_handle(citation_handle)
+                if not citation:
+                    continue
+                source = safe_get_source(db, citation.get_reference_handle())
+                if not source:
+                    continue
+
+                title = _plain_text(
+                    source.get_title() or source.get_author() or source.gramps_id or ""
+                ) or _("Untitled source")
+                page = _plain_text(citation.get_page())
+                summary = f"{title} ({_('page %s') % page})" if page else title
+
+                notes: list[str] = []
+                for note_handle in citation.get_note_list() or []:
+                    note = db.get_note_from_handle(note_handle)
+                    note_text = _plain_text(note.get()) if note else ""
+                    if note_text:
+                        if len(note_text) > _NOTE_MAX:
+                            note_text = note_text[:_NOTE_MAX] + "..."
+                        notes.append(note_text)
+                if notes:
+                    summary += " - " + " / ".join(notes)
+
+                if summary not in summaries:
+                    summaries.append(summary)
+            except Exception:
+                continue
 
     return "; ".join(summaries)
+
+
+def sources_value(db: Any, obj: Any) -> str:
+    """
+    Return the source summary for ``obj``, ``none`` when it has no
+    citations, or '' when there is no object on this side at all.
+    """
+    if obj is None:
+        return ""
+    return citation_sources_summary(db, obj) or _("none")
+
+
+def sources_line(db: Any, obj: Any) -> str:
+    """
+    Return ``Sources: ...`` (``Sources: none`` when uncited) for an object
+    or list of objects, or '' when there is nothing to attach sources to.
+    """
+    if obj is None:
+        return ""
+    if not isinstance(obj, (list, tuple)) and not hasattr(obj, "get_citation_list"):
+        return ""
+    return _("Sources: %s") % (citation_sources_summary(db, obj) or _("none"))
 
 
 # -------------------------------------------------------------------------
@@ -535,15 +587,15 @@ class GWizardMergeDialog(Gtk.Dialog):
             right_text = self._format_diff_line(
                 label, rs, ls, show_label, is_left=False
             )
-            left_sources = citation_sources_summary(sd, left_obj)
-            right_sources = citation_sources_summary(td, right_obj)
+            left_sources = sources_line(sd, left_obj)
+            right_sources = sources_line(td, right_obj)
             if left_sources:
                 left_text += "\n<small><i>%s</i></small>" % GLib.markup_escape_text(
-                    _("Sources: %s") % left_sources
+                    left_sources
                 )
             if right_sources:
                 right_text += "\n<small><i>%s</i></small>" % GLib.markup_escape_text(
-                    _("Sources: %s") % right_sources
+                    right_sources
                 )
 
             left_cell = create_diff_cell(left_text, not same, 0.0)
@@ -593,6 +645,57 @@ class GWizardMergeDialog(Gtk.Dialog):
                 return self._children(db, person)
             return self._parents(db, person, role)
 
+        def rel_sources(
+            db: Any, person: Person | None, other: Person | None, role: str
+        ) -> list[Any] | None:
+            """
+            Return the objects whose citations source a relationship:
+            the family and the person's child reference for a parent, the
+            family and its marriage events for a spouse, the child
+            reference for a child. ``None`` when there is no related person.
+            """
+            if person is None or other is None:
+                return None
+            objs: list[Any] = []
+            try:
+                if role in ("father", "mother"):
+                    for fh in person.get_parent_family_handle_list():
+                        fam = safe_get_family(db, fh)
+                        if fam and other.handle in (
+                            fam.get_father_handle(),
+                            fam.get_mother_handle(),
+                        ):
+                            objs.append(fam)
+                            objs.extend(
+                                r
+                                for r in fam.get_child_ref_list()
+                                if r.ref == person.handle
+                            )
+                elif role == "spouse":
+                    for fh in person.get_family_handle_list():
+                        fam = safe_get_family(db, fh)
+                        if fam and other.handle in (
+                            fam.get_father_handle(),
+                            fam.get_mother_handle(),
+                        ):
+                            objs.append(fam)
+                            for ev_ref in fam.get_event_ref_list():
+                                ev = safe_get_event(db, ev_ref.ref)
+                                if ev and ev.get_type() == EventType.MARRIAGE:
+                                    objs.append(ev)
+                else:
+                    for fh in person.get_family_handle_list():
+                        fam = safe_get_family(db, fh)
+                        if fam:
+                            objs.extend(
+                                r
+                                for r in fam.get_child_ref_list()
+                                if r.ref == other.handle
+                            )
+            except Exception:
+                LOG.debug("Could not gather relationship citations", exc_info=True)
+            return objs
+
         genders = {
             Person.MALE: _("Male"),
             Person.FEMALE: _("Female"),
@@ -609,8 +712,6 @@ class GWizardMergeDialog(Gtk.Dialog):
             _("Given Name"),
             left_name.first_name,
             right_name.first_name,
-            left_obj=left_name,
-            right_obj=right_name,
         )
         left_surname = surname_text(left_name)
         right_surname = surname_text(right_name)
@@ -619,8 +720,6 @@ class GWizardMergeDialog(Gtk.Dialog):
             _("Surname"),
             left_surname,
             right_surname,
-            left_obj=left_name,
-            right_obj=right_name,
         )
         left_prefix = surname_prefix_text(left_name)
         right_prefix = surname_prefix_text(right_name)
@@ -629,16 +728,18 @@ class GWizardMergeDialog(Gtk.Dialog):
             _("Surname Prefix"),
             left_prefix,
             right_prefix,
-            left_obj=left_name,
-            right_obj=right_name,
+        )
+        add_row(
+            None,
+            _("Name Sources"),
+            sources_value(sd, left_name),
+            sources_value(td, right_name),
         )
         add_row(
             "gender",
             _("Gender"),
             genders.get(left.get_gender(), _("Unknown")),
             genders.get(right.get_gender(), _("Unknown")),
-            left_obj=left,
-            right_obj=right,
         )
         l_b = self._event_for(sd, left, "birth")
         r_b = self._event_for(td, right, "birth")
@@ -666,8 +767,13 @@ class GWizardMergeDialog(Gtk.Dialog):
             get_fsftid(left),
             get_fsftid(right),
             is_nullable_identity=True,
-            left_obj=left,
-            right_obj=right,
+        )
+
+        add_row(
+            None,
+            _("Person Sources"),
+            sources_value(sd, left),
+            sources_value(td, right),
         )
 
         # ---------- Family Relations ----------
@@ -691,8 +797,8 @@ class GWizardMergeDialog(Gtk.Dialog):
                     title,
                     s_text,
                     t_text,
-                    left_obj=s_rel,
-                    right_obj=t_rel,
+                    left_obj=rel_sources(sd, left, s_rel, role),
+                    right_obj=rel_sources(td, right, t_rel, role),
                 )
 
         # ---------- Children ----------
@@ -712,8 +818,8 @@ class GWizardMergeDialog(Gtk.Dialog):
                 s_text,
                 t_text,
                 show_label=False,
-                left_obj=s_rel,
-                right_obj=t_rel,
+                left_obj=rel_sources(sd, left, s_rel, "child"),
+                right_obj=rel_sources(td, right, t_rel, "child"),
             )
 
         # ---------- Events & Other Records ----------
