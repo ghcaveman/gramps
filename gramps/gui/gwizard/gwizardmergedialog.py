@@ -65,6 +65,7 @@ from gramps.gen.gwizard.gwizard import (
     surname_prefix_text,
     surname_text,
 )
+from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
 
 try:
     from gramps.gen.fs.utils.attributes import get_fsftid
@@ -439,10 +440,25 @@ class GWizardMergeDialog(Gtk.Dialog):
             lab.set_markup("<b>%s</b>" % GLib.markup_escape_text(text))
             return lab
 
-        # Column headers at the top (match the compare window panel titles).
-        grid.attach(header(_("Incoming GEDCOM Tree")), 0, 0, 1, 1)
+        source_path = self.gwizard.context.get("gedcom_path")
+        incoming_title = _("Incoming GEDCOM Tree")
+        if source_path:
+            filename = truncate_display_name(
+                os.path.basename(source_path),
+                max_length=30,
+                preserve_extension=True,
+            )
+            incoming_title = _("Incoming GEDCOM Tree: %s") % filename
+        tree_name = self.target_db.get_dbname()
+        if tree_name:
+            tree_name = truncate_display_name(tree_name, max_length=30)
+            current_title = _("Current Family Tree: %s") % tree_name
+        else:
+            current_title = _("Current Family Tree")
+
+        grid.attach(header(incoming_title), 0, 0, 1, 1)
         grid.attach(Gtk.Label(label=""), 1, 0, 1, 1)
-        grid.attach(header(_("Current Family Tree")), 2, 0, 1, 1)
+        grid.attach(header(current_title), 2, 0, 1, 1)
         self._row_index = 1
 
         def section(title: str) -> None:

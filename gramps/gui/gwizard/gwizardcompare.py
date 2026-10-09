@@ -27,6 +27,7 @@ side with the existing Gramps tree (destination on the right).
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import os
 import logging
 from typing import Any
 
@@ -100,6 +101,7 @@ except ImportError:  # Gramps < 6.1 has no gramps.gen.fs package
 
 from gramps.gui.managedwindow import ManagedWindow
 from gramps.gui.dialog import ErrorDialog
+from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
 
 # -------------------------------------------------------------------------
 #
@@ -193,8 +195,17 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         self.paned = Gtk.HPaned()
         main_box.pack_start(self.paned, True, True, 0)
 
-        self.left_panel = self._build_panel(_("Incoming GEDCOM Tree"))
-        self.right_panel = self._build_panel(_("Current Family Tree"))
+        source_path = gwizard.context.get("gedcom_path")
+        incoming_title = _("Incoming GEDCOM Tree")
+        if source_path:
+            filename = truncate_display_name(
+                os.path.basename(source_path), max_length=60, preserve_extension=True
+            )
+            incoming_title = _("Incoming GEDCOM Tree: %s") % filename
+        tree_name = truncate_display_name(dbstate.db.get_dbname(), max_length=60)
+        current_title = _("Current Family Tree: %s") % tree_name
+        self.left_panel = self._build_panel(incoming_title)
+        self.right_panel = self._build_panel(current_title)
         self.paned.pack1(self.left_panel["frame"], True, False)
         self.paned.pack2(self.right_panel["frame"], True, False)
         # Split the two panels exactly in half once the window has been
