@@ -20,7 +20,7 @@
 """
 Modal merge dialog for GWizard.
 
-Shows the incoming GEDCOM tree on the left and the current family tree
+Shows the incoming GEDCOM file on the left and the current family tree
 (destination) on the right, with a per-field arrow button (=>) between
 them for any data that does not match exactly. Clicking Apply runs the
 gen-side GedGWizard._apply for the collected field resolutions.
@@ -187,6 +187,8 @@ def create_diff_cell(markup: str, differs: bool, xalign: float) -> Gtk.Label:
     cell = Gtk.Label()
     cell.set_markup(markup)
     cell.set_xalign(xalign)
+    cell.set_halign(Gtk.Align.FILL)
+    cell.set_hexpand(True)
     cell.set_line_wrap(True)
     if differs:
         cell.get_style_context().add_class(DIFF_STYLE_CLASS)
@@ -208,6 +210,37 @@ def field_values_differ(left_val: Any, right_val: Any) -> bool:
     left_str = "" if left_val is None else str(left_val)
     right_str = "" if right_val is None else str(right_val)
     return left_str != right_str
+
+
+def citation_sources_summary(db: Any, obj: Any) -> str:
+    """Return a compact list of source titles and citation pages for an object."""
+    if obj is None or not hasattr(obj, "get_citation_list"):
+        return ""
+
+    summaries: list[str] = []
+    for citation_handle in obj.get_citation_list() or []:
+        try:
+            citation = db.get_citation_from_handle(citation_handle)
+            if not citation:
+                continue
+            source = safe_get_source(db, citation.get_reference_handle())
+            if not source:
+                continue
+
+            title = (
+                source.get_title()
+                or source.get_author()
+                or source.gramps_id
+                or _("Untitled source")
+            )
+            page = citation.get_page()
+            summary = f"{title} ({_('page %s') % page})" if page else title
+            if summary not in summaries:
+                summaries.append(summary)
+        except Exception:
+            continue
+
+    return "; ".join(summaries)
 
 
 # -------------------------------------------------------------------------
@@ -413,6 +446,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
 
         self._grid = Gtk.Grid(column_spacing=8, row_spacing=4)
+        self._value_column_size_group = Gtk.SizeGroup(Gtk.SizeGroupMode.HORIZONTAL)
         scrolled.add(self._grid)
         self._row_index = 0
         self._populate_fields()
@@ -437,18 +471,20 @@ class GWizardMergeDialog(Gtk.Dialog):
         def header(text: str, xalign: float = 0.0) -> Gtk.Label:
             lab = Gtk.Label()
             lab.set_xalign(xalign)
+            lab.set_halign(Gtk.Align.FILL)
+            lab.set_hexpand(True)
             lab.set_markup("<b>%s</b>" % GLib.markup_escape_text(text))
             return lab
 
         source_path = self.gwizard.context.get("gedcom_path")
-        incoming_title = _("Incoming GEDCOM Tree")
+        incoming_title = _("Incoming GEDCOM File")
         if source_path:
             filename = truncate_display_name(
                 os.path.basename(source_path),
                 max_length=30,
                 preserve_extension=True,
             )
-            incoming_title = _("Incoming GEDCOM Tree: %s") % filename
+            incoming_title = _("Incoming GEDCOM File: %s") % filename
         tree_name = self.target_db.get_dbname()
         if tree_name:
             tree_name = truncate_display_name(tree_name, max_length=30)
@@ -456,9 +492,13 @@ class GWizardMergeDialog(Gtk.Dialog):
         else:
             current_title = _("Current Family Tree")
 
-        grid.attach(header(incoming_title), 0, 0, 1, 1)
+        left_header = header(incoming_title)
+        right_header = header(current_title, xalign=1.0)
+        self._value_column_size_group.add_widget(left_header)
+        self._value_column_size_group.add_widget(right_header)
+        grid.attach(left_header, 0, 0, 1, 1)
         grid.attach(Gtk.Label(label=""), 1, 0, 1, 1)
-        grid.attach(header(current_title), 2, 0, 1, 1)
+        grid.attach(right_header, 2, 0, 1, 1)
         self._row_index = 1
 
         def section(title: str) -> None:
@@ -481,6 +521,8 @@ class GWizardMergeDialog(Gtk.Dialog):
             right_val: Any,
             is_nullable_identity: bool = False,
             show_label: bool = True,
+            left_obj: Any = None,
+            right_obj: Any = None,
         ) -> None:
             ls = "" if left_val is None else str(left_val)
             rs = "" if right_val is None else str(right_val)
@@ -493,9 +535,21 @@ class GWizardMergeDialog(Gtk.Dialog):
             right_text = self._format_diff_line(
                 label, rs, ls, show_label, is_left=False
             )
+            left_sources = citation_sources_summary(sd, left_obj)
+            right_sources = citation_sources_summary(td, right_obj)
+            if left_sources:
+                left_text += "\n<small><i>%s</i></small>" % GLib.markup_escape_text(
+                    _("Sources: %s") % left_sources
+                )
+            if right_sources:
+                right_text += "\n<small><i>%s</i></small>" % GLib.markup_escape_text(
+                    _("Sources: %s") % right_sources
+                )
 
             left_cell = create_diff_cell(left_text, not same, 0.0)
             right_cell = create_diff_cell(right_text, not same, 1.0)
+            self._value_column_size_group.add_widget(left_cell)
+            self._value_column_size_group.add_widget(right_cell)
             btn = None
             if key is not None:
                 if is_nullable_identity:
@@ -548,23 +602,43 @@ class GWizardMergeDialog(Gtk.Dialog):
 
         # ---------- Individual Details ----------
         section(_("Individual Details"))
+        left_name = left.get_primary_name()
+        right_name = right.get_primary_name()
         add_row(
             "given_name",
             _("Given Name"),
-            left.get_primary_name().first_name,
-            right.get_primary_name().first_name,
+            left_name.first_name,
+            right_name.first_name,
+            left_obj=left_name,
+            right_obj=right_name,
         )
-        left_surname = surname_text(left.get_primary_name())
-        right_surname = surname_text(right.get_primary_name())
-        add_row("surname", _("Surname"), left_surname, right_surname)
-        left_prefix = surname_prefix_text(left.get_primary_name())
-        right_prefix = surname_prefix_text(right.get_primary_name())
-        add_row("surname_prefix", _("Surname Prefix"), left_prefix, right_prefix)
+        left_surname = surname_text(left_name)
+        right_surname = surname_text(right_name)
+        add_row(
+            "surname",
+            _("Surname"),
+            left_surname,
+            right_surname,
+            left_obj=left_name,
+            right_obj=right_name,
+        )
+        left_prefix = surname_prefix_text(left_name)
+        right_prefix = surname_prefix_text(right_name)
+        add_row(
+            "surname_prefix",
+            _("Surname Prefix"),
+            left_prefix,
+            right_prefix,
+            left_obj=left_name,
+            right_obj=right_name,
+        )
         add_row(
             "gender",
             _("Gender"),
             genders.get(left.get_gender(), _("Unknown")),
             genders.get(right.get_gender(), _("Unknown")),
+            left_obj=left,
+            right_obj=right,
         )
         l_b = self._event_for(sd, left, "birth")
         r_b = self._event_for(td, right, "birth")
@@ -573,6 +647,8 @@ class GWizardMergeDialog(Gtk.Dialog):
             _("Birth"),
             self._event_display_from(l_b),
             self._event_display_from(r_b),
+            left_obj=safe_get_event(sd, l_b[2]) if l_b[2] else None,
+            right_obj=safe_get_event(td, r_b[2]) if r_b[2] else None,
         )
         l_d = self._event_for(sd, left, "death")
         r_d = self._event_for(td, right, "death")
@@ -581,6 +657,8 @@ class GWizardMergeDialog(Gtk.Dialog):
             _("Death"),
             self._event_display_from(l_d),
             self._event_display_from(r_d),
+            left_obj=safe_get_event(sd, l_d[2]) if l_d[2] else None,
+            right_obj=safe_get_event(td, r_d[2]) if r_d[2] else None,
         )
         add_row(
             "fsid",
@@ -588,6 +666,8 @@ class GWizardMergeDialog(Gtk.Dialog):
             get_fsftid(left),
             get_fsftid(right),
             is_nullable_identity=True,
+            left_obj=left,
+            right_obj=right,
         )
 
         # ---------- Family Relations ----------
@@ -606,7 +686,14 @@ class GWizardMergeDialog(Gtk.Dialog):
                 t_text = self._related_text(t_rel, td) if t_rel else ""
                 s_text = self._related_text(s_rel, sd) if s_rel else ""
                 key = (role + ":" + s_rel.handle) if s_rel else None
-                add_row(key, title, s_text, t_text)
+                add_row(
+                    key,
+                    title,
+                    s_text,
+                    t_text,
+                    left_obj=s_rel,
+                    right_obj=t_rel,
+                )
 
         # ---------- Children ----------
         section(_("Children"))
@@ -619,7 +706,15 @@ class GWizardMergeDialog(Gtk.Dialog):
             t_text = self._related_text(t_rel, td) if t_rel else ""
             s_text = self._related_text(s_rel, sd) if s_rel else ""
             key = ("child:" + s_rel.handle) if s_rel else None
-            add_row(key, "", s_text, t_text, show_label=False)
+            add_row(
+                key,
+                "",
+                s_text,
+                t_text,
+                show_label=False,
+                left_obj=s_rel,
+                right_obj=t_rel,
+            )
 
         # ---------- Events & Other Records ----------
         section(_("Events & Other Records"))
@@ -633,7 +728,14 @@ class GWizardMergeDialog(Gtk.Dialog):
                 s_handle, s_line = s_items[i] if i < len(s_items) else (None, "")
                 t_handle, t_line = t_items[i] if i < len(t_items) else (None, "")
                 key = ("event:" + s_handle) if s_handle else None
-                add_row(key, etype, s_line, t_line)
+                add_row(
+                    key,
+                    etype,
+                    s_line,
+                    t_line,
+                    left_obj=safe_get_event(sd, s_handle) if s_handle else None,
+                    right_obj=safe_get_event(td, t_handle) if t_handle else None,
+                )
 
     # ------------------------------------------------------------------
     # Data helpers

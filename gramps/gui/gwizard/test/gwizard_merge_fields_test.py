@@ -32,6 +32,7 @@ and additional surnames must not be mistaken for a match.
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import unittest
+from unittest.mock import Mock
 
 # -------------------------------------------------------------------------
 #
@@ -40,7 +41,10 @@ import unittest
 # -------------------------------------------------------------------------
 from gramps.gen.lib import Name, Person, Surname
 from gramps.gen.gwizard.gwizard import surname_prefix_text, surname_text
-from gramps.gui.gwizard.gwizardmergedialog import field_values_differ
+from gramps.gui.gwizard.gwizardmergedialog import (
+    citation_sources_summary,
+    field_values_differ,
+)
 
 
 def _person(first: str, surnames: list[tuple[str, str]]) -> Person:
@@ -123,6 +127,32 @@ class GWizardMergeFieldRowsTest(unittest.TestCase):
         self.assertTrue(field_values_differ("", "Vrow"))
         self.assertFalse(field_values_differ(None, ""))
         self.assertFalse(field_values_differ("Vrow", "Vrow"))
+
+
+class GWizardCitationSummaryTest(unittest.TestCase):
+    """Citation summaries shown with values in the merge dialog."""
+
+    def test_summary_includes_source_title_and_citation_page(self) -> None:
+        citation = Mock()
+        citation.get_reference_handle.return_value = "source-handle"
+        citation.get_page.return_value = "42"
+        source = Mock()
+        source.get_title.return_value = "1840 Census"
+        source.get_author.return_value = ""
+        source.gramps_id = "S0001"
+        db = Mock()
+        db.get_citation_from_handle.return_value = citation
+        db.get_source_from_handle.return_value = source
+        obj = Mock()
+        obj.get_citation_list.return_value = ["citation-handle"]
+
+        self.assertEqual(citation_sources_summary(db, obj), "1840 Census (page 42)")
+
+    def test_summary_is_empty_without_citations(self) -> None:
+        obj = Mock()
+        obj.get_citation_list.return_value = []
+
+        self.assertEqual(citation_sources_summary(Mock(), obj), "")
 
 
 if __name__ == "__main__":
