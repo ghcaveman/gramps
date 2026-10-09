@@ -495,6 +495,68 @@ class GWizardTest(unittest.TestCase):
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
+    def test_copy_event_handle_collision_preserves_existing_event(self) -> None:
+        """A source event handle collision must not overwrite a target event."""
+        existing_event_handle = self.birth_event.handle
+        self.birth_event.set_description("Existing event description")
+        other_person = Person()
+        other_name = Name()
+        other_name.first_name = "Other"
+        other_person.set_primary_name(other_name)
+        other_birth_ref = EventRef()
+        other_birth_ref.ref = existing_event_handle
+        other_person.set_birth_ref(other_birth_ref)
+        with DbTxn("Add another user of the event", self.db) as trans:
+            self.db.commit_event(self.birth_event, trans)
+            self.db.add_person(other_person, trans)
+
+        source_db = make_database("sqlite")
+        source_db.load(":memory:")
+        try:
+            source_event = Event()
+            source_event.set_handle(existing_event_handle)
+            source_event.set_type(EventType.BIRTH)
+            source_event.set_description("Incoming event description")
+            source_person = Person()
+            source_name = Name()
+            source_name.first_name = "John"
+            source_person.set_primary_name(source_name)
+            source_birth_ref = EventRef()
+            source_birth_ref.ref = existing_event_handle
+            source_person.set_birth_ref(source_birth_ref)
+            with DbTxn("Add colliding source event", source_db) as trans:
+                source_db.add_event(source_event, trans)
+                source_db.add_person(source_person, trans)
+                source_db.commit_person(source_person, trans)
+
+            self.assertEqual(source_event.handle, existing_event_handle)
+            gwizard = GedGWizard(self.db)
+            gwizard.context["source_db"] = source_db
+            self.assertTrue(
+                gwizard.run_step(
+                    "apply",
+                    source_person_handle=source_person.handle,
+                    target_person_handle=self.target_person.handle,
+                    resolutions={"birth_event": "source"},
+                )
+            )
+
+            existing_event = self.db.get_event_from_handle(existing_event_handle)
+            self.assertEqual(
+                existing_event.get_description(), "Existing event description"
+            )
+            unchanged_user = self.db.get_person_from_handle(other_person.handle)
+            self.assertEqual(unchanged_user.get_birth_ref().ref, existing_event_handle)
+            updated_person = self.db.get_person_from_handle(self.target_person.handle)
+            incoming_event_handle = updated_person.get_birth_ref().ref
+            self.assertNotEqual(incoming_event_handle, existing_event_handle)
+            incoming_event = self.db.get_event_from_handle(incoming_event_handle)
+            self.assertEqual(
+                incoming_event.get_description(), "Incoming event description"
+            )
+        finally:
+            source_db.close()
+
     def test_ged_gwizard_add_new_clears_source_database_handles(self) -> None:
         """Add as New must not retain links into the temporary source DB."""
         gedcom_data = """0 HEAD

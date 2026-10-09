@@ -774,6 +774,8 @@ class GedGWizard(GWizardBase):
                     return None
 
                 new_event = copy.deepcopy(s_event)
+                if new_event.handle and self.db.has_event_handle(new_event.handle):
+                    new_event.set_handle(None)
                 new_place = get_or_create_place(s_event.get_place_handle(), trans)
                 new_event.set_place_handle(new_place)
                 resolve_references_for_event(new_event, trans)
@@ -809,7 +811,9 @@ class GedGWizard(GWizardBase):
                 )
                 return tuple(ident) + (normalize_source_text(citation.get_page()),)
             except Exception:
-                LOG.warning("Could not read citation %s", citation_handle, exc_info=True)
+                LOG.warning(
+                    "Could not read citation %s", citation_handle, exc_info=True
+                )
                 return None
 
         def copy_new_citations(owner: Any, s_owner: Any, trans: Any) -> None:
