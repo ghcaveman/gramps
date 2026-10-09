@@ -52,15 +52,12 @@ PACKAGE = "GWizardDataMerge"
 
 GPR_FILENAME = "GWizardDataMerge.gpr.py"
 
-# Standalone addon registration file, written into the bundle as
-# ``GWizardDataMerge/GWizardDataMerge.gpr.py``. Mirrors the template in
-# ``GWizardDataMerge.gpr.py`` at the repo root: version-gated with
-# ``VERSION_TUPLE``, ``EXPERIMENTAL`` status and ``EXPERT`` audience, dynamic
-# ``gramps_target_version``, forum ``help_url``, and the full side-by-side
-# description. No formatting placeholders: the template is emitted verbatim
-# so the root file stays the single source of truth for registration content.
+# Standalone addon registration file, embedded in the bundle as
+# ``GWizardDataMerge/GWizardDataMerge.gpr.py``. This template is the single
+# source of truth for the generated registration; no standalone GPR file is
+# written to the repository.
 GPR_TEMPLATE = """\
-# Gramps registration file for the GWizard Data Merge tool.
+# Gramps registration file for the GWizard File Merge tool.
 
 from gramps.gen.plug._pluginreg import (
     TOOL,
@@ -78,7 +75,7 @@ if (5, 2, 0) <= VERSION_TUPLE <= (6, 2, 0):
     register(
         TOOL,
         id="gwizardmerge",
-        name=_("GWizard Data Merge"),
+        name=_("GWizard File Merge"),
         description=_(
             "Family Tree Processing Tool to compare another genealogy file "
             "(GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree "

@@ -507,14 +507,14 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard Data Merge
+# GWizard File Merge
 #
 # ------------------------------------------------------------------------
 
 register(
     TOOL,
     id="gwizardmerge",
-    name=_("GWizard Data Merge"),
+    name=_("GWizard File Merge"),
     description=_(
         "Family Tree Processing Tool to compare another genealogy file "
         "(GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree "

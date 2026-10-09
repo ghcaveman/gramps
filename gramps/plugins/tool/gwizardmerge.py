@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Tools/Family Tree Processing/GWizard Data Merge."""
+"""Tools/Family Tree Processing/GWizard File Merge."""
 
 # -------------------------------------------------------------------------
 #
