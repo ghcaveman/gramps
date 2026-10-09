@@ -667,9 +667,7 @@ class GWizardMergeDialog(Gtk.Dialog):
                         ):
                             objs.append(fam)
                             objs.extend(
-                                r
-                                for r in fam.get_child_ref_list()
-                                if r.ref == person.handle
+                                r for r in fam.get_child_ref_list() if r.ref == person.handle
                             )
                 elif role == "spouse":
                     for fh in person.get_family_handle_list():
@@ -688,9 +686,7 @@ class GWizardMergeDialog(Gtk.Dialog):
                         fam = safe_get_family(db, fh)
                         if fam:
                             objs.extend(
-                                r
-                                for r in fam.get_child_ref_list()
-                                if r.ref == other.handle
+                                r for r in fam.get_child_ref_list() if r.ref == other.handle
                             )
             except Exception:
                 LOG.debug("Could not gather relationship citations", exc_info=True)
@@ -730,7 +726,7 @@ class GWizardMergeDialog(Gtk.Dialog):
             right_prefix,
         )
         add_row(
-            None,
+            "name_sources" if left_name.get_citation_list() else None,
             _("Name Sources"),
             sources_value(sd, left_name),
             sources_value(td, right_name),
@@ -770,7 +766,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         )
 
         add_row(
-            None,
+            "person_sources" if left.get_citation_list() else None,
             _("Person Sources"),
             sources_value(sd, left),
             sources_value(td, right),
@@ -1030,6 +1026,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         # Gather the primary source objects that will be copied/merged
         events_to_scan = []
         people_to_scan = []
+        extra_citations: list[str] = []
 
         if not self.target_handle:  # Adding as new person
             people_to_scan.append(self.source_person)
@@ -1040,6 +1037,9 @@ class GWizardMergeDialog(Gtk.Dialog):
             sd_ref = self.source_person.get_death_ref()
             if sd_ref:
                 events_to_scan.append(sd_ref.ref)
+            extra_citations.extend(
+                self.source_person.get_primary_name().get_citation_list()
+            )
         else:
             # Merging
             # Check birth_event
@@ -1057,6 +1057,12 @@ class GWizardMergeDialog(Gtk.Dialog):
                 if val == "source" and key.startswith("event:"):
                     s_evt_h = key.split(":", 1)[1]
                     events_to_scan.append(s_evt_h)
+            if self._resolutions.get("name_sources") == "source":
+                extra_citations.extend(
+                    self.source_person.get_primary_name().get_citation_list()
+                )
+            if self._resolutions.get("person_sources") == "source":
+                extra_citations.extend(self.source_person.get_citation_list())
 
         # Helper to check target DB existence
         def target_has_note(h):
@@ -1149,6 +1155,9 @@ class GWizardMergeDialog(Gtk.Dialog):
             scan_media(p_obj.media_list)
             for ch in p_obj.get_citation_list():
                 scan_citation(ch)
+
+        for ch in extra_citations:
+            scan_citation(ch)
 
         for eh in events_to_scan:
             try:

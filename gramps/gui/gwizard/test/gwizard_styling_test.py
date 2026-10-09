@@ -90,6 +90,20 @@ class TestTreeHeaderNameFormatting(unittest.TestCase):
 class TestGWizardStyling(unittest.TestCase):
     """Test cases for Pango markup rendering in gwizard compare/merge dialogs."""
 
+    def test_equal_merge_value_escapes_markup(self):
+        """Escape labels and values when an unchanged row is rendered as markup."""
+        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
+
+        result = GWizardMergeDialog._format_diff_line(
+            "Place <name>",
+            "A & B <Town>",
+            "A & B <Town>",
+            show_label=True,
+            is_left=True,
+        )
+
+        self.assertEqual(result, "Place &lt;name&gt;: A &amp; B &lt;Town&gt;")
+
     def test_compare_bold_only_content_not_punct(self):
         """Test that in compare window, only word content is bold, not punct."""
         from gramps.gui.gwizard.gwizardcompare import (

@@ -516,7 +516,11 @@ class GedGWizard(GWizardBase):
                 self.db.add_place(new_place, trans)
                 return new_place.handle
             except Exception:
-                pass
+                LOG.warning(
+                    "Could not copy %s from the incoming file; it was skipped",
+                    "place",
+                    exc_info=True,
+                )
             return None
 
         # Helper to copy note
@@ -536,7 +540,11 @@ class GedGWizard(GWizardBase):
                 self.db.add_note(new_note, trans)
                 return new_note.handle
             except Exception:
-                pass
+                LOG.warning(
+                    "Could not copy %s from the incoming file; it was skipped",
+                    "note",
+                    exc_info=True,
+                )
             return None
 
         # Helper to copy media
@@ -563,7 +571,11 @@ class GedGWizard(GWizardBase):
                 self.db.add_media(new_media, trans)
                 return new_media.handle
             except Exception:
-                pass
+                LOG.warning(
+                    "Could not copy %s from the incoming file; it was skipped",
+                    "media",
+                    exc_info=True,
+                )
             return None
 
         # Helper to copy repository
@@ -590,7 +602,11 @@ class GedGWizard(GWizardBase):
                 self.db.add_repository(new_repo, trans)
                 return new_repo.handle
             except Exception:
-                pass
+                LOG.warning(
+                    "Could not copy %s from the incoming file; it was skipped",
+                    "repo",
+                    exc_info=True,
+                )
             return None
 
         # Helper to copy source
@@ -627,7 +643,11 @@ class GedGWizard(GWizardBase):
                 self.db.add_source(new_source, trans)
                 return new_source.handle
             except Exception:
-                pass
+                LOG.warning(
+                    "Could not copy %s from the incoming file; it was skipped",
+                    "source",
+                    exc_info=True,
+                )
             return None
 
         # Helper to copy citation
@@ -663,7 +683,11 @@ class GedGWizard(GWizardBase):
                 self.db.add_citation(new_citation, trans)
                 return new_citation.handle
             except Exception:
-                pass
+                LOG.warning(
+                    "Could not copy %s from the incoming file; it was skipped",
+                    "citation",
+                    exc_info=True,
+                )
             return None
 
         # Helper to resolve references on an Event
@@ -724,8 +748,58 @@ class GedGWizard(GWizardBase):
                 self.db.add_event(new_event, trans)
                 return new_event.handle
             except Exception:
-                pass
+                LOG.warning(
+                    "Could not copy %s from the incoming file; it was skipped",
+                    "event",
+                    exc_info=True,
+                )
             return None
+
+        def citation_signature(db: Any, citation_handle: str) -> tuple[str, ...] | None:
+            """
+            Return a (source title, source author, page) key for a citation.
+
+            Two citations with the same key cite the same thing, even when
+            their handles differ because they were created by separate
+            imports. Returns None when the citation cannot be read.
+            """
+            try:
+                citation = db.get_citation_from_handle(citation_handle)
+                if not citation:
+                    return None
+                source = safe_get_source(db, citation.get_reference_handle())
+                if source:
+                    ident: tuple[str, ...] = (
+                        (source.get_title() or "").strip().lower(),
+                        (source.get_author() or "").strip().lower(),
+                    )
+                else:
+                    ident = (citation.get_reference_handle() or "",)
+                return ident + ((citation.get_page() or "").strip().lower(),)
+            except Exception:
+                LOG.warning("Could not read citation %s", citation_handle, exc_info=True)
+                return None
+
+        def copy_new_citations(owner: Any, s_owner: Any, trans: Any) -> None:
+            """
+            Add the incoming object's citations to ``owner``, skipping any
+            that ``owner`` already has (same source title, author and page).
+            """
+            existing = {
+                citation_signature(self.db, h) for h in owner.get_citation_list()
+            }
+            existing.discard(None)
+            for s_handle in s_owner.get_citation_list():
+                signature = citation_signature(source_db, s_handle)
+                if signature is not None and signature in existing:
+                    continue
+                new_handle = copy_citation(s_handle, trans)
+                if not new_handle:
+                    LOG.warning("Citation %s could not be copied; skipped", s_handle)
+                    continue
+                owner.add_citation(new_handle)
+                if signature is not None:
+                    existing.add(signature)
 
         with DbTxn(_("GWizard Data Merge"), self.db) as trans:
             if target_person_handle is None:
@@ -834,6 +908,14 @@ class GedGWizard(GWizardBase):
                     for idx, t_surn in enumerate(t_list):
                         if idx < len(s_list):
                             t_surn.set_prefix(s_list[idx].get_prefix())
+
+                # 2c. Citations on the primary name and on the person
+                if resolutions.get("name_sources") == "source":
+                    copy_new_citations(
+                        t_person.get_primary_name(), s_person.get_primary_name(), trans
+                    )
+                if resolutions.get("person_sources") == "source":
+                    copy_new_citations(t_person, s_person, trans)
 
                 # 3. Gender
                 if resolutions.get("gender") == "source":
