@@ -536,14 +536,14 @@ class GWizardMergeDialog(Gtk.Dialog):
             return lab
 
         source_path = self.gwizard.context.get("gedcom_path")
-        incoming_title = _("Incoming GEDCOM File")
+        incoming_title = _("Incoming GEDCOM")
         if source_path:
             filename = truncate_display_name(
                 os.path.basename(source_path),
                 max_length=30,
                 preserve_extension=True,
             )
-            incoming_title = _("Incoming GEDCOM File: %s") % filename
+            incoming_title = _("Incoming GEDCOM: %s") % filename
         tree_name = self.target_db.get_dbname()
         if tree_name:
             tree_name = truncate_display_name(tree_name, max_length=30)
@@ -624,11 +624,17 @@ class GWizardMergeDialog(Gtk.Dialog):
             grid.attach(right_cell, 2, self._row_index, 1, 1)
             self._row_index += 1
 
-        def event_groups(db: Any, person: Person) -> dict[str, list[tuple[str, str]]]:
+        def event_groups(
+            db: Any, person: Person, skip_handles: set[str] | None = None
+        ) -> dict[str, list[tuple[str, str]]]:
             """
-            Group a person's non-birth/death events by type string,
-            returning a list of (event_handle, display_line) per type.
+            Group a person's events by type string.
+
+            The primary Birth/Death events (merged via the top rows) are
+            skipped via ``skip_handles``; any extra Birth/Death events are
+            listed here as mergeable alternates.
             """
+            skip = skip_handles or set()
             groups: dict[str, list[tuple[str, str]]] = {}
             for ref in person.get_event_ref_list():
                 try:
@@ -636,7 +642,9 @@ class GWizardMergeDialog(Gtk.Dialog):
                     if not event:
                         continue
                     etype = str(event.get_type())
-                    if etype in ("_PPEXCLUDE", "_FSLINK", "Birth", "Death"):
+                    if etype in ("_PPEXCLUDE", "_FSLINK"):
+                        continue
+                    if event.handle in skip:
                         continue
                     groups.setdefault(etype, []).append(
                         (event.handle, self._event_line_from(db, event))
@@ -831,8 +839,11 @@ class GWizardMergeDialog(Gtk.Dialog):
 
         # ---------- Events & Other Records ----------
         section(_("Events & Other Records"))
-        source_groups = event_groups(sd, left)
-        target_groups = event_groups(td, right)
+        primary_handles = {
+            handle for handle in (l_b[2], r_b[2], l_d[2], r_d[2]) if handle
+        }
+        source_groups = event_groups(sd, left, primary_handles)
+        target_groups = event_groups(td, right, primary_handles)
         for etype in dict.fromkeys(list(source_groups) + list(target_groups)):
             s_items = source_groups.get(etype, [])
             t_items = target_groups.get(etype, [])
@@ -893,7 +904,7 @@ class GWizardMergeDialog(Gtk.Dialog):
             if ph:
                 place_obj = safe_get_place(db, ph)
                 if place_obj:
-                    place = place_obj.get_name().get_value()
+                    place = place_obj.get_title() or ""
             return date_str, place or None, event.handle
         except Exception:
             return "", None, None

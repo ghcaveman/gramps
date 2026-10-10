@@ -403,11 +403,28 @@ class GedGWizard(GWizardBase):
             )
         )
 
-        # Helper to extract event details
+        # Helper to extract event details for the primary event of a type.
+        # The primary (birth_ref/death_ref, else first of that type) feeds
+        # the mergeable top row; every other event of that type is listed
+        # under Events & Other Records by the merge dialog.
         def get_event_details(
             db: DbWriteBase, person: Person, event_type_val: int
         ) -> tuple[str, str, str]:
-            for ref in person.get_event_ref_list():
+            kind = "birth" if event_type_val == EventType.BIRTH else "death"
+            try:
+                primary = vital_event_ref(db, person, kind)
+            except Exception:
+                primary = None
+            ordered_refs: list[Any] = []
+            if primary is not None:
+                ordered_refs.append(primary)
+            try:
+                for ref in person.get_event_ref_list():
+                    if primary is None or ref.ref != primary.ref:
+                        ordered_refs.append(ref)
+            except Exception:
+                pass
+            for ref in ordered_refs:
                 try:
                     event = safe_get_event(db, ref.ref)
                     if event and event.get_type() == event_type_val:
@@ -470,6 +487,117 @@ class GedGWizard(GWizardBase):
                 extra_data={"source_handle": s_death_h, "target_handle": t_death_h},
             )
         )
+
+        # 6. Compare extra (non-primary) Birth and Death events.
+        # These are the events beyond the primary record and are surfaced as
+        # separate rows so the Diff list correctly flags a person when an
+        # alternate vital event exists on either side.
+        def get_event_details_for_event(
+            db: DbWriteBase, event: Event
+        ) -> tuple[str, str]:
+            dt_str = glocale.date_displayer.display(event.get_date_object())
+            place = ""
+            ph = event.get_place_handle()
+            if ph:
+                place_obj = safe_get_place(db, ph)
+                if place_obj:
+                    place = place_obj.get_title()
+            return dt_str, place
+
+        def get_extra_events(
+            db: DbWriteBase,
+            person: Person,
+            event_type_val: int,
+            primary_handle: str | None,
+        ) -> list[tuple[str, Event]]:
+            extra: list[tuple[str, Event]] = []
+            for ref in person.get_event_ref_list():
+                try:
+                    event = safe_get_event(db, ref.ref)
+                    if not event:
+                        continue
+                    if event.get_type() != event_type_val:
+                        continue
+                    if ref.ref == primary_handle:
+                        continue
+                    extra.append((ref.ref, event))
+                except Exception:
+                    continue
+            return extra
+
+        # Extra Birth events
+        s_birth_extra = get_extra_events(
+            source_db, s_person, EventType.BIRTH, s_birth_h
+        )
+        t_birth_extra = get_extra_events(self.db, t_person, EventType.BIRTH, t_birth_h)
+        for s_ref, s_ev in s_birth_extra:
+            s_dt, s_pl = get_event_details_for_event(source_db, s_ev)
+            s_val = f"{s_dt} ({s_pl})" if s_pl else s_dt
+            rows.append(
+                GWizardCompareRow(
+                    status="source_only",
+                    field=_("Birth"),
+                    source_val=s_val,
+                    target_val="",
+                    source_date=s_dt,
+                    target_date="",
+                    field_type="birth_event",
+                    extra_data={"source_handle": s_ref, "target_handle": ""},
+                )
+            )
+
+        for t_ref, t_ev in t_birth_extra:
+            t_dt, t_pl = get_event_details_for_event(self.db, t_ev)
+            t_val = f"{t_dt} ({t_pl})" if t_pl else t_dt
+            rows.append(
+                GWizardCompareRow(
+                    status="target_only",
+                    field=_("Birth"),
+                    source_val="",
+                    target_val=t_val,
+                    source_date="",
+                    target_date=t_dt,
+                    field_type="birth_event",
+                    extra_data={"source_handle": "", "target_handle": t_ref},
+                )
+            )
+
+        # Extra Death events
+        s_death_extra = get_extra_events(
+            source_db, s_person, EventType.DEATH, s_death_h
+        )
+        t_death_extra = get_extra_events(self.db, t_person, EventType.DEATH, t_death_h)
+        for s_ref, s_ev in s_death_extra:
+            s_dt, s_pl = get_event_details_for_event(source_db, s_ev)
+            s_val = f"{s_dt} ({s_pl})" if s_pl else s_dt
+            rows.append(
+                GWizardCompareRow(
+                    status="source_only",
+                    field=_("Death"),
+                    source_val=s_val,
+                    target_val="",
+                    source_date=s_dt,
+                    target_date="",
+                    field_type="death_event",
+                    extra_data={"source_handle": s_ref, "target_handle": ""},
+                )
+            )
+
+        for t_ref, t_ev in t_death_extra:
+            t_dt, t_pl = get_event_details_for_event(self.db, t_ev)
+            t_val = f"{t_dt} ({t_pl})" if t_pl else t_dt
+            rows.append(
+                GWizardCompareRow(
+                    status="target_only",
+                    field=_("Death"),
+                    source_val="",
+                    target_val=t_val,
+                    source_date="",
+                    target_date=t_dt,
+                    field_type="death_event",
+                    extra_data={"source_handle": "", "target_handle": t_ref},
+                )
+            )
 
         return rows
 
@@ -876,7 +1004,7 @@ class GedGWizard(GWizardBase):
 
                 birth_idx = new_person.birth_ref_index
                 death_idx = new_person.death_ref_index
-                new_event_refs = []
+                new_event_refs: list[Any] = []
                 new_birth_idx = new_death_idx = -1
                 for idx, event_ref in enumerate(new_person.get_event_ref_list()):
                     target_event_handle = copy_event(event_ref.ref, trans)
@@ -958,17 +1086,19 @@ class GedGWizard(GWizardBase):
                 if resolutions.get("gender") == "source":
                     t_person.set_gender(s_person.get_gender())
 
-                # Helper to extract event details to match comparison
+                # Helper to extract the primary event handle to match comparison:
+                # the birth_ref/death_ref when set, else the first event of
+                # that type. Alternate births/deaths merge via "event:" keys.
                 def get_source_event_handle(
                     person: Person, event_type_val: int
                 ) -> str | None:
-                    for ref in person.get_event_ref_list():
-                        try:
-                            event = safe_get_event(source_db, ref.ref)
-                            if event and event.get_type() == event_type_val:
-                                return event.handle
-                        except Exception:
-                            continue
+                    kind = "birth" if event_type_val == EventType.BIRTH else "death"
+                    try:
+                        primary = vital_event_ref(source_db, person, kind)
+                    except Exception:
+                        primary = None
+                    if primary is not None:
+                        return primary.ref
                     return None
 
                 # 4. Birth Event

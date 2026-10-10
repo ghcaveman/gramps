@@ -197,12 +197,12 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         main_box.pack_start(self.paned, True, True, 0)
 
         source_path = gwizard.context.get("gedcom_path")
-        incoming_title = _("Incoming GEDCOM File")
+        incoming_title = _("Incoming GEDCOM")
         if source_path:
             filename = truncate_display_name(
                 os.path.basename(source_path), max_length=60, preserve_extension=True
             )
-            incoming_title = _("Incoming GEDCOM File: %s") % filename
+            incoming_title = _("Incoming GEDCOM: %s") % filename
         tree_name = truncate_display_name(dbstate.db.get_dbname(), max_length=60)
         current_title = _("Current Family Tree: %s") % tree_name
         self.left_panel = self._build_panel(incoming_title)
@@ -584,9 +584,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                 # we are extracting. ``source`` lives in ``self.source_db``
                 # while ``target`` lives in the destination database
                 # ``self.dbstate.db``.
-                db_for_person = (
-                    self.source_db if person is source else self.dbstate.db
-                )
+                db_for_person = self.source_db if person is source else self.dbstate.db
                 ev = vital_event_ref(db_for_person, person, "birth")
                 if ev:
                     # ``_get_event_year`` returns an empty string when the

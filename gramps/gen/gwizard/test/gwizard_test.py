@@ -365,6 +365,156 @@ class GWizardTest(unittest.TestCase):
         finally:
             target_db.close()
 
+    def test_compare_prefers_primary_birth_over_first_birth(self) -> None:
+        """
+        Verify the Birth row uses the primary birth ref, not the first one.
+        """
+        source_db = make_database("sqlite")
+        source_db.load(":memory:")
+        target_db = make_database("sqlite")
+        target_db.load(":memory:")
+        try:
+            s_handle = None
+            t_handle = None
+            with DbTxn("Add source person", source_db) as trans:
+                s_person = Person()
+                s_name = Name()
+                s_name.first_name = "Kimberly"
+                s_surn = Surname()
+                s_surn.set_surname("White")
+                s_name.add_surname(s_surn)
+                s_person.set_primary_name(s_name)
+                source_db.add_person(s_person, trans)
+                s_handle = s_person.handle
+            with DbTxn("Add target person", target_db) as trans:
+                t_person = Person()
+                t_name = Name()
+                t_name.first_name = "Kimberly"
+                t_surn = Surname()
+                t_surn.set_surname("White")
+                t_name.add_surname(t_surn)
+                t_person.set_primary_name(t_name)
+                target_db.add_person(t_person, trans)
+                first = Event()
+                first.set_type(EventType.BIRTH)
+                early = Date()
+                early.set_yr_mon_day(1967, 5, 6)
+                first.set_date_object(early)
+                target_db.add_event(first, trans)
+                first_ref = EventRef()
+                first_ref.ref = first.handle
+                t_person.add_event_ref(first_ref)
+                primary = Event()
+                primary.set_type(EventType.BIRTH)
+                late = Date()
+                late.set_yr_mon_day(1968, 5, 6)
+                primary.set_date_object(late)
+                target_db.add_event(primary, trans)
+                primary_ref = EventRef()
+                primary_ref.ref = primary.handle
+                t_person.set_birth_ref(primary_ref)
+                target_db.commit_person(t_person, trans)
+                t_handle = t_person.handle
+            gwizard = GedGWizard(target_db)
+            gwizard.context["source_db"] = source_db
+            rows = gwizard.run_step(
+                "compare",
+                source_person_handle=s_handle,
+                target_person_handle=t_handle,
+            )
+            birth_rows = [r for r in rows if r.field_type == "birth_event"]
+            self.assertEqual(len(birth_rows), 2)
+            primary_row = [
+                r
+                for r in birth_rows
+                if r.extra_data.get("target_handle") == primary.handle
+            ]
+            self.assertEqual(len(primary_row), 1)
+            self.assertIn("1968", primary_row[0].target_val)
+            self.assertNotIn("1967", primary_row[0].target_val)
+            extra_row = [
+                r
+                for r in birth_rows
+                if r.extra_data.get("target_handle") == first.handle
+            ]
+            self.assertEqual(len(extra_row), 1)
+            self.assertIn("1967", extra_row[0].target_val)
+            self.assertNotIn("1968", extra_row[0].target_val)
+        finally:
+            source_db.close()
+            target_db.close()
+
+    def test_apply_alternate_birth_event_key(self) -> None:
+        """
+        Verify an alternate Birth merges via its "event:" resolution key.
+        """
+        source_db = make_database("sqlite")
+        source_db.load(":memory:")
+        target_db = make_database("sqlite")
+        target_db.load(":memory:")
+        try:
+            s_handle = None
+            t_handle = None
+            s_birth_handle = None
+            with DbTxn("Add source person", source_db) as trans:
+                s_person = Person()
+                s_name = Name()
+                s_name.first_name = "Kimberly"
+                s_surn = Surname()
+                s_surn.set_surname("White")
+                s_name.add_surname(s_surn)
+                s_person.set_primary_name(s_name)
+                source_db.add_person(s_person, trans)
+                primary = Event()
+                primary.set_type(EventType.BIRTH)
+                primary_day = Date()
+                primary_day.set_yr_mon_day(1967, 5, 6)
+                primary.set_date_object(primary_day)
+                source_db.add_event(primary, trans)
+                primary_ref = EventRef()
+                primary_ref.ref = primary.handle
+                s_person.set_birth_ref(primary_ref)
+                birth = Event()
+                birth.set_type(EventType.BIRTH)
+                day = Date()
+                day.set_yr_mon_day(1968, 5, 6)
+                birth.set_date_object(day)
+                source_db.add_event(birth, trans)
+                birth_ref = EventRef()
+                birth_ref.ref = birth.handle
+                s_person.add_event_ref(birth_ref)
+                source_db.commit_person(s_person, trans)
+                s_handle = s_person.handle
+                s_birth_handle = birth.handle
+            with DbTxn("Add target person", target_db) as trans:
+                t_person = Person()
+                t_name = Name()
+                t_name.first_name = "Kimberly"
+                t_surn = Surname()
+                t_surn.set_surname("White")
+                t_name.add_surname(t_surn)
+                t_person.set_primary_name(t_name)
+                target_db.add_person(t_person, trans)
+                t_handle = t_person.handle
+            gwizard = GedGWizard(target_db)
+            gwizard.context["source_db"] = source_db
+            gwizard.run_step(
+                "apply",
+                source_person_handle=s_handle,
+                target_person_handle=t_handle,
+                resolutions={f"event:{s_birth_handle}": "source"},
+            )
+            updated = target_db.get_person_from_handle(t_handle)
+            birth_years = set()
+            for ref in updated.get_event_ref_list():
+                event = target_db.get_event_from_handle(ref.ref)
+                if event is not None and event.get_type() == EventType.BIRTH:
+                    birth_years.add(event.get_date_object().get_year())
+            self.assertIn(1968, birth_years)
+        finally:
+            source_db.close()
+            target_db.close()
+
     def test_compare_finds_unindexed_target_birth(self) -> None:
         """
         Verify _compare reports target_only when the target birth ref index
