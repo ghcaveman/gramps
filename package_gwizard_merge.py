@@ -250,13 +250,9 @@ def build_zip(repo_root: Path, output: Path) -> Path:
             archive.writestr(f"{PACKAGE}/{member}", members[member])
         if test_members:
             archive.writestr(PACKAGE + "/tests/", b"")
-            archive.writestr(
-                PACKAGE + "/tests/__init__.py", TESTS_INIT.encode("utf-8")
-            )
+            archive.writestr(PACKAGE + "/tests/__init__.py", TESTS_INIT.encode("utf-8"))
             for member in sorted(test_members):
-                archive.writestr(
-                    f"{PACKAGE}/tests/{member}", test_members[member]
-                )
+                archive.writestr(f"{PACKAGE}/tests/{member}", test_members[member])
     LOG.info("Wrote %s (%d bytes)", output, output.stat().st_size)
     return output
 
