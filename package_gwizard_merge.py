@@ -98,6 +98,22 @@ if (5, 2, 0) <= VERSION_TUPLE <= (6, 2, 0):
     )
 """
 
+# Contents of ``GWizardFileMerge/tests/__init__.py`` inside the bundle. The
+# bundled tests use flat sibling imports (``from gwizard import ...``), which
+# only resolve when the addon directory itself is on ``sys.path``. Gramps puts
+# it there when loading the plugin, but a plain
+# ``python3 -m unittest GWizardFileMerge.tests.<module>`` run from the
+# ``addons-source`` directory does not, so the package initializer adds it.
+TESTS_INIT = """\
+\"\"\"Make the flat GWizard addon modules importable when running the tests.\"\"\"
+import os
+import sys
+
+_ADDON_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ADDON_DIR not in sys.path:
+    sys.path.insert(0, _ADDON_DIR)
+"""
+
 DEFAULT_GRAMPS_TARGET = "6.0"
 
 # Map of archive member name -> source file relative to the repo root.
@@ -234,7 +250,9 @@ def build_zip(repo_root: Path, output: Path) -> Path:
             archive.writestr(f"{PACKAGE}/{member}", members[member])
         if test_members:
             archive.writestr(PACKAGE + "/tests/", b"")
-            archive.writestr(PACKAGE + "/tests/__init__.py", b"")
+            archive.writestr(
+                PACKAGE + "/tests/__init__.py", TESTS_INIT.encode("utf-8")
+            )
             for member in sorted(test_members):
                 archive.writestr(
                     f"{PACKAGE}/tests/{member}", test_members[member]
