@@ -22,16 +22,18 @@
 
 Collects the GWizard backend, GUI, and tool modules scattered across
 ``gramps/gen/gwizard``, ``gramps/gui/gwizard``, and ``gramps/plugins/tool``
-into a single flat ``GWizardDataMerge/`` addon directory inside a zip file,
+into a single flat ``GWizardFileMerge/`` addon directory inside a zip file,
 rewriting the ``gramps.gen.gwizard`` / ``gramps.gui.gwizard`` absolute
 imports and intra-package relative imports to flat sibling imports so the
 bundle loads under Gramps' plugin importer (which imports the tool module
 top-level via ``__import__`` with the addon directory on ``sys.path``).
 Also embeds the standalone addon registration file
-``GWizardDataMerge/GWizardDataMerge.gpr.py`` (mirroring the ``gwizardmerge``
-entry in ``gramps/plugins/tool/tools.gpr.py``). Newlines are normalized to
-LF so the output is identical regardless of the checkout's line-ending
-setting.
+``GWizardFileMerge/GWizardFileMerge.gpr.py`` (mirroring the ``gwizardmerge``
+entry in ``gramps/plugins/tool/tools.gpr.py``). The unit tests are copied
+into ``GWizardFileMerge/tests/`` inside the bundle, with the same GWizard
+import rewriting applied so they resolve the flat sibling modules. Newlines
+are normalized to LF so the output is identical regardless of the checkout's
+line-ending setting.
 """
 
 # -------------------------------------------------------------------------
@@ -48,12 +50,12 @@ from pathlib import Path
 
 LOG = logging.getLogger(__name__)
 
-PACKAGE = "GWizardDataMerge"
+PACKAGE = "GWizardFileMerge"
 
-GPR_FILENAME = "GWizardDataMerge.gpr.py"
+GPR_FILENAME = "GWizardFileMerge.gpr.py"
 
 # Standalone addon registration file, embedded in the bundle as
-# ``GWizardDataMerge/GWizardDataMerge.gpr.py``. This template is the single
+# ``GWizardFileMerge/GWizardFileMerge.gpr.py``. This template is the single
 # source of truth for the generated registration; no standalone GPR file is
 # written to the repository.
 GPR_TEMPLATE = """\
@@ -108,6 +110,19 @@ SOURCES: dict[str, str] = {
     "gwizardmergedialog.py": "gramps/gui/gwizard/gwizardmergedialog.py",
 }
 
+# Unit-test modules bundled into ``GWizardFileMerge/tests/`` inside the zip.
+# Keyed by test file name; the value is the source path relative to the repo
+# root. These are placed under the ``tests/`` subdirectory rather than flat,
+# and receive the same GWizard import rewriting as the tool modules.
+TEST_SOURCES: dict[str, str] = {
+    "gwizard_test.py": "gramps/gen/gwizard/test/gwizard_test.py",
+    "gwizard_merge_fields_test.py": (
+        "gramps/gui/gwizard/test/gwizard_merge_fields_test.py"
+    ),
+    "gwizard_styling_test.py": "gramps/gui/gwizard/test/gwizard_styling_test.py",
+    "gwizardmerge_test.py": "gramps/plugins/tool/test/gwizardmerge_test.py",
+}
+
 # GWizard sibling modules bundled flat in the addon directory. Gramps loads
 # the tool module top-level (``__import__("gwizardmerge")`` with the addon
 # directory on ``sys.path``), so intra-bundle imports must be flat as well:
@@ -147,12 +162,26 @@ REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"from\s+gramps\.gui\.gwizard\.gwizardmergedialog\s+import\b"),
         "from gwizardmergedialog import",
     ),
+    # Relative imports: one or more leading dots both flatten to a flat
+    # sibling import -- single dot (``from .gwizard import``) as used by the
+    # tool modules, double dot (``from ..gwizard import``) as used by the
+    # bundled unit tests.
     (
         re.compile(
-            r"from\s+\.(gwizardgedcom|gwizard|gwizardcompare|gwizardlauncher|"
+            r"from\s+\.+(gwizardgedcom|gwizard|gwizardcompare|gwizardlauncher|"
             r"gwizardmerge|gwizardmergedialog)\s+import\b"
         ),
         r"from \1 import",
+    ),
+    # Module-from-package imports (``from gramps.gui.gwizard import
+    # gwizardmergedialog``) become a bare ``import <module>`` sibling import.
+    (
+        re.compile(
+            r"from\s+gramps\.(?:gen|gui)\.gwizard\s+import\s+"
+            r"(gwizardgedcom|gwizard|gwizardcompare|gwizardlauncher|"
+            r"gwizardmerge|gwizardmergedialog)\b"
+        ),
+        r"import \1",
     ),
 )
 
@@ -177,7 +206,7 @@ def build_gpr() -> bytes:
 
 
 def build_zip(repo_root: Path, output: Path) -> Path:
-    """Build the ``GWizardMerge.zip`` bundle next to this script."""
+    """Build the ``GWizardFileMerge.zip`` bundle next to this script."""
     members: dict[str, bytes] = {}
     for member, source in SOURCES.items():
         path = repo_root / source
@@ -186,6 +215,16 @@ def build_zip(repo_root: Path, output: Path) -> Path:
         text = path.read_bytes()
         members[member] = rewrite_imports_bytes(text)
         LOG.debug("Added %s (%d bytes)", source, len(members[member]))
+
+    test_members: dict[str, bytes] = {}
+    for member, source in TEST_SOURCES.items():
+        path = repo_root / source
+        if not path.is_file():
+            raise FileNotFoundError(f"Missing test source file: {path}")
+        text = path.read_bytes()
+        test_members[member] = rewrite_imports_bytes(text)
+        LOG.debug("Added test %s (%d bytes)", source, len(test_members[member]))
+
     output.unlink(missing_ok=True)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(PACKAGE + "/", b"")
@@ -193,6 +232,13 @@ def build_zip(repo_root: Path, output: Path) -> Path:
         archive.writestr(f"{PACKAGE}/{GPR_FILENAME}", build_gpr())
         for member in sorted(members):
             archive.writestr(f"{PACKAGE}/{member}", members[member])
+        if test_members:
+            archive.writestr(PACKAGE + "/tests/", b"")
+            archive.writestr(PACKAGE + "/tests/__init__.py", b"")
+            for member in sorted(test_members):
+                archive.writestr(
+                    f"{PACKAGE}/tests/{member}", test_members[member]
+                )
     LOG.info("Wrote %s (%d bytes)", output, output.stat().st_size)
     return output
 
