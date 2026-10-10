@@ -599,6 +599,105 @@ class GedGWizard(GWizardBase):
                 )
             )
 
+        # 7. Compare generic (non-Birth/non-Death) events. These are the
+        # "other" personal events (custom events and the like). They are
+        # paired by identical description first, then any remaining events
+        # are matched by ordinal position. This ensures a person who has a
+        # different number of generic events on each side -- for example two
+        # events in the GEDCOM file but three in the database -- is flagged
+        # as a difference rather than being silently ignored.
+        def generic_event_label(db: DbWriteBase, event: Event) -> str:
+            """Return a short display value for a generic event."""
+            desc = event.get_description() or ""
+            dt_str = ""
+            try:
+                dt_str = glocale.date_displayer.display(event.get_date_object())
+            except Exception:
+                dt_str = ""
+            label = desc or str(event.get_type())
+            if dt_str:
+                label = f"{label} ({dt_str})"
+            return label
+
+        def collect_generic_events(
+            db: DbWriteBase, person: Person
+        ) -> list[tuple[str, Event]]:
+            """Return (handle, Event) pairs for non-Birth/Death events."""
+            result: list[tuple[str, Event]] = []
+            for ref in person.get_event_ref_list():
+                try:
+                    event = safe_get_event(db, ref.ref)
+                except Exception:
+                    continue
+                if not event:
+                    continue
+                if event.get_type() in (EventType.BIRTH, EventType.DEATH):
+                    continue
+                result.append((ref.ref, event))
+            return result
+
+        def _norm(value: str) -> str:
+            return value.strip().lower()
+
+        s_generic = collect_generic_events(source_db, s_person)
+        t_generic = collect_generic_events(self.db, t_person)
+
+        # First pass: pair events whose display values are identical.
+        matched_target_idx: set[int] = set()
+        s_unmatched: list[tuple[str, str]] = []
+        for s_ref, s_ev in s_generic:
+            s_label = generic_event_label(source_db, s_ev)
+            found: int | None = None
+            for idx, (t_ref, t_ev) in enumerate(t_generic):
+                if idx in matched_target_idx:
+                    continue
+                if _norm(generic_event_label(self.db, t_ev)) == _norm(s_label):
+                    found = idx
+                    break
+            if found is None:
+                s_unmatched.append((s_ref, s_label))
+            else:
+                matched_target_idx.add(found)
+                t_ref, t_ev = t_generic[found]
+                rows.append(
+                    GWizardCompareRow(
+                        status="match",
+                        field=_("Event"),
+                        source_val=s_label,
+                        target_val=generic_event_label(self.db, t_ev),
+                        field_type="event",
+                        extra_data={"source_handle": s_ref, "target_handle": t_ref},
+                    )
+                )
+
+        # Second pass: pair leftover source and target events by position.
+        # Unequal counts therefore surface as differ/source_only/target_only.
+        t_remaining: list[tuple[str, str]] = [
+            (t_ref, generic_event_label(self.db, t_ev))
+            for idx, (t_ref, t_ev) in enumerate(t_generic)
+            if idx not in matched_target_idx
+        ]
+        pair_count = max(len(s_unmatched), len(t_remaining))
+        for i in range(pair_count):
+            s_ref = ""
+            s_label = ""
+            t_ref = ""
+            t_label = ""
+            if i < len(s_unmatched):
+                s_ref, s_label = s_unmatched[i]
+            if i < len(t_remaining):
+                t_ref, t_label = t_remaining[i]
+            rows.append(
+                GWizardCompareRow(
+                    status=get_status(s_label, t_label),
+                    field=_("Event"),
+                    source_val=s_label,
+                    target_val=t_label,
+                    field_type="event",
+                    extra_data={"source_handle": s_ref, "target_handle": t_ref},
+                )
+            )
+
         return rows
 
     def _apply(self, **kwargs: Any) -> bool:

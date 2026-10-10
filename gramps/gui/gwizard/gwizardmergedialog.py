@@ -297,6 +297,23 @@ def sources_line(db: Any, obj: Any) -> str:
     return _("Sources: %s") % (citation_sources_summary(db, obj) or _("none"))
 
 
+def person_events_by_type(db: Any, person: Person) -> dict[str, list[str]]:
+    """Return visible event handles grouped by event type, preserving order."""
+    groups: dict[str, list[str]] = {}
+    for event_ref in person.get_event_ref_list():
+        try:
+            event = safe_get_event(db, event_ref.ref)
+            if not event:
+                continue
+            event_type = str(event.get_type())
+            if event_type in ("_PPEXCLUDE", "_FSLINK"):
+                continue
+            groups.setdefault(event_type, []).append(event.handle)
+        except Exception:
+            continue
+    return groups
+
+
 # -------------------------------------------------------------------------
 #
 # GWizardMergeDialog
@@ -624,35 +641,6 @@ class GWizardMergeDialog(Gtk.Dialog):
             grid.attach(right_cell, 2, self._row_index, 1, 1)
             self._row_index += 1
 
-        def event_groups(
-            db: Any, person: Person, skip_handles: set[str] | None = None
-        ) -> dict[str, list[tuple[str, str]]]:
-            """
-            Group a person's events by type string.
-
-            The primary Birth/Death events (merged via the top rows) are
-            skipped via ``skip_handles``; any extra Birth/Death events are
-            listed here as mergeable alternates.
-            """
-            skip = skip_handles or set()
-            groups: dict[str, list[tuple[str, str]]] = {}
-            for ref in person.get_event_ref_list():
-                try:
-                    event = safe_get_event(db, ref.ref)
-                    if not event:
-                        continue
-                    etype = str(event.get_type())
-                    if etype in ("_PPEXCLUDE", "_FSLINK"):
-                        continue
-                    if event.handle in skip:
-                        continue
-                    groups.setdefault(etype, []).append(
-                        (event.handle, self._event_line_from(db, event))
-                    )
-                except Exception:
-                    continue
-            return groups
-
         def rel_items(db: Any, person: Person, role: str) -> list[Person]:
             if role == "spouse":
                 return self._spouses(db, person)
@@ -839,26 +827,32 @@ class GWizardMergeDialog(Gtk.Dialog):
 
         # ---------- Events & Other Records ----------
         section(_("Events & Other Records"))
-        primary_handles = {
-            handle for handle in (l_b[2], r_b[2], l_d[2], r_d[2]) if handle
-        }
-        source_groups = event_groups(sd, left, primary_handles)
-        target_groups = event_groups(td, right, primary_handles)
+        primary_source_handles = {handle for handle in (l_b[2], l_d[2]) if handle}
+        source_groups = person_events_by_type(sd, left)
+        target_groups = person_events_by_type(td, right)
         for etype in dict.fromkeys(list(source_groups) + list(target_groups)):
             s_items = source_groups.get(etype, [])
             t_items = target_groups.get(etype, [])
             count = max(len(s_items), len(t_items))
             for i in range(count):
-                s_handle, s_line = s_items[i] if i < len(s_items) else (None, "")
-                t_handle, t_line = t_items[i] if i < len(t_items) else (None, "")
-                key = ("event:" + s_handle) if s_handle else None
+                s_handle = s_items[i] if i < len(s_items) else None
+                t_handle = t_items[i] if i < len(t_items) else None
+                s_event = safe_get_event(sd, s_handle) if s_handle else None
+                t_event = safe_get_event(td, t_handle) if t_handle else None
+                s_line = self._event_line_from(sd, s_event) if s_event else ""
+                t_line = self._event_line_from(td, t_event) if t_event else ""
+                key = (
+                    "event:" + s_handle
+                    if s_handle and s_handle not in primary_source_handles
+                    else None
+                )
                 add_row(
                     key,
                     etype,
                     s_line,
                     t_line,
-                    left_obj=safe_get_event(sd, s_handle) if s_handle else None,
-                    right_obj=safe_get_event(td, t_handle) if t_handle else None,
+                    left_obj=s_event,
+                    right_obj=t_event,
                 )
 
     # ------------------------------------------------------------------
@@ -915,7 +909,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         return ", ".join(p for p in (date_str, place or "") if p)
 
     def _event_line_from(self, db: Any, event: Any) -> str:
-        """Return ``date, place`` for an event, trimming empty parts."""
+        """Return an event's date, place, and description for display."""
         date_str = glocale.date_displayer.display(event.get_date_object())
         place = ""
         ph = event.get_place_handle()
@@ -926,7 +920,11 @@ class GWizardMergeDialog(Gtk.Dialog):
                     place = place_obj.get_name().get_value() or ""
             except Exception:
                 pass
-        return ", ".join(p for p in (date_str, place) if p)
+        details = ", ".join(p for p in (date_str, place) if p)
+        description = " ".join((event.get_description() or "").split())
+        if description:
+            details += f" ({description})" if details else description
+        return details
 
     def _vitals_text(self, person: Person, db: Any) -> str:
         """

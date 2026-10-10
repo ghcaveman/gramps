@@ -178,6 +178,62 @@ class GWizardTest(unittest.TestCase):
             self.target_person.set_birth_ref(eref)
             self.db.commit_person(self.target_person, trans)
 
+    def test_compare_flags_generic_event_count_difference(self) -> None:
+        """
+        Two incoming (GEDCOM) and three target (database) custom events for
+        the same person must be surfaced as compare differences.
+        """
+        source_db = make_database("sqlite")
+        source_db.load(":memory:")
+
+        def add_person_with_events(db: DbWriteBase, descriptions: list[str]) -> Person:
+            person = Person()
+            name = Name()
+            name.first_name = "Test"
+            surname = Surname()
+            surname.set_surname("Person")
+            name.add_surname(surname)
+            person.set_primary_name(name)
+            with DbTxn("Add event set", db) as trans:
+                for description in descriptions:
+                    event = Event()
+                    event.set_type(EventType.CUSTOM)
+                    event.set_description(description)
+                    db.add_event(event, trans)
+                    event_ref = EventRef()
+                    event_ref.ref = event.handle
+                    person.add_event_ref(event_ref)
+                db.add_person(person, trans)
+                db.commit_person(person, trans)
+            return person
+
+        try:
+            source_person = add_person_with_events(
+                source_db, ["GED event one", "GED event two"]
+            )
+            target_person = add_person_with_events(
+                self.db,
+                ["target event one", "target event two", "target event three"],
+            )
+            gwizard = GedGWizard(self.db)
+            gwizard.context["source_db"] = source_db
+
+            rows = gwizard.run_step(
+                "compare",
+                source_person_handle=source_person.handle,
+                target_person_handle=target_person.handle,
+            )
+
+            event_rows = [row for row in rows if row.field_type == "event"]
+            self.assertEqual(len(event_rows), 3)
+            self.assertEqual(
+                [row.status for row in event_rows],
+                ["differ", "differ", "target_only"],
+            )
+            self.assertEqual(event_rows[-1].target_val, "target event three")
+        finally:
+            source_db.close()
+
     def tearDown(self) -> None:
         """
         Close the target database connection.

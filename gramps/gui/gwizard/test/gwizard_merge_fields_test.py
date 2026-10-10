@@ -44,6 +44,7 @@ from gramps.gen.gwizard.gwizard import surname_prefix_text, surname_text
 from gramps.gui.gwizard.gwizardmergedialog import (
     citation_sources_summary,
     field_values_differ,
+    person_events_by_type,
 )
 
 
@@ -154,6 +155,39 @@ class GWizardCitationSummaryTest(unittest.TestCase):
         obj.get_citation_list.return_value = []
 
         self.assertEqual(citation_sources_summary(Mock(), obj), "")
+
+
+class GWizardEventGroupingTest(unittest.TestCase):
+    """Events listed in the merge dialog match the compare window's set."""
+
+    def test_includes_vital_and_other_events_but_excludes_internal_markers(
+        self,
+    ) -> None:
+        event_types = {
+            "birth": "Birth",
+            "death": "Death",
+            "occupation": "Occupation",
+            "exclude": "_PPEXCLUDE",
+            "fslink": "_FSLINK",
+        }
+        events = {}
+        refs = []
+        for handle, event_type in event_types.items():
+            event = Mock()
+            event.handle = handle
+            event.get_type.return_value = event_type
+            events[handle] = event
+            refs.append(Mock(ref=handle))
+
+        db = Mock()
+        db.get_event_from_handle.side_effect = events.__getitem__
+        person = Mock()
+        person.get_event_ref_list.return_value = refs
+
+        self.assertEqual(
+            person_events_by_type(db, person),
+            {"Birth": ["birth"], "Death": ["death"], "Occupation": ["occupation"]},
+        )
 
 
 if __name__ == "__main__":
