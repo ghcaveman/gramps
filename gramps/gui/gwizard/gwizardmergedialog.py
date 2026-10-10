@@ -62,6 +62,7 @@ from gramps.gen.gwizard.gwizard import (
     safe_get_family,
     safe_get_person,
     safe_get_place,
+    safe_get_repository,
     safe_get_source,
     vital_event_ref,
     surname_prefix_text,
@@ -226,12 +227,12 @@ def _plain_text(text: str) -> str:
 
 def citation_sources_summary(db: Any, obj: Any) -> str:
     """
-    Return a compact list of source titles, pages and citation notes.
+    Return a compact list of source titles, authors, pages, repositories and notes.
 
     :param db: Database that owns the citations.
     :param obj: One object providing ``get_citation_list()``, or a list or
         tuple of such objects (a family and its marriage event, say).
-    :returns: ``Title (page X) - note`` entries joined with ``"; "``, or ''.
+    :returns: Compact citation summary entries joined with ``"; "``, or ''.
     """
     if obj is None:
         return ""
@@ -253,8 +254,37 @@ def citation_sources_summary(db: Any, obj: Any) -> str:
                 title = _plain_text(
                     source.get_title() or source.get_author() or source.gramps_id or ""
                 ) or _("Untitled source")
+                author = _plain_text(source.get_author() or "")
+
+                if author and author.casefold() not in title.casefold():
+                    lead = f"{author}, {title}"
+                else:
+                    lead = title
+
                 page = _plain_text(citation.get_page())
-                summary = f"{title} ({_('page %s') % page})" if page else title
+                summary = f"{lead} ({_('page %s') % page})" if page else lead
+
+                repos: list[str] = []
+                if hasattr(source, "get_reporef_list"):
+                    try:
+                        raw_refs = source.get_reporef_list()
+                        if isinstance(raw_refs, (list, tuple)):
+                            for rr in raw_refs:
+                                repo_handle = getattr(rr, "ref", None)
+                                repo = safe_get_repository(db, repo_handle)
+                                if repo and hasattr(repo, "get_name"):
+                                    rname = _plain_text(repo.get_name())
+                                    if (
+                                        rname
+                                        and rname not in repos
+                                        and rname.casefold() not in summary.casefold()
+                                    ):
+                                        repos.append(rname)
+                    except Exception:
+                        pass
+
+                if repos:
+                    summary += " " + (_("via %s") % " / ".join(repos))
 
                 notes: list[str] = []
                 for note_handle in citation.get_note_list() or []:

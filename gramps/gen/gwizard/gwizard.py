@@ -266,6 +266,11 @@ def safe_get_source(db: Any, handle: str | None) -> Any | None:
     return safe_get(db, handle, "get_source_from_handle", "source")
 
 
+def safe_get_repository(db: Any, handle: str | None) -> Any | None:
+    """Return the repository for handle, or None when it is empty or dangling."""
+    return safe_get(db, handle, "get_repository_from_handle", "repository")
+
+
 def vital_event_ref(db: Any, person: Person | None, kind: str) -> Any | None:
     """Return the birth or death EventRef, with a type-scan fallback."""
     if person is None or db is None:

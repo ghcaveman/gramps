@@ -156,6 +156,98 @@ class GWizardCitationSummaryTest(unittest.TestCase):
 
         self.assertEqual(citation_sources_summary(Mock(), obj), "")
 
+    def test_summary_includes_distinct_author(self) -> None:
+        citation = Mock()
+        citation.get_reference_handle.return_value = "source-handle"
+        citation.get_page.return_value = "42"
+        citation.get_note_list.return_value = []
+        source = Mock()
+        source.get_title.return_value = "1850 Census"
+        source.get_author.return_value = "Bureau of the Census"
+        source.get_reporef_list.return_value = []
+        source.gramps_id = "S0001"
+        db = Mock()
+        db.get_citation_from_handle.return_value = citation
+        db.get_source_from_handle.return_value = source
+        obj = Mock()
+        obj.get_citation_list.return_value = ["citation-handle"]
+
+        self.assertEqual(
+            citation_sources_summary(db, obj),
+            "Bureau of the Census, 1850 Census (page 42)",
+        )
+
+    def test_summary_omits_duplicate_author(self) -> None:
+        citation = Mock()
+        citation.get_reference_handle.return_value = "source-handle"
+        citation.get_page.return_value = "42"
+        citation.get_note_list.return_value = []
+        source = Mock()
+        source.get_title.return_value = "Ancestry.com Family Tree"
+        source.get_author.return_value = "Ancestry.com"
+        source.get_reporef_list.return_value = []
+        source.gramps_id = "S0001"
+        db = Mock()
+        db.get_citation_from_handle.return_value = citation
+        db.get_source_from_handle.return_value = source
+        obj = Mock()
+        obj.get_citation_list.return_value = ["citation-handle"]
+
+        self.assertEqual(
+            citation_sources_summary(db, obj),
+            "Ancestry.com Family Tree (page 42)",
+        )
+
+    def test_summary_includes_repository_provenance(self) -> None:
+        citation = Mock()
+        citation.get_reference_handle.return_value = "source-handle"
+        citation.get_page.return_value = "42"
+        citation.get_note_list.return_value = []
+        repo_ref = Mock(ref="repo-handle")
+        source = Mock()
+        source.get_title.return_value = "1840 Census"
+        source.get_author.return_value = ""
+        source.get_reporef_list.return_value = [repo_ref]
+        source.gramps_id = "S0001"
+        repo = Mock()
+        repo.get_name.return_value = "National Archives and Records Administration"
+        db = Mock()
+        db.get_citation_from_handle.return_value = citation
+        db.get_source_from_handle.return_value = source
+        db.get_repository_from_handle.return_value = repo
+        obj = Mock()
+        obj.get_citation_list.return_value = ["citation-handle"]
+
+        self.assertEqual(
+            citation_sources_summary(db, obj),
+            "1840 Census (page 42) via National Archives and Records Administration",
+        )
+
+    def test_summary_combines_author_title_page_and_repository(self) -> None:
+        citation = Mock()
+        citation.get_reference_handle.return_value = "source-handle"
+        citation.get_page.return_value = "ED 51-508, p. 3B"
+        citation.get_note_list.return_value = []
+        repo_ref = Mock(ref="repo-handle")
+        source = Mock()
+        source.get_title.return_value = "Population Schedule"
+        source.get_author.return_value = "Bureau of the Census"
+        source.get_reporef_list.return_value = [repo_ref]
+        source.gramps_id = "S0001"
+        repo = Mock()
+        repo.get_name.return_value = "NARA"
+        db = Mock()
+        db.get_citation_from_handle.return_value = citation
+        db.get_source_from_handle.return_value = source
+        db.get_repository_from_handle.return_value = repo
+        obj = Mock()
+        obj.get_citation_list.return_value = ["citation-handle"]
+
+        self.assertEqual(
+            citation_sources_summary(db, obj),
+            "Bureau of the Census, Population Schedule (page ED 51-508, p. 3B) via NARA",
+        )
+
 
 class GWizardEventGroupingTest(unittest.TestCase):
     """Events listed in the merge dialog match the compare window's set."""
