@@ -74,6 +74,7 @@ from .gwizard import (
     safe_get_person,
     safe_get_place,
     safe_get_source,
+    vital_event_ref,
     SOURCE_AMBIGUOUS,
     SourceMatcher,
     normalize_source_text,
@@ -278,7 +279,7 @@ class GedGWizard(GWizardBase):
                         target_person.get_primary_name().get_name()
                     )
                     # Use formatted birth year if available
-                    birth_ref = target_person.get_birth_ref()
+                    birth_ref = vital_event_ref(self.db, target_person, "birth")
                     birth_yr = ""
                     if birth_ref:
                         birth_evt = safe_get_event(self.db, birth_ref.ref)
@@ -406,7 +407,21 @@ class GedGWizard(GWizardBase):
         def get_event_details(
             db: DbWriteBase, person: Person, event_type_val: int
         ) -> tuple[str, str, str]:
-            for ref in person.get_event_ref_list():
+            kind = "birth" if int(event_type_val) == int(EventType.BIRTH) else "death"
+            ordered_refs: list[Any] = []
+            try:
+                primary = vital_event_ref(db, person, kind)
+            except Exception:
+                primary = None
+            if primary is not None:
+                ordered_refs.append(primary)
+            try:
+                for ref in person.get_event_ref_list():
+                    if primary is None or ref.ref != primary.ref:
+                        ordered_refs.append(ref)
+            except Exception:
+                pass
+            for ref in ordered_refs:
                 try:
                     event = safe_get_event(db, ref.ref)
                     if event and event.get_type() == event_type_val:

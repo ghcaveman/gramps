@@ -266,6 +266,41 @@ def safe_get_source(db: Any, handle: str | None) -> Any | None:
     return safe_get(db, handle, "get_source_from_handle", "source")
 
 
+def vital_event_ref(db: Any, person: Person | None, kind: str) -> Any | None:
+    """Return the birth or death EventRef, with a type-scan fallback."""
+    if person is None or db is None:
+        return None
+    try:
+        ref = person.get_birth_ref() if kind == "birth" else person.get_death_ref()
+    except Exception:
+        ref = None
+    if ref is not None:
+        return ref
+    try:
+        refs = person.get_event_ref_list() or []
+    except Exception:
+        return None
+    want_birth = kind == "birth"
+    for cand in refs:
+        try:
+            event = safe_get_event(db, getattr(cand, "ref", None))
+        except Exception:
+            continue
+        if event is None:
+            continue
+        try:
+            etype = event.get_type()
+        except Exception:
+            continue
+        try:
+            is_match = etype.is_birth() if want_birth else etype.is_death()
+        except Exception:
+            continue
+        if is_match:
+            return cand
+    return None
+
+
 # ------------------------------------------------------------
 #
 # Source matching helpers
@@ -589,8 +624,8 @@ class CandidateMatcher:
             score += surname_score
 
         # Birth date match helper (partial-date aware)
-        s_birth_ref = source.get_birth_ref()
-        t_birth_ref = target.get_birth_ref()
+        s_birth_ref = vital_event_ref(s_lookup_db, source, "birth")
+        t_birth_ref = vital_event_ref(self.db, target, "birth")
 
         if s_birth_ref and t_birth_ref:
             try:

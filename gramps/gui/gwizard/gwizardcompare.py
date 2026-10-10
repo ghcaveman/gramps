@@ -55,6 +55,7 @@ from gramps.gen.gwizard.gwizard import (
     safe_get_person,
     safe_get_place,
     safe_get_source,
+    vital_event_ref,
 )
 from gramps.gen.soundex import soundex
 from gramps.gen.types import PersonHandle
@@ -579,17 +580,17 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                 safe helper ``_get_event_year`` that retrieves the referenced
                 ``Event`` and extracts the year via ``get_date_object()``.
                 """
-                ev = person.get_birth_ref()
+                # Choose the correct database for the person whose birth year
+                # we are extracting. ``source`` lives in ``self.source_db``
+                # while ``target`` lives in the destination database
+                # ``self.dbstate.db``.
+                db_for_person = (
+                    self.source_db if person is source else self.dbstate.db
+                )
+                ev = vital_event_ref(db_for_person, person, "birth")
                 if ev:
                     # ``_get_event_year`` returns an empty string when the
                     # event or its date is missing, so we treat that as None.
-                    # Choose the correct database for the person whose birth year
-                    # we are extracting. ``source`` lives in ``self.source_db``
-                    # while ``target`` lives in the destination database
-                    # ``self.dbstate.db``.
-                    db_for_person = (
-                        self.source_db if person is source else self.dbstate.db
-                    )
                     year = GWizardCompareWindow._get_event_year(ev, db_for_person)
                     if year:
                         return year
@@ -908,13 +909,15 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         parts = []
         try:
             birth_year = GWizardCompareWindow._get_event_year(
-                person.get_birth_ref(), db
+                vital_event_ref(db, person, "birth"), db
             )
         except Exception:
             birth_year = ""
         if birth_year:
             parts.append("b. " + birth_year)
-        birth_place = GWizardCompareWindow._get_event_place(person.get_birth_ref(), db)
+        birth_place = GWizardCompareWindow._get_event_place(
+            vital_event_ref(db, person, "birth"), db
+        )
         if birth_place:
             parts.append(birth_place)
         return " ".join(parts)
@@ -926,7 +929,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         try:
             death_year = GWizardCompareWindow._get_event_year(
-                person.get_death_ref(), db
+                vital_event_ref(db, person, "death"), db
             )
         except Exception:
             death_year = ""
@@ -1481,9 +1484,15 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         lines.append(_("Gender: %s") % gender)
         if person.gramps_id:
             lines.append(_("ID: %s") % person.gramps_id)
-        birth_year = GWizardCompareWindow._get_event_year(person.get_birth_ref(), db)
-        death_year = GWizardCompareWindow._get_event_year(person.get_death_ref(), db)
-        birth_place = GWizardCompareWindow._get_event_place(person.get_birth_ref(), db)
+        birth_year = GWizardCompareWindow._get_event_year(
+            vital_event_ref(db, person, "birth"), db
+        )
+        death_year = GWizardCompareWindow._get_event_year(
+            vital_event_ref(db, person, "death"), db
+        )
+        birth_place = GWizardCompareWindow._get_event_place(
+            vital_event_ref(db, person, "birth"), db
+        )
         birth_part = ""
         if birth_year:
             birth_part = "b. " + birth_year

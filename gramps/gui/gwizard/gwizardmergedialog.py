@@ -63,6 +63,7 @@ from gramps.gen.gwizard.gwizard import (
     safe_get_person,
     safe_get_place,
     safe_get_source,
+    vital_event_ref,
     surname_prefix_text,
     surname_text,
     SourceMatcher,
@@ -877,9 +878,9 @@ class GWizardMergeDialog(Gtk.Dialog):
         'death'.
         """
         if kind == "birth":
-            ref = person.get_birth_ref()
+            ref = vital_event_ref(db, person, "birth")
         else:
-            ref = person.get_death_ref()
+            ref = vital_event_ref(db, person, "death")
         if not ref:
             return "", None, None
         try:

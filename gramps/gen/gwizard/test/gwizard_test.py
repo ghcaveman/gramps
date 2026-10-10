@@ -99,6 +99,7 @@ from ..gwizard import (
     score_given_names,
     surname_prefix_text,
     surname_text,
+    vital_event_ref,
 )
 from ..gwizardgedcom import GedGWizard
 
@@ -324,6 +325,100 @@ class GWizardTest(unittest.TestCase):
             self.assertEqual(prefix_rows[0].status, "target_only")
             self.assertEqual(prefix_rows[0].source_val, "")
             self.assertEqual(prefix_rows[0].target_val, "Vrow")
+        finally:
+            source_db.close()
+            target_db.close()
+
+    def test_vital_event_ref_falls_back_to_type_scan(self) -> None:
+        """
+        Verify a Birth stored as a plain event ref is still found.
+        """
+        target_db = make_database("sqlite")
+        target_db.load(":memory:")
+        try:
+            with DbTxn("Add person with unindexed birth", target_db) as trans:
+                person = Person()
+                name = Name()
+                name.first_name = "Kimberly"
+                surn = Surname()
+                surn.set_surname("White")
+                name.add_surname(surn)
+                person.set_primary_name(name)
+                target_db.add_person(person, trans)
+                birth = Event()
+                birth.set_type(EventType.BIRTH)
+                day = Date()
+                day.set_yr_mon_day(1968, 5, 6)
+                birth.set_date_object(day)
+                target_db.add_event(birth, trans)
+                eref = EventRef()
+                eref.ref = birth.handle
+                person.add_event_ref(eref)
+                target_db.commit_person(person, trans)
+                self.assertIsNone(person.get_birth_ref())
+            stored = target_db.get_person_from_handle(person.handle)
+            ref = vital_event_ref(target_db, stored, "birth")
+            self.assertIsNotNone(ref)
+            event = target_db.get_event_from_handle(ref.ref)
+            self.assertEqual(event.get_date_object().get_year(), 1968)
+            self.assertIsNone(vital_event_ref(target_db, stored, "death"))
+        finally:
+            target_db.close()
+
+    def test_compare_finds_unindexed_target_birth(self) -> None:
+        """
+        Verify _compare reports target_only when the target birth ref index
+        is unset (e.g. Legacy import quirk).
+        """
+        source_db = make_database("sqlite")
+        source_db.load(":memory:")
+        target_db = make_database("sqlite")
+        target_db.load(":memory:")
+        try:
+            s_handle = None
+            t_handle = None
+            with DbTxn("Add source person", source_db) as trans:
+                s_person = Person()
+                s_name = Name()
+                s_name.first_name = "Kimberly"
+                s_surn = Surname()
+                s_surn.set_surname("White")
+                s_name.add_surname(s_surn)
+                s_person.set_primary_name(s_name)
+                source_db.add_person(s_person, trans)
+                s_handle = s_person.handle
+            with DbTxn("Add target person", target_db) as trans:
+                t_person = Person()
+                t_name = Name()
+                t_name.first_name = "Kimberly"
+                t_surn = Surname()
+                t_surn.set_surname("White")
+                t_name.add_surname(t_surn)
+                t_person.set_primary_name(t_name)
+                target_db.add_person(t_person, trans)
+                birth = Event()
+                birth.set_type(EventType.BIRTH)
+                day = Date()
+                day.set_yr_mon_day(1968, 5, 6)
+                birth.set_date_object(day)
+                target_db.add_event(birth, trans)
+                eref = EventRef()
+                eref.ref = birth.handle
+                t_person.add_event_ref(eref)
+                target_db.commit_person(t_person, trans)
+                t_handle = t_person.handle
+            gwizard = GedGWizard(target_db)
+            gwizard.context["source_db"] = source_db
+            rows = gwizard.run_step(
+                "compare",
+                source_person_handle=s_handle,
+                target_person_handle=t_handle,
+            )
+            birth_rows = [r for r in rows if r.field_type == "birth_event"]
+            self.assertEqual(len(birth_rows), 1)
+            self.assertEqual(birth_rows[0].status, "target_only")
+            self.assertEqual(birth_rows[0].source_val, "")
+            self.assertNotEqual(birth_rows[0].target_val, "")
         finally:
             source_db.close()
             target_db.close()
