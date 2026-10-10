@@ -830,17 +830,45 @@ class GWizardMergeDialog(Gtk.Dialog):
         primary_source_handles = {handle for handle in (l_b[2], l_d[2]) if handle}
         source_groups = person_events_by_type(sd, left)
         target_groups = person_events_by_type(td, right)
+        # For each event type we need to align source and target events.
+        # Previously we simply paired by index, which could mis‑align when the
+        # number of events differed.  We now attempt to match events by their
+        # rendered line representation.  This provides a deterministic
+        # matching based on the visible content (date, place, description).
         for etype in dict.fromkeys(list(source_groups) + list(target_groups)):
             s_items = source_groups.get(etype, [])
             t_items = target_groups.get(etype, [])
-            count = max(len(s_items), len(t_items))
-            for i in range(count):
-                s_handle = s_items[i] if i < len(s_items) else None
-                t_handle = t_items[i] if i < len(t_items) else None
+
+            # Build dictionaries of handle -> rendered line for quick lookup.
+            s_lines = {
+                handle: self._event_line_from(sd, safe_get_event(sd, handle))
+                for handle in s_items
+            }
+            t_lines = {
+                handle: self._event_line_from(td, safe_get_event(td, handle))
+                for handle in t_items
+            }
+
+            # Track which target handles have been paired.
+            used_t_handles: set[str] = set()
+
+            # First, try to pair each source event with an identical target
+            # event line.  If a match is found we pair them and mark the target
+            # as used.
+            for s_handle, s_line in s_lines.items():
+                match_handle: str | None = None
+                for t_handle, t_line in t_lines.items():
+                    if t_handle in used_t_handles:
+                        continue
+                    if s_line == t_line:
+                        match_handle = t_handle
+                        break
+                t_handle = match_handle
+                if t_handle:
+                    used_t_handles.add(t_handle)
+                # Retrieve event objects for the row.
                 s_event = safe_get_event(sd, s_handle) if s_handle else None
                 t_event = safe_get_event(td, t_handle) if t_handle else None
-                s_line = self._event_line_from(sd, s_event) if s_event else ""
-                t_line = self._event_line_from(td, t_event) if t_event else ""
                 key = (
                     "event:" + s_handle
                     if s_handle and s_handle not in primary_source_handles
@@ -850,8 +878,23 @@ class GWizardMergeDialog(Gtk.Dialog):
                     key,
                     etype,
                     s_line,
-                    t_line,
+                    self._event_line_from(td, t_event) if t_event else "",
                     left_obj=s_event,
+                    right_obj=t_event,
+                )
+
+            # Any remaining target events that were not matched are added as
+            # rows with an empty source side.
+            for t_handle, t_line in t_lines.items():
+                if t_handle in used_t_handles:
+                    continue
+                t_event = safe_get_event(td, t_handle)
+                add_row(
+                    None,
+                    etype,
+                    "",
+                    t_line,
+                    left_obj=None,
                     right_obj=t_event,
                 )
 
