@@ -407,21 +407,7 @@ class GedGWizard(GWizardBase):
         def get_event_details(
             db: DbWriteBase, person: Person, event_type_val: int
         ) -> tuple[str, str, str]:
-            kind = "birth" if int(event_type_val) == int(EventType.BIRTH) else "death"
-            ordered_refs: list[Any] = []
-            try:
-                primary = vital_event_ref(db, person, kind)
-            except Exception:
-                primary = None
-            if primary is not None:
-                ordered_refs.append(primary)
-            try:
-                for ref in person.get_event_ref_list():
-                    if primary is None or ref.ref != primary.ref:
-                        ordered_refs.append(ref)
-            except Exception:
-                pass
-            for ref in ordered_refs:
+            for ref in person.get_event_ref_list():
                 try:
                     event = safe_get_event(db, ref.ref)
                     if event and event.get_type() == event_type_val:
