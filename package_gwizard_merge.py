@@ -94,7 +94,7 @@ if (5, 2, 0) <= VERSION_TUPLE <= (6, 2, 0):
         toolclass="GWizardMergeTool",
         optionclass="GWizardMergeToolOptions",
         tool_modes=[TOOL_MODE_GUI],
-        help_url=("https://gramps.discourse.group/t/10027")
+        help_url=("https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool")
     )
 """
 
@@ -244,7 +244,6 @@ def build_zip(repo_root: Path, output: Path) -> Path:
     output.unlink(missing_ok=True)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(PACKAGE + "/", b"")
-        archive.writestr(PACKAGE + "/__init__.py", b"")
         archive.writestr(f"{PACKAGE}/{GPR_FILENAME}", build_gpr())
         for member in sorted(members):
             archive.writestr(f"{PACKAGE}/{member}", members[member])
