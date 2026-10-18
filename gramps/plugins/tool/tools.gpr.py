@@ -531,7 +531,7 @@ register(
     toolclass="GWizardMergeTool",
     optionclass="GWizardMergeToolOptions",
     tool_modes=[TOOL_MODE_GUI],
-    help_url="https://gramps.discourse.group/t/10027",
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
 )
 
 # ------------------------------------------------------------------------

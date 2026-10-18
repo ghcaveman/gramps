@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Build the standalone ``GWizardMerge.zip`` addon package.
+"""Build the standalone ``GWizardFileMerge.zip`` addon package.
 
 Collects the GWizard backend, GUI, and tool modules scattered across
 ``gramps/gen/gwizard``, ``gramps/gui/gwizard``, and ``gramps/plugins/tool``
@@ -259,14 +259,14 @@ def build_zip(repo_root: Path, output: Path) -> Path:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Build the standalone GWizardMerge.zip addon package."
+        description="Build the standalone GWizardFileMerge.zip addon package."
     )
     parser.add_argument(
         "-o",
         "--output",
         type=Path,
-        default=Path(__file__).resolve().parent / "GWizardMerge.zip",
-        help="Destination zip file (default: GWizardMerge.zip next to the script).",
+        default=Path(__file__).resolve().parent / "GWizardFileMerge.zip",
+        help="Destination zip file (default: GWizardFileMerge.zip next to the script).",
     )
     parser.add_argument(
         "--gramps-target",
