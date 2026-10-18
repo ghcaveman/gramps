@@ -31,9 +31,12 @@ Also embeds the standalone addon registration file
 ``GWizardFileMerge/GWizardFileMerge.gpr.py`` (mirroring the ``gwizardmerge``
 entry in ``gramps/plugins/tool/tools.gpr.py``). The unit tests are copied
 into ``GWizardFileMerge/tests/`` inside the bundle, with the same GWizard
-import rewriting applied so they resolve the flat sibling modules. Newlines
-are normalized to LF so the output is identical regardless of the checkout's
-line-ending setting.
+import rewriting applied so they resolve the flat sibling modules, and the
+test fixture tree (the ``.ged`` source fixture and its ``media/`` images)
+is copied verbatim into ``GWizardFileMerge/tests/data/`` so the
+fixture-based tests run against the extracted bundle instead of skipping.
+Newlines are normalized to LF so the output is identical regardless of the
+checkout's line-ending setting.
 """
 
 # -------------------------------------------------------------------------
@@ -139,6 +142,16 @@ TEST_SOURCES: dict[str, str] = {
     "gwizardmerge_test.py": "gramps/plugins/tool/test/gwizardmerge_test.py",
 }
 
+# Fixture tree bundled into ``GWizardFileMerge/tests/data/`` inside the zip,
+# relative to the repo root. The bundled ``GWizardSourceMediaMergeTest``
+# resolves it as ``os.path.join(os.path.dirname(__file__), "data")`` next to
+# ``gwizard_test.py``, and the GEDCOM's relative ``FILE media/...`` paths
+# resolve against the ``.ged`` file's own directory, so the whole tree is
+# copied across preserving its layout. Files are copied verbatim (no import
+# rewriting): text files only get newline normalization, and the ``.png``
+# images are byte-for-byte copies since import rewriting assumes UTF-8 text.
+TEST_DATA_DIR = "gramps/gen/gwizard/test/data"
+
 # GWizard sibling modules bundled flat in the addon directory. Gramps loads
 # the tool module top-level (``__import__("gwizardmerge")`` with the addon
 # directory on ``sys.path``), so intra-bundle imports must be flat as well:
@@ -221,6 +234,40 @@ def build_gpr() -> bytes:
     return GPR_TEMPLATE.encode("utf-8")
 
 
+def build_test_data(repo_root: Path) -> dict[str, bytes]:
+    """
+    Collect the test fixture tree for ``tests/data/`` in the bundle.
+
+    :param repo_root: Repository root holding the fixture tree.
+    :returns: Map of archive-relative POSIX path to file bytes.
+    :raises FileNotFoundError: If the fixture tree or GEDCOM fixture is
+        missing from the repository.
+    """
+    data_root = repo_root / TEST_DATA_DIR
+    if not data_root.is_dir():
+        raise FileNotFoundError(f"Missing test data directory: {data_root}")
+    ged_fixture = data_root / "gwizard_mergefrom_sources.ged"
+    if not ged_fixture.is_file():
+        raise FileNotFoundError(f"Missing test fixture file: {ged_fixture}")
+    members: dict[str, bytes] = {}
+    for path in sorted(data_root.rglob("*")):
+        if not path.is_file():
+            continue
+        member = path.relative_to(data_root).as_posix()
+        raw = path.read_bytes()
+        if path.suffix.lower() == ".png":
+            # Binary image: byte-for-byte copy, import rewriting would
+            # corrupt it (rewrite_imports_bytes decodes UTF-8 text).
+            members[member] = raw
+        else:
+            # Text fixture (GEDCOM, generator script): normalize newlines
+            # like the code members so the bundle is deterministic.
+            lines = raw.decode("utf-8").splitlines(keepends=False)
+            members[member] = ("\n".join(lines) + "\n").encode("utf-8")
+        LOG.debug("Added data %s (%d bytes)", member, len(members[member]))
+    return members
+
+
 def build_zip(repo_root: Path, output: Path) -> Path:
     """Build the ``GWizardFileMerge.zip`` bundle next to this script."""
     members: dict[str, bytes] = {}
@@ -241,6 +288,8 @@ def build_zip(repo_root: Path, output: Path) -> Path:
         test_members[member] = rewrite_imports_bytes(text)
         LOG.debug("Added test %s (%d bytes)", source, len(test_members[member]))
 
+    data_members = build_test_data(repo_root)
+
     output.unlink(missing_ok=True)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(PACKAGE + "/", b"")
@@ -252,6 +301,10 @@ def build_zip(repo_root: Path, output: Path) -> Path:
             archive.writestr(PACKAGE + "/tests/__init__.py", TESTS_INIT.encode("utf-8"))
             for member in sorted(test_members):
                 archive.writestr(f"{PACKAGE}/tests/{member}", test_members[member])
+        if data_members:
+            archive.writestr(f"{PACKAGE}/tests/data/", b"")
+            for member in sorted(data_members):
+                archive.writestr(f"{PACKAGE}/tests/data/{member}", data_members[member])
     LOG.info("Wrote %s (%d bytes)", output, output.stat().st_size)
     return output
 
