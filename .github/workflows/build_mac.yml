@@ -11,7 +11,6 @@ on:
     branches:
       - "gg_beta"
       - "grizard_plugin"
-      - "goatgramps/gg_beta"
 
 jobs:
   build:
@@ -46,7 +45,7 @@ jobs:
       env:
         INPUT_BUILD_NUMBER: ${{ inputs.build-number }}
       run: |
-        # 1. Patch pyproject.toml license-files array configuration to pass hatchling validation
+        # 1. Wrapped in tight single-quotes to protect the internal \n from the YAML parser
         sed -i '' 's/license-files = \x5b"COPYING"\x5d/\x5bproject.license-files\x5d\npaths = \x5b"COPYING"\x5d/' pyproject.toml
 
         # 2. Generate the distribution source tarball cleanly
