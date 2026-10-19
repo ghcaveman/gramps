@@ -43,12 +43,11 @@ jobs:
         echo "ARTIFACT_NAME=Gramps_mac_$(echo '${{ github.ref_name }}' | tr '/\\' '--')" >> $GITHUB_ENV
 
     - name: Package and Create DMG
-      # By placing the input here, it safely decouples from the bash code below
       env:
         RUNNER_BUILD_NUMBER: ${{ inputs.build-number }}
       run: |
         # 1. Patch pyproject.toml license-files array configuration to pass hatchling validation
-        sed -i '' 's/license-files = \["COPYING"\]/\[project.license-files\]\npaths = \["COPYING"\]/' pyproject.toml
+        sed -i '' 's/license-files = \x5b"COPYING"\x5d/\x5bproject.license-files\x5d\npaths = \x5b"COPYING"\x5d/' pyproject.toml
 
         # 2. Generate the distribution source tarball cleanly
         python3 -m build --sdist
