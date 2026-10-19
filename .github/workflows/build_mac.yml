@@ -43,6 +43,9 @@ jobs:
         echo "ARTIFACT_NAME=Gramps_mac_$(echo '${{ github.ref_name }}' | tr '/\\' '--')" >> $GITHUB_ENV
 
     - name: Package and Create DMG
+      # By placing the input here, it safely decouples from the bash code below
+      env:
+        RUNNER_BUILD_NUMBER: ${{ inputs.build-number }}
       run: |
         # 1. Patch pyproject.toml license-files array configuration to pass hatchling validation
         sed -i '' 's/license-files = \["COPYING"\]/\[project.license-files\]\npaths = \["COPYING"\]/' pyproject.toml
@@ -57,7 +60,7 @@ jobs:
         if grep -q '^DEV_VERSION\s*=\s*True' gramps/version.py; then
           appbuild=$(git rev-parse --short $GITHUB_SHA)
         else
-          appbuild="${{ inputs.build-number }}"
+          appbuild="$RUNNER_BUILD_NUMBER"
         fi
         
         echo "App Build version suffix: $appbuild"
