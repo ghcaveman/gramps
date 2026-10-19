@@ -2,10 +2,11 @@ name: Build macOS Application (.dmg)
 
 on:
   workflow_dispatch:
+    # Completely strips out the breaking 'type: string' syntax
     inputs:
       build-number:
         description: 'Build number'
-        type: string
+        required: true
         default: '1'
   push:
     branches:
@@ -15,7 +16,6 @@ on:
 
 jobs:
   build:
-    # Fixes the parsing crash by completely removing dynamic matrix evaluations
     runs-on: macos-latest
 
     steps:
