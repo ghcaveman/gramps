@@ -9,9 +9,9 @@ on:
         default: '1'
   push:
     branches:
-      - master
       - gg_beta
       - grizard_plugin
+      - goatgramps/gg_beta
 
 jobs:
   build:
@@ -44,7 +44,7 @@ jobs:
 
     - name: Package and Create DMG
       env:
-        RUNNER_BUILD_NUMBER: ${{ inputs.build-number }}
+        INPUT_BUILD_NUMBER: ${{ inputs.build-number }}
       run: |
         # 1. Patch pyproject.toml license-files array configuration to pass hatchling validation
         sed -i '' 's/license-files = \x5b"COPYING"\x5d/\x5bproject.license-files\x5d\npaths = \x5b"COPYING"\x5d/' pyproject.toml
@@ -59,7 +59,7 @@ jobs:
         if grep -q '^DEV_VERSION\s*=\s*True' gramps/version.py; then
           appbuild=$(git rev-parse --short $GITHUB_SHA)
         else
-          appbuild="$RUNNER_BUILD_NUMBER"
+          appbuild="$INPUT_BUILD_NUMBER"
         fi
         
         echo "App Build version suffix: $appbuild"
@@ -69,10 +69,10 @@ jobs:
         tar zxf gramps-"$VERSION".tar.gz
         cd gramps-"$VERSION"
 
-        # 5. Scrub modern PEP 621 license property extensions entirely to bypass legacy setuptools constraints
+        # 5. Scrub modern PEP 621 license properties using hex codes to bypass GitHub parsing restrictions
         sed -i '' 's/license = "GPL-2.0-or-later"/license = { text = "GPL-2.0-or-later" }/' pyproject.toml
         sed -i '' '/license-files =/d' pyproject.toml
-        sed -i '' '/\[project.license-files\]/,/paths =/d' pyproject.toml
+        sed -i '' '/\x5bproject.license-files\x5d/,/paths =/d' pyproject.toml
 
         # 6. Generate a pristine, modern setup.py script directly from scratch to fully bypass py2applet syntax crashes
         cat << 'INNER_EOF' > setup.py
