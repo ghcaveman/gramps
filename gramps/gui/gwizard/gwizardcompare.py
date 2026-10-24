@@ -374,7 +374,11 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                     "Compare window fit: no monitor found; size=%s", self.get_size()
                 )
                 return False
-            geometry = monitor.get_workarea() if hasattr(monitor, "get_workarea") else monitor.get_geometry()
+            geometry = (
+                monitor.get_workarea()
+                if hasattr(monitor, "get_workarea")
+                else monitor.get_geometry()
+            )
 
             usable_w = max(320, geometry.width - 40)
             usable_h = max(240, geometry.height - 80)
@@ -503,7 +507,6 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         if best_path is None:
             best_path = last_path
         return best_path
-
 
     def _scroll_to_position(
         self,
