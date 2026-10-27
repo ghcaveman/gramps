@@ -1,18 +1,66 @@
-# Make Github recognise Gramps as a Python project,
-# by marking .sql files as text files!
-# See: https://github.com/github/linguist/issues/2462
-# https://github.com/github/linguist/blob/master/README.md
-*.sql linguist-language=txt
+# Gramps - .gitattributes
+# Git line-ending configuration for cross-platform compatibility
+# This file ensures consistent line endings across all platforms
+# and Git clients (VS Code, Git Bash, GitHub, etc.).
 
-# Have Github ignore js vendored files.
-# https://github.com/gramps-project/gramps/tree/master/data/javascript
-#data/javascript/*.js linguist-vendored
+# All files: normalize line endings on checkout to the platform-appropriate
+# end-of-line, but store as LF in the repository so history is consistent.
+* text=auto eol=lf
 
-# don't mess with line endings for test files
-*.vcs -text
-*.ged -text
-*.GED -text
-*.csv -text
-*.DEF -text
-*.IXI -text
-*.REM -text
+# Windows batch files that need CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Python source files - LF is standard for Python (cross-platform)
+*.py text eol=lf
+
+# Documentation & text files - LF
+*.md text eol=lf
+*.rst text eol=lf
+*.txt text eol=lf
+*.csv text eol=lf
+*.tsv text eol=lf
+
+# Config & data files - LF
+*.json text eol=lf
+*.xml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+*.conf text eol=lf
+
+# Shell scripts - LF
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+
+# Binary files - no line-ending conversion
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dSYM binary
+
+# Platform-specific compiled files - always binary
+*.pyc binary
+*.pyo binary
+__pycache__/ binary
+*.class binary
+*.o binary
+*.a binary
+*.lib binary
+
+# Git itself
+.gitattributes text eol=lf
+.gitignore text eol=lf
+
