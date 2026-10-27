@@ -726,6 +726,7 @@ class GrampsApplication(Gtk.Application):
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
+        self._apply_os_button_layout()
         self.uimanager = UIManager(self, UIDEFAULT)
         if not is_quartz():
             self.uimanager.show_groups = ["OSX"]
@@ -788,6 +789,40 @@ class GrampsApplication(Gtk.Application):
             # stop gtk loop and quit
             self.quit()
             sys.exit(exit_code)
+
+    def _apply_os_button_layout(self):
+        """Swap the application's dialog action and titlebar buttons so they
+        match the operating system Gramps is running on.
+
+        gtk-alternative-button-order
+            GTK's default (False) follows the GNOME/HIG arrangement where
+            the affirmative button (OK) is at the far right with Cancel to
+            its left. Setting it to True reorders the buttons so the
+            affirmative (OK) button is to the left of Cancel - the Windows
+            arrangement.
+
+        gtk-decoration-layout
+            A colon separates the buttons on the left from the buttons on
+            the right. Windows shows the titlebar controls (minimize,
+            maximize, close) on the right with no left-side menu button, so
+            the value is ":minimize,maximize,close".
+
+        Platform handling
+            Windows : apply the Windows arrangement
+            macOS   : leave native (GTK on macOS already follows macOS
+                      conventions)
+            Linux   : leave native (GTK/GNOME default)
+        """
+        from gramps.gen.constfunc import win
+
+        if not win():
+            # On macOS and Linux the native GTK/GNOME button arrangement is
+            # already appropriate, so no setting needs to be overridden.
+            return
+
+        settings = Gtk.Settings.get_default()
+        settings.set_property("gtk-alternative-button-order", True)
+        settings.set_property("gtk-decoration-layout", config.get("ui.window-controls"))
 
     def do_activate(self):
         # We only allow a single window and raise any existing ones
