@@ -81,7 +81,7 @@ class RepoMergeDialog(Gtk.Dialog):
         self.combos: list[tuple[str, Gtk.ComboBox, str]] = []
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         self.connect("response", lambda dlg, resp: dlg.destroy())
-        self.set_default_size(700, 420)
+        self.set_default_size(1260, 420)
         content = self.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
@@ -141,9 +141,9 @@ class RepoMergeDialog(Gtk.Dialog):
         """Build the scrolled left-list/right-dropdown rows."""
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_min_content_height(330)
-        scrolled.set_min_content_width(620)
+        scrolled.set_min_content_width(1116)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_hexpand(False)
+        scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
         listbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         scrolled.add(listbox)
@@ -154,7 +154,7 @@ class RepoMergeDialog(Gtk.Dialog):
             left.set_hexpand(False)
             left.set_line_wrap(True)
             left.set_max_width_chars(24)
-            left.set_size_request(300, -1)
+            left.set_size_request(540, -1)
             line.pack_start(left, False, False, 0)
             sep = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
             sep.set_size_request(4, -1)
@@ -170,9 +170,12 @@ class RepoMergeDialog(Gtk.Dialog):
                 )
             combo = Gtk.ComboBox.new_with_model(store)
             combo.set_hexpand(False)
-            combo.set_size_request(300, -1)
+            # Dropdown is limited to at most half the window width (1260 / 2 = 630).
+            combo.set_size_request(630, -1)
             renderer = Gtk.CellRendererText()
             renderer.set_property("wrap-mode", 2)
+            # Keep the dropdown list width capped so it stays compact.
+            renderer.set_property("width-chars", 80)
             combo.pack_start(renderer, True)
             combo.add_attribute(renderer, "text", 0)
             combo.set_active(0)

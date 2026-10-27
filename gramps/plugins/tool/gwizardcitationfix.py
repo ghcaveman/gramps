@@ -699,8 +699,7 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
             str(_("Fix Repositories")),
             str(
                 _(
-                    "Create missing Ancestry/FamilySearch repositories "
-                    "and link orphan sources."
+                    "Create missing repositories and link orphan sources."
                 )
             ),
         ),

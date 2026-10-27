@@ -315,7 +315,11 @@ class GoldStandardRepositories:
         entry = cls.get_by_name(name)
         if entry is None:
             return name
-        return f"{entry['name']} -- {entry['notes']} [{entry['url']}]"
+        description = entry["notes"]
+        # Keep only the first sentence so the dropdown stays compact.
+        if "." in description:
+            description = description.split(".", 1)[0] + "."
+        return f"{entry['name']} -- {description} [{entry['url']}]"
 
     @classmethod
     def as_dict(cls) -> dict[str, dict[str, str]]:
