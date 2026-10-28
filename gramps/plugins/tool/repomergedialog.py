@@ -97,12 +97,11 @@ class RepoMergeDialog(Gtk.Dialog):
         n_sources = sum(
             len(self.sources_by_repo.get(row["name"], [])) for row in visible
         )
-        count_title = str(
-            _("Repositories (%d total), Sources (%d total)")
-        ) % (n_repos, n_sources)
-        self.set_title(
-            count_title if not title else f"{title} \u2014 {count_title}"
+        count_title = str(_("Repositories (%d total), Sources (%d total)")) % (
+            n_repos,
+            n_sources,
         )
+        self.set_title(count_title if not title else f"{title} \u2014 {count_title}")
 
         info = Gtk.Label(
             label=(
@@ -201,12 +200,8 @@ class RepoMergeDialog(Gtk.Dialog):
 
         # Sort: repositories with sources first (alphabetical), then those
         # without sources (alphabetical) so empty rows appear last.
-        with_sources = [
-            r for r in visible if sources_by_repo.get(r["name"], [])
-        ]
-        without_sources = [
-            r for r in visible if not sources_by_repo.get(r["name"], [])
-        ]
+        with_sources = [r for r in visible if sources_by_repo.get(r["name"], [])]
+        without_sources = [r for r in visible if not sources_by_repo.get(r["name"], [])]
         sorted_rows = with_sources + without_sources
 
         row_index = 0
@@ -216,9 +211,7 @@ class RepoMergeDialog(Gtk.Dialog):
 
             # Left cell: repository name label + merge-target combobox,
             # spanning every source row beneath it.
-            left_box = Gtk.Box(
-                orientation=Gtk.Orientation.HORIZONTAL, spacing=6
-            )
+            left_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             repo_label = Gtk.Label(label=repo_name)
             repo_label.set_halign(Gtk.Align.START)
             repo_label.set_line_wrap(True)

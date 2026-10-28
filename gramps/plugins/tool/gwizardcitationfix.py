@@ -725,11 +725,7 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
         (
             "repositories",
             str(_("Fix Repositories")),
-            str(
-                _(
-                    "Create missing repositories and link orphan sources."
-                )
-            ),
+            str(_("Create missing repositories and link orphan sources.")),
         ),
         (
             "sources",
