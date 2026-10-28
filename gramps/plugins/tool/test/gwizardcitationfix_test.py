@@ -274,6 +274,7 @@ class GWizardCitationFixRepoMergeTest(unittest.TestCase):
         source = read_tool_source()
         tree = ast.parse(source)
         wanted = {
+            "collect_sources_by_repo",
             "get_golden_repository_names",
             "normalize_repo_name",
             "is_golden_repo_name",
@@ -299,6 +300,17 @@ class GWizardCitationFixRepoMergeTest(unittest.TestCase):
         namespace["difflib"] = __import__("difflib")
         namespace["defaultdict"] = __import__("collections").defaultdict
         namespace["_"] = lambda text: text
+
+        def _safe_iter(db, name):
+            try:
+                method = getattr(db, name, None)
+                if method is None:
+                    return []
+                return list(method())
+            except Exception:
+                return []
+
+        namespace["_safe_iter"] = _safe_iter
         namespace["GoldStandardRepositories"] = GoldStandardRepositories
         namespace["_QUARANTINE_REPO_NAME"] = "Quarantine"
         exec(compile(module, "<repo_merge>", "exec"), namespace)  # noqa: S102
@@ -340,6 +352,66 @@ class GWizardCitationFixRepoMergeTest(unittest.TestCase):
             {"a": "a", "b": "FamilySearch", "c": "FamilySearch"}
         )
         self.assertEqual(plan, {"FamilySearch": ["b", "c"]})
+
+    def test_collect_sources_by_repo(self) -> None:
+        """Sources map to their referencing repositories via RepoRef."""
+        logic = self._load_logic()
+        collect = logic["collect_sources_by_repo"]
+
+        class FakeRepoRef:
+            def __init__(self, handle):
+                self._handle = handle
+
+            def get_reference_handle(self):
+                return self._handle
+
+        class FakeSource:
+            def __init__(self, title, repo_handles):
+                self._title = title
+                self._repo_handles = repo_handles
+
+            def get_title(self):
+                return self._title
+
+            def get_reporef_list(self):
+                return [FakeRepoRef(h) for h in self._repo_handles]
+
+        class FakeRepo:
+            def __init__(self, handle, name):
+                self._handle = handle
+                self._name = name
+
+            def get_handle(self):
+                return self._handle
+
+            def get_name(self):
+                return self._name
+
+        class FakeDb:
+            def __init__(self):
+                self._repos = [
+                    FakeRepo("r1", "FamilySearch"),
+                    FakeRepo("r2", "Ancestry.com"),
+                    FakeRepo("r3", "Empty Repo"),
+                ]
+                self._sources = [
+                    FakeSource("1880 Census", ["r1"]),
+                    FakeSource("1900 Census", ["r1"]),
+                    FakeSource("Birth Records", ["r2"]),
+                    FakeSource("Orphan Source", []),
+                ]
+
+            def iter_repositories(self):
+                return iter(self._repos)
+
+            def iter_sources(self):
+                return iter(self._sources)
+
+        result = collect(FakeDb())
+        self.assertEqual(result["FamilySearch"], ["1880 Census", "1900 Census"])
+        self.assertEqual(result["Ancestry.com"], ["Birth Records"])
+        self.assertNotIn("Empty Repo", result)
+        self.assertNotIn("Orphan Source", [s for srcs in result.values() for s in srcs])
 
     def test_dialog_wiring_exists(self) -> None:
         """Merge dialog lives in its own RepoMergeDialog class."""

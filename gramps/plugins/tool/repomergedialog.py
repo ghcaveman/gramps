@@ -113,8 +113,6 @@ class RepoMergeDialog(Gtk.Dialog):
         info.set_line_wrap(True)
         info.set_halign(Gtk.Align.START)
         content.add(info)
-        rows = build_repo_merge_rows(self.collect_repo_names())
-        visible = [row for row in rows if not row["skip"]]
         if not visible:
             done = Gtk.Label(
                 label=str(_("All repositories already match golden names."))
