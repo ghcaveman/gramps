@@ -47,6 +47,7 @@ from gramps.gui.dialog import OkDialog
 from gramps.plugins.tool.goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationfix import (
     build_repo_merge_rows,
+    collect_sources_by_repo,
     get_fix_description,
     plan_repo_merges,
 )
@@ -61,7 +62,7 @@ LOG = logging.getLogger(__name__)
 #
 # ------------------------------------------------------------
 class RepoMergeDialog(Gtk.Dialog):
-    """Left-list/right-dropdown dialog for merging repositories."""
+    """Two-column grid dialog: Repositories (with merge target dropdowns) beside\n    their associated Sources, grouped alphabetically with empty rows last."""
 
     def __init__(
         self,
@@ -85,6 +86,24 @@ class RepoMergeDialog(Gtk.Dialog):
         content = self.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
+
+        # Collect repository rows and associated sources.
+        self.sources_by_repo = self.collect_sources_by_repo()
+        rows = build_repo_merge_rows(self.collect_repo_names())
+        visible = [row for row in rows if not row["skip"]]
+
+        # Update the title with counts.
+        n_repos = len(visible)
+        n_sources = sum(
+            len(self.sources_by_repo.get(row["name"], [])) for row in visible
+        )
+        count_title = str(
+            _("Repositories (%d total), Sources (%d total)")
+        ) % (n_repos, n_sources)
+        self.set_title(
+            count_title if not title else f"{title} \u2014 {count_title}"
+        )
+
         info = Gtk.Label(
             label=(
                 description
@@ -105,7 +124,9 @@ class RepoMergeDialog(Gtk.Dialog):
             content.add(done)
             return
         content.add(self.build_header())
-        content.pack_start(self.build_rows(visible), True, True, 0)
+        content.pack_start(
+            self.build_rows(visible, self.sources_by_repo), True, True, 0
+        )
         hint = Gtk.Label(
             label=str(
                 _(
@@ -119,15 +140,19 @@ class RepoMergeDialog(Gtk.Dialog):
         content.add(hint)
         content.add(self.build_buttons())
 
+    def collect_sources_by_repo(self) -> dict[str, list[str]]:
+        """Return repository name mapped to sorted source titles it references."""
+        return collect_sources_by_repo(self.dbstate.db)
+
     def build_header(self) -> Gtk.Box:
-        """Return the two-column header for the merge rows."""
+        """Return the two-column header for the repository/source grid."""
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         left_head = Gtk.Label()
-        left_head.set_markup("<b>%s</b>" % str(_("Current repository")))
+        left_head.set_markup("<b>%s</b>" % str(_("Repository")))
         left_head.set_halign(Gtk.Align.START)
         left_head.set_hexpand(True)
         right_head = Gtk.Label()
-        right_head.set_markup("<b>%s</b>" % str(_("Merge into (golden)")))
+        right_head.set_markup("<b>%s</b>" % str(_("Sources")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
         header.pack_start(left_head, True, True, 0)
@@ -137,51 +162,98 @@ class RepoMergeDialog(Gtk.Dialog):
         header.pack_start(right_head, True, True, 0)
         return header
 
-    def build_rows(self, visible: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        """Build the scrolled left-list/right-dropdown rows."""
+    def _make_combo(self, row: dict[str, Any]) -> Gtk.ComboBox:
+        """Create a golden-target dropdown for a repository row."""
+        store = Gtk.ListStore(str, str)
+        store.append([row["name"], row["name"]])
+        for option in row["options"][1:]:
+            store.append(
+                [
+                    GoldStandardRepositories.get_display_label(option),
+                    option,
+                ]
+            )
+        combo = Gtk.ComboBox.new_with_model(store)
+        combo.set_hexpand(False)
+        # Dropdown is limited to at most half the window width (1260 / 2 = 630).
+        combo.set_size_request(630, -1)
+        renderer = Gtk.CellRendererText()
+        renderer.set_property("wrap-mode", 2)
+        # Keep the dropdown list width capped so it stays compact.
+        renderer.set_property("width-chars", 80)
+        combo.pack_start(renderer, True)
+        combo.add_attribute(renderer, "text", 0)
+        combo.set_active(0)
+        return combo
+
+    def build_rows(
+        self,
+        visible: list[dict[str, Any]],
+        sources_by_repo: dict[str, list[str]],
+    ) -> Gtk.ScrolledWindow:
+        """Build a 2-column grid: repositories (left) with merge dropdowns and
+        associated sources (right), grouped by repository with empty rows last."""
+        grid = Gtk.Grid()
+        grid.set_column_spacing(12)
+        grid.set_row_spacing(4)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
+
+        # Sort: repositories with sources first (alphabetical), then those
+        # without sources (alphabetical) so empty rows appear last.
+        with_sources = [
+            r for r in visible if sources_by_repo.get(r["name"], [])
+        ]
+        without_sources = [
+            r for r in visible if not sources_by_repo.get(r["name"], [])
+        ]
+        sorted_rows = with_sources + without_sources
+
+        row_index = 0
+        for row in sorted_rows:
+            repo_name = row["name"]
+            sources = sorted(sources_by_repo.get(repo_name, []))
+
+            # Left cell: repository name label + merge-target combobox,
+            # spanning every source row beneath it.
+            left_box = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL, spacing=6
+            )
+            repo_label = Gtk.Label(label=repo_name)
+            repo_label.set_halign(Gtk.Align.START)
+            repo_label.set_line_wrap(True)
+            repo_label.set_max_width_chars(24)
+            repo_label.set_size_request(540, -1)
+            left_box.pack_start(repo_label, False, False, 0)
+            combo = self._make_combo(row)
+            left_box.pack_start(combo, False, False, 0)
+
+            span = max(len(sources), 1)
+            grid.attach(left_box, 0, row_index, 1, span)
+
+            # Right cell: one label per associated source, or an empty label
+            # when the repository has no sources.
+            if sources:
+                for source_title in sources:
+                    src_label = Gtk.Label(label=source_title)
+                    src_label.set_halign(Gtk.Align.START)
+                    src_label.set_line_wrap(True)
+                    src_label.set_max_width_chars(60)
+                    grid.attach(src_label, 1, row_index, 1, 1)
+                    row_index += 1
+            else:
+                grid.attach(Gtk.Label(label=""), 1, row_index, 1, 1)
+                row_index += 1
+
+            self.combos.append((repo_name, combo, str(row["best_guess"])))
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_min_content_height(330)
         scrolled.set_min_content_width(1116)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
-        listbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        scrolled.add(listbox)
-        for row in visible:
-            line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-            left = Gtk.Label(label=row["name"])
-            left.set_halign(Gtk.Align.START)
-            left.set_hexpand(False)
-            left.set_line_wrap(True)
-            left.set_max_width_chars(24)
-            left.set_size_request(540, -1)
-            line.pack_start(left, False, False, 0)
-            sep = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-            sep.set_size_request(4, -1)
-            line.pack_start(sep, False, False, 0)
-            store = Gtk.ListStore(str, str)
-            store.append([row["name"], row["name"]])
-            for option in row["options"][1:]:
-                store.append(
-                    [
-                        GoldStandardRepositories.get_display_label(option),
-                        option,
-                    ]
-                )
-            combo = Gtk.ComboBox.new_with_model(store)
-            combo.set_hexpand(False)
-            # Dropdown is limited to at most half the window width (1260 / 2 = 630).
-            combo.set_size_request(630, -1)
-            renderer = Gtk.CellRendererText()
-            renderer.set_property("wrap-mode", 2)
-            # Keep the dropdown list width capped so it stays compact.
-            renderer.set_property("width-chars", 80)
-            combo.pack_start(renderer, True)
-            combo.add_attribute(renderer, "text", 0)
-            combo.set_active(0)
-            line.pack_start(combo, False, False, 0)
-            listbox.pack_start(line, False, False, 0)
-            self.combos.append((row["name"], combo, str(row["best_guess"])))
+        scrolled.add(grid)
         return scrolled
 
     def build_buttons(self) -> Gtk.Box:

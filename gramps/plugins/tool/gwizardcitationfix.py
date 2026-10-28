@@ -160,6 +160,34 @@ def plan_repo_merges(
     return dict(plan)
 
 
+def collect_sources_by_repo(db: Any) -> dict[str, list[str]]:
+    """Return repository name mapped to sorted source titles referencing it."""
+    handle_to_name: dict[str, str] = {}
+    for repo in _safe_iter(db, "iter_repositories"):
+        try:
+            handle = str(repo.get_handle() or "")
+            name = str(repo.get_name() or "")
+            if handle and name:
+                handle_to_name[handle] = name
+        except Exception:  # pylint: disable=broad-except
+            LOG.exception("Failed to read repository")
+
+    sources_by_repo: dict[str, list[str]] = defaultdict(list)
+    for source in _safe_iter(db, "iter_sources"):
+        try:
+            title = str(source.get_title() or "")
+            for ref in source.get_reporef_list():
+                repo_name = handle_to_name.get(
+                    str(ref.get_reference_handle() or ""), ""
+                )
+                if repo_name:
+                    sources_by_repo[repo_name].append(title)
+        except Exception:  # pylint: disable=broad-except
+            LOG.exception("Failed to read source")
+
+    return {name: sorted(titles) for name, titles in sources_by_repo.items()}
+
+
 # ------------------------------------------------------------
 #
 # Button specs
