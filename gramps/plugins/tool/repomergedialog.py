@@ -35,6 +35,7 @@ from typing import Any
 # GTK modules
 #
 # -------------------------------------------------------------------------
+from gi.repository import Gdk
 from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
@@ -163,9 +164,41 @@ class RepoMergeDialog(Gtk.Dialog):
         right_head.set_markup("<b>%s</b>" % str(_("Sources")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
+        for head in (left_head, mid_head, right_head):
+            head.get_style_context().add_class("merge-cell")
         grid.attach(left_head, 0, 0, 1, 1)
         grid.attach(mid_head, 1, 0, 1, 1)
         grid.attach(right_head, 2, 0, 1, 1)
+
+    def _install_grid_css(self) -> None:
+        """Install CSS that draws borders around every grid cell.
+
+        Gtk.Grid has no native "show grid lines" option, so each cell
+        widget gets a thin border so columns and rows are visually
+        separated and line up with the header above them.
+        """
+        if getattr(self, "_grid_css_installed", False):
+            return
+        css = b"""
+        .merge-grid {
+            border: 1px solid #555555;
+            margin: 0;
+        }
+        .merge-cell {
+            border: 1px solid #888888;
+            border-style: solid;
+            margin: 0;
+            padding: 4px;
+        }
+        """
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+        self._grid_css_installed = True
 
     def _make_combo(self, row: dict[str, Any]) -> Gtk.ComboBox:
         """Create a golden-target dropdown for a repository row."""
@@ -201,11 +234,13 @@ class RepoMergeDialog(Gtk.Dialog):
         repository with empty rows last. The header shares the same grid
         columns as the cells below so they align vertically, and cell
         text wraps so long values stay inside their columns."""
+        self._install_grid_css()
         grid = Gtk.Grid()
-        grid.set_column_spacing(12)
-        grid.set_row_spacing(4)
+        grid.set_column_spacing(0)
+        grid.set_row_spacing(0)
         grid.set_hexpand(True)
         grid.set_vexpand(True)
+        grid.get_style_context().add_class("merge-grid")
 
         self.build_header(grid)
 
@@ -228,37 +263,50 @@ class RepoMergeDialog(Gtk.Dialog):
                 }
             )
 
-        # Row 0 is the header; data rows start below it.
+        # Row 0 is the header; data rows start below it. Every source gets
+        # its own row: the repository name is repeated in each row (no
+        # spanning "single entry for the group"), one merge-target combo
+        # sits in the middle column per repo group, and column 2 holds one
+        # source cell per row or a placeholder when the repo has none.
         row_index = 1
         for row in sorted_rows:
             repo_name = row["name"]
             sources = sorted(sources_by_repo.get(repo_name, []))
-
-            # Column 0: repository name label spanning every source row beneath it.
-            repo_label = Gtk.Label(label=repo_name)
-            repo_label.set_halign(Gtk.Align.START)
-            repo_label.set_line_wrap(True)
-            repo_label.set_max_width_chars(24)
             span = max(len(sources), 1)
-            grid.attach(repo_label, 0, row_index, 1, span)
+            group_start = row_index
 
-            # Column 1: merge-target combobox spanning every source row beneath it.
+            # Column 0: repository name, once per row of the group.
+            for _ in range(span):
+                repo_label = Gtk.Label(label=repo_name)
+                repo_label.set_halign(Gtk.Align.START)
+                repo_label.set_line_wrap(True)
+                repo_label.set_max_width_chars(24)
+                repo_label.get_style_context().add_class("merge-cell")
+                grid.attach(repo_label, 0, row_index, 1, 1)
+                row_index += 1
+
+            # Column 1: one merge-target combobox for the whole repo group.
             combo = self._make_combo(row)
-            grid.attach(combo, 1, row_index, 1, span)
+            combo.get_style_context().add_class("merge-cell")
+            grid.attach(combo, 1, group_start, 1, span)
 
-            # Right cell: one label per associated source, or an empty label
-            # when the repository has no sources.
+            # Column 2: one source cell per row, or a placeholder when the
+            # repository has no sources (an entry without a value).
             if sources:
-                for source_title in sources:
+                for offset, source_title in enumerate(sources):
                     src_label = Gtk.Label(label=source_title)
                     src_label.set_halign(Gtk.Align.START)
                     src_label.set_line_wrap(True)
                     src_label.set_max_width_chars(60)
-                    grid.attach(src_label, 2, row_index, 1, 1)
-                    row_index += 1
+                    src_label.get_style_context().add_class("merge-cell")
+                    grid.attach(src_label, 2, group_start + offset, 1, 1)
             else:
-                grid.attach(Gtk.Label(label=""), 2, row_index, 1, 1)
-                row_index += 1
+                placeholder = Gtk.Label(label=str(_("(no sources)")))
+                placeholder.set_halign(Gtk.Align.START)
+                placeholder.set_line_wrap(True)
+                placeholder.set_max_width_chars(60)
+                placeholder.get_style_context().add_class("merge-cell")
+                grid.attach(placeholder, 2, group_start, 1, 1)
 
             self.combos.append((repo_name, combo, str(row["best_guess"])))
 
