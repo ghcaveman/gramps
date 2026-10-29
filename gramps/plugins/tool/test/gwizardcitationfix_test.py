@@ -311,6 +311,8 @@ class GWizardCitationFixRepoMergeTest(unittest.TestCase):
                 return []
 
         namespace["_safe_iter"] = _safe_iter
+        namespace["LOG"] = type("LOG", (), {"exception": lambda *a, **k: None})()
+        namespace["UNATTACHED_REPO_KEY"] = "(no repository)"
         namespace["GoldStandardRepositories"] = GoldStandardRepositories
         namespace["_QUARANTINE_REPO_NAME"] = "Quarantine"
         exec(compile(module, "<repo_merge>", "exec"), namespace)  # noqa: S102
@@ -411,7 +413,7 @@ class GWizardCitationFixRepoMergeTest(unittest.TestCase):
         self.assertEqual(result["FamilySearch"], ["1880 Census", "1900 Census"])
         self.assertEqual(result["Ancestry.com"], ["Birth Records"])
         self.assertNotIn("Empty Repo", result)
-        self.assertNotIn("Orphan Source", [s for srcs in result.values() for s in srcs])
+        self.assertEqual(result["(no repository)"], ["Orphan Source"])
 
     def test_dialog_wiring_exists(self) -> None:
         """Merge dialog lives in its own RepoMergeDialog class."""

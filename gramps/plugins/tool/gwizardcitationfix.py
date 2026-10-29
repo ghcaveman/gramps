@@ -160,8 +160,16 @@ def plan_repo_merges(
     return dict(plan)
 
 
+# Repository key used for sources that have no repository reference.
+UNATTACHED_REPO_KEY = "(no repository)"
+
+
 def collect_sources_by_repo(db: Any) -> dict[str, list[str]]:
-    """Return repository name mapped to sorted source titles referencing it."""
+    """Return repository name mapped to sorted source titles referencing it.
+
+    Sources with no repository reference are collected under the
+    ``UNATTACHED_REPO_KEY`` key so they can be displayed and assigned.
+    """
     handle_to_name: dict[str, str] = {}
     for repo in _safe_iter(db, "iter_repositories"):
         try:
@@ -176,12 +184,18 @@ def collect_sources_by_repo(db: Any) -> dict[str, list[str]]:
     for source in _safe_iter(db, "iter_sources"):
         try:
             title = str(source.get_title() or "")
-            for ref in source.get_reporef_list():
+            refs = list(source.get_reporef_list())
+            if not refs:
+                sources_by_repo[UNATTACHED_REPO_KEY].append(title)
+                continue
+            for ref in refs:
                 repo_name = handle_to_name.get(
                     str(ref.get_reference_handle() or ""), ""
                 )
                 if repo_name:
                     sources_by_repo[repo_name].append(title)
+                else:
+                    sources_by_repo[UNATTACHED_REPO_KEY].append(title)
         except Exception:  # pylint: disable=broad-except
             LOG.exception("Failed to read source")
 

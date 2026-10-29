@@ -46,6 +46,7 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
 from gramps.plugins.tool.goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationfix import (
+    UNATTACHED_REPO_KEY,
     build_repo_merge_rows,
     collect_sources_by_repo,
     get_fix_description,
@@ -92,16 +93,19 @@ class RepoMergeDialog(Gtk.Dialog):
         rows = build_repo_merge_rows(self.collect_repo_names())
         visible = [row for row in rows if not row["skip"]]
 
-        # Update the title with counts.
+        # Count header in the content area.
         n_repos = len(visible)
-        n_sources = sum(
-            len(self.sources_by_repo.get(row["name"], [])) for row in visible
+        n_sources = sum(len(titles) for titles in self.sources_by_repo.values())
+        count_label = Gtk.Label()
+        count_label.set_markup(
+            "<b>%s</b>"
+            % str(
+                _("Repositories (%d total), Sources (%d total)") % (n_repos, n_sources)
+            )
         )
-        count_title = str(_("Repositories (%d total), Sources (%d total)")) % (
-            n_repos,
-            n_sources,
-        )
-        self.set_title(count_title if not title else f"{title} \u2014 {count_title}")
+        count_label.set_halign(Gtk.Align.START)
+        count_label.set_hexpand(True)
+        content.add(count_label)
 
         info = Gtk.Label(
             label=(
@@ -142,20 +146,22 @@ class RepoMergeDialog(Gtk.Dialog):
         return collect_sources_by_repo(self.dbstate.db)
 
     def build_header(self) -> Gtk.Box:
-        """Return the two-column header for the repository/source grid."""
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        """Return the three-column header for the repository/source grid."""
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         left_head = Gtk.Label()
         left_head.set_markup("<b>%s</b>" % str(_("Repository")))
         left_head.set_halign(Gtk.Align.START)
         left_head.set_hexpand(True)
+        mid_head = Gtk.Label()
+        mid_head.set_markup("<b>%s</b>" % str(_("Merge into (golden)")))
+        mid_head.set_halign(Gtk.Align.START)
+        mid_head.set_hexpand(True)
         right_head = Gtk.Label()
         right_head.set_markup("<b>%s</b>" % str(_("Sources")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
         header.pack_start(left_head, True, True, 0)
-        column_sep = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-        column_sep.set_size_request(4, -1)
-        header.pack_start(column_sep, False, False, 0)
+        header.pack_start(mid_head, True, True, 0)
         header.pack_start(right_head, True, True, 0)
         return header
 
@@ -191,6 +197,7 @@ class RepoMergeDialog(Gtk.Dialog):
         """Build a 2-column grid: repositories (left) with merge dropdowns and
         associated sources (right), grouped by repository with empty rows last."""
         grid = Gtk.Grid()
+        grid.set_column_homogeneous(True)
         grid.set_column_spacing(12)
         grid.set_row_spacing(4)
         grid.set_hexpand(True)
@@ -202,25 +209,36 @@ class RepoMergeDialog(Gtk.Dialog):
         without_sources = [r for r in visible if not sources_by_repo.get(r["name"], [])]
         sorted_rows = with_sources + without_sources
 
+        # Append unattached sources (no repository) as a final row so users
+        # can see sources that need a repository attached.
+        unattached = sources_by_repo.get(UNATTACHED_REPO_KEY, [])
+        if unattached:
+            sorted_rows.append(
+                {
+                    "name": UNATTACHED_REPO_KEY,
+                    "options": [UNATTACHED_REPO_KEY],
+                    "skip": False,
+                    "best_guess": UNATTACHED_REPO_KEY,
+                }
+            )
+
         row_index = 0
         for row in sorted_rows:
             repo_name = row["name"]
             sources = sorted(sources_by_repo.get(repo_name, []))
 
-            # Left cell: repository name label + merge-target combobox,
-            # spanning every source row beneath it.
-            left_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            # Column 0: repository name label spanning every source row beneath it.
             repo_label = Gtk.Label(label=repo_name)
             repo_label.set_halign(Gtk.Align.START)
             repo_label.set_line_wrap(True)
             repo_label.set_max_width_chars(24)
-            repo_label.set_size_request(540, -1)
-            left_box.pack_start(repo_label, False, False, 0)
-            combo = self._make_combo(row)
-            left_box.pack_start(combo, False, False, 0)
-
+            repo_label.set_size_request(400, -1)
             span = max(len(sources), 1)
-            grid.attach(left_box, 0, row_index, 1, span)
+            grid.attach(repo_label, 0, row_index, 1, span)
+
+            # Column 1: merge-target combobox spanning every source row beneath it.
+            combo = self._make_combo(row)
+            grid.attach(combo, 1, row_index, 1, span)
 
             # Right cell: one label per associated source, or an empty label
             # when the repository has no sources.
@@ -230,10 +248,10 @@ class RepoMergeDialog(Gtk.Dialog):
                     src_label.set_halign(Gtk.Align.START)
                     src_label.set_line_wrap(True)
                     src_label.set_max_width_chars(60)
-                    grid.attach(src_label, 1, row_index, 1, 1)
+                    grid.attach(src_label, 2, row_index, 1, 1)
                     row_index += 1
             else:
-                grid.attach(Gtk.Label(label=""), 1, row_index, 1, 1)
+                grid.attach(Gtk.Label(label=""), 2, row_index, 1, 1)
                 row_index += 1
 
             self.combos.append((repo_name, combo, str(row["best_guess"])))
