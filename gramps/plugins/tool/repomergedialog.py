@@ -63,7 +63,7 @@ LOG = logging.getLogger(__name__)
 #
 # ------------------------------------------------------------
 class RepoMergeDialog(Gtk.Dialog):
-    """Two-column grid dialog: Repositories (with merge target dropdowns) beside\n    their associated Sources, grouped alphabetically with empty rows last."""
+    """Grid dialog: repository names (with merge target dropdowns) beside\n    their associated sources. The header shares the grid columns with the\n    rows below so they align vertically, and cell text wraps to stay inside\n    its column."""
 
     def __init__(
         self,
@@ -124,7 +124,6 @@ class RepoMergeDialog(Gtk.Dialog):
             done.set_halign(Gtk.Align.START)
             content.add(done)
             return
-        content.add(self.build_header())
         content.pack_start(
             self.build_rows(visible, self.sources_by_repo), True, True, 0
         )
@@ -145,9 +144,13 @@ class RepoMergeDialog(Gtk.Dialog):
         """Return repository name mapped to sorted source titles it references."""
         return collect_sources_by_repo(self.dbstate.db)
 
-    def build_header(self) -> Gtk.Box:
-        """Return the three-column header for the repository/source grid."""
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    def build_header(self, grid: Gtk.Grid) -> None:
+        """Add the three-column header row to the repository/source grid.
+
+        The header lives in the same grid as the data rows so the column
+        edges line up vertically instead of being allocated by separate
+        containers.
+        """
         left_head = Gtk.Label()
         left_head.set_markup("<b>%s</b>" % str(_("Repository")))
         left_head.set_halign(Gtk.Align.START)
@@ -160,10 +163,9 @@ class RepoMergeDialog(Gtk.Dialog):
         right_head.set_markup("<b>%s</b>" % str(_("Sources")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
-        header.pack_start(left_head, True, True, 0)
-        header.pack_start(mid_head, True, True, 0)
-        header.pack_start(right_head, True, True, 0)
-        return header
+        grid.attach(left_head, 0, 0, 1, 1)
+        grid.attach(mid_head, 1, 0, 1, 1)
+        grid.attach(right_head, 2, 0, 1, 1)
 
     def _make_combo(self, row: dict[str, Any]) -> Gtk.ComboBox:
         """Create a golden-target dropdown for a repository row."""
@@ -194,14 +196,18 @@ class RepoMergeDialog(Gtk.Dialog):
         visible: list[dict[str, Any]],
         sources_by_repo: dict[str, list[str]],
     ) -> Gtk.ScrolledWindow:
-        """Build a 2-column grid: repositories (left) with merge dropdowns and
-        associated sources (right), grouped by repository with empty rows last."""
+        """Build a grid: header row plus repositories (left) with merge
+        dropdowns (middle) and associated sources (right), grouped by
+        repository with empty rows last. The header shares the same grid
+        columns as the cells below so they align vertically, and cell
+        text wraps so long values stay inside their columns."""
         grid = Gtk.Grid()
-        grid.set_column_homogeneous(True)
         grid.set_column_spacing(12)
         grid.set_row_spacing(4)
         grid.set_hexpand(True)
         grid.set_vexpand(True)
+
+        self.build_header(grid)
 
         # Sort: repositories with sources first (alphabetical), then those
         # without sources (alphabetical) so empty rows appear last.
@@ -222,7 +228,8 @@ class RepoMergeDialog(Gtk.Dialog):
                 }
             )
 
-        row_index = 0
+        # Row 0 is the header; data rows start below it.
+        row_index = 1
         for row in sorted_rows:
             repo_name = row["name"]
             sources = sorted(sources_by_repo.get(repo_name, []))
@@ -232,7 +239,6 @@ class RepoMergeDialog(Gtk.Dialog):
             repo_label.set_halign(Gtk.Align.START)
             repo_label.set_line_wrap(True)
             repo_label.set_max_width_chars(24)
-            repo_label.set_size_request(400, -1)
             span = max(len(sources), 1)
             grid.attach(repo_label, 0, row_index, 1, span)
 
