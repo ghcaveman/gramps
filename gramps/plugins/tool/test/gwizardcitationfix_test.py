@@ -719,36 +719,103 @@ class GWizardCitationFixCitationFixTest(unittest.TestCase):
         namespace["DbTxn"] = object
         namespace["Gtk"] = object
         namespace["OkDialog"] = object
-        namespace["PROBLEM_NO_PAGE"] = "no_page"
-        namespace["PROBLEM_NO_DATE"] = "no_date"
+        namespace["LOG"] = type("LOG", (), {"exception": lambda *a, **k: None})()
         namespace["PROBLEM_TREE_CONFIDENCE"] = "tree_confidence"
+        namespace["PROBLEM_MANUAL_REVIEW"] = "manual_review"
+        namespace["PROBLEM_NONE"] = "none"
+        namespace["NO_SOURCE"] = "(no source)"
         exec(compile(module, "<citation_fix>", "exec"), namespace)  # noqa: S102
         return namespace
 
     def _sample_statistics(self) -> dict[str, object]:
-        return {
-            "citations_no_page": 5,
-            "citations_no_date": 3,
-            "tree_conf_high": 7,
-        }
+        """Return a mock db with citations for testing."""
+
+        class FakeSource:
+            def __init__(self, handle, title):
+                self._handle = handle
+                self._title = title
+
+            def get_handle(self):
+                return self._handle
+
+            def get_title(self):
+                return self._title
+
+        class FakeCitation:
+            def __init__(self, handle, src_handle, gramps_id, page, date, confidence):
+                self._handle = handle
+                self._src_handle = src_handle
+                self._gramps_id = gramps_id
+                self._page = page
+                self._date = date
+                self._confidence = confidence
+
+            def get_handle(self):
+                return self._handle
+
+            def get_reference_handle(self):
+                return self._src_handle
+
+            def get_gramps_id(self):
+                return self._gramps_id
+
+            def get_page(self):
+                return self._page
+
+            def get_date_object(self):
+                return self._date
+
+            def get_confidence_level(self):
+                return self._confidence
+
+        class FakeDb:
+            def __init__(self):
+                self._sources = [
+                    FakeSource("s1", "FamilySearch Family Tree"),
+                    FakeSource("s2", "Ancestry.com"),
+                    FakeSource("s3", "Vital Records"),
+                ]
+                self._citations = [
+                    FakeCitation("c1", "s1", "C1", "42", None, 4),
+                    FakeCitation("c2", "s1", "C2", None, None, 2),
+                    FakeCitation("c3", "s2", "C3", "10", "1880", 1),
+                    FakeCitation("c4", "s3", "C4", None, "1900", 1),
+                    FakeCitation("c5", "", "C5", None, None, 1),
+                ]
+
+            def iter_sources(self):
+                return iter(self._sources)
+
+            def iter_citations(self):
+                return iter(self._citations)
+
+        return FakeDb()
 
     def test_citation_fix_rows_build(self) -> None:
-        """Rows cover missing page, missing date, and over-confident tree."""
+        """Rows cover each citation, sorted by source alphabetically."""
         logic = self._load_logic()
         build = logic["build_citation_fix_rows"]
 
         rows = build(self._sample_statistics())
-        self.assertEqual(len(rows), 3)
-        problems = {r["problem"] for r in rows}
-        self.assertIn("no_page", problems)
-        self.assertIn("no_date", problems)
-        self.assertIn("tree_confidence", problems)
-
-        tree = [r for r in rows if r["problem"] == "tree_confidence"][0]
-        self.assertEqual(
-            tree["display"], "Lower confidence of 7 FamilySearch Tree citations"
-        )
-        self.assertEqual(tree["best_guess"], "Lower to Confidence 1")
+        # 5 citations total
+        self.assertEqual(len(rows), 5)
+        # Sorted: Ancestry.com, FamilySearch Family Tree (x2), Vital Records, (no source)
+        names = [r["source_name"] for r in rows]
+        self.assertEqual(names[0], "Ancestry.com")
+        self.assertEqual(names[1], "FamilySearch Family Tree")
+        self.assertEqual(names[2], "FamilySearch Family Tree")
+        self.assertEqual(names[3], "Vital Records")
+        self.assertEqual(names[4], "(no source)")
+        # Tree citations with high confidence get tree_confidence problem
+        tree_rows = [r for r in rows if r["problem"] == "tree_confidence"]
+        self.assertEqual(len(tree_rows), 1)
+        self.assertEqual(tree_rows[0]["best_guess"], "Lower to Confidence 1")
+        # Citations with missing page/date get manual_review problem
+        manual_rows = [r for r in rows if r["problem"] == "manual_review"]
+        self.assertEqual(len(manual_rows), 3)
+        # Clean citation gets none problem
+        none_rows = [r for r in rows if r["problem"] == "none"]
+        self.assertEqual(len(none_rows), 1)
 
     def test_plan_citation_fixes(self) -> None:
         """Plan groups selected actions per problem type."""
@@ -760,15 +827,37 @@ class GWizardCitationFixCitationFixTest(unittest.TestCase):
                 "skip": False,
                 "problem": "tree_confidence",
                 "best_guess": "Lower to Confidence 1",
+                "citation_handle": "c1",
+            },
+            {
+                "skip": False,
+                "problem": "tree_confidence",
+                "best_guess": "Lower to Confidence 2",
+                "citation_handle": "c2",
             },
             {
                 "skip": True,
                 "problem": "tree_confidence",
                 "best_guess": "Lower to Confidence 2",
+                "citation_handle": "c3",
+            },
+            {
+                "skip": False,
+                "problem": "manual_review",
+                "best_guess": "Add page/volume (manual)",
+                "citation_handle": "c4",
             },
         ]
         result = plan(rows)
-        self.assertEqual(result["tree_confidence"], ["Lower to Confidence 1"])
+        self.assertEqual(len(result["tree_confidence"]), 2)
+        self.assertEqual(
+            result["tree_confidence"],
+            [
+                {"citation_handle": "c1", "target_level": 1},
+                {"citation_handle": "c2", "target_level": 2},
+            ],
+        )
+        self.assertEqual(result["manual_review"], 1)
 
     def test_apply_lowers_tree_confidence(self) -> None:
         """Auto-clean lowers confidence for in-tree citations rated 3+."""
@@ -780,34 +869,15 @@ class GWizardCitationFixCitationFixTest(unittest.TestCase):
                 self._handle = handle
                 self._confidence = confidence
 
-            def get_reference_handle(self):
-                return self._handle
-
-            def get_confidence_level(self):
-                return self._confidence
-
             def set_confidence_level(self, level):
                 self._confidence = level
 
         class FakeDb:
             def __init__(self, citations):
-                self._citations = citations
+                self._citations = {c._handle: c for c in citations}
 
-            def iter_sources(self):
-                class Src:
-                    def __init__(self, handle):
-                        self._handle = handle
-
-                    def get_handle(self):
-                        return self._handle
-
-                    def get_title(self):
-                        return "FamilySearch Family Tree"
-
-                return [Src("tree1"), Src("tree2")]
-
-            def iter_citations(self):
-                return iter(self._citations)
+            def get_citation_from_handle(self, handle):
+                return self._citations.get(handle)
 
             def get_undodb(self):
                 return []
@@ -825,19 +895,25 @@ class GWizardCitationFixCitationFixTest(unittest.TestCase):
                 return True
 
         citations = [
-            FakeCitation("tree1", 4),
-            FakeCitation("tree2", 3),
-            FakeCitation("tree3", 2),
-            FakeCitation("other1", 4),
+            FakeCitation("c1", 4),
+            FakeCitation("c2", 3),
+            FakeCitation("c3", 2),
         ]
         dbstate = types.SimpleNamespace(db=FakeDb(citations))
-        result = apply_fixes(dbstate, {"tree_confidence": ["Lower to Confidence 1"]})
+        result = apply_fixes(
+            dbstate,
+            {
+                "tree_confidence": [
+                    {"citation_handle": "c1", "target_level": 1},
+                    {"citation_handle": "c2", "target_level": 1},
+                ]
+            },
+        )
 
         self.assertEqual(result["tree_confidence_lowered"], 2)
         self.assertEqual(citations[0]._confidence, 1)
         self.assertEqual(citations[1]._confidence, 1)
         self.assertEqual(citations[2]._confidence, 2)
-        self.assertEqual(citations[3]._confidence, 4)
 
     def test_dialog_wiring_and_file_exist(self) -> None:
         """CitationFixDialog class and module exist and mirror the repo dialog."""

@@ -157,7 +157,13 @@ class SourceFixDialog(Gtk.Dialog):
             combo.set_active(0)
             line.pack_start(combo, True, True, 0)
             listbox.pack_start(line, False, False, 0)
-            self.combos.append((row["handle"], combo, row["best_guess"]))
+            self.combos.append(
+                (
+                    row.get("keeper_handle") or row.get("quarantine_handle") or "",
+                    combo,
+                    row["best_guess"],
+                )
+            )
         return scrolled
 
     def build_buttons(self) -> Gtk.Box:
