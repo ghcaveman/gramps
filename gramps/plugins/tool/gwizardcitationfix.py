@@ -94,13 +94,16 @@ def is_golden_repo_name(name: str, golden: list[str] | None = None) -> bool:
 
 
 def rank_golden_repo_matches(
-    name: str, golden: list[str] | None = None, limit: int = 5
+    name: str, golden: list[str] | None = None, limit: int | None = 5
 ) -> list[str]:
-    """Return golden names ranked closest to the given repository name."""
+    """Return golden names ranked closest to the given repository name.
+
+    Pass ``limit=None`` to return every golden name in ranked order.
+    """
     if golden is None:
         golden = get_golden_repository_names()
     if not name or not golden:
-        return list(golden[:limit])
+        return list(golden) if limit is None else list(golden[:limit])
     scored: list[tuple[float, str]] = []
     plain = normalize_repo_name(name)
     for candidate in golden:
@@ -110,7 +113,8 @@ def rank_golden_repo_matches(
         overlap = len(set(plain.split()) & set(target.split()))
         scored.append((ratio + 0.05 * overlap, candidate))
     scored.sort(key=lambda item: item[0], reverse=True)
-    return [candidate for _score, candidate in scored[:limit]]
+    ranked = [candidate for _score, candidate in scored]
+    return ranked if limit is None else ranked[:limit]
 
 
 def build_repo_merge_rows(
@@ -119,9 +123,10 @@ def build_repo_merge_rows(
     """Build per-repository merge rows for the dialog model.
 
     Each row holds the original ``name``, the dropdown ``options``
-    (original name first as the bypass entry, then closest golden
-    names), the ``best_guess`` target, and ``skip`` which is True when
-    the name already matches a golden name.
+    (the source's repository name first as the bypass entry, then every
+    golden-list entry), the ``best_guess`` target (the closest golden
+    name), and ``skip`` which is True when the name already matches a
+    golden name.
     """
     if golden is None:
         golden = get_golden_repository_names()
@@ -137,9 +142,9 @@ def build_repo_merge_rows(
                 }
             )
             continue
-        matches = rank_golden_repo_matches(name, golden, limit)
-        options = [name] + [item for item in matches if item != name]
+        matches = rank_golden_repo_matches(name, golden, limit=None)
         best = matches[0] if matches else name
+        options = [name] + [item for item in golden if item != name]
         rows.append(
             {"name": name, "options": options, "best_guess": best, "skip": False}
         )

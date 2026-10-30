@@ -341,6 +341,16 @@ class GWizardCitationFixRepoMergeTest(unittest.TestCase):
         self.assertEqual(rows[0]["options"][0], "family junk")
         self.assertIn(rows[0]["best_guess"], rows[0]["options"][1:])
 
+    def test_all_golden_entries_after_bypass(self) -> None:
+        """Dropdown lists the repo name first, then every golden name."""
+        logic = self._load_logic()
+        golden = logic["get_golden_repository_names"]()
+        rows = logic["build_repo_merge_rows"](["Some Odd Repo"])
+        options = rows[0]["options"]
+        self.assertEqual(options[0], "Some Odd Repo")
+        self.assertEqual(options[1:], [g for g in golden if g != "Some Odd Repo"])
+        self.assertIn(rows[0]["best_guess"], golden)
+
     def test_closest_golden_ranks_first(self) -> None:
         """Closest golden names rank ahead of unrelated ones."""
         logic = self._load_logic()
