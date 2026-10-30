@@ -314,7 +314,6 @@ class RepoMergeDialog(Gtk.Dialog):
             repo_label = Gtk.Label(label=repo_name)
             repo_label.set_halign(Gtk.Align.START)
             repo_label.set_line_wrap(True)
-            repo_label.set_max_width_chars(24)
             repo_label.get_style_context().add_class("merge-cell")
             grid.attach(repo_label, 0, row_index, 1, 1)
 
