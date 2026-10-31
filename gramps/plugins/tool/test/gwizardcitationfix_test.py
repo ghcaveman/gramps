@@ -74,7 +74,7 @@ class GWizardCitationFixButtonTest(unittest.TestCase):
 
     def test_seven_buttons(self) -> None:
         """There are seven button specs."""
-        self.assertEqual(len(get_button_specs()), 7)
+        self.assertEqual(len(get_button_specs()), 8)
 
     def test_top_buttons_side_by_side(self) -> None:
         """First two specs are the side-by-side report buttons."""
@@ -87,12 +87,12 @@ class GWizardCitationFixButtonTest(unittest.TestCase):
     def test_fix_layer_buttons(self) -> None:
         """Four per-layer fix buttons follow the report buttons."""
         specs = get_button_specs()
-        keys = [key for key, _label, _sens in specs[2:6]]
+        keys = [key for key, _label, _sens in specs[2:7]]
         self.assertEqual(
             keys,
-            ["fix_repositories", "fix_sources", "fix_citations", "fix_notes"],
+            ["consolidate_repositories", "fix_repositories", "fix_sources", "fix_citations", "fix_notes"],
         )
-        labels = [label for _key, label, _sens in specs[2:6]]
+        labels = [label for _key, label, _sens in specs[2:7]]
         for expected in (
             "Fix Repositories",
             "Fix Sources",
@@ -107,8 +107,8 @@ class GWizardCitationFixButtonTest(unittest.TestCase):
     def test_master_auto_button(self) -> None:
         """A master Auto best-guess button closes the dialog."""
         specs = get_button_specs()
-        self.assertEqual(specs[6][0], "auto_all")
-        self.assertIn("Auto", specs[6][1])
+        self.assertEqual(specs[7][0], "auto_all")
+        self.assertIn("Auto", specs[7][1])
 
     def test_view_starts_disabled(self) -> None:
         """View report is insensitive until a report file exists."""

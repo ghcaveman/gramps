@@ -63,11 +63,14 @@ NO_SOURCE = "(no source)"
 class CitationFixDialog(Gtk.Dialog):
     """Review and fix citation problems in a dialog.
 
-    Three columns: Source (the source the citation references),
-    Suggested (a dropdown of fix actions), and Citation (citation
-    details such as page, date, confidence).  Citations are listed one
-    per row, sorted by source name alphabetically, with citations that
-    have no source reference listed last under "(no source)".
+    Five columns: Source (the source the citation references),
+    Suggested (a dropdown of fix actions), Citation (citation details
+    such as page, date, confidence), Notes (a short preview of the
+    citation notes with a "..." button to view/copy the full text),
+    and Conf (the confidence level from the database with its
+    calculated QUAY value, shown as (Qn)).  Citations are listed one
+    per row, sorted by source name alphabetically, with citations
+    that have no source reference listed last under "(no source)".
     """
 
     def __init__(
@@ -115,8 +118,12 @@ class CitationFixDialog(Gtk.Dialog):
             content.add(done)
             return
 
+        total_attrs = sum(int(row.get("attr_count", 0)) for row in self.rows)
         count_label = Gtk.Label(
-            label=str(_("Total citations: %d") % len(self.rows)),
+            label=str(
+                _("Total citations: %d | Total citation attributes: %d")
+                % (len(self.rows), total_attrs)
+            ),
         )
         count_label.set_halign(Gtk.Align.START)
         content.add(count_label)
@@ -142,9 +149,19 @@ class CitationFixDialog(Gtk.Dialog):
         right_head.set_markup("<b>%s</b>" % str(_("Citation")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
+        notes_head = Gtk.Label()
+        notes_head.set_markup("<b>%s</b>" % str(_("Notes")))
+        notes_head.set_halign(Gtk.Align.START)
+        notes_head.set_hexpand(True)
+        conf_head = Gtk.Label()
+        conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
+        conf_head.set_halign(Gtk.Align.START)
+        conf_head.set_hexpand(True)
         header_grid.attach(left_head, 0, 0, 1, 1)
         header_grid.attach(mid_head, 1, 0, 1, 1)
         header_grid.attach(right_head, 2, 0, 1, 1)
+        header_grid.attach(notes_head, 3, 0, 1, 1)
+        header_grid.attach(conf_head, 4, 0, 1, 1)
         content.add(header_grid)
 
         content.add(self.build_rows(self.rows))
@@ -163,7 +180,7 @@ class CitationFixDialog(Gtk.Dialog):
         content.add(self.build_buttons())
 
     def build_header(self, grid: Gtk.Grid) -> None:
-        """Attach the three-column header to a grid (kept for API compat)."""
+        """Attach the four-column header to a grid (kept for API compat)."""
         left_head = Gtk.Label()
         left_head.set_markup("<b>%s</b>" % str(_("Source")))
         left_head.set_halign(Gtk.Align.START)
@@ -176,12 +193,22 @@ class CitationFixDialog(Gtk.Dialog):
         right_head.set_markup("<b>%s</b>" % str(_("Citation")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
+        notes_head = Gtk.Label()
+        notes_head.set_markup("<b>%s</b>" % str(_("Notes")))
+        notes_head.set_halign(Gtk.Align.START)
+        notes_head.set_hexpand(True)
+        conf_head = Gtk.Label()
+        conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
+        conf_head.set_halign(Gtk.Align.START)
+        conf_head.set_hexpand(True)
         grid.attach(left_head, 0, 0, 1, 1)
         grid.attach(mid_head, 1, 0, 1, 1)
         grid.attach(right_head, 2, 0, 1, 1)
+        grid.attach(notes_head, 3, 0, 1, 1)
+        grid.attach(conf_head, 4, 0, 1, 1)
 
     def build_rows(self, rows: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        """Build a 3-column grid: Source | Suggested | Citation."""
+        """Build a 4-column grid: Source | Suggested | Citation | Conf."""
         grid = Gtk.Grid()
         grid.set_column_spacing(0)
         grid.set_row_spacing(0)
@@ -212,6 +239,27 @@ class CitationFixDialog(Gtk.Dialog):
             cit_label.set_line_wrap(True)
             grid.attach(cit_label, 2, row_index, 1, 1)
 
+            # Column 3: notes (preview + "more" button)
+            notes_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+            notes_preview = row.get("notes_preview", "")
+            notes_label = Gtk.Label(label=notes_preview if notes_preview else "\u2014")
+            notes_label.set_halign(Gtk.Align.START)
+            notes_label.set_line_wrap(True)
+            notes_box.pack_start(notes_label, True, True, 0)
+            notes_text = row.get("notes_text", "")
+            if notes_text:
+                more_btn = Gtk.Button(label="\u2026")
+                more_btn.set_relief(Gtk.ReliefStyle.NONE)
+                more_btn.connect("clicked", self.cb_show_notes, notes_text)
+                notes_box.pack_start(more_btn, False, False, 0)
+            grid.attach(notes_box, 3, row_index, 1, 1)
+
+            # Column 4: confidence / QUAY
+            conf_label = Gtk.Label(label=row["confidence_display"])
+            conf_label.set_halign(Gtk.Align.START)
+            conf_label.set_line_wrap(True)
+            grid.attach(conf_label, 4, row_index, 1, 1)
+
             self.combos.append((row["citation_handle"], combo, row["best_guess"]))
             row_index += 1
 
@@ -229,11 +277,23 @@ class CitationFixDialog(Gtk.Dialog):
         buttons.set_homogeneous(True)
         auto_button = Gtk.Button(label=str(_("Auto (best guess)")))
         apply_button = Gtk.Button(label=str(_("Apply")))
+        attrs_button = Gtk.Button(label=str(_("Citation Attributes")))
         auto_button.connect("clicked", self.cb_set_best)
         apply_button.connect("clicked", self.cb_apply)
+        attrs_button.connect("clicked", self.cb_citation_attributes)
         buttons.pack_start(auto_button, True, True, 0)
         buttons.pack_start(apply_button, True, True, 0)
+        buttons.pack_start(attrs_button, True, True, 0)
         return buttons
+
+    def cb_citation_attributes(self, _button: Gtk.Button) -> None:
+        """Open the citation-attributes dialog (modal to this dialog)."""
+        dlg = CitationAttributesDialog(
+            title=str(_("Citation Attributes")),
+            dbstate=self.dbstate,
+            transient_for=self,
+        )
+        dlg.show_dialog()
 
     def get_choices(self) -> dict[str, str]:
         return {
@@ -284,6 +344,34 @@ class CitationFixDialog(Gtk.Dialog):
                     combo.set_active(index)
                     break
 
+    def cb_show_notes(self, _button: Gtk.Button, notes_text: str) -> None:
+        """Show the full citation notes in a dialog (selectable for copy)."""
+        dlg = Gtk.Dialog(
+            title=str(_("Citation notes")),
+            transient_for=self,
+            modal=True,
+            destroy_with_parent=True,
+        )
+        dlg.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
+        dlg.connect("response", lambda d, r: d.destroy())
+        content = dlg.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_min_content_height(150)
+        scrolled.set_min_content_width(420)
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        textview = Gtk.TextView()
+        textview.set_editable(False)
+        textview.set_wrap_mode(Gtk.WrapMode.WORD)
+        buffer_ = textview.get_buffer()
+        buffer_.set_text(notes_text)
+        scrolled.add(textview)
+        content.add(scrolled)
+        dlg.show_all()
+        dlg.run()
+        dlg.destroy()
+
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply the user choices as citation fixes."""
         rows = build_citation_fix_rows(self.dbstate.db)
@@ -306,6 +394,125 @@ class CitationFixDialog(Gtk.Dialog):
             ),
             parent=self,
         )
+        self.destroy()
+
+
+# ------------------------------------------------------------
+#
+# CitationAttributesDialog
+#
+# ------------------------------------------------------------
+class CitationAttributesDialog(Gtk.Dialog):
+    """Dialog for assigning citation attributes.
+
+    Left column: Parametric Key (values) listing Source Type, Information
+    Type and Evidence Type.  Right column: Assigned Key (values) showing
+    the attribute currently assigned to each.  If no attributes have been
+    assigned yet, a "Create default attributes" button is shown which
+    assigns them 1:1.
+    """
+
+    def __init__(
+        self,
+        title: str,
+        dbstate: Any,
+        transient_for: Gtk.Window | None = None,
+    ) -> None:
+        """Build the citation-attributes dialog."""
+        super().__init__(
+            title=title,
+            transient_for=transient_for,
+            modal=True,
+            destroy_with_parent=True,
+        )
+        self.dbstate = dbstate
+        self.assigned: dict[str, str] = {}
+        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
+        self.connect("response", lambda dlg, resp: dlg.destroy())
+        content = self.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+
+        # Header row: Parametric Key (values) | Assigned Key (values)
+        header_grid = Gtk.Grid()
+        header_grid.set_column_spacing(0)
+        header_grid.set_row_spacing(0)
+        header_grid.set_column_homogeneous(True)
+        header_grid.set_hexpand(True)
+        header_grid.set_vexpand(False)
+        left_head = Gtk.Label()
+        left_head.set_markup("<b>%s</b>" % str(_("Parametric Key (values)")))
+        left_head.set_halign(Gtk.Align.START)
+        left_head.set_hexpand(True)
+        right_head = Gtk.Label()
+        right_head.set_markup("<b>%s</b>" % str(_("Assigned Key (values)")))
+        right_head.set_halign(Gtk.Align.START)
+        right_head.set_hexpand(True)
+        header_grid.attach(left_head, 0, 0, 1, 1)
+        header_grid.attach(right_head, 1, 0, 1, 1)
+        content.add(header_grid)
+
+        # The three parametric keys and their possible values.
+        self.param_items = [
+            (_("Source Type"), _("Original or Derivative")),
+            (_("Information Type"), _("Primary or Secondary")),
+            (_("Evidence Type"), _("Direct or Indirect")),
+        ]
+
+        self.assigned_labels: list[Gtk.Label] = []
+        grid = Gtk.Grid()
+        grid.set_column_spacing(0)
+        grid.set_row_spacing(0)
+        grid.set_column_homogeneous(True)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
+        for index, (key, values) in enumerate(self.param_items):
+            left_label = Gtk.Label(label="%s (%s)" % (key, values))
+            left_label.set_halign(Gtk.Align.START)
+            left_label.set_line_wrap(True)
+            grid.attach(left_label, 0, index, 1, 1)
+
+            right_label = Gtk.Label(label="\u2014")
+            right_label.set_halign(Gtk.Align.START)
+            right_label.set_line_wrap(True)
+            self.assigned_labels.append(right_label)
+            grid.attach(right_label, 1, index, 1, 1)
+        content.add(grid)
+
+        # If nothing assigned yet, offer to create defaults (1:1).
+        self.create_button = Gtk.Button(label=str(_("Create default attributes")))
+        self.create_button.connect("clicked", self.cb_create_defaults)
+        content.add(self.create_button)
+        self._update_create_button()
+
+        content.add(self.build_buttons())
+
+    def _update_create_button(self) -> None:
+        """Hide the create button once defaults have been assigned."""
+        if self.assigned:
+            self.create_button.set_visible(False)
+        else:
+            self.create_button.set_visible(True)
+
+    def cb_create_defaults(self, _button: Gtk.Button) -> None:
+        """Assign default attributes 1:1 (parametric key -> same value)."""
+        for key, _values in self.param_items:
+            self.assigned[key] = key
+        for index, (key, _values) in enumerate(self.param_items):
+            self.assigned_labels[index].set_text(self.assigned.get(key, "\u2014"))
+        self._update_create_button()
+
+    def build_buttons(self) -> Gtk.Box:
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        buttons.set_homogeneous(True)
+        close_button = Gtk.Button(label=str(_("_Close")))
+        close_button.connect("clicked", lambda b: self.destroy())
+        buttons.pack_start(close_button, True, True, 0)
+        return buttons
+
+    def show_dialog(self) -> None:
+        self.show_all()
+        self.run()
         self.destroy()
 
 
@@ -391,6 +598,61 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
                 parts.append("Confidence %d" % conf)
             citation_display = " | ".join(parts) if parts else "(no details)"
 
+            # Count citation attributes (media references, notes, source
+            # attributes) for this citation.
+            attr_count = 0
+            try:
+                attr_count += len(list(cit.get_media_list() or []))
+            except Exception:
+                pass
+            try:
+                attr_count += len(list(cit.get_note_list() or []))
+            except Exception:
+                pass
+            try:
+                attr_count += len(list(cit.get_attribute_list() or []))
+            except Exception:
+                pass
+
+            # Resolve citation notes to text for the Notes column.
+            notes_text = ""
+            try:
+                note_handles = list(cit.get_note_list() or [])
+                note_texts: list[str] = []
+                for nh in note_handles:
+                    try:
+                        note = db.get_note_from_handle(nh)
+                        if note is not None:
+                            note_texts.append(str(note.get_styledtext()))
+                    except Exception:
+                        pass
+                notes_text = "\n\n".join(note_texts)
+            except Exception:
+                pass
+            notes_preview = notes_text.replace("\n", " ")
+            if len(notes_preview) > 40:
+                notes_preview = notes_preview[:40] + "\u2026"
+
+            # QUAY value mirrors the GEDCOM export mapping
+            # (exportgedcom.QUALITY_MAP): CONF_VERY_HIGH/4 -> Q3,
+            # CONF_HIGH/3 -> Q2, CONF_LOW/1 -> Q1,
+            # CONF_VERY_LOW/0 -> Q0.  CONF_NORMAL/2 has no QUAY value,
+            # so it is shown as (Q-).
+            if conf >= 4:
+                quay = 3
+            elif conf == 3:
+                quay = 2
+            elif conf == 1:
+                quay = 1
+            elif conf == 0:
+                quay = 0
+            else:
+                quay = None
+            if quay is None:
+                confidence_display = "%d (Q-)" % conf
+            else:
+                confidence_display = "%d (Q%d)" % (conf, quay)
+
             # Determine suggested actions
             options: list[str] = []
             best_guess = ""
@@ -426,6 +688,12 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
                     "source_handle": src_handle,
                     "citation_handle": cit_handle,
                     "citation_display": citation_display,
+                    "confidence": conf,
+                    "quay": quay,
+                    "confidence_display": confidence_display,
+                    "attr_count": attr_count,
+                    "notes_text": notes_text,
+                    "notes_preview": notes_preview,
                     "options": options,
                     "best_guess": best_guess,
                     "problem": problem,

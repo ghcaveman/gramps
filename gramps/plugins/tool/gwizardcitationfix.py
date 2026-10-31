@@ -217,7 +217,9 @@ def get_button_specs() -> list[tuple[str, str, bool]]:
     return [
         ("generate", str(_("Generate report")), True),
         ("view", str(_("View report")), False),
+        ("consolidate_repositories", str(_("Repository Consolidate")), True),
         ("fix_repositories", str(_("Fix Repositories")), True),
+        ("consolidate_sources", str(_("Source Consolidate")), True),
         ("fix_sources", str(_("Fix Sources")), True),
         ("fix_citations", str(_("Fix Citations")), True),
         ("fix_notes", str(_("Fix Notes")), True),
@@ -754,7 +756,7 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
         (
             "citations",
             str(_("Fix Citations")),
-            str(_("Clean FamilySearch Tree PAGE/DATE and confidence.")),
+            str(_("Clean Tree PAGE/DATE and confidence.")),
         ),
         (
             "notes",
@@ -871,8 +873,16 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             self.cb_generate_report()
         elif key == "view":
             self.cb_view_report()
+        elif key == "consolidate_repositories":
+            from gramps.plugins.tool.repoconsolidatedialog import RepoConsolidateDialog
+
+            RepoConsolidateDialog(self.dbstate, transient_for=self.window).run()
         elif key == "fix_repositories":
             self.cb_fix_layer("repositories")
+        elif key == "consolidate_sources":
+            from gramps.plugins.tool.sourceconsolidatedialog import SourceConsolidateDialog
+
+            SourceConsolidateDialog(self.dbstate, transient_for=self.window).run()
         elif key == "fix_sources":
             self.cb_fix_layer("sources")
         elif key == "fix_citations":
