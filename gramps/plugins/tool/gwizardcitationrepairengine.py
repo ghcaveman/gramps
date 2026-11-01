@@ -160,7 +160,7 @@ class GWizardCitationRepairEngine:
             repo_type = _GOLD_REPO_TYPES.get(gold.get("type", ""))
             if repo_type is not None:
                 repo.set_type(repo_type)
-            if gold.get("url"):
+            if str(gold.get("url") or "").startswith(("http://", "https://")):
                 url = Url()
                 url.set_path(gold["url"])
                 url.set_type(UrlType.WEB_HOME)

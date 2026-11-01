@@ -289,6 +289,51 @@ class GoldStandardRepositories:
                 "Global book indexing search engine containing full out-of-print digital views of early 19th and 20th-century family histories and town bios."
             ),
         },
+        {
+            "name": "Legacy.com",
+            "type": "Web site",
+            "url": "https://legacy.com",
+            "address": "Legacy.com, Chicago, IL, USA",
+            "notes": _(
+                "Global obituary aggregation platform compiling historical death announcements from thousands of local newspaper providers."
+            ),
+        },
+        {
+            "name": "State and Municipal Civil Registries",
+            "type": "Government Office",
+            "url": "",
+            "address": "Multiple Regional Offices, Italy / USA",
+            "notes": _(
+                "Local town halls, municipal registries, and state vital statistics archives holding primary birth, marriage, and death books."
+            ),
+        },
+        {
+            "name": "Archives Départementales d'Ille-et-Vilaine",
+            "type": "Archive",
+            "url": "https://ille-et-vilaine.fr",
+            "address": "1 Rue de la rhelinais, 35000 Rennes, France",
+            "notes": _(
+                "Regional historical archive holding early Catholic parish registers and civil registrations for the commune of La Baussaine and surrounding areas."
+            ),
+        },
+        {
+            "name": "New York State Department of Health",
+            "type": "Government Office",
+            "url": "https://ny.gov",
+            "address": "Corning Tower, Empire State Plaza, Albany, NY 12237, USA",
+            "notes": _(
+                "Official state repository preserving vital records indexes for municipal regions outside of New York City, including Long Island and Patchogue."
+            ),
+        },
+        {
+            "name": "New Jersey State Archives",
+            "type": "Archive",
+            "url": "https://nj.gov",
+            "address": "225 West State Street, Trenton, NJ 08625, USA",
+            "notes": _(
+                "State repository holding comprehensive historical collections of births, marriages, and deaths, including early records for Camden and Somers Point."
+            ),
+        },
     ]
 
     @classmethod
