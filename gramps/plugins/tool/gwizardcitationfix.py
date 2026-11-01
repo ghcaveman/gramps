@@ -33,7 +33,8 @@ import re
 from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Any
-from gwizard_citation_report import GWizardCitationReport
+from gwizardcitationrepairengine import GWizardCitationRepairEngine
+from gwizardcitationreport import GWizardCitationReport
 
 # -------------------------------------------------------------------------
 #
@@ -474,17 +475,23 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
         summary = ""
         
         if layer == "unpack_sources":
-            # Run the safe splitting database transaction by itself
-            fixed_count = engine.unpack_conflated_sources(self.dbstate.db, parent_window=self.window)
-            
+            # Call your brand new standalone file class row
+            worker = DeconflateSources()
+            fixed_count = worker.unpack_conflated_sources(self.dbstate.db)
+
             OkDialog(
-                str(_("Field Unpacking Complete")), 
-                str(_("Successfully isolated and split %d mixed text headers into separate repository fields.") % fixed_count), 
-                parent=self.window
+                str(_("Field Unpacking Complete")),
+                str(
+                    _(
+                        "Successfully isolated and split %d mixed text headers into separate repository fields."
+                    )
+                    % fixed_count
+                ),
+                parent=self.window,
             )
             self.update_view_button()
             return
-            
+                    
         elif layer == "repositories":
             # Repositories button now focuses strictly on merging matching repository names
             repo_merges = engine.consolidate_duplicate_repositories(self.dbstate.db)
@@ -533,22 +540,25 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             return
         
     def cb_auto_all(self) -> None:
-        """Run best-guess auto fixes across all four cleanup layers in order."""
-        engine = GWizardCitationReport()
+        """Run best-guess auto fixes across all cleanup layers in order."""
+        report_engine = GWizardCitationReport()
+        deconflate_engine = DeconflateSources()  # New decoupled module instance
         db = self.dbstate.db
-        
-        # Step 1 & 2: Split text fields and merge resulting repository duplicates
-        fixed_repos = engine.unpack_conflated_sources(db, parent_window=self.window)
-        merged_repos = engine.consolidate_duplicate_repositories(db)
+
+        # Step 1: Split text fields via your separate class
+        fixed_repos = deconflate_engine.unpack_conflated_sources(db)
+
+        # Step 2: Split text fields and merge resulting repository duplicates
+        merged_repos = deconflate_engine.consolidate_duplicate_repositories(db)
         
         # Step 3: Deduplicate identical source collections and point citations to master
-        merged_sources = engine.consolidate_duplicate_sources(db)
+        merged_sources = deconflate_engine.consolidate_duplicate_sources(db)
         
         # Step 4: Clean citation punctuation and downrate user tree confidence
-        fixed_citations = engine.clean_and_rate_citations(db)
+        fixed_citations = deconflate_engine.clean_and_rate_citations(db)
         
         # Step 5: Sweep and destroy automated software export trash logs
-        purged_notes = engine.purge_import_debris_notes(db)
+        purged_notes = deconflate_engine.purge_import_debris_notes(db)
         
         # Output a complete master report of the global cleanup operation
         summary = (
