@@ -8,351 +8,340 @@
 # the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
 #
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+#
 
-"""Tools/Family Tree Processing/GWizard Deconflate Sources Worker."""
+"""Database repair engine for the GWizard citation fix tool (no GUI)."""
 
+# -------------------------------------------------------------------------
+#
+# Standard Python modules
+#
+# -------------------------------------------------------------------------
 from __future__ import annotations
 import logging
 import re
+from collections import defaultdict
 from typing import Any
-from gwizardcitationreport import GWizardCitationReport
 
+# -------------------------------------------------------------------------
+#
+# Gramps modules
+#
+# -------------------------------------------------------------------------
+from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.db import DbTxn
+from gramps.gen.lib import Repository, RepositoryType, RepoRef, Url, UrlType
+from gramps.plugins.tool.goldstandardrepos import GoldStandardRepositories
+from gramps.plugins.tool.gwizardcitationshared import (
+    detect_title_elements,
+    is_debris_text,
+    is_tree_source_title,
+    normalize_repo_name,
+    normalize_source_title,
+    note_text,
+    split_conflated_title,
+)
+
+_ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
 
-# Re-use the exact same pattern regex highlighters declared in your engine
-_FIELD_REPO_PATTERNS = re.compile(r'https?://|www\.|familysearch|ancestry|newspapers\.com|find\s?a\s?grave|myheritage|legacy\.com', re.IGNORECASE)
-_FIELD_SOURCE_PATTERNS = re.compile(r'census|death\s+certificate|birth\s+record|marriage\s+index|vital\s+records|church\s+records|obituary\s+index', re.IGNORECASE)
-_FIELD_CITATION_PATTERNS = re.compile(r'page\s+\d+|vol(ume)?\s+\d+|cert(ificate)?\s+\d+|accessed\s+\d+|entry\s+for|household\s+\d+|line\s+\d+|memorial\s+id', re.IGNORECASE)
+# Gold-standard "type" text -> Gramps repository type constant.
+_GOLD_REPO_TYPES = {
+    "Web site": RepositoryType.WEBSITE,
+    "Archive": RepositoryType.ARCHIVE,
+    "Library": RepositoryType.LIBRARY,
+}
 
 
+# ------------------------------------------------------------
+#
+# GWizardCitationRepairEngine
+#
+# ------------------------------------------------------------
 class GWizardCitationRepairEngine:
-    """Handles the safe database transformation layer for unpacking combined fields."""
+    """Safe database transformations for each step of the citation fix tool.
+
+    Every public method that changes the database does so inside one
+    DbTxn, so a whole step can be undone with Edit > Undo.
+    """
+
+    # ------------------------------------------------------------
+    # Step 1: unpack conflated source titles
+    # ------------------------------------------------------------
+    def plan_unpack_conflated_sources(self, db: Any) -> list[dict[str, Any]]:
+        """Return the proposed splits without touching the database."""
+        plan: list[dict[str, Any]] = []
+        for source in db.iter_sources():
+            title = str(source.get_title() or "")
+            if len(detect_title_elements(title)) < 2:
+                continue
+            result = split_conflated_title(title)
+            if result is None:
+                continue
+            plan.append(
+                {
+                    "handle": source.get_handle(),
+                    "gramps_id": str(source.get_gramps_id() or ""),
+                    "old_title": title,
+                    "repo_name": result["repo_name"],
+                    "new_title": result["new_title"],
+                    "moved_text": result["moved_text"],
+                    "apply": True,
+                }
+            )
+        return plan
+
+    def apply_unpack_plan(self, db: Any, plan: list[dict[str, Any]]) -> int:
+        """Apply the entries of an unpack plan that are marked ``apply``."""
+        repo_map: dict[str, str] = {}
+        for repo in db.iter_repositories():
+            key = normalize_repo_name(str(repo.get_name() or ""))
+            if key:
+                repo_map.setdefault(key, repo.get_handle())
+
+        count = 0
+        with DbTxn(_("Unpack Conflated Fields"), db) as trans:
+            for entry in plan:
+                if not entry.get("apply", True):
+                    continue
+                repo_name = str(entry.get("repo_name") or "").strip()
+                new_title = str(entry.get("new_title") or "").strip()
+                if not repo_name or not new_title:
+                    continue
+                try:
+                    source = db.get_source_from_handle(entry["handle"])
+                    if source is None:
+                        continue
+                    key = normalize_repo_name(repo_name)
+                    repo_handle = repo_map.get(key)
+                    if not repo_handle:
+                        repo_handle = self._create_repository(db, repo_name, trans)
+                        repo_map[key] = repo_handle
+                    linked = any(
+                        ref.get_reference_handle() == repo_handle
+                        for ref in source.get_reporef_list()
+                    )
+                    if not linked:
+                        repo_ref = RepoRef()
+                        repo_ref.set_reference_handle(repo_handle)
+                        source.add_repo_reference(repo_ref)
+                    source.set_title(new_title)
+                    moved = str(entry.get("moved_text") or "").strip()
+                    if moved:
+                        pubinfo = str(source.get_publication_info() or "").strip()
+                        source.set_publication_info(
+                            "%s; %s" % (pubinfo, moved) if pubinfo else moved
+                        )
+                    db.commit_source(source, trans)
+                    count += 1
+                except Exception:  # pylint: disable=broad-except
+                    LOG.exception("Failed to unpack source %s", entry.get("handle"))
+        return count
 
     def unpack_conflated_sources(self, db: Any) -> int:
-        """Iterates over all conflated sources, creates missing Repository objects,
+        """Plan and apply the unpack step with no review."""
+        return self.apply_unpack_plan(db, self.plan_unpack_conflated_sources(db))
 
-        and re-links them safely using standard Gramps DbTxn structures.
-        """
-        from gramps.gen.const import GRAMPS_LOCALE as glocale
-        from gramps.gen.db import DbTxn
-        from gramps.gen.lib import Repository, RepoRef
+    @staticmethod
+    def _create_repository(db: Any, name: str, trans: Any) -> str:
+        """Add a repository, filling type and URL for gold-standard names."""
+        repo = Repository()
+        repo.set_name(name)
+        gold = GoldStandardRepositories.get_by_name(name)
+        if gold:
+            repo_type = _GOLD_REPO_TYPES.get(gold.get("type", ""))
+            if repo_type is not None:
+                repo.set_type(repo_type)
+            if gold.get("url"):
+                url = Url()
+                url.set_path(gold["url"])
+                url.set_type(UrlType.WEB_HOME)
+                repo.add_url(url)
+        db.add_repository(repo, trans)
+        return repo.get_handle()
 
-        _ = glocale.translation.sgettext
-
-        # Call the existing report collector to pull our bad fields target list
-        report_engine = GWizardCitationReport()
-        stats = report_engine.collect_db_stats(db)
-        conflated = stats.get("conflated_sources", [])
-        if not conflated:
-            return 0
-
-        repo_name_to_handle = {}
-        for repo in db.iter_repositories():
-            repo_name_to_handle[str(repo.get_name() or "").strip().lower()] = (
-                repo.get_handle()
-            )
-
-        success_count = 0
-
-        # Initialize explicit low-level transaction matrix
-        trans = DbTxn(_("Unpack Conflated Fields"), db)
-        try:
-            for row in conflated:
-                handle = row["handle"]
-                source = db.get_source_from_handle(handle)
-                if not source:
-                    continue
-
-                title = str(source.get_title() or "")
-                parts = [
-                    p.strip()
-                    for p in re.split(
-                        r"[;|\(\)]|(?<=[\w]),\s*(?=[A-Za-z])", title
-                    )
-                    if p.strip()
-                ]
-                if len(parts) < 2:
-                    continue
-
-                extracted_repo_name = parts[0]
-                extracted_source_title = " ".join(parts[1:]).strip(" .)")
-
-                repo_key = extracted_repo_name.strip().lower()
-                repo_handle = repo_name_to_handle.get(repo_key)
-
-                if not repo_handle:
-                    new_repo = Repository()
-                    new_repo.set_name(extracted_repo_name)
-                    db.add_repository(new_repo, trans)
-                    repo_handle = new_repo.get_handle()
-                    repo_name_to_handle[repo_key] = repo_handle
-
-                already_linked = False
-                for ref in source.get_reporef_list():
-                    if ref.get_reference_handle() == repo_handle:
-                        already_linked = True
-                        break
-
-                if not already_linked:
-                    repo_ref = RepoRef()
-                    repo_ref.set_reference_handle(repo_handle)
-                    source.add_reporef(repo_ref)
-
-                source.set_title(extracted_source_title)
+    # ------------------------------------------------------------
+    # Step 2: repositories
+    # ------------------------------------------------------------
+    def merge_repositories(
+        self, db: Any, keeper_handle: str, discard_handle: str, trans: Any = None
+    ) -> bool:
+        """Merge one repository into another, re-pointing every source."""
+        if trans is None:
+            with DbTxn(_("Merge repositories"), db) as new_trans:
+                return self.merge_repositories(
+                    db, keeper_handle, discard_handle, new_trans
+                )
+        if keeper_handle == discard_handle:
+            return False
+        keeper = db.get_repository_from_handle(keeper_handle)
+        discard = db.get_repository_from_handle(discard_handle)
+        if keeper is None or discard is None:
+            return False
+        for _cls, source_handle in list(
+            db.find_backlink_handles(discard_handle, ["Source"])
+        ):
+            source = db.get_source_from_handle(source_handle)
+            if source is not None:
+                source.replace_repo_references(discard_handle, keeper_handle)
                 db.commit_source(source, trans)
-                success_count += 1
-
-            db.transaction_commit(trans)
-        except Exception:
-            db.transaction_abort(trans)
-            raise
-
-        return success_count
+        keeper.merge(discard)
+        db.commit_repository(keeper, trans)
+        db.remove_repository(discard_handle, trans)
+        return True
 
     def consolidate_duplicate_repositories(self, db: Any) -> int:
-        """
-        Finds repositories with near-identical names, picks a master,
-        reroutes all referencing sources to the master, and deletes duplicates.
-        """
-        from gramps.gen.const import GRAMPS_LOCALE as glocale
-        from gramps.gen.db import DbTxn
-        _ = glocale.translation.sgettext
+        """Merge repositories whose names normalize to the same text."""
+        groups: dict[str, list[Any]] = defaultdict(list)
+        for repo in db.iter_repositories():
+            key = normalize_repo_name(str(repo.get_name() or ""))
+            if key:
+                groups[key].append(repo)
 
-        repos = list(db.iter_repositories())
-        norm_groups = defaultdict(list)
-        
-        for repo in repos:
-            name = str(repo.get_name() or "").strip()
-            if not name:
-                continue
-            # Use the existing normalize_repo_name logic
-            key = (name or "").lower().strip()
-            key = key.replace("&", "and")
-            key = re.sub(r"\bu\.?\s*s\.?\b", " ", key)
-            key = re.sub(r"[^a-z0-9 ]+", " ", key)
-            norm_key = re.sub(r"\s+", " ", key).strip()
-            norm_groups[norm_key].append(repo)
-            
-        merge_count = 0
-        
-        # Explicitly initialize Gramps transactional batch tracking
-        trans = DbTxn(_("Consolidate Repositories"), db)
-        try:
-            for norm_key, group in norm_groups.items():
+        golden_names = set(GoldStandardRepositories.get_names())
+
+        def rank(repo: Any) -> tuple[Any, ...]:
+            uses = len(list(db.find_backlink_handles(repo.get_handle(), ["Source"])))
+            return (
+                str(repo.get_name() or "") not in golden_names,
+                -uses,
+                str(repo.get_gramps_id() or ""),
+            )
+
+        merged = 0
+        with DbTxn(_("Consolidate Repositories"), db) as trans:
+            for group in groups.values():
                 if len(group) < 2:
                     continue
-                
-                # Pick the master (the one with the oldest/lowest Gramps ID or handle)
-                group.sort(key=lambda r: str(r.get_gramps_id() or ""))
-                master_repo = group[0]
-                master_handle = master_repo.get_handle()
-                
-                # Reroute pointers from duplicate repositories to master_handle
-                for duplicate_repo in group[1:]:
-                    dup_handle = duplicate_repo.get_handle()
-                    
-                    # Search for sources linking to the duplicate repository
-                    for source in db.iter_sources():
-                        modified = False
-                        for ref in source.get_reporef_list():
-                            if ref.get_reference_handle() == dup_handle:
-                                ref.set_reference_handle(master_handle)
-                                modified = True
-                        if modified:
-                            # Pass trans to ensure changes are bundled together safely
-                            db.commit_source(source, trans)
-                            
-                    # Remove the duplicate repository record safely using trans
-                    db.remove_repository(dup_handle, trans)
-                    merge_count += 1
-                    
-            db.transaction_commit(trans)
-        except Exception:
-            db.transaction_abort(trans)
-            raise
-                    
-        return merge_count
+                group.sort(key=rank)
+                keeper = group[0]
+                for duplicate in group[1:]:
+                    if self.merge_repositories(
+                        db, keeper.get_handle(), duplicate.get_handle(), trans
+                    ):
+                        merged += 1
+        return merged
+
+    # ------------------------------------------------------------
+    # Step 3: sources
+    # ------------------------------------------------------------
+    def merge_sources(
+        self, db: Any, keeper_handle: str, discard_handle: str, trans: Any = None
+    ) -> bool:
+        """Merge one source into another, re-pointing every citation."""
+        if trans is None:
+            with DbTxn(_("Merge sources"), db) as new_trans:
+                return self.merge_sources(db, keeper_handle, discard_handle, new_trans)
+        if keeper_handle == discard_handle:
+            return False
+        keeper = db.get_source_from_handle(keeper_handle)
+        discard = db.get_source_from_handle(discard_handle)
+        if keeper is None or discard is None:
+            return False
+        for _cls, citation_handle in list(
+            db.find_backlink_handles(discard_handle, ["Citation"])
+        ):
+            citation = db.get_citation_from_handle(citation_handle)
+            if citation is not None:
+                citation.set_reference_handle(keeper_handle)
+                db.commit_citation(citation, trans)
+        keeper.merge(discard)
+        db.commit_source(keeper, trans)
+        db.remove_source(discard_handle, trans)
+        return True
 
     def consolidate_duplicate_sources(self, db: Any) -> int:
-        """
-        Finds sources with near-identical titles, picks a master,
-        reroutes all referencing citations to the master, and deletes duplicates.
-        """
-        from gramps.gen.const import GRAMPS_LOCALE as glocale
-        from gramps.gen.db import DbTxn
-        _ = glocale.translation.sgettext
-
-        sources = list(db.iter_sources())
-        norm_groups = defaultdict(list)
-        
-        for src in sources:
-            title = str(src.get_title() or "")
-            key = self.normalize_source_title(title)
+        """Merge sources whose titles normalize to the same text."""
+        groups: dict[str, list[Any]] = defaultdict(list)
+        for source in db.iter_sources():
+            key = normalize_source_title(str(source.get_title() or ""))
             if key:
-                norm_groups[key].append(src)
-                
-        merge_count = 0
-        
-        # Explicitly initialize Gramps transactional batch tracking
-        trans = DbTxn(_("Consolidate Sources"), db)
-        try:
-            for norm_key, group in norm_groups.items():
+                groups[key].append(source)
+
+        def rank(source: Any) -> tuple[Any, ...]:
+            cites = len(list(db.find_backlink_handles(source.get_handle(), ["Citation"])))
+            return (
+                -len(list(source.get_reporef_list())),
+                -cites,
+                str(source.get_gramps_id() or ""),
+            )
+
+        merged = 0
+        with DbTxn(_("Consolidate Sources"), db) as trans:
+            for group in groups.values():
                 if len(group) < 2:
                     continue
-                
-                # Sort by Gramps ID and prioritize records that already carry citations
-                group.sort(key=lambda s: str(s.get_gramps_id() or ""))
-                master_source = group[0]
-                master_handle = master_source.get_handle()
-                
-                for duplicate_source in group[1:]:
-                    dup_handle = duplicate_source.get_handle()
-                    
-                    # Search for citations linking to the duplicate source handle
-                    for citation in db.iter_citations():
-                        if citation.get_reference_handle() == dup_handle:
-                            citation.set_reference_handle(master_handle)
-                            # Pass trans to bundle the citation updates safely
-                            db.commit_citation(citation, trans)
-                            
-                    # Remove the duplicate source record safely using trans
-                    db.remove_source(dup_handle, trans)
-                    merge_count += 1
-                    
-            db.transaction_commit(trans)
-        except Exception:
-            db.transaction_abort(trans)
-            raise
-                    
-        return merge_count
+                group.sort(key=rank)
+                keeper = group[0]
+                for duplicate in group[1:]:
+                    if self.merge_sources(
+                        db, keeper.get_handle(), duplicate.get_handle(), trans
+                    ):
+                        merged += 1
+        return merged
 
+    # ------------------------------------------------------------
+    # Step 4: citations
+    # ------------------------------------------------------------
     def clean_and_rate_citations(self, db: Any) -> int:
-        """
-        Scans all citations in the database. If a citation points to an online
-        family tree source, it safely lowers its confidence level. It also strips
-        messy automation artifacts out of the pinpoint Volume/Page field.
-        """
-        from gramps.gen.const import GRAMPS_LOCALE as glocale
-        from gramps.gen.db import DbTxn
-        _ = glocale.translation.sgettext
-
-        citations = list(db.iter_citations())
-        fix_count = 0
-        
-        # Build a rapid lookup cache of source handles that represent user family trees
-        tree_source_handles = set()
-        for src in db.iter_sources():
-            title = str(src.get_title() or "").lower()
-            if "familysearch" in title and "family tree" in title:
-                tree_source_handles.add(str(src.get_handle()))
-            elif "ancestry member tree" in title or "public member tree" in title:
-                tree_source_handles.add(str(src.get_handle()))
-
-        # Explicitly initialize Gramps transactional batch tracking
-        trans = DbTxn(_("Clean Citations and Confidence"), db)
-        try:
-            for citation in citations:
+        """Downrate user-tree citations and tidy the Volume/Page text."""
+        tree_handles = {
+            str(src.get_handle())
+            for src in db.iter_sources()
+            if is_tree_source_title(str(src.get_title() or ""))
+        }
+        fixed = 0
+        with DbTxn(_("Clean Citations and Confidence"), db) as trans:
+            for citation in list(db.iter_citations()):
                 modified = False
-                src_handle = str(citation.get_reference_handle() or "")
-                
-                # Layer A: Check and downgrade user-tree confidence settings
-                if src_handle in tree_source_handles:
-                    # Gramps confidence ranges from 0 (Very Low) to 4 (Very High)
-                    # Downrate highly confident entries from derivative trees to 1 (Low) or 2 (Normal)
+                if str(citation.get_reference_handle() or "") in tree_handles:
+                    # Gramps confidence: 0 Very Low ... 4 Very High.
                     if int(citation.get_confidence_level()) >= 3:
                         citation.set_confidence_level(2)
                         modified = True
-                
-                # Layer B: Clean pinpoint formatting artifacts out of the Volume/Page field
                 page = str(citation.get_page() or "")
                 if page:
-                    cleaned_page = page.strip()
-                    # Remove trailing unparsed brackets or messy punctuation strings left over from exports
-                    cleaned_page = re.sub(r'^[,\.\s;]+|[,\.\s;]+$', '', cleaned_page)
-                    cleaned_page = re.sub(r'\s+', ' ', cleaned_page)
-                    
-                    if cleaned_page != page:
-                        citation.set_page(cleaned_page)
+                    cleaned = re.sub(r"^[,\.\s;]+|[,\.\s;]+$", "", page.strip())
+                    cleaned = re.sub(r"\s+", " ", cleaned)
+                    if cleaned != page:
+                        citation.set_page(cleaned)
                         modified = True
-                        
                 if modified:
-                    # Pass trans to bundle the citation updates safely
                     db.commit_citation(citation, trans)
-                    fix_count += 1
-                    
-            db.transaction_commit(trans)
-        except Exception:
-            db.transaction_abort(trans)
-            raise
-                    
-        return fix_count
+                    fixed += 1
+        return fixed
 
+    # ------------------------------------------------------------
+    # Step 5: notes
+    # ------------------------------------------------------------
     def purge_import_debris_notes(self, db: Any) -> int:
-        """
-        Scans all notes in the database. If a note matches known legacy import
-        software debris patterns or broken log headers, it safely strips it from
-        referencing objects and purges the note from the database entirely.
-        """
-        from gramps.gen.const import GRAMPS_LOCALE as glocale
-        from gramps.gen.db import DbTxn
-        _ = glocale.translation.sgettext
-
-        notes = list(db.iter_notes())
-        purge_count = 0
-        
-        # Identification match phrases for system export junk
-        debris_indicators = [
-            "records not imported into repo",
-            "tag recognized but not supported",
-            "birth type:",
-            "passed away exactly on his"
-        ]
-
-        # Explicitly initialize Gramps transactional batch tracking
-        trans = DbTxn(_("Purge Import Debris Notes"), db)
-        try:
-            for note in notes:
-                text = self._note_text(note).strip()
-                if not text:
+        """Remove import-debris notes and every reference to them."""
+        purged = 0
+        with DbTxn(_("Purge Import Debris Notes"), db) as trans:
+            for note in list(db.iter_notes()):
+                if not is_debris_text(note_text(note).strip()):
                     continue
-                    
-                text_lower = text.lower()
-                is_debris = any(indicator in text_lower for indicator in debris_indicators)
-                
-                if is_debris:
-                    note_handle = note.get_handle()
-                    
-                    # Safe backlink cleanup: remove pointers linking to this junk note from all objects
-                    if hasattr(db, "find_backlink_handles"):
-                        try:
-                            backlinks = list(db.find_backlink_handles(note_handle))
-                            for bl_handle, obj_type in backlinks:
-                                # Dynamically fetch and clean the parent object row
-                                if obj_type == "Person":
-                                    parent = db.get_person_from_handle(bl_handle)
-                                    if parent:
-                                        parent.remove_note_handle(note_handle)
-                                        db.commit_person(parent, trans) # Pass trans
-                                elif obj_type == "Source":
-                                    parent = db.get_source_from_handle(bl_handle)
-                                    if parent:
-                                        parent.remove_note_handle(note_handle)
-                                        db.commit_source(parent, trans) # Pass trans
-                                elif obj_type == "Citation":
-                                    parent = db.get_citation_from_handle(bl_handle)
-                                    if parent:
-                                        parent.remove_note_handle(note_handle)
-                                        db.commit_citation(parent, trans) # Pass trans
-                        except Exception:
-                            LOG.exception("Failed to disconnect backlink for note %s", note_handle)
-
-                    # Purge the actual note row record permanently passing trans
-                    db.remove_note(note_handle, trans)
-                    purge_count += 1
-                    
-            db.transaction_commit(trans)
-        except Exception:
-            db.transaction_abort(trans)
-            raise
-                    
-        return purge_count
+                note_handle = note.get_handle()
+                for cls_name, parent_handle in list(
+                    db.find_backlink_handles(note_handle)
+                ):
+                    getter = getattr(db, "get_%s_from_handle" % cls_name.lower(), None)
+                    commit = getattr(db, "commit_%s" % cls_name.lower(), None)
+                    if getter is None or commit is None:
+                        LOG.warning("Cannot detach note from %s", cls_name)
+                        continue
+                    parent = getter(parent_handle)
+                    if parent is not None:
+                        parent.remove_handle_references("Note", [note_handle])
+                        commit(parent, trans)
+                db.remove_note(note_handle, trans)
+                purged += 1
+        return purged

@@ -29,12 +29,9 @@ from __future__ import annotations
 import difflib
 import logging
 import os
-import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime
 from typing import Any
-from gwizardcitationrepairengine import GWizardCitationRepairEngine
-from gwizardcitationreport import GWizardCitationReport
 
 # -------------------------------------------------------------------------
 #
@@ -49,11 +46,16 @@ from gi.repository import Gtk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gui.dialog import ErrorDialog, OkDialog
+from gramps.gui.dialog import ErrorDialog, OkDialog, QuestionDialog2
 from gramps.gui.managedwindow import ManagedWindow
 from gramps.gui.plug import tool
 from gramps.gui.utils import ProgressMeter
 from gramps.plugins.tool.goldstandardrepos import GoldStandardRepositories
+from gramps.plugins.tool.gwizardcitationrepairengine import (
+    GWizardCitationRepairEngine,
+)
+from gramps.plugins.tool.gwizardcitationreport import GWizardCitationReport
+from gramps.plugins.tool.gwizardcitationshared import normalize_repo_name as _shared_normalize
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -80,11 +82,7 @@ def get_golden_repo_display(name: str) -> str:
 
 def normalize_repo_name(name: str) -> str:
     """Return a normalized key used to compare repository names."""
-    key = (name or "").lower().strip()
-    key = key.replace("&", "and")
-    key = re.sub(r"\bu\.?\s*s\.?\b", " ", key)
-    key = re.sub(r"[^a-z0-9 ]+", " ", key)
-    return re.sub(r"\s+", " ", key).strip()
+    return _shared_normalize(name)
 
 
 def is_golden_repo_name(name: str, golden: list[str] | None = None) -> bool:
@@ -439,6 +437,11 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
         self.show_fix_dialog(layer, titles.get(layer, layer))
 
     def show_fix_dialog(self, layer: str, title: str) -> None:
+        if layer == "unpack_sources":
+            from gramps.plugins.tool.unpacksourcesdialog import UnpackSourcesDialog
+            UnpackSourcesDialog(title=title, dbstate=self.dbstate, description=get_fix_description("unpack_sources"), transient_for=self.window).show_dialog()
+            self.update_view_button()
+            return
         if layer == "repositories":
             from gramps.plugins.tool.repomergedialog import RepoMergeDialog
             RepoMergeDialog(title=title, dbstate=self.dbstate, transient_for=self.window).show_dialog()
@@ -448,9 +451,13 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             SourceFixDialog(title=title, dbstate=self.dbstate, description=get_fix_description("sources"), transient_for=self.window).show_dialog()
             return
         if layer == "citations":
-            from gramps.plugins.tool.citationsfixdialog import CitationFixDialog
-            CitationFixDialog(title=title, dbstate=self.dbstate, description=get_fix_description("citations"), transient_for=self.window).show_dialog()
-            return
+            try:
+                from gramps.plugins.tool.citationsfixdialog import CitationFixDialog
+            except ImportError:
+                LOG.warning("citationsfixdialog not available; using auto fix")
+            else:
+                CitationFixDialog(title=title, dbstate=self.dbstate, description=get_fix_description("citations"), transient_for=self.window).show_dialog()
+                return
 
         dialog = Gtk.Dialog(title=title, transient_for=self.window, modal=True, destroy_with_parent=True)
         dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
@@ -470,109 +477,86 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
         dialog.destroy()
 
     def cb_fix_auto(self, button: Gtk.Button, layer: str) -> None:
-        """Run the best-guess auto fix for one layer (preview-first)."""
-        engine = GWizardCitationReport()
-        summary = ""
-        
-        if layer == "unpack_sources":
-            # Call your brand new standalone file class row
-            worker = DeconflateSources()
-            fixed_count = worker.unpack_conflated_sources(self.dbstate.db)
-
-            OkDialog(
+        """Run the best-guess auto fix for one layer without a review dialog."""
+        engine = GWizardCitationRepairEngine()
+        actions = {
+            "unpack_sources": (
+                engine.unpack_conflated_sources,
                 str(_("Field Unpacking Complete")),
-                str(
-                    _(
-                        "Successfully isolated and split %d mixed text headers into separate repository fields."
-                    )
-                    % fixed_count
-                ),
-                parent=self.window,
-            )
-            self.update_view_button()
+                str(_("Unpacked %d source titles into repository and source fields.")),
+            ),
+            "repositories": (
+                engine.consolidate_duplicate_repositories,
+                str(_("Repository Consolidate Complete")),
+                str(_("Merged %d matching repository records.")),
+            ),
+            "sources": (
+                engine.consolidate_duplicate_sources,
+                str(_("Source Cleanup Complete")),
+                str(_("Merged %d duplicate source records.")),
+            ),
+            "citations": (
+                engine.clean_and_rate_citations,
+                str(_("Citation Refinement Complete")),
+                str(_("Adjusted confidence ratings or page text on %d citations.")),
+            ),
+            "notes": (
+                engine.purge_import_debris_notes,
+                str(_("Note Cleanup Complete")),
+                str(_("Permanently removed %d import debris notes.")),
+            ),
+        }
+        action = actions.get(layer)
+        if action is None:
             return
-                    
-        elif layer == "repositories":
-            # Repositories button now focuses strictly on merging matching repository names
-            repo_merges = engine.consolidate_duplicate_repositories(self.dbstate.db)
-            
-            OkDialog(
-                str(_("Repository Consolidate Complete")), 
-                str(_("Successfully merged %d matching repository records.") % repo_merges), 
-                parent=self.window
-            )
-            self.update_view_button()
+        func, title, message = action
+        try:
+            count = func(self.dbstate.db)
+        except Exception as error:  # pylint: disable=broad-except
+            LOG.exception("Auto fix failed for layer %s", layer)
+            ErrorDialog(str(_("Fix failed")), str(error), parent=self.window)
             return
-            
-        elif layer == "sources":
-            # Run the source deduplication engine
-            source_merges = engine.consolidate_duplicate_sources(self.dbstate.db)
-            
-            OkDialog(
-                str(_("Source Cleanup Complete")), 
-                str(_("Successfully grouped and consolidated %d duplicate source records.") % source_merges), 
-                parent=self.window
-            )
-            self.update_view_button()
-            return
-            
-        elif layer == "citations":
-            # Run the safe citation cleanup and confidence modifier engine
-            fixed_citations = engine.clean_and_rate_citations(self.dbstate.db)
-            
-            OkDialog(
-                str(_("Citation Refinement Complete")), 
-                str(_("Successfully adjusted confidence ratings and cleared text formatting on %d citation records.") % fixed_citations), 
-                parent=self.window
-            )
-            self.update_view_button()
-            return
-        elif layer == "notes":
-            # Run the safe import debris note purge engine
-            purged_notes = engine.purge_import_debris_notes(self.dbstate.db)
-            
-            OkDialog(
-                str(_("Note Cleanup Complete")), 
-                str(_("Successfully disconnected and permanently purged %d legacy import debris notes from your database.") % purged_notes), 
-                parent=self.window
-            )
-            self.update_view_button()
-            return
-        
+        OkDialog(title, message % count, parent=self.window)
+        self.update_view_button()
+
     def cb_auto_all(self) -> None:
         """Run best-guess auto fixes across all cleanup layers in order."""
-        report_engine = GWizardCitationReport()
-        deconflate_engine = DeconflateSources()  # New decoupled module instance
-        db = self.dbstate.db
-
-        # Step 1: Split text fields via your separate class
-        fixed_repos = deconflate_engine.unpack_conflated_sources(db)
-
-        # Step 2: Split text fields and merge resulting repository duplicates
-        merged_repos = deconflate_engine.consolidate_duplicate_repositories(db)
-        
-        # Step 3: Deduplicate identical source collections and point citations to master
-        merged_sources = deconflate_engine.consolidate_duplicate_sources(db)
-        
-        # Step 4: Clean citation punctuation and downrate user tree confidence
-        fixed_citations = deconflate_engine.clean_and_rate_citations(db)
-        
-        # Step 5: Sweep and destroy automated software export trash logs
-        purged_notes = deconflate_engine.purge_import_debris_notes(db)
-        
-        # Output a complete master report of the global cleanup operation
-        summary = (
-            f"1. Unpacked {fixed_repos} mixed fields.\n"
-            f"2. Merged {merged_repos} duplicate repository records.\n"
-            f"3. Merged {merged_sources} duplicate source records.\n"
-            f"4. Refined confidence & text on {fixed_citations} citations.\n"
-            f"5. Permanently purged {purged_notes} system debris notes."
+        confirm = QuestionDialog2(
+            str(_("Run all fixes?")),
+            str(
+                _(
+                    "This applies every best-guess fix without review: unpack "
+                    "source titles, merge duplicate repositories and sources, "
+                    "clean citations, and permanently delete import debris "
+                    "notes. Each step can be undone with Edit > Undo."
+                )
+            ),
+            str(_("_Run all")),
+            str(_("_Cancel")),
+            parent=self.window,
         )
-        
+        if not confirm.run():
+            return
+        engine = GWizardCitationRepairEngine()
+        db = self.dbstate.db
+        steps = [
+            (str(_("Unpacked %d mixed source titles.")), engine.unpack_conflated_sources),
+            (str(_("Merged %d duplicate repository records.")), engine.consolidate_duplicate_repositories),
+            (str(_("Merged %d duplicate source records.")), engine.consolidate_duplicate_sources),
+            (str(_("Refined %d citations.")), engine.clean_and_rate_citations),
+            (str(_("Purged %d import debris notes.")), engine.purge_import_debris_notes),
+        ]
+        lines = []
+        for number, (message, func) in enumerate(steps, 1):
+            try:
+                lines.append("%d. %s" % (number, message % func(db)))
+            except Exception as error:  # pylint: disable=broad-except
+                LOG.exception("Auto step %d failed", number)
+                lines.append("%d. %s" % (number, str(_("FAILED: %s")) % error))
         OkDialog(
-            str(_("Global Macro Pipeline Complete")), 
-            str(_("The automated best-guess pipeline results:\n\n%s") % summary), 
-            parent=self.window
+            str(_("Global Macro Pipeline Complete")),
+            str(_("The automated best-guess pipeline results:")) + "\n\n" + "\n".join(lines),
+            parent=self.window,
         )
         self.update_view_button()
 

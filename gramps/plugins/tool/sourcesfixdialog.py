@@ -27,7 +27,6 @@
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import logging
-from collections import defaultdict
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -47,8 +46,10 @@ from gramps.gui.dialog import OkDialog
 
 from gramps.gen.db import DbTxn
 from gramps.gen.lib import Repository, RepoRef
-from gramps.gen.merge import MergeSourceQuery
-from gramps.plugins.tool.gwizardcitationfix import collect_db_stats
+from gramps.plugins.tool.gwizardcitationreport import collect_db_stats
+from gramps.plugins.tool.gwizardcitationrepairengine import (
+    GWizardCitationRepairEngine,
+)
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ class SourceFixDialog(Gtk.Dialog):
         )
         self.dbstate = dbstate
         self.combos: list[tuple[str, Gtk.ComboBox, str]] = []
+        self.row_combos: list[tuple[dict[str, Any], Gtk.ComboBox]] = []
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         self.connect("response", lambda dlg, resp: dlg.destroy())
         content = self.get_content_area()
@@ -164,6 +166,7 @@ class SourceFixDialog(Gtk.Dialog):
                     row["best_guess"],
                 )
             )
+            self.row_combos.append((row, combo))
         return scrolled
 
     def build_buttons(self) -> Gtk.Box:
@@ -218,7 +221,22 @@ class SourceFixDialog(Gtk.Dialog):
                     break
 
     def cb_apply(self, _button: Gtk.Button) -> None:
-        rows = build_source_fix_rows(collect_db_stats(self.dbstate.db))
+        # Use the rows shown in the dialog so the keeper chosen in each
+        # dropdown is honoured (the first dropdown entry is the best guess).
+        rows = []
+        for row, combo in self.row_combos:
+            if row["problem"] == "merge" and row.get("option_handles"):
+                index = combo.get_active()
+                if 0 <= index < len(row["option_handles"]):
+                    keeper = row["option_handles"][index]
+                    row = dict(
+                        row,
+                        keeper_handle=keeper,
+                        discard_handles=[
+                            h for h in row["all_handles"] if h != keeper
+                        ],
+                    )
+            rows.append(row)
         plan = plan_source_fixes(rows)
         if not plan.get("merge") and not plan.get("quarantine"):
             OkDialog(
@@ -297,6 +315,8 @@ def build_source_fix_rows(stats):
                 "options": options,
                 "best_guess": _source_display(keeper),
                 "problem": "merge",
+                "option_handles": [member["handle"] for member in group],
+                "all_handles": handles,
                 "keeper_handle": keeper["handle"],
                 "discard_handles": [h for h in handles if h != keeper["handle"]],
                 "skip": False,
@@ -378,11 +398,8 @@ def _get_or_create_quarantine_repo(db):
 
 def apply_source_fixes(dbstate, plan):
     """Apply a source-fix plan against the database."""
-    from gramps.gen.db import DbTxn
-    from gramps.gen.lib import RepoRef
-    from gramps.gen.merge import MergeSourceQuery
-
     db = dbstate.db
+    engine = GWizardCitationRepairEngine()
     merged = 0
     quarantined = 0
 
@@ -392,8 +409,8 @@ def apply_source_fixes(dbstate, plan):
         keeper = entry["keeper_handle"]
         for discard in entry["discard_handles"]:
             try:
-                MergeSourceQuery(dbstate, keeper, discard).execute()
-                merged += 1
+                if engine.merge_sources(db, keeper, discard):
+                    merged += 1
             except Exception:  # pylint: disable=broad-except
                 LOG.exception("Failed to merge source %s into %s", discard, keeper)
 

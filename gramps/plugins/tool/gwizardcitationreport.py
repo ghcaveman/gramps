@@ -1,52 +1,91 @@
-import os
-import re
-from collections import Counter, defaultdict
+#
+# Gramps - a GTK+/GNOME based genealogy program
+#
+# Copyright (C) 2026  Kevin White
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+#
 
-# Helper detectors looking for clues inside fields
-_FIELD_REPO_PATTERNS = re.compile(r'https?://|www\.|familysearch|ancestry|newspapers\.com|find\s?a\s?grave|myheritage|legacy\.com', re.IGNORECASE)
-_FIELD_SOURCE_PATTERNS = re.compile(r'census|death\s+certificate|birth\s+record|marriage\s+index|vital\s+records|church\s+records|obituary\s+index', re.IGNORECASE)
-_FIELD_CITATION_PATTERNS = re.compile(r'page\s+\d+|vol(ume)?\s+\d+|cert(ificate)?\s+\d+|accessed\s+\d+|entry\s+for|household\s+\d+|line\s+\d+|memorial\s+id', re.IGNORECASE)
+"""Database scanning and report text for the GWizard citation fix tool."""
+
+# -------------------------------------------------------------------------
+#
+# Standard Python modules
+#
+# -------------------------------------------------------------------------
+from __future__ import annotations
+import logging
+import os
+from collections import Counter, defaultdict
+from typing import Any
+
+# -------------------------------------------------------------------------
+#
+# Gramps modules
+#
+# -------------------------------------------------------------------------
+from gramps.plugins.tool.gwizardcitationshared import (
+    detect_title_elements,
+    is_debris_text,
+    is_tree_source_title,
+    normalize_source_title,
+    note_text,
+)
+
+LOG = logging.getLogger(__name__)
+
+LONG_NOTE_CHARS = 2000
+
 
 class GWizardCitationReport:
     """Handles the algorithmic parsing, database scanning, and text generation."""
     
     @staticmethod
     def normalize_source_title(title: str) -> str:
-        key = (title or "").lower().strip()
-        key = key.replace("&", "and")
-        key = re.sub(r"\bu\.?\s*s\.?\b", " ", key)
-        key = re.sub(r"[^a-z0-9 ]+", " ", key)
-        return re.sub(r"\s+", " ", key).strip()
+        return normalize_source_title(title)
 
     @staticmethod
-    def _person_has_citation(person: Any) -> bool:
+    def _person_has_citation(person: Any, db: Any = None) -> bool:
+        """True when the person, a name, or one of their events has a citation."""
         try:
             if person.get_citation_list():
                 return True
-            for name_list in person.get_all_citation_lists():
-                if name_list:
-                    return True
-        except Exception:
-            pass
+            names = [person.get_primary_name()] + list(person.get_alternate_names())
+            if any(name.get_citation_list() for name in names):
+                return True
+            if db is not None:
+                for ref in person.get_event_ref_list():
+                    event = db.get_event_from_handle(ref.ref)
+                    if event is not None and event.get_citation_list():
+                        return True
+        except Exception:  # pylint: disable=broad-except
+            LOG.exception("Failed to inspect person citations")
         return False
 
     @staticmethod
     def _note_text(note: Any) -> str:
-        try:
-            styled = note.get_styledtext()
-            if styled is not None and hasattr(styled, "get_string"):
-                return str(styled.get_string())
-        except Exception:
-            pass
-        return str(note.get() or "")
+        return note_text(note)
 
     def collect_db_stats(self, db: Any) -> dict[str, Any]:
-        """Scans database repositories, sources, citations, notes, and media."""
-        # Simple loop placeholders for safety check
-        def _safe_list(method_name):
+        """Scan repositories, sources, citations, notes, people and media."""
+
+        def _safe_list(method_name: str) -> list[Any]:
             try:
                 return list(getattr(db, method_name)())
-            except Exception:
+            except Exception:  # pylint: disable=broad-except
+                LOG.exception("Failed to iterate %s", method_name)
                 return []
 
         people = _safe_list("iter_people")
@@ -57,7 +96,7 @@ class GWizardCitationReport:
         media_objs = _safe_list("iter_media")
         events = _safe_list("iter_events")
 
-        stats = {
+        stats: dict[str, Any] = {
             "people": len(people),
             "sources": len(sources),
             "repositories": len(repos),
@@ -66,8 +105,10 @@ class GWizardCitationReport:
             "media": len(media_objs),
         }
 
-        cites_by_source = Counter()
+        # Citations ----------------------------------------------------
+        cites_by_source: Counter = Counter()
         no_page = 0
+        with_media = 0
         for cit in citations:
             try:
                 src_handle = cit.get_reference_handle()
@@ -75,55 +116,113 @@ class GWizardCitationReport:
                     cites_by_source[str(src_handle)] += 1
                 if not (cit.get_page() or "").strip():
                     no_page += 1
-            except Exception:
+                if cit.get_media_list():
+                    with_media += 1
+            except Exception:  # pylint: disable=broad-except
                 continue
-
         stats["citations_no_page"] = no_page
-        
+        stats["citations_with_media"] = with_media
+
+        # Sources ------------------------------------------------------
         conflated_sources = []
         source_rows = []
-        norm_groups = defaultdict(list)
-
+        norm_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        tree_handles = set()
         for src in sources:
             title = str(src.get_title() or "")
             handle = str(src.get_handle() or "")
-            repo_refs = list(src.get_reporef_list() if hasattr(src, "get_reporef_list") else [])
-            
             row = {
                 "title": title,
                 "gramps_id": str(src.get_gramps_id() or ""),
                 "handle": handle,
-                "repo_count": len(repo_refs),
-                "citations": cites_by_source.get(handle, 0)
+                "repo_count": len(list(src.get_reporef_list())),
+                "citations": cites_by_source.get(handle, 0),
             }
             source_rows.append(row)
-
-            # Check if fields are conflated
-            has_repo = bool(_FIELD_REPO_PATTERNS.search(title))
-            has_src = bool(_FIELD_SOURCE_PATTERNS.search(title))
-            has_cit = bool(_FIELD_CITATION_PATTERNS.search(title))
-            element_count = sum([has_repo, has_src, has_cit])
-
-            if element_count >= 2:
-                row["elements_detected"] = [
-                    k for k, v in {"Repository": has_repo, "Source": has_src, "Citation": has_cit}.items() if v
-                ]
-                conflated_sources.append(row)
-
-            key = self.normalize_source_title(title)
+            if is_tree_source_title(title):
+                tree_handles.add(handle)
+            elements = detect_title_elements(title)
+            if len(elements) >= 2:
+                conflated_sources.append(dict(row, elements_detected=elements))
+            key = normalize_source_title(title)
             if key:
                 norm_groups[key].append(row)
 
+        stats["source_rows"] = source_rows
         stats["conflated_sources"] = conflated_sources
         stats["sources_no_repo"] = [r for r in source_rows if r["repo_count"] == 0]
         stats["near_duplicates"] = [g for g in norm_groups.values() if len(g) > 1]
-        
-        # Scan repositories names
-        repo_rows = []
-        for repo in repos:
-            repo_rows.append({"name": str(repo.get_name() or ""), "gramps_id": str(repo.get_gramps_id() or "")})
-        stats["repo_rows"] = repo_rows
-        
+        stats["tree_citations"] = sum(cites_by_source[h] for h in tree_handles)
+        tree_high = 0
+        for cit in citations:
+            try:
+                if str(cit.get_reference_handle()) in tree_handles and int(
+                    cit.get_confidence_level()
+                ) >= 3:
+                    tree_high += 1
+            except Exception:  # pylint: disable=broad-except
+                continue
+        stats["tree_conf_high"] = tree_high
+
+        # Repositories -------------------------------------------------
+        stats["repo_rows"] = [
+            {
+                "name": str(repo.get_name() or ""),
+                "gramps_id": str(repo.get_gramps_id() or ""),
+                "handle": str(repo.get_handle() or ""),
+            }
+            for repo in repos
+        ]
+
+        # People -------------------------------------------------------
+        stats["people_unsourced"] = sum(
+            1 for person in people if not self._person_has_citation(person, db)
+        )
+
+        # Notes --------------------------------------------------------
+        debris = []
+        long_notes = []
+        for note in notes:
+            try:
+                text = self._note_text(note).strip()
+                preview = " ".join(text.split())[:80]
+                gid = str(note.get_gramps_id() or "")
+                if is_debris_text(text):
+                    debris.append({"gramps_id": gid, "preview": preview})
+                elif len(text) >= LONG_NOTE_CHARS:
+                    long_notes.append(
+                        {"gramps_id": gid, "length": len(text), "preview": preview}
+                    )
+            except Exception:  # pylint: disable=broad-except
+                continue
+        stats["notes_debris"] = debris
+        stats["notes_long"] = long_notes
+
+        # Media --------------------------------------------------------
+        absolute = 0
+        basenames: Counter = Counter()
+        for media in media_objs:
+            try:
+                path = str(media.get_path() or "")
+                if os.path.isabs(path) or path[1:3] in (":\\", ":/"):
+                    absolute += 1
+                basenames[os.path.basename(path.replace("\\", "/")).lower()] += 1
+            except Exception:  # pylint: disable=broad-except
+                continue
+        stats["media_absolute_count"] = absolute
+        stats["media_dup_basenames"] = {
+            base: count for base, count in basenames.items() if base and count > 1
+        }
+
+        # Events -------------------------------------------------------
+        custom = 0
+        for event in events:
+            try:
+                if event.get_type().is_custom():
+                    custom += 1
+            except Exception:  # pylint: disable=broad-except
+                continue
+        stats["custom_events_total"] = custom
         return stats
 
     def format_analysis(self, stats: dict[str, Any]) -> str:
@@ -238,3 +337,8 @@ class GWizardCitationReport:
         lines.append("5. Run 'Fix Notes' to permanently scrub legacy automated migration log files.")
         
         return "\n".join(lines)
+
+
+def collect_db_stats(db: Any) -> dict[str, Any]:
+    """Module-level convenience wrapper used by the fix dialogs."""
+    return GWizardCitationReport().collect_db_stats(db)
