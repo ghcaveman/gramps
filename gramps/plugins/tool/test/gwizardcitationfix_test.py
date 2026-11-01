@@ -18,929 +18,1144 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Tests for the GWizard citation fix tool button layout."""
+"""Tools/Family Tree Processing/GWizard citation fix."""
 
 # -------------------------------------------------------------------------
 #
 # Standard Python modules
 #
 # -------------------------------------------------------------------------
+from __future__ import annotations
+import difflib
+import logging
 import os
-import types
-import unittest
+import re
+from collections import Counter, defaultdict
+from datetime import datetime
+from typing import Any
+from gwizard_citation_report import GWizardCitationReport
 
+# -------------------------------------------------------------------------
+#
+# GTK modules
+#
+# -------------------------------------------------------------------------
+from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
 #
 # Gramps modules
 #
 # -------------------------------------------------------------------------
-def get_button_specs_from_source() -> list[tuple[str, str, bool]]:
-    """Parse the button specs without importing Gtk/Gramps."""
-    import ast
+from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gui.dialog import ErrorDialog, OkDialog
+from gramps.gui.managedwindow import ManagedWindow
+from gramps.gui.plug import tool
+from gramps.gui.utils import ProgressMeter
+from gramps.plugins.tool.goldstandardrepos import GoldStandardRepositories
 
-    tool_path = os.path.join(os.path.dirname(__file__), "..", "gwizardcitationfix.py")
-    with open(tool_path, encoding="utf-8") as handle:
-        source = handle.read()
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "get_button_specs":
-            returned = node.body[-1]
-            assert isinstance(returned, ast.Return)
-            assert isinstance(returned.value, ast.List)
-            specs: list[tuple[str, str, bool]] = []
-            for elt in returned.value.elts:
-                assert isinstance(elt, ast.Tuple)
-                key = ast.literal_eval(elt.elts[0])
-                sensitive = ast.literal_eval(elt.elts[2])
-                label_src = ast.get_source_segment(source, elt.elts[1]) or ""
-                specs.append((key, label_src, sensitive))
-            return specs
-    raise AssertionError("get_button_specs not found")
+_ = glocale.translation.sgettext
+LOG = logging.getLogger(__name__)
 
+REPORT_FILENAME = "CitationFixReport.txt"
+REPORT_TITLE = "Citation analysis file"
+REPORT_LINE_WIDTH = 78
 
-def get_button_specs() -> list[tuple[str, str, bool]]:
-    """Return button specs parsed from the tool source."""
-    return get_button_specs_from_source()
+# Rule-based diagnostic search patterns
+_FIELD_REPO_PATTERNS = re.compile(r'https?://|www\.|familysearch|ancestry|newspapers\.com|find\s?a\s?grave|myheritage|legacy\.com', re.IGNORECASE)
+_FIELD_SOURCE_PATTERNS = re.compile(r'census|death\s+certificate|birth\s+record|marriage\s+index|vital\s+records|church\s+records|obituary\s+index', re.IGNORECASE)
+_FIELD_CITATION_PATTERNS = re.compile(r'page\s+\d+|vol(ume)?\s+\d+|cert(ificate)?\s+\d+|accessed\s+\d+|entry\s+for|household\s+\d+|line\s+\d+|memorial\s+id', re.IGNORECASE)
 
 
 # ------------------------------------------------------------
 #
-# GWizardCitationFixButtonTest
+# Golden repository names (pure logic, no GUI)
 #
 # ------------------------------------------------------------
-class GWizardCitationFixButtonTest(unittest.TestCase):
-    """Check the dialog exposes seven buttons with the right layout."""
-
-    def test_seven_buttons(self) -> None:
-        """There are seven button specs."""
-        self.assertEqual(len(get_button_specs()), 8)
-
-    def test_top_buttons_side_by_side(self) -> None:
-        """First two specs are the side-by-side report buttons."""
-        specs = get_button_specs()
-        self.assertEqual(specs[0][0], "generate")
-        self.assertIn("Generate report", specs[0][1])
-        self.assertEqual(specs[1][0], "view")
-        self.assertIn("View report", specs[1][1])
-
-    def test_fix_layer_buttons(self) -> None:
-        """Four per-layer fix buttons follow the report buttons."""
-        specs = get_button_specs()
-        keys = [key for key, _label, _sens in specs[2:7]]
-        self.assertEqual(
-            keys,
-            ["consolidate_repositories", "fix_repositories", "fix_sources", "fix_citations", "fix_notes"],
-        )
-        labels = [label for _key, label, _sens in specs[2:7]]
-        for expected in (
-            "Fix Repositories",
-            "Fix Sources",
-            "Fix Citations",
-            "Fix Notes",
-        ):
-            self.assertTrue(
-                any(expected in label for label in labels),
-                f"missing fix button: {expected}",
-            )
-
-    def test_master_auto_button(self) -> None:
-        """A master Auto best-guess button closes the dialog."""
-        specs = get_button_specs()
-        self.assertEqual(specs[7][0], "auto_all")
-        self.assertIn("Auto", specs[7][1])
-
-    def test_view_starts_disabled(self) -> None:
-        """View report is insensitive until a report file exists."""
-        specs = dict((key, sensitive) for key, _label, sensitive in get_button_specs())
-        self.assertTrue(specs["generate"])
-        self.assertFalse(specs["view"])
-
-    def test_view_enabling_wired(self) -> None:
-        """Dialog checks for the file on load and after Generate."""
-        source = read_tool_source()
-        self.assertIn("def report_exists", source)
-        self.assertIn("def update_view_button", source)
-        self.assertIn("self.update_view_button()", source)
-        self.assertIn("report_exists(path)", source)
+def get_golden_repository_names() -> list[str]:
+    """Return the gold-standard repository names used for merging."""
+    return GoldStandardRepositories.get_names()
 
 
-# ------------------------------------------------------------
-#
-# Source helpers for GUI-free assertions
-#
-# ------------------------------------------------------------
-def read_tool_source() -> str:
-    """Return the raw tool source text."""
-    tool_path = os.path.join(os.path.dirname(__file__), "..", "gwizardcitationfix.py")
-    with open(tool_path, encoding="utf-8") as handle:
-        return handle.read()
+def get_golden_repo_display(name: str) -> str:
+    """Return the dropdown label with description and URL for a golden name."""
+    return GoldStandardRepositories.get_display_label(name)
 
 
-# ------------------------------------------------------------
-#
-# GWizardCitationFixReportTest
-#
-# ------------------------------------------------------------
-class GWizardCitationFixReportTest(unittest.TestCase):
-    """Check the staged meter and report file wiring in the source."""
-
-    def test_progress_meter_named_like_gwizard(self) -> None:
-        """A GWizardCitationFixProgressMeter wraps the GWizard pattern."""
-        source = read_tool_source()
-        self.assertIn("class GWizardCitationFixProgressMeter(ProgressMeter)", source)
-        self.assertIn("MODE_ACTIVITY", source)
-        self.assertIn('str(_("Loading Citation Fix"))', source)
-
-    def test_stages_start_and_finish(self) -> None:
-        """Stages begin with Starting analysis and end with Report complete!."""
-        source = read_tool_source()
-        self.assertIn('str(_("Starting analysis"))', source)
-        self.assertIn('str(_("Report complete!"))', source)
-        self.assertIn("def show_stage", source)
-
-    def test_report_file_and_header_layout(self) -> None:
-        """Generate writes CitationFixReport.txt; View parses title/date."""
-        source = read_tool_source()
-        self.assertIn('REPORT_FILENAME = "CitationFixReport.txt"', source)
-        self.assertIn('REPORT_TITLE = "Citation analysis file"', source)
-        self.assertIn('size="smaller"', source)
-        self.assertIn("def parse_report_header", source)
-        self.assertIn("with open(self.report_path", source)
-        self.assertIn("with open(path, encoding=", source)
-
-
-# ------------------------------------------------------------
-#
-# GWizardCitationFixAnalysisTest
-#
-# ------------------------------------------------------------
-class GWizardCitationFixAnalysisTest(unittest.TestCase):
-    """Check the repository/source/citation analysis wiring in the source."""
-
-    def test_analysis_helpers_exist(self) -> None:
-        """Collector, formatter and title normalizer are defined."""
-        source = read_tool_source()
-        self.assertIn("def normalize_source_title", source)
-        self.assertIn("def collect_db_stats", source)
-        self.assertIn("def format_analysis", source)
-
-    def test_report_covers_example_findings(self) -> None:
-        """Report covers totals, repos, page gaps, dupes, notes, media."""
-        source = read_tool_source()
-        self.assertIn("Database totals:", source)
-        self.assertIn("Sources without a repository", source)
-        self.assertIn("Citations with no Volume/Page", source)
-        self.assertIn("FamilySearch Family Tree citations", source)
-        self.assertIn("Near-duplicate source groups", source)
-        self.assertIn("bare URLs", source)
-        self.assertIn("absolute paths", source)
-        self.assertIn("Suggested order of fixes", source)
-
-    def test_generate_passes_live_stats(self) -> None:
-        """Generate collects db stats and passes them to the builder."""
-        source = read_tool_source()
-        self.assertIn("collect_db_stats(self.dbstate.db)", source)
-        self.assertIn("stats: dict[str, Any] | None = None", source)
-        self.assertIn("stages, stats", source)
-
-    def test_title_normalizer_groups_us_variants(self) -> None:
-        """U.S. and punctuation variants normalize to the same key."""
-        first = "Philadelphia, Pennsylvania, U.S., Death Certificates Index"
-        second = "Philadelphia Pennsylvania Death Certificates Index"
-        norm = normalize_for_test(first)
-        self.assertEqual(norm, normalize_for_test(second))
-        self.assertNotIn("u s", norm)
-
-
-def normalize_for_test(title: str) -> str:
-    """Mirror normalize_source_title without importing Gtk/Gramps."""
-    import re
-
-    key = (title or "").lower().strip()
+def normalize_repo_name(name: str) -> str:
+    """Return a normalized key used to compare repository names."""
+    key = (name or "").lower().strip()
     key = key.replace("&", "and")
     key = re.sub(r"\bu\.?\s*s\.?\b", " ", key)
     key = re.sub(r"[^a-z0-9 ]+", " ", key)
     return re.sub(r"\s+", " ", key).strip()
 
 
-# ------------------------------------------------------------
-#
-# GWizardCitationFixLayerTest
-#
-# ------------------------------------------------------------
-class GWizardCitationFixLayerTest(unittest.TestCase):
-    """Check the per-layer fix dialogs and Auto buttons."""
-
-    def test_fix_layer_specs(self) -> None:
-        """Four layer specs exist: repositories, sources, citations, notes."""
-        source = read_tool_source()
-        self.assertIn("def get_fix_layer_specs", source)
-        self.assertIn("def get_fix_layer_titles", source)
-        for layer in ("repositories", "sources", "citations", "notes"):
-            self.assertIn(f'"{layer}"', source)
-
-    def test_fix_dialog_has_auto_button(self) -> None:
-        """Each layer dialog offers an Auto best-guess button."""
-        source = read_tool_source()
-        self.assertIn("def show_fix_dialog", source)
-        self.assertIn("def cb_fix_layer", source)
-        self.assertIn("def cb_fix_auto", source)
-        self.assertIn("def summarize_auto_fix", source)
-        self.assertIn("Auto (best guess)", source)
-
-    def test_master_auto_runs_all_layers(self) -> None:
-        """Master Auto iterates all layers in order."""
-        source = read_tool_source()
-        self.assertIn("def cb_auto_all", source)
-        self.assertIn("get_fix_layer_specs()", source)
-        self.assertIn("Auto fix preview (all layers)", source)
+def is_golden_repo_name(name: str, golden: list[str] | None = None) -> bool:
+    """Return True when a name already matches a gold-standard name."""
+    if golden is None:
+        golden = get_golden_repository_names()
+    wanted = normalize_repo_name(name)
+    return any(normalize_repo_name(item) == wanted for item in golden)
 
 
-# ------------------------------------------------------------
-#
-# GWizardCitationFixRepoMergeTest
-#
-# ------------------------------------------------------------
-class GWizardCitationFixRepoMergeTest(unittest.TestCase):
-    """Check the golden-name repository merge model."""
+def rank_golden_repo_matches(
+    name: str, golden: list[str] | None = None, limit: int | None = 5
+) -> list[str]:
+    """Return golden names ranked closest to the given repository name.
 
-    def _load_logic(self) -> dict[str, object]:
-        """Load pure repo-merge helpers without importing Gtk/Gramps."""
-        import ast
-        import os
-        import sys
+    Pass ``limit=None`` to return every golden name in ranked order.
+    """
+    if golden is None:
+        golden = get_golden_repository_names()
+    if not name or not golden:
+        return list(golden) if limit is None else list(golden[:limit])
+    scored: list[tuple[float, str]] = []
+    plain = normalize_repo_name(name)
+    for candidate in golden:
+        target = normalize_repo_name(candidate)
+        ratio = difflib.SequenceMatcher(None, plain, target).ratio()
+        # Small bonus for token overlap so abbreviations still rank well.
+        overlap = len(set(plain.split()) & set(target.split()))
+        scored.append((ratio + 0.05 * overlap, candidate))
+    scored.sort(key=lambda item: item, reverse=True)
+    ranked = [candidate for _score, candidate in scored]
+    return ranked if limit is None else ranked[:limit]
 
-        source = read_tool_source()
-        tree = ast.parse(source)
-        wanted = {
-            "collect_sources_by_repo",
-            "get_golden_repository_names",
-            "normalize_repo_name",
-            "is_golden_repo_name",
-            "rank_golden_repo_matches",
-            "build_repo_merge_rows",
-            "plan_repo_merges",
-        }
-        module = ast.Module(
-            body=[
-                node
-                for node in tree.body
-                if isinstance(node, ast.FunctionDef) and node.name in wanted
-            ],
-            type_ignores=[],
+
+def build_repo_merge_rows(
+    repo_names: list[str], golden: list[str] | None = None, limit: int = 5
+) -> list[dict[str, Any]]:
+    """Build per-repository merge rows for the dialog model.
+
+    Each row holds the original ``name``, the dropdown ``options``
+    (the source's repository name first as the bypass entry, then every
+    golden-list entry), the ``best_guess`` target (the closest golden
+    name), and ``skip`` which is True when the name already matches a
+    golden name.
+    """
+    if golden is None:
+        golden = get_golden_repository_names()
+    rows: list[dict[str, Any]] = []
+    for name in repo_names:
+        if is_golden_repo_name(name, golden):
+            rows.append(
+                {
+                    "name": name,
+                    "options": [name],
+                    "best_guess": name,
+                    "skip": True,
+                }
+            )
+            continue
+        matches = rank_golden_repo_matches(name, golden, limit=None)
+        best = matches if matches else name
+        options = [name] + [item for item in golden if item != name]
+        rows.append(
+            {"name": name, "options": options, "best_guess": best, "skip": False}
         )
-        tool_dir = os.path.join(os.path.dirname(__file__), "..")
-        sys.path.insert(0, os.path.abspath(tool_dir))
+    return rows
+
+
+def plan_repo_merges(
+    choices: dict[str, str], golden: list[str] | None = None
+) -> dict[str, list[str]]:
+    """Group repository names by chosen target, skipping bypass picks."""
+    if golden is None:
+        golden = get_golden_repository_names()
+    plan: dict[str, list[str]] = defaultdict(list)
+    for original, target in choices.items():
+        if not target or target == original:
+            continue
+        plan[target].append(original)
+    return dict(plan)
+
+
+# Repository key used for sources that have no repository reference.
+UNATTACHED_REPO_KEY = "(no repository)"
+
+
+def collect_sources_by_repo(db: Any) -> dict[str, list[str]]:
+    """Return repository name mapped to sorted source titles referencing it.
+
+    Sources with no repository reference are collected under the
+    ``UNATTACHED_REPO_KEY`` key so they can be displayed and assigned.
+    """
+    handle_to_name: dict[str, str] = {}
+    for repo in _safe_iter(db, "iter_repositories"):
         try:
-            from goldstandardrepos import GoldStandardRepositories
-        finally:
-            sys.path.pop(0)
-        namespace: dict[str, object] = {"re": __import__("re")}
-        namespace["difflib"] = __import__("difflib")
-        namespace["defaultdict"] = __import__("collections").defaultdict
-        namespace["_"] = lambda text: text
+            handle = str(repo.get_handle() or "")
+            name = str(repo.get_name() or "")
+            if handle and name:
+                handle_to_name[handle] = name
+        except Exception:  # pylint: disable=broad-except
+            LOG.exception("Failed to read repository")
 
-        def _safe_iter(db, name):
-            try:
-                method = getattr(db, name, None)
-                if method is None:
-                    return []
-                return list(method())
-            except Exception:
-                return []
-
-        namespace["_safe_iter"] = _safe_iter
-        namespace["LOG"] = type("LOG", (), {"exception": lambda *a, **k: None})()
-        namespace["UNATTACHED_REPO_KEY"] = "(no repository)"
-        namespace["GoldStandardRepositories"] = GoldStandardRepositories
-        namespace["_QUARANTINE_REPO_NAME"] = "Quarantine"
-        exec(compile(module, "<repo_merge>", "exec"), namespace)  # noqa: S102
-        return namespace
-
-    def test_golden_names_exist(self) -> None:
-        """Golden list contains well-known repositories."""
-        logic = self._load_logic()
-        names = logic["get_golden_repository_names"]()
-        self.assertIn("Ancestry.com", names)
-        self.assertIn("FamilySearch", names)
-        self.assertGreaterEqual(len(names), 20)
-
-    def test_golden_match_is_skipped(self) -> None:
-        """A golden name on the left is skipped entirely."""
-        logic = self._load_logic()
-        rows = logic["build_repo_merge_rows"](["FamilySearch", "family junk"])
-        by_name = {row["name"]: row for row in rows}
-        self.assertTrue(by_name["FamilySearch"]["skip"])
-        self.assertFalse(by_name["family junk"]["skip"])
-
-    def test_bypass_entry_is_first_option(self) -> None:
-        """Dropdown lists the original name first as the bypass entry."""
-        logic = self._load_logic()
-        rows = logic["build_repo_merge_rows"](["family junk"])
-        self.assertEqual(rows[0]["options"][0], "family junk")
-        self.assertIn(rows[0]["best_guess"], rows[0]["options"][1:])
-
-    def test_all_golden_entries_after_bypass(self) -> None:
-        """Dropdown lists the repo name first, then every golden name."""
-        logic = self._load_logic()
-        golden = logic["get_golden_repository_names"]()
-        rows = logic["build_repo_merge_rows"](["Some Odd Repo"])
-        options = rows[0]["options"]
-        self.assertEqual(options[0], "Some Odd Repo")
-        self.assertEqual(options[1:], [g for g in golden if g != "Some Odd Repo"])
-        self.assertIn(rows[0]["best_guess"], golden)
-
-    def test_closest_golden_ranks_first(self) -> None:
-        """Closest golden names rank ahead of unrelated ones."""
-        logic = self._load_logic()
-        matches = logic["rank_golden_repo_matches"]("familysearch films")
-        self.assertEqual(matches[0], "FamilySearch")
-
-    def test_plan_skips_bypass_choices(self) -> None:
-        """Bypass (same-name) picks produce no merge work."""
-        logic = self._load_logic()
-        plan = logic["plan_repo_merges"](
-            {"a": "a", "b": "FamilySearch", "c": "FamilySearch"}
-        )
-        self.assertEqual(plan, {"FamilySearch": ["b", "c"]})
-
-    def test_collect_sources_by_repo(self) -> None:
-        """Sources map to their referencing repositories via RepoRef."""
-        logic = self._load_logic()
-        collect = logic["collect_sources_by_repo"]
-
-        class FakeRepoRef:
-            def __init__(self, handle):
-                self._handle = handle
-
-            def get_reference_handle(self):
-                return self._handle
-
-        class FakeSource:
-            def __init__(self, title, repo_handles):
-                self._title = title
-                self._repo_handles = repo_handles
-
-            def get_title(self):
-                return self._title
-
-            def get_reporef_list(self):
-                return [FakeRepoRef(h) for h in self._repo_handles]
-
-        class FakeRepo:
-            def __init__(self, handle, name):
-                self._handle = handle
-                self._name = name
-
-            def get_handle(self):
-                return self._handle
-
-            def get_name(self):
-                return self._name
-
-        class FakeDb:
-            def __init__(self):
-                self._repos = [
-                    FakeRepo("r1", "FamilySearch"),
-                    FakeRepo("r2", "Ancestry.com"),
-                    FakeRepo("r3", "Empty Repo"),
-                ]
-                self._sources = [
-                    FakeSource("1880 Census", ["r1"]),
-                    FakeSource("1900 Census", ["r1"]),
-                    FakeSource("Birth Records", ["r2"]),
-                    FakeSource("Orphan Source", []),
-                ]
-
-            def iter_repositories(self):
-                return iter(self._repos)
-
-            def iter_sources(self):
-                return iter(self._sources)
-
-        result = collect(FakeDb())
-        self.assertEqual(result["FamilySearch"], ["1880 Census", "1900 Census"])
-        self.assertEqual(result["Ancestry.com"], ["Birth Records"])
-        self.assertNotIn("Empty Repo", result)
-        self.assertEqual(result["(no repository)"], ["Orphan Source"])
-
-    def test_dialog_wiring_exists(self) -> None:
-        """Merge dialog lives in its own RepoMergeDialog class."""
-        import ast
-        import os
-
-        source = read_tool_source()
-        self.assertIn("def show_repo_merge_dialog", source)
-        self.assertIn("RepoMergeDialog", source)
-        self.assertIn("def cb_repo_auto", source)
-        path = os.path.join(os.path.dirname(__file__), "..", "repomergedialog.py")
-        with open(path, encoding="utf-8") as handle:
-            content = handle.read()
-        tree = ast.parse(content)
-        found = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ClassDef) and node.name == "RepoMergeDialog"
-        ]
-        self.assertTrue(found)
-        for token in (
-            "def build_header",
-            "def build_rows",
-            "def build_buttons",
-            "def get_choices",
-            "def apply_merges",
-            "def run_auto",
-            "def show_dialog",
-            "def cb_set_best",
-            "def cb_apply",
-            "def collect_repo_names",
-            "def find_repository_by_name",
-        ):
-            self.assertIn(token, content)
-
-    def test_gold_catalog_has_details(self) -> None:
-        """Gold catalog exposes detail helpers for the dropdown."""
-        import ast
-        import os
-
-        path = os.path.join(os.path.dirname(__file__), "..", "goldstandardrepos.py")
-        with open(path, encoding="utf-8") as handle:
-            content = handle.read()
-        tree = ast.parse(content)
-        found = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ClassDef)
-            and node.name == "GoldStandardRepositories"
-        ]
-        self.assertTrue(found)
-        self.assertIn("get_display_label", content)
-        self.assertIn("GENEALOGY_REPOSITORIES", content)
-
-
-# ------------------------------------------------------------
-#
-# GWizardCitationFixSourceFixTest
-#
-# ------------------------------------------------------------
-class GWizardCitationFixSourceFixTest(unittest.TestCase):
-    """Check the source-record fix model."""
-
-    def _load_logic(self) -> dict[str, object]:
-        """Load pure source-fix helpers without importing Gtk/Gramps."""
-        import ast
-        import os
-        import sys
-
-        source_path = os.path.join(
-            os.path.dirname(__file__), "..", "sourcesfixdialog.py"
-        )
-        with open(source_path, encoding="utf-8") as handle:
-            source = handle.read()
-        tree = ast.parse(source)
-        wanted = {
-            "build_source_fix_rows",
-            "plan_source_fixes",
-            "_source_display",
-            "_dedupe_handles",
-            "_pick_keeper",
-        }
-        module = ast.Module(
-            body=[
-                node
-                for node in tree.body
-                if isinstance(node, ast.FunctionDef) and node.name in wanted
-            ],
-            type_ignores=[],
-        )
-        tool_dir = os.path.join(os.path.dirname(__file__), "..")
-        sys.path.insert(0, os.path.abspath(tool_dir))
+    sources_by_repo: dict[str, list[str]] = defaultdict(list)
+    for source in _safe_iter(db, "iter_sources"):
         try:
-            from goldstandardrepos import GoldStandardRepositories  # noqa: F401
-        finally:
-            sys.path.pop(0)
-        namespace: dict[str, object] = {"re": __import__("re")}
-        namespace["defaultdict"] = __import__("collections").defaultdict
-        namespace["_"] = lambda text: text
-        namespace["GoldStandardRepositories"] = GoldStandardRepositories
-        namespace["_QUARANTINE_REPO_NAME"] = "Quarantine"
-        exec(compile(module, "<source_fix>", "exec"), namespace)  # noqa: S102
-        return namespace
+            title = str(source.get_title() or "")
+            refs = list(source.get_reporef_list())
+            if not refs:
+                sources_by_repo[UNATTACHED_REPO_KEY].append(title)
+                continue
+            for ref in refs:
+                repo_name = handle_to_name.get(
+                    str(ref.get_reference_handle() or ""), ""
+                )
+                if repo_name:
+                    sources_by_repo[repo_name].append(title)
+                else:
+                    sources_by_repo[UNATTACHED_REPO_KEY].append(title)
+        except Exception:  # pylint: disable=broad-except
+            LOG.exception("Failed to read source")
 
-    def test_source_fix_rows_build(self) -> None:
-        """Duplicate groups merge and clean sources stay out of quarantine."""
-        logic = self._load_logic()
-        build = logic["build_source_fix_rows"]
-
-        stats = {
-            "source_rows": [
-                {
-                    "handle": "h1",
-                    "title": "Smith, John",
-                    "author": "A",
-                    "gramps_id": "g1",
-                    "repo_count": 0,
-                    "citations": 0,
-                },
-                {
-                    "handle": "h2",
-                    "title": "Smith, John ",
-                    "author": "A",
-                    "gramps_id": "g2",
-                    "repo_count": 0,
-                    "citations": 0,
-                },
-                {
-                    "handle": "h3",
-                    "title": "Jones, Mary",
-                    "author": "",
-                    "gramps_id": "g3",
-                    "repo_count": 1,
-                    "citations": 3,
-                },
-                {
-                    "handle": "h4",
-                    "title": "Unattributed",
-                    "author": "",
-                    "gramps_id": "g4",
-                    "repo_count": 0,
-                    "citations": 0,
-                },
-            ],
-            "near_duplicates": [
-                [
-                    {
-                        "title": "Smith, John",
-                        "author": "A",
-                        "gramps_id": "g1",
-                        "handle": "h1",
-                        "repo_count": 0,
-                        "citations": 0,
-                    },
-                    {
-                        "title": "Smith, John ",
-                        "author": "A",
-                        "gramps_id": "g2",
-                        "handle": "h2",
-                        "repo_count": 0,
-                        "citations": 0,
-                    },
-                ],
-            ],
-        }
-        rows = build(stats)
-        merge = [r for r in rows if r["problem"] == "merge"]
-        quars = [r for r in rows if r["problem"] == "quarantine"]
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(len(merge), 1)
-        self.assertEqual(merge[0]["keeper_handle"], "h1")
-        self.assertEqual(merge[0]["discard_handles"], ["h2"])
-        self.assertEqual({r["quarantine_handle"] for r in quars}, {"h4"})
-        rec = quars[0]
-        self.assertEqual(rec["best_guess"], "Quarantine new repository")
-        self.assertEqual(rec["options"], ["Quarantine new repository"])
-        self.assertFalse(any(r["quarantine_handle"] == "h3" for r in quars))
-
-    def test_plan_source_fixes(self) -> None:
-        """Plan splits merge and quarantine actions without touching DB."""
-        logic = self._load_logic()
-        plan = logic["plan_source_fixes"]
-
-        rows = [
-            {
-                "problem": "merge",
-                "keeper_handle": "k",
-                "discard_handles": ["d1", "d2"],
-                "skip": False,
-            },
-            {
-                "problem": "quarantine",
-                "quarantine_handle": "q",
-                "skip": False,
-            },
-            {"skip": True, "problem": "merge", "keeper_handle": "x"},
-        ]
-        result = plan(rows)
-        self.assertEqual(
-            result["merge"], [{"keeper_handle": "k", "discard_handles": ["d1", "d2"]}]
-        )
-        self.assertEqual(
-            result["quarantine"],
-            [{"source_handle": "q", "target_repo_name": "Quarantine"}],
-        )
-
-    def test_no_problem_stats_yields_no_plan(self) -> None:
-        """A clean database yields no fix rows and an empty plan."""
-        logic = self._load_logic()
-        build = logic["build_source_fix_rows"]
-        plan = logic["plan_source_fixes"]
-
-        stats = {
-            "source_rows": [
-                {
-                    "handle": "h1",
-                    "title": "Jones, Mary",
-                    "author": "",
-                    "gramps_id": "g1",
-                    "repo_count": 1,
-                    "citations": 3,
-                },
-            ],
-            "near_duplicates": [],
-        }
-        self.assertEqual(build(stats), [])
-        self.assertEqual(plan([]), {"merge": [], "quarantine": []})
-
-    def test_dialog_wiring_and_file_exist(self) -> None:
-        """SourceFixDialog class and module exist and mirror the repo dialog."""
-        import os
-
-        path = os.path.join(os.path.dirname(__file__), "..", "sourcesfixdialog.py")
-        self.assertTrue(os.path.exists(path), "sourcesfixdialog.py not found")
-        import ast
-
-        with open(path, encoding="utf-8") as handle:
-            content = handle.read()
-        tree = ast.parse(content)
-        found = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ClassDef) and node.name == "SourceFixDialog"
-        ]
-        self.assertTrue(found, "SourceFixDialog class missing")
-        for token in (
-            "def build_header",
-            "def build_rows",
-            "def build_buttons",
-            "def run_auto",
-            "def show_dialog",
-            "def cb_set_best",
-            "def cb_apply",
-        ):
-            self.assertIn(token, content, "missing %r" % token)
+    return {name: sorted(titles) for name, titles in sources_by_repo.items()}
 
 
 # ------------------------------------------------------------
 #
-# GWizardCitationFixCitationFixTest
+# Button specs
 #
 # ------------------------------------------------------------
-class GWizardCitationFixCitationFixTest(unittest.TestCase):
-    """Check the citation-fix dialog model and auto-clean behavior."""
+def get_button_specs() -> list[tuple[str, str, bool]]:
+    """Return the (key, label, sensitive) specs for the dialog buttons."""
+    return [
+        ("generate", str(_("Generate report")), True),
+        ("view", str(_("View report")), False),
+        ("consolidate_repositories", str(_("Repository Consolidate")), True),
+        ("fix_repositories", str(_("Fix Repositories")), True),
+        ("consolidate_sources", str(_("Source Consolidate")), True),
+        ("fix_sources", str(_("Fix Sources")), True),
+        ("fix_citations", str(_("Fix Citations")), True),
+        ("fix_notes", str(_("Fix Notes")), True),
+        ("auto_all", str(_("Auto (best guess all)")), True),
+    ]
 
-    def _load_logic(self) -> dict[str, object]:
-        """Load pure citation-fix helpers without importing Gtk/Gramps."""
-        import ast
 
-        source_path = os.path.join(
-            os.path.dirname(__file__), "..", "citationsfixdialog.py"
-        )
-        with open(source_path, encoding="utf-8") as handle:
-            source = handle.read()
-        tree = ast.parse(source)
-        wanted = {
-            "build_citation_fix_rows",
-            "plan_citation_fixes",
-            "apply_citation_fixes",
-            "_tree_source_handles",
-        }
-        module = ast.Module(
-            body=[
-                node
-                for node in tree.body
-                if isinstance(node, ast.FunctionDef) and node.name in wanted
-            ],
-            type_ignores=[],
-        )
-        namespace: dict[str, object] = {"re": __import__("re")}
-        namespace["defaultdict"] = __import__("collections").defaultdict
-        namespace["_"] = lambda text: text
-        namespace["DbTxn"] = object
-        namespace["Gtk"] = object
-        namespace["OkDialog"] = object
-        namespace["LOG"] = type("LOG", (), {"exception": lambda *a, **k: None})()
-        namespace["PROBLEM_TREE_CONFIDENCE"] = "tree_confidence"
-        namespace["PROBLEM_MANUAL_REVIEW"] = "manual_review"
-        namespace["PROBLEM_NONE"] = "none"
-        namespace["NO_SOURCE"] = "(no source)"
-        exec(compile(module, "<citation_fix>", "exec"), namespace)  # noqa: S102
-        return namespace
+# ------------------------------------------------------------
+#
+# Report helpers (pure logic, no GUI)
+#
+# ------------------------------------------------------------
+def get_report_stages() -> list[str]:
+    """Return the staged status texts shown while generating the report."""
+    return [
+        str(_("Starting analysis")),
+        str(_("Collecting citations")),
+        str(_("Analyzing sources")),
+        str(_("Writing report")),
+        str(_("Report complete!")),
+    ]
 
-    def _sample_statistics(self) -> dict[str, object]:
-        """Return a mock db with citations for testing."""
 
-        class FakeSource:
-            def __init__(self, handle, title):
-                self._handle = handle
-                self._title = title
+def get_report_path(base_dir: str | None = None) -> str:
+    """Return the full path of the generated CitationFixReport.txt file."""
+    if base_dir is None:
+        from gramps.gen.const import USER_DATA
 
-            def get_handle(self):
-                return self._handle
+        base_dir = USER_DATA
+    return os.path.join(base_dir, REPORT_FILENAME)
 
-            def get_title(self):
-                return self._title
 
-        class FakeCitation:
-            def __init__(self, handle, src_handle, gramps_id, page, date, confidence):
-                self._handle = handle
-                self._src_handle = src_handle
-                self._gramps_id = gramps_id
-                self._page = page
-                self._date = date
-                self._confidence = confidence
+def report_exists(path: str | None = None) -> bool:
+    """Return True when the CitationFixReport.txt file exists."""
+    if path is None:
+        path = get_report_path()
+    return os.path.isfile(path)
 
-            def get_handle(self):
-                return self._handle
+# ------------------------------------------------------------
+# 
+# 
+# Analysis helpers (pure logic, no GUI)
+# 
+# 
+# ------------------------------------------------------------
 
-            def get_reference_handle(self):
-                return self._src_handle
+_FILENAME_RE = re.compile(r".\w{2,5}$")
+_BARE_URL_RE = re.compile(r"^\shttps?://\S+\s$", re.IGNORECASE)
+_GENERIC_SOURCE_HINTS = (
+"official civil vital records",
+"birth, death, and burial registries",
+"state and municipal government archives",
+)
+_NON_SOURCE_TITLES = ("facebook", "legacy.com", "familysearch.org")
 
-            def get_gramps_id(self):
-                return self._gramps_id
+def normalize_source_title(title: str) -> str:
+    """Return a normalized key used to group near-duplicate sources."""
+    key = (title or "").lower().strip()
+    key = key.replace("&", "and")
+    key = re.sub(r"\bu.?\s*s.?\b", " ", key)
+    key = re.sub(r"[^a-z0-9 ]+", " ", key)
+    return re.sub(r"\s+", " ", key).strip()
 
-            def get_page(self):
-                return self._page
+def _safe_iter(db: Any, name: str) -> list[Any]:
+    """Return list(db.()) or an empty list when unavailable."""
+    try:
+        method = getattr(db, name, None)
+        if method is None:
+            return []
+        return list(method())
+    except Exception:  # pylint: disable=broad-except
+        LOG.exception("Failed to iterate %s", name)
+    return []
 
-            def get_date_object(self):
-                return self._date
+def _safe_count(db: Any, name: str, fallback_iter: str) -> int:
+    """Return db.() with an iteration fallback."""
+    try:
+        method = getattr(db, name, None)
+        if callable(method):
+            return int(method())
+    except Exception:  # pylint: disable=broad-except
+        LOG.exception("Failed counting via %s", name)
+    return len(_safe_iter(db, fallback_iter))
 
-            def get_confidence_level(self):
-                return self._confidence
+def _note_text(note: Any) -> str:
+    """Return the plain text of a note."""
+    try:
+        styled = note.get_styledtext()
+        if styled is not None:
+            if hasattr(styled, "get_string"):
+                return str(styled.get_string())
+        return str(styled)
+    except Exception:  # pylint: disable=broad-except
+        pass
+        try:
+            return str(note.get() or "")
+        except Exception:  # pylint: disable=broad-except
+            return ""
 
-        class FakeDb:
-            def __init__(self):
-                self._sources = [
-                    FakeSource("s1", "FamilySearch Family Tree"),
-                    FakeSource("s2", "Ancestry.com"),
-                    FakeSource("s3", "Vital Records"),
-                ]
-                self._citations = [
-                    FakeCitation("c1", "s1", "C1", "42", None, 4),
-                    FakeCitation("c2", "s1", "C2", None, None, 2),
-                    FakeCitation("c3", "s2", "C3", "10", "1880", 1),
-                    FakeCitation("c4", "s3", "C4", None, "1900", 1),
-                    FakeCitation("c5", "", "C5", None, None, 1),
-                ]
-
-            def iter_sources(self):
-                return iter(self._sources)
-
-            def iter_citations(self):
-                return iter(self._citations)
-
-        return FakeDb()
-
-    def test_citation_fix_rows_build(self) -> None:
-        """Rows cover each citation, sorted by source alphabetically."""
-        logic = self._load_logic()
-        build = logic["build_citation_fix_rows"]
-
-        rows = build(self._sample_statistics())
-        # 5 citations total
-        self.assertEqual(len(rows), 5)
-        # Sorted: Ancestry.com, FamilySearch Family Tree (x2), Vital Records, (no source)
-        names = [r["source_name"] for r in rows]
-        self.assertEqual(names[0], "Ancestry.com")
-        self.assertEqual(names[1], "FamilySearch Family Tree")
-        self.assertEqual(names[2], "FamilySearch Family Tree")
-        self.assertEqual(names[3], "Vital Records")
-        self.assertEqual(names[4], "(no source)")
-        # Tree citations with high confidence get tree_confidence problem
-        tree_rows = [r for r in rows if r["problem"] == "tree_confidence"]
-        self.assertEqual(len(tree_rows), 1)
-        self.assertEqual(tree_rows[0]["best_guess"], "Lower to Confidence 1")
-        # Citations with missing page/date get manual_review problem
-        manual_rows = [r for r in rows if r["problem"] == "manual_review"]
-        self.assertEqual(len(manual_rows), 3)
-        # Clean citation gets none problem
-        none_rows = [r for r in rows if r["problem"] == "none"]
-        self.assertEqual(len(none_rows), 1)
-
-    def test_plan_citation_fixes(self) -> None:
-        """Plan groups selected actions per problem type."""
-        logic = self._load_logic()
-        plan = logic["plan_citation_fixes"]
-
-        rows = [
-            {
-                "skip": False,
-                "problem": "tree_confidence",
-                "best_guess": "Lower to Confidence 1",
-                "citation_handle": "c1",
-            },
-            {
-                "skip": False,
-                "problem": "tree_confidence",
-                "best_guess": "Lower to Confidence 2",
-                "citation_handle": "c2",
-            },
-            {
-                "skip": True,
-                "problem": "tree_confidence",
-                "best_guess": "Lower to Confidence 2",
-                "citation_handle": "c3",
-            },
-            {
-                "skip": False,
-                "problem": "manual_review",
-                "best_guess": "Add page/volume (manual)",
-                "citation_handle": "c4",
-            },
-        ]
-        result = plan(rows)
-        self.assertEqual(len(result["tree_confidence"]), 2)
-        self.assertEqual(
-            result["tree_confidence"],
-            [
-                {"citation_handle": "c1", "target_level": 1},
-                {"citation_handle": "c2", "target_level": 2},
-            ],
-        )
-        self.assertEqual(result["manual_review"], 1)
-
-    def test_apply_lowers_tree_confidence(self) -> None:
-        """Auto-clean lowers confidence for in-tree citations rated 3+."""
-        logic = self._load_logic()
-        apply_fixes = logic["apply_citation_fixes"]
-
-        class FakeCitation:
-            def __init__(self, handle, confidence):
-                self._handle = handle
-                self._confidence = confidence
-
-            def set_confidence_level(self, level):
-                self._confidence = level
-
-        class FakeDb:
-            def __init__(self, citations):
-                self._citations = {c._handle: c for c in citations}
-
-            def get_citation_from_handle(self, handle):
-                return self._citations.get(handle)
-
-            def get_undodb(self):
-                return []
-
-            def transaction_begin(self, transaction):
-                return None
-
-            def transaction_commit(self, transaction):
-                return None
-
-            def transaction_abort(self, transaction):
-                return None
-
-            def commit_citation(self, citation, trans=None, change_time=None):
+def _person_has_citation(person: Any) -> bool:
+    """Return True when a person carries any direct citation."""
+    try:
+        if person.get_citation_list():
+            return True
+        for name_list in person.get_all_citation_lists():
+            if name_list:
                 return True
+    except Exception:  # pylint: disable=broad-except
+        pass
+    return False
 
-        citations = [
-            FakeCitation("c1", 4),
-            FakeCitation("c2", 3),
-            FakeCitation("c3", 2),
-        ]
-        dbstate = types.SimpleNamespace(db=FakeDb(citations))
-        result = apply_fixes(
-            dbstate,
-            {
-                "tree_confidence": [
-                    {"citation_handle": "c1", "target_level": 1},
-                    {"citation_handle": "c2", "target_level": 1},
-                ]
-            },
-        )
+def build_report_text(
+    citation_count: int,
+    timestamp: str,
+    stages: list[str] | None = None,
+    stats: dict[str, Any] | None = None,
+    ) -> str:
+    """Build the text content of the citation analysis report file."""
+    if stages is None:
+        stages = get_report_stages()
+        title = str((REPORT_TITLE))
+    padding = max(2, REPORT_LINE_WIDTH - len(title) - len(timestamp))
+    lines = [
+    f"{title}{' ' * padding}{timestamp}",
+    "=" * REPORT_LINE_WIDTH,
+    "",
+    str(("Citations in database: %d") % citation_count),
+    "",
+    ]
+    if stats is not None:
+        lines.append(format_analysis(stats))
+        lines.append(str(_("Analysis stages:")))
+        lines.extend(f"- {stage}" for stage in stages)
+        lines.append("")
+    return "\n".join(lines)
 
-        self.assertEqual(result["tree_confidence_lowered"], 2)
-        self.assertEqual(citations[0]._confidence, 1)
-        self.assertEqual(citations[1]._confidence, 1)
-        self.assertEqual(citations[2]._confidence, 2)
-
-    def test_dialog_wiring_and_file_exist(self) -> None:
-        """CitationFixDialog class and module exist and mirror the repo dialog."""
-        import ast
-
-        path = os.path.join(os.path.dirname(__file__), "..", "citationsfixdialog.py")
-        self.assertTrue(os.path.exists(path), "citationsfixdialog.py not found")
-        with open(path, encoding="utf-8") as handle:
-            content = handle.read()
-        tree = ast.parse(content)
-        found = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ClassDef) and node.name == "CitationFixDialog"
-        ]
-        self.assertTrue(found, "CitationFixDialog class missing")
-        for token in (
-            "def build_header",
-            "def build_rows",
-            "def build_buttons",
-            "def run_auto",
-            "def show_dialog",
-            "def cb_set_best",
-            "def cb_apply",
+def collect_db_stats(db: Any) -> dict[str, Any]:
+    """Scan repositories, sources, citations, notes and media."""
+    people = _safe_iter(db, "iter_people")
+    sources = _safe_iter(db, "iter_sources")
+    citations = _safe_iter(db, "iter_citations")
+    repos = _safe_iter(db, "iter_repositories")
+    notes = _safe_iter(db, "iter_notes")
+    media_objs = _safe_iter(db, "iter_media")
+    events = _safe_iter(db, "iter_events")
+    stats: dict[str, Any] = {
+    "people": len(people) or _safe_count(db, "get_number_of_people", "iter_people"),
+    "families": _safe_count(db, "get_number_of_families", "iter_families"),
+    "sources": len(sources),
+    "repositories": len(repos),
+    "citations": len(citations),
+    "notes": len(notes),
+    "media": len(media_objs),
+    }
+    try:
+        stats["people"] = int(db.get_number_of_people())
+    except Exception:  # pylint: disable=broad-except
+        pass
+    cites_by_source: Counter[str] = Counter()
+    no_page = 0
+    no_date = 0
+    for cit in citations:
+        try:
+            src_handle = cit.get_reference_handle()
+        except Exception:  # pylint: disable=broad-except
+            src_handle = None
+    if src_handle:
+        cites_by_source[str(src_handle)] += 1
+    try:
+        page = (cit.get_page() or "").strip()
+    except Exception:  # pylint: disable=broad-except
+        page = ""
+    if not page:
+        no_page += 1
+    try:
+        date_obj = cit.get_date_object()
+        has_date = bool(date_obj and str(date_obj))
+    except Exception:  # pylint: disable=broad-except
+        has_date = False
+    if not has_date:
+        no_date += 1
+    stats["citations_no_page"] = no_page
+    stats["citations_no_date"] = no_date
+    stats["cites_by_source"] = dict(cites_by_source)
+    source_rows: list[dict[str, Any]] = []
+    norm_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    tree_handles: set[str] = set()
+    conflated_sources: list[dict[str, Any]] = []
+    for src in sources:
+        try:
+            title = str(src.get_title() or "")
+        except Exception:  # pylint: disable=broad-except
+            title = ""
+    try:
+        author = str(src.get_author() or "")
+    except Exception:  # pylint: disable=broad-except
+        author = ""
+    try:
+        gid = str(src.get_gramps_id() or "")
+    except Exception:  # pylint: disable=broad-except
+        gid = ""
+    try:
+        handle = str(src.get_handle() or "")
+    except Exception:  # pylint: disable=broad-except
+        handle = ""
+    try:
+        repo_refs = list(src.get_reporef_list())
+    except Exception:  # pylint: disable=broad-except
+        repo_refs = []
+    row = {
+    "title": title,
+    "author": author,
+    "gramps_id": gid,
+    "handle": handle,
+    "repo_count": len(repo_refs),
+    "citations": cites_by_source.get(str(handle), 0),
+    }
+    source_rows.append(row)
+    has_repo = bool(_FIELD_REPO_PATTERNS.search(title))
+    has_src_hint = bool(_FIELD_SOURCE_PATTERNS.search(title))
+    has_cit_hint = bool(_FIELD_CITATION_PATTERNS.search(title))
+    element_count = sum([has_repo, has_src_hint, has_cit_hint])
+    if element_count >= 2:
+        row["conflation_score"] = element_count
+    row["elements_detected"] = [
+    k for k, v in {"Repository": has_repo, "Source": has_src_hint, "Citation": has_cit_hint}.items() if v
+    ]
+    conflated_sources.append(row)
+    key = normalize_source_title(title)
+    if key:
+        norm_groups[key].append(row)
+    lowered = title.lower()
+    if "familysearch" in lowered and "family tree" in lowered:
+        tree_handles.add(str(handle))
+    stats["source_rows"] = source_rows
+    stats["conflated_sources"] = conflated_sources
+    stats["orphan_sources"] = [r for r in source_rows if r["citations"] == 0]
+    stats["sources_no_repo"] = [r for r in source_rows if r["repo_count"] == 0]
+    stats["near_duplicates"] = [g for g in norm_groups.values() if len(g) > 1]
+    stats["tree_citations"] = sum(cites_by_source.get(h, 0) for h in tree_handles)
+    conf_high_tree = 0
+    for cit in citations:
+        try:
+            handle = str(cit.get_reference_handle() or "")
+            if handle in tree_handles and int(cit.get_confidence_level()) >= 3:
+                conf_high_tree += 1
+        except Exception:  # pylint: disable=broad-except
+            continue
+    stats["tree_conf_high"] = conf_high_tree
+    repo_rows: list[dict[str, Any]] = []
+    for repo in repos:
+        try:
+            name = str(repo.get_name() or "")
+        except Exception:  # pylint: disable=broad-except
+            name = ""
+        try:
+            gid = str(repo.get_gramps_id() or "")
+        except Exception:  # pylint: disable=broad-except
+            gid = ""
+    repo_rows.append({"name": name, "gramps_id": gid})
+    stats["repo_rows"] = repo_rows
+    stats["people_unsourced"] = sum(1 for p in people if not _person_has_citation(p))
+    bare_url = 0
+    debris: list[dict[str, Any]] = []
+    text_counter: Counter[str] = Counter()
+    unreferenced = 0
+    long_notes: list[dict[str, Any]] = []
+    for note in notes:
+        text = _note_text(note)
+    text_counter[text.strip()[:200]] += 1
+    if BARE_URL_RE.match(text):
+        bare_url += 1
+    lowered = text.lower()
+    try:
+        gid = str(note.get_gramps_id() or "")
+    except Exception:  # pylint: disable=broad-except
+        gid = ""
+    low_stripped = text.strip().lower()
+    if "records not imported into repo" in lowered or low_stripped.startswith(
+        "birth type:"
         ):
-            self.assertIn(token, content, "missing %r" % token)
+        debris.append({"gramps_id": gid, "preview": text.strip()[:100]})
+    if len(text) > 500:
+        long_notes.append({"gramps_id": gid, "length": len(text)})
+    long_notes[-1]["preview"] = text.strip()[:120]
+    if hasattr(db, "find_backlink_handles"):
+        try:
+            if not list(db.find_backlink_handles(note.get_handle())):
+                unreferenced += 1
+        except Exception:  # pylint: disable=broad-except
+            pass
+    stats["notes_bare_url"] = bare_url
+    stats["notes_debris"] = debris
+    stats["notes_unreferenced"] = unreferenced
+    dup = sum(1 for key, count in text_counter.items() if count > 1 and key)
+    stats["notes_duplicated"] = dup
+    stats["notes_long"] = sorted(long_notes, key=lambda r: r["length"], reverse=True)[
+    :5
+    ]
+    abs_paths: list[str] = []
+    base_counter: Counter[str] = Counter()
+    cites_with_media = 0
+    for media in media_objs:
+        try:
+            path = str(media.get_path() or "")
+        except Exception:  # pylint: disable=broad-except
+            path = ""
+    if path and (os.path.isabs(path) or re.match(r"^[a-zA-Z]:\", path)):
+        abs_paths.append(path)
+    base = os.path.basename(path).lower() if path else ""
+    if base:
+    base_counter[base] += 1
+    for cit in citations:
+        try:
+            if cit.get_media_list():
+                cites_with_media += 1
+        except Exception:  # pylint: disable=broad-except
+            continue
+    stats["media_absolute"] = abs_paths[:10]
+    stats["media_absolute_count"] = len(abs_paths)
+    stats["media_dup_basenames"] = {k: v for k, v in base_counter.items() if v > 1}
+    stats["citations_with_media"] = cites_with_media
+    custom_counter: Counter[str] = Counter()
+    for event in events:
+        try:
+            etype = event.get_type()
+            label = etype.xml_str() if hasattr(etype, "xml_str") else str(etype)
+        except Exception:  # pylint: disable=broad-except
+            continue
+    if label.startswith(""):
+        custom_counter[label] += 1
+    stats["custom_events"] = dict(custom_counter)
+    stats["custom_events_total"] = sum(custom_counter.values())
+    return stats
 
+def format_analysis(stats: dict[str, Any]) -> str:
+    """Format the collected stats as the report body."""
+    get = stats.get
+    lines: list[str] = []
+    lines.append(
+    str(
+            (
+                "Database totals: %d people, %d families, %d sources, "
+                "%d repositories, %d citations, %d notes, %d media."
+            )
+        % (
+            get("people", 0),
+            get("families", 0),
+            get("sources", 0),
+            get("repositories", 0),
+            get("citations", 0),
+            get("notes", 0),
+            get("media", 0),
+            )
+        )
+    )
+    lines.append("")
+    lines.append(str(("Where it matches best practice")))
+    lines.append(
+    str(
+        (
+            "Most sources are collection-level with specifics in "
+            "citations (the Evidence Explained 'split' approach). "
+            "Orphan sources: %d."
+        )
+        % len(get("orphan_sources", []))
+        )
+    )
+    lines.append("")
+    lines.append(str(("Where it falls short")))
+    lines.append(
+        str(
+            _("Sources without a repository: %d of %d.")
+            % (len(get("sources_no_repo", [])), get("sources", 0))
+        )
+    )
+    for row in get("repo_rows", []):
+    lines.append(
+            "- %s (%s)"
+            % (row.get("name") or _("Unnamed repository"), row.get("gramps_id") or "?")
+        )
+    conflated = get("conflated_sources", [])
+    lines.append("")
+    lines.append(str(_("Conflated Fields: %d sources contain mixed Repository/Source/Citation data.") % len(conflated)))
+    for row in conflated[:10]:
+        lines.append(
+            "  - %s: '%s'\n    ↳ Detected elements: %s"
+            % (row.get("gramps_id"), row.get("title"), ", ".join(row.get("elements_detected", [])))
+        )
+    lines.append("")
+    lines.append(
+        str(
+            ("Citations with no Volume/Page: %d of %d.")
+            % (get("citations_no_page", 0), get("citations", 0))
+        )
+    )
+    if get("tree_citations"):
+    lines.append(
+        str(
+            (
+                "FamilySearch Family Tree citations: %d, rated "
+                "confidence 3+: %d. A user-edited tree is "
+                "derivative/secondary, so lower the confidence."
+            )
+            % (get("tree_citations", 0), get("tree_conf_high", 0))
+        )
+    )
+    lines.append(
+        str(
+            ("People with no directly-attached source: %d of %d.")
+            % (get("people_unsourced", 0), get("people", 0))
+        )
+    )
+    dupes = get("near_duplicates", [])
+    lines.append(str(("Near-duplicate source groups: %d.") % len(dupes)))
+    for group in dupes[:7]:
+    joined = "; ".join(
+        "%s '%s'" % (r.get("gramps_id"), r.get("title")) for r in group[:4]
+    )
+    lines.append("  - " + joined)
+    for row in get("non_source_like", [])[:10]:
+        lines.append(
+            str(
+                ("Not really a source: %s '%s' (%d citations).")
+                % (row.get("gramps_id"), row.get("title"), row.get("citations"))
+            )
+        )
+    for row in get("generic_sources", [])[:10]:
+        lines.append(
+            str(
+                ("Generic source: %s '%s' by '%s'.")
+                % (row.get("gramps_id"), row.get("title"), row.get("author"))
+            )
+        )
+    lines.append(
+        str(
+            ("Notes that are bare URLs: %d of %d; unreferenced: %d; duplicated: %d.")
+            % (
+            get("notes_bare_url", 0),
+            get("notes", 0),
+            get("notes_unreferenced", 0),
+            get("notes_duplicated", 0),
+            )
+        )
+    )
+    for row in get("notes_debris", [])[:10]:
+        lines.append(
+            str(
+                ("Import debris note %s: %s")
+                    % (row.get("gramps_id"), row.get("preview"))
+            )
+        )
+    for row in get("notes_long", [])[:5]:
+        lines.append(
+            str(
+                ("Long narrative note %s (%d chars): %s...")
+                % (row.get("gramps_id"), row.get("length"), row.get("preview"))
+            )
+        )
+    lines.append(
+        str(
+            ("Media with absolute paths: %d of %d. Citations with images: %d.")
+            % (
+                get("media_absolute_count", 0),
+                get("media", 0),
+                get("citations_with_media", 0),
+            )
+        )
+    )
+    for base, count in list(get("media_dup_basenames", {}).items())[:5]:
+        lines.append(str(("Media filename imported %dx: %s") % (count, base)))
+    if get("custom_events_total"):
+        lines.append(
+            str(("Custom leftover events: %d.") % get("custom_events_total", 0))
+        )
+    lines.append("")
+    lines.append(str(("Suggested order of fixes:")))
+    lines.append(str(("1. Run Step 1: Unpack and Split Conflated Source Fields.")))
+    lines.append(str(("2. Merge the duplicate sources.")))
+    lines.append(
+        str(("3. Clean up the FamilySearch Tree source and lower the confidence."))
+    )
+    lines.append(
+        str(("4. Add Ancestry and FamilySearch as repositories and link the sources."))
+    )
+    lines.append(str(("5. Delete the import-log notes.")))
+    lines.append(
+        str(_("6. Add page/entry details to census and death-record citations."))
+    )
+    lines.append("")
+    return "\n".join(lines)
 
-if __name__ == "__main__":
-    unittest.main()
+def parse_report_header(text: str) -> tuple[str, str]:
+    """Split the first report line into (title, timestamp) parts."""
+    first = text.splitlines() if text else ""
+    chunks = first.rsplit(None, 2)
+    if len(chunks) >= 3 and len(chunks[-2]) == 10 and len(chunks[-1]) == 8:
+        timestamp = f"{chunks[-2]} {chunks[-1]}"
+        title = first[: len(first) - len(timestamp)].rstrip()
+        return (title, timestamp)
+    return (first.strip(), "")
+
+# ------------------------------------------------------------
+# 
+# 
+# GWizardCitationFixProgressMeter
+# 
+# 
+# ------------------------------------------------------------
+
+class GWizardCitationFixProgressMeter(ProgressMeter):
+    """Wait/hourglass progress dialog for the citation fix report flow."""
+
+def init(self, parent: Any = None) -> None:
+    """Initialize the meter in activity mode like the GWizard flow."""
+    ProgressMeter.init(
+        self,
+        str(("Loading Citation Fix")),
+        str(("Starting analysis...")),
+        parent=parent,
+    )
+    self.set_pass(
+        str(_("Starting analysis...")),
+        mode=ProgressMeter.MODE_ACTIVITY,
+    )
+
+def show_stage(self, text: str) -> None:
+    """Update the header text and pulse the meter for a stage."""
+    self.set_header(text)
+    self.step()
+
+# ------------------------------------------------------------
+# 
+# 
+# Fix layer specs
+# 
+# 
+# ------------------------------------------------------------
+
+def get_fix_layer_specs() -> list[tuple[str, str, str]]:
+    """Return (layer, title, description) specs for the fix dialogs."""
+    return [
+        (
+            "repositories",
+            str(("Fix Repositories")),
+            str(("Create missing repositories and link orphan sources.")),
+        ),
+        (
+            "sources",
+            str(("Fix Sources")),
+            str(("Merge near-duplicates and quarantine non-sources.")),
+        ),
+        (
+            "citations",
+            str(("Fix Citations")),
+            str(("Clean Tree PAGE/DATE and confidence.")),
+        ),
+        (
+            "notes",
+            str(("Fix Notes")),
+            str(("Remove import debris and convert bare-URL notes.")),
+        ),
+    ]
+
+def get_fix_layer_titles() -> dict[str, str]:
+    """Return a mapping of layer key to dialog title."""
+    return {layer: title for layer, title, _desc in get_fix_layer_specs()}
+
+def get_fix_description(layer: str) -> str:
+    """Return the description text for a fix layer."""
+    for spec_layer, _title, desc in get_fix_layer_specs():
+        if spec_layer == layer:
+            return desc
+    return layer
+
+# ------------------------------------------------------------
+# 
+# 
+# GWizardCitationFixOptions
+# 
+# 
+# ------------------------------------------------------------
+
+class GWizardCitationFixOptions(tool.ToolOptions):
+    """Defines options and provides handling interface."""
+
+def init(self, name: str, person_id: str | None = None) -> None:
+    """Initialize the options."""
+    tool.ToolOptions.init(self, name, person_id)
+    self.options_dict = {}
+    self.options_help = {}
+
+# ------------------------------------------------------------
+# 
+# 
+# GWizardCitationFix
+# 
+
+# ------------------------------------------------------------
+
+class GWizardCitationFix(tool.Tool, ManagedWindow):
+    """Show the GWizard citation fix dialog."""
+
+def init(
+        self,
+        dbstate: Any,
+        user: Any,
+        options_class: Any,
+        name: str,
+        callback: Any = None,
+    ) -> None:
+    """Initialize the tool and open the modal dialog."""
+    uistate = user.uistate
+    tool.Tool.init(self, dbstate, options_class, name)
+    ManagedWindow.init(self, uistate, [], self.class, modal=True)
+    self.dbstate = dbstate
+    self.report_path: str | None = None
+    self.report_datetime: str | None = None
+    self._build_window(uistate)
+    self.update_view_button()
+    self.show()
+
+def build_window(self, uistate: Any) -> None:
+    """Build the modal dialog layout."""
+    dialog = Gtk.Dialog(
+        title=str(("GWizard citation fix")),
+        transient_for=uistate.window,
+        modal=True,
+        destroy_with_parent=True,
+    )
+    dialog.add_button(str(_("Close")), Gtk.ResponseType.CLOSE)
+    dialog.connect("response", self.cb_close)
+    content = dialog.get_content_area()
+    content.set_border_width(12)
+    content.set_spacing(6)
+    vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    content.add(vbox)
+    specs = get_button_specs()
+    top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    top_row.set_homogeneous(True)
+    vbox.pack_start(top_row, False, False, 0)
+    self.buttons: dict[str, Gtk.Button] = {}
+    for key, label, sensitive in specs[:2]:
+        button = Gtk.Button(label=label)
+    button.set_sensitive(sensitive)
+    button.set_hexpand(True)
+    button.connect("clicked", self.cb_button, key)
+    top_row.pack_start(button, True, True, 0)
+    self.buttons[key] = button
+    for key, label, sensitive in specs[2:]:
+        button = Gtk.Button(label=label)
+    button.set_sensitive(sensitive)
+    button.set_hexpand(True)
+    button.connect("clicked", self.cb_button, key)
+    vbox.pack_start(button, False, False, 0)
+    self.buttons[key] = button
+    self.set_window(dialog, None, str(("GWizard citation fix")))
+    self.setup_configs("interface.gwizardcitationfix", 420, 260)
+    dialog.show_all()
+
+def build_menu_names(self, obj: Any) -> tuple[str, str]:
+    """Return the menu labels for the managed window."""
+    return (_("GWizard citation fix"), " ")
+
+def cb_close(self, dialog: Gtk.Dialog, response: int) -> None:
+    """Close the dialog."""
+    self.close()
+
+def cb_button(self, button: Gtk.Button, key: str) -> None:
+    """Dispatch dialog button clicks."""
+    if key == "generate":
+        self.cb_generate_report()
+    elif key == "view":
+        self.cb_view_report()
+    elif key == "consolidate_repositories":
+        from gramps.plugins.tool.repoconsolidatedialog import RepoConsolidateDialog
+        RepoConsolidateDialog(self.dbstate, transient_for=self.window).run()
+    elif key == "fix_repositories":
+        self.cb_fix_layer("repositories")
+    elif key == "consolidate_sources":
+        from gramps.plugins.tool.sourceconsolidatedialog import SourceConsolidateDialog
+        SourceConsolidateDialog(self.dbstate, transient_for=self.window).run()
+    elif key == "fix_sources":
+        self.cb_fix_layer("sources")
+    elif key == "fix_citations":
+        self.cb_fix_layer("citations")
+    elif key == "fix_notes":
+        self.cb_fix_layer("notes")
+    elif key == "auto_all":
+        self.cb_auto_all()
+    else:
+        LOG.debug("Unknown button pressed: %s", key)
+
+def cb_fix_layer(self, layer: str) -> None:
+    """Open the fix dialog for one GEDCOM layer."""
+    titles = get_fix_layer_titles()
+    title = titles.get(layer, layer)
+    self.show_fix_dialog(layer, title)
+
+def show_fix_dialog(self, layer: str, title: str) -> None:
+    """Show a per-layer dialog with an Auto best-guess button."""
+    if layer == "repositories":
+        self.show_repo_merge_dialog()
+        return
+    if layer == "sources":
+        self.show_source_fix_dialog()
+        return
+    if layer == "citations":
+        self.show_citation_fix_dialog()
+        return
+    dialog = Gtk.Dialog(
+        title=title,
+        transient_for=self.window,
+        modal=True,
+        destroy_with_parent=True,
+    )
+    dialog.add_button(str(_("Close")), Gtk.ResponseType.CLOSE)
+    dialog.connect("response", lambda dlg, resp: dlg.destroy())
+    content = dialog.get_content_area()
+    content.set_border_width(12)
+    content.set_spacing(6)
+    label = Gtk.Label(label=self.get_fix_description(layer))
+    label.set_line_wrap(True)
+    label.set_halign(Gtk.Align.START)
+    content.add(label)
+    auto_button = Gtk.Button(label=str(("Auto (best guess)")))
+    auto_button.connect("clicked", self.cb_fix_auto, layer)
+    content.add(auto_button)
+    dialog.show_all()
+    dialog.run()
+    dialog.destroy()
+
+def show_repo_merge_dialog(self) -> None:
+    """Open the standalone merge-repositories dialog."""
+    from gramps.plugins.tool.repomergedialog import RepoMergeDialog
+    titles = get_fix_layer_titles()
+    dialog = RepoMergeDialog(
+        title=titles.get("repositories", "repositories"),
+        dbstate=self.dbstate,
+        transient_for=self.window,
+    )
+    dialog.show_dialog()
+
+def show_citation_fix_dialog(self) -> None:
+    """Open the standalone citation-fix dialog."""
+    from gramps.plugins.tool.citationsfixdialog import CitationFixDialog
+    title = get_fix_layer_titles().get("citations", "citations")
+    dialog = CitationFixDialog(
+        title=title,
+        dbstate=self.dbstate,
+        description=self.get_fix_description("citations"),
+        transient_for=self.window,
+    )
+    dialog.show_dialog()
+
+def show_source_fix_dialog(self) -> None:
+    """Open the standalone source-record fix dialog."""
+    from gramps.plugins.tool.sourcesfixdialog import SourceFixDialog
+    title = get_fix_layer_titles().get("sources", "sources")
+    dialog = SourceFixDialog(
+        title=title,
+        dbstate=self.dbstate,
+        description=self.get_fix_description("sources"),
+        transient_for=self.window,
+    )
+    dialog.show_dialog()
+
+def get_fix_description(self, layer: str) -> str:
+    """Return the description text for a fix layer."""
+    return get_fix_description(layer)
+
+def cb_repo_auto(self) -> None:
+    """Apply best-guess golden merges for all non-golden repositories."""
+    from gramps.plugins.tool.repomergedialog import RepoMergeDialog
+    dialog = RepoMergeDialog(
+        title="",
+        dbstate=self.dbstate,
+        transient_for=self.window,
+    )
+    dialog.run_auto(parent=self.window)
+    dialog.destroy()
+
+def cb_fix_auto(self, button: Gtk.Button, layer: str) -> None:
+    """Run the best-guess auto fix for one layer (preview-first)."""
+    if layer == "repositories":
+        self.cb_repo_auto()
+        return
+    try:
+        stats = collect_db_stats(self.dbstate.db)
+    except Exception:  # pylint: disable=broad-except
+        LOG.exception("Failed to analyze database for %s", layer)
+    stats = None
+    summary = self.summarize_auto_fix(layer, stats)
+    OkDialog(
+        str(_("Auto fix preview: %s") % layer),
+        summary,
+        parent=self.window,
+    )
+
+def summarize_auto_fix(self, layer: str, stats: dict[str, Any] | None) -> str:
+    """Return a preview summary of what auto fix would do."""
+    if not stats:
+        return str(("No analysis available. Generate a report first."))
+    if layer == "repositories":
+        count = len(stats.get("sources_no_repo", []))
+        return str(("Best guess would link %d sources to repositories.") % count)
+    if layer == "sources":
+        count = len(stats.get("near_duplicates", []))
+        return str(("Best guess would merge %d duplicate groups.") % count)
+    if layer == "citations":
+        count = int(stats.get("tree_citations", 0))
+        return str(
+                ("Best guess would clean %d FamilySearch Tree citations.") % count
+            )
+    if layer == "notes":
+        count = len(stats.get("notes_debris", []))
+        return str(("Best guess would remove %d debris notes.") % count)
+    return str(("Unknown layer: %s") % layer)
+
+def cb_auto_all(self) -> None:
+    """Run best-guess auto fixes across all layers in order."""
+    try:
+        stats = collect_db_stats(self.dbstate.db)
+    except Exception:  # pylint: disable=broad-except
+        LOG.exception("Failed to analyze database for auto all")
+    stats = None
+    parts = [
+        self.summarize_auto_fix(layer, stats)
+        for layer, _t, d in get_fix_layer_specs()
+    ]
+    OkDialog(
+        str(("Auto fix preview (all layers)")),
+        "\n".join(parts),
+        parent=self.window,
+    )
+
+def update_view_button(self) -> None:
+    """Enable View report only when the report file exists."""
+    button = self.buttons.get("view")
+    if button is None:
+        return
+    path = self.report_path or get_report_path()
+    button.set_sensitive(report_exists(path))
+
+def _pump_events(self) -> None:
+    """Let pending GTK events run so the meter stays responsive."""
+    while Gtk.events_pending():
+        Gtk.main_iteration()
+
+    def cb_generate_report(self) -> None:
+        """Generates the CitationFixReport.txt using the report engine class."""
+        stages = get_report_stages()
+        meter = GWizardCitationFixProgressMeter(parent=self.window)
+        engine = GWizardCitationReport()  # Call the separate report module
+        
+        try:
+            meter.show_stage(stages[0])
+            stats = engine.collect_db_stats(self.dbstate.db)
+            
+            self.report_datetime = datetime.now().strftime("%Y-%m-%d %H:%M")
+            report_body = engine.format_analysis(stats)
+            
+            # Simple wrapper to construct header lines
+            text = f"Citation analysis file\t\t\t{self.report_datetime}\n" + ("=" * 78) + "\n\n" + report_body
+            
+            self.report_path = get_report_path()
+            os.makedirs(os.path.dirname(self.report_path), exist_ok=True)
+            with open(self.report_path, "w", encoding="utf-8") as handle:
+                handle.write(text)
+                
+        except OSError as error:
+            ErrorDialog(str(_("Report Failed")), str(error), parent=self.window)
+            return
+        finally:
+            meter.close()
+            
+        if self.report_path:
+            self.update_view_button()
+            self.cb_view_report()
+
+def cb_view_report(self) -> None:
+    """Open the generated CitationFixReport.txt in a report window."""
+    path = self.report_path or get_report_path()
+    try:
+        with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    except OSError:
+        OkDialog(
+            str(("No report yet")),
+            str(("Please choose Generate report first.")),
+            parent=self.window,
+        )
+        return
+    title, timestamp = parse_report_header(text)
+    if not timestamp and self.report_datetime:
+        timestamp = self.report_datetime
+    dialog = Gtk.Dialog(
+        title=str(("GWizard citation fix report")),
+        transient_for=self.window,
+        modal=True,
+        destroy_with_parent=True,
+        )
+    dialog.add_button(str(("_Close")), Gtk.ResponseType.CLOSE)
+    dialog.connect("response", lambda dlg, resp: dlg.destroy())
+    content = dialog.get_content_area()
+    content.set_border_width(12)
+    content.set_spacing(6)
+    header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    title_label = Gtk.Label()
+    title_label.set_markup('%s' % title)
+    title_label.set_halign(Gtk.Align.START)
+    title_label.set_hexpand(True)
+    header.pack_start(title_label, True, True, 0)
+    date_label = Gtk.Label()
+    date_label.set_markup('%s' % timestamp)
+    date_label.set_halign(Gtk.Align.END)
+    header.pack_start(date_label, False, False, 0)
+    content.add(header)
+    scrolled = Gtk.ScrolledWindow()
+    scrolled.set_min_content_height(300)
+    scrolled.set_min_content_width(1080)
+    textview = Gtk.TextView()
+    textview.set_editable(False)
+    textview.set_wrap_mode(Gtk.WrapMode.WORD)
+    textview.set_vexpand(True)
+    textview.set_hexpand(True)
+    textview.get_buffer().set_text(text)
+    scrolled.add(textview)
+    content.pack_start(scrolled, True, True, 0)
+    scrolled.set_vexpand(True)
+    dialog.show_all()
+    dialog.run()
+    dialog.destroy()
