@@ -127,24 +127,116 @@ class GWizardCitationReport:
         return stats
 
     def format_analysis(self, stats: dict[str, Any]) -> str:
-        """Formats the collected statistics dictionary into clear report lines."""
+        """Formats the collected statistics dictionary into a deep, descriptive report body."""
         get = stats.get
-        lines = [
-            f"Database totals: {get('people', 0)} people, {get('sources', 0)} sources, {get('repositories', 0)} repositories.",
-            "",
-            "Where it falls short:",
-            f"- Sources without a repository: {len(get('sources_no_repo', []))} of {get('sources', 0)}."
-        ]
+        lines = []
         
+        # 1. Database Totals Block
+        lines.append(
+            "Database totals: %d people, %d sources, %d repositories, %d citations, %d notes, %d media."
+            % (
+                get("people", 0),
+                get("sources", 0),
+                get("repositories", 0),
+                get("citations", 0),
+                get("notes", 0),
+                get("media", 0),
+            )
+        )
+        lines.append("")
+        
+        # 2. Positive Alignments / Best Practices
+        lines.append("Where it matches best practice:")
+        lines.append(
+            "- Most sources are collection-level with specifics in citations (Evidence Explained approach)."
+        )
+        lines.append("")
+        
+        # 3. Deficiencies / Diagnostic Room for Improvement
+        lines.append("Where it falls short:")
+        
+        # Repository Missing Log
+        lines.append(
+            "- Sources without a repository link: %d of %d."
+            % (len(get("sources_no_repo", [])), get("sources", 0))
+        )
+        
+        # Conflated Smashed Fields Log
         conflated = get("conflated_sources", [])
-        lines.append(f"- Conflated Fields: {len(conflated)} sources contain mixed data.")
+        lines.append("- Conflated Fields: %d sources contain mixed data types crammed together." % len(conflated))
         for row in conflated[:10]:
-            lines.append(f"  * {row.get('gramps_id')}: '{row.get('title')}'\n    ↳ Found elements: {', '.join(row.get('elements_detected', []))}")
+            lines.append(
+                "  * %s: '%s'\n    ↳ Found elements: %s" 
+                % (row.get("gramps_id"), row.get("title"), ", ".join(row.get("elements_detected", [])))
+            )
+            
+        # Citation Pinpoint Page Tracking
+        lines.append(
+            "- Citations with no pinpoint Volume/Page detail: %d of %d."
+            % (get("citations_no_page", 0), get("citations", 0))
+        )
+        
+        # FamilySearch Tree Downgrade Metrics
+        if get("tree_citations"):
+            lines.append(
+                "- Collaborative Tree citations found: %d (Rated High/Very High confidence: %d)."
+                % (get("tree_citations", 0), get("tree_conf_high", 0))
+            )
+            
+        # Unsourced Individuals Check
+        lines.append(
+            "- Individuals with zero attached source citations: %d of %d."
+            % (get("people_unsourced", 0), get("people", 0))
+        )
+        
+        # Near-Duplicate String Groups Match
+        dupes = get("near_duplicates", [])
+        lines.append("- Near-duplicate source title clusters found: %d." % len(dupes))
+        for group in dupes[:7]:
+            joined = "; ".join("%s '%s'" % (r.get("gramps_id"), r.get("title")) for r in group[:4])
+            lines.append("  ↳ Cluster match: " + joined)
+            
+        # Automated Export Junk Log
+        debris = get("notes_debris", [])
+        lines.append("- Import debris & migration logs hiding inside notes: %d rows." % len(debris))
+        for row in debris[:5]:
+            lines.append("  ↳ Note %s preview: %s" % (row.get("gramps_id"), row.get("preview")))
+            
+        # Long Sketched Blocks Counter
+        long_notes = get("notes_long", [])
+        if long_notes:
+            lines.append("- Long life-sketch narrative notes:")
+            for row in long_notes[:3]:
+                lines.append("  ↳ Note %s (%d chars): %s..." % (row.get("gramps_id"), row.get("length"), row.get("preview")))
+                
+        # Media absolute layout warnings
+        abs_count = get("media_absolute_count", 0)
+        lines.append(
+            "- Media objects carrying absolute hardcoded file paths: %d (Citations with attached media: %d)."
+            % (abs_count, get("citations_with_media", 0))
+        )
+        
+        # Duplicate filename warning blocks
+        dup_media = get("media_dup_basenames", {})
+        if dup_media:
+            lines.append("- Duplicate filenames imported multiple times across different records:")
+            for base, count in list(dup_media.items())[:5]:
+                lines.append("  * %s (Imported %dx)" % (base, count))
+                
+        # Leftover layout warning flags
+        if get("custom_events_total"):
+            lines.append("- Custom unsupported unaligned legacy event definitions: %d tags." % get("custom_events_total", 0))
             
         lines.append("")
+        
+        # 4. Roadmap Step Breakdown Timeline
         lines.append("Suggested order of fixes:")
-        lines.append("1. Run Step 1: Unpack and Split Conflated Source Fields.")
-        lines.append("2. Merge duplicate sources.")
+        lines.append("1. Run 'Unpack Conflated Fields' to isolate hidden repository text strings.")
+        lines.append("2. Run 'Repository Consolidate' to deduplicate matching repository targets.")
+        lines.append("3. Run 'Source Consolidate' to safely group matching census & collection lines together.")
+        lines.append("4. Run 'Fix Citations' to auto-downgrade online user tree confidence metrics.")
+        lines.append("5. Run 'Fix Notes' to permanently scrub legacy automated migration log files.")
+        
         return "\n".join(lines)
 
     def unpack_conflated_sources(self, db: Any, parent_window: Any = None) -> int:
@@ -153,24 +245,24 @@ class GWizardCitationReport:
         and re-links them safely using standard Gramps database transactions.
         """
         from gramps.gen.lib import Repository, RepoRef
+        from gramps.gen.db import DbTxn
         from gramps.gen.const import GRAMPS_LOCALE as glocale
         _ = glocale.translation.sgettext
         
-        # 1. Gather our diagnostic stats to see what needs to be fixed
         stats = self.collect_db_stats(db)
         conflated = stats.get("conflated_sources", [])
         if not conflated:
             return 0
             
-        # Map existing repository names to their handles to prevent creating duplicates
         repo_name_to_handle = {}
         for repo in db.iter_repositories():
             repo_name_to_handle[str(repo.get_name() or "").strip().lower()] = repo.get_handle()
             
         success_count = 0
         
-        # 2. Initialize a safe data mutation transaction block
-        with db.transaction(_("Unpack Conflated Fields")):
+        # Gramps Low-Level Transaction Layer
+        trans = DbTxn(_("Unpack Conflated Fields"), db)
+        try:
             for row in conflated:
                 handle = row["handle"]
                 source = db.get_source_from_handle(handle)
@@ -178,32 +270,23 @@ class GWizardCitationReport:
                     continue
                     
                 title = str(source.get_title() or "")
-                
-                # Intelligent, generic string splitting logic
-                # Splits by semicolons, parentheses, or trailing commas followed by text
                 parts = [p.strip() for p in re.split(r'[;|\(\)]|(?<=[\w]),\s*(?=[A-Za-z])', title) if p.strip()]
                 if len(parts) < 2:
                     continue
                     
-                # Standard genealogical grouping: usually "Repository Name; Source Collection Title"
                 extracted_repo_name = parts[0]
                 extracted_source_title = " ".join(parts[1:]).strip(" .)")
                 
-                # 3. Handle the Repository lifecycle layer
                 repo_key = extracted_repo_name.strip().lower()
                 repo_handle = repo_name_to_handle.get(repo_key)
                 
                 if not repo_handle:
-                    # If this repository doesn't exist yet, build a brand new one
                     new_repo = Repository()
                     new_repo.set_name(extracted_repo_name)
-                    db.add_repository(new_repo)
+                    db.add_repository(new_repo, trans) # Link transaction object
                     repo_handle = new_repo.get_handle()
-                    # Cache it to prevent duplicate creation loops
                     repo_name_to_handle[repo_key] = repo_handle
                     
-                # 4. Handle the Repository Reference linking layer
-                # Check if this Source already has this Repository reference linked
                 already_linked = False
                 for ref in source.get_reporef_list():
                     if ref.get_reference_handle() == repo_handle:
@@ -215,10 +298,14 @@ class GWizardCitationReport:
                     repo_ref.set_reference_handle(repo_handle)
                     source.add_reporef(repo_ref)
                     
-                # 5. Clean up the source title string and update the object
                 source.set_title(extracted_source_title)
-                db.commit_source(source)
+                db.commit_source(source, trans) # Link transaction object
                 success_count += 1
+                
+            db.transaction_commit(trans)
+        except Exception:
+            db.transaction_abort(trans)
+            raise
                 
         return success_count
 
@@ -228,6 +315,7 @@ class GWizardCitationReport:
         reroutes all referencing sources to the master, and deletes duplicates.
         """
         from gramps.gen.const import GRAMPS_LOCALE as glocale
+        from gramps.gen.db import DbTxn
         _ = glocale.translation.sgettext
 
         repos = list(db.iter_repositories())
@@ -247,7 +335,9 @@ class GWizardCitationReport:
             
         merge_count = 0
         
-        with db.transaction(_("Consolidate Repositories")):
+        # Explicitly initialize Gramps transactional batch tracking
+        trans = DbTxn(_("Consolidate Repositories"), db)
+        try:
             for norm_key, group in norm_groups.items():
                 if len(group) < 2:
                     continue
@@ -269,11 +359,17 @@ class GWizardCitationReport:
                                 ref.set_reference_handle(master_handle)
                                 modified = True
                         if modified:
-                            db.commit_source(source)
+                            # Pass trans to ensure changes are bundled together safely
+                            db.commit_source(source, trans)
                             
-                    # Remove the duplicate repository record safely
-                    db.remove_repository(dup_handle)
+                    # Remove the duplicate repository record safely using trans
+                    db.remove_repository(dup_handle, trans)
                     merge_count += 1
+                    
+            db.transaction_commit(trans)
+        except Exception:
+            db.transaction_abort(trans)
+            raise
                     
         return merge_count
 
@@ -283,6 +379,7 @@ class GWizardCitationReport:
         reroutes all referencing citations to the master, and deletes duplicates.
         """
         from gramps.gen.const import GRAMPS_LOCALE as glocale
+        from gramps.gen.db import DbTxn
         _ = glocale.translation.sgettext
 
         sources = list(db.iter_sources())
@@ -296,7 +393,9 @@ class GWizardCitationReport:
                 
         merge_count = 0
         
-        with db.transaction(_("Consolidate Sources")):
+        # Explicitly initialize Gramps transactional batch tracking
+        trans = DbTxn(_("Consolidate Sources"), db)
+        try:
             for norm_key, group in norm_groups.items():
                 if len(group) < 2:
                     continue
@@ -313,11 +412,17 @@ class GWizardCitationReport:
                     for citation in db.iter_citations():
                         if citation.get_reference_handle() == dup_handle:
                             citation.set_reference_handle(master_handle)
-                            db.commit_citation(citation)
+                            # Pass trans to bundle the citation updates safely
+                            db.commit_citation(citation, trans)
                             
-                    # Remove the duplicate source record safely
-                    db.remove_source(dup_handle)
+                    # Remove the duplicate source record safely using trans
+                    db.remove_source(dup_handle, trans)
                     merge_count += 1
+                    
+            db.transaction_commit(trans)
+        except Exception:
+            db.transaction_abort(trans)
+            raise
                     
         return merge_count
 
@@ -328,6 +433,7 @@ class GWizardCitationReport:
         messy automation artifacts out of the pinpoint Volume/Page field.
         """
         from gramps.gen.const import GRAMPS_LOCALE as glocale
+        from gramps.gen.db import DbTxn
         _ = glocale.translation.sgettext
 
         citations = list(db.iter_citations())
@@ -342,7 +448,9 @@ class GWizardCitationReport:
             elif "ancestry member tree" in title or "public member tree" in title:
                 tree_source_handles.add(str(src.get_handle()))
 
-        with db.transaction(_("Clean Citations and Confidence")):
+        # Explicitly initialize Gramps transactional batch tracking
+        trans = DbTxn(_("Clean Citations and Confidence"), db)
+        try:
             for citation in citations:
                 modified = False
                 src_handle = str(citation.get_reference_handle() or "")
@@ -368,8 +476,14 @@ class GWizardCitationReport:
                         modified = True
                         
                 if modified:
-                    db.commit_citation(citation)
+                    # Pass trans to bundle the citation updates safely
+                    db.commit_citation(citation, trans)
                     fix_count += 1
+                    
+            db.transaction_commit(trans)
+        except Exception:
+            db.transaction_abort(trans)
+            raise
                     
         return fix_count
 
@@ -380,6 +494,7 @@ class GWizardCitationReport:
         referencing objects and purges the note from the database entirely.
         """
         from gramps.gen.const import GRAMPS_LOCALE as glocale
+        from gramps.gen.db import DbTxn
         _ = glocale.translation.sgettext
 
         notes = list(db.iter_notes())
@@ -393,7 +508,9 @@ class GWizardCitationReport:
             "passed away exactly on his"
         ]
 
-        with db.transaction(_("Purge Import Debris Notes")):
+        # Explicitly initialize Gramps transactional batch tracking
+        trans = DbTxn(_("Purge Import Debris Notes"), db)
+        try:
             for note in notes:
                 text = self._note_text(note).strip()
                 if not text:
@@ -415,22 +532,27 @@ class GWizardCitationReport:
                                     parent = db.get_person_from_handle(bl_handle)
                                     if parent:
                                         parent.remove_note_handle(note_handle)
-                                        db.commit_person(parent)
+                                        db.commit_person(parent, trans) # Pass trans
                                 elif obj_type == "Source":
                                     parent = db.get_source_from_handle(bl_handle)
                                     if parent:
                                         parent.remove_note_handle(note_handle)
-                                        db.commit_source(parent)
+                                        db.commit_source(parent, trans) # Pass trans
                                 elif obj_type == "Citation":
                                     parent = db.get_citation_from_handle(bl_handle)
                                     if parent:
                                         parent.remove_note_handle(note_handle)
-                                        db.commit_citation(parent)
+                                        db.commit_citation(parent, trans) # Pass trans
                         except Exception:
                             LOG.exception("Failed to disconnect backlink for note %s", note_handle)
 
-                    # Purge the actual note row record permanently
-                    db.remove_note(note_handle)
+                    # Purge the actual note row record permanently passing trans
+                    db.remove_note(note_handle, trans)
                     purge_count += 1
+                    
+            db.transaction_commit(trans)
+        except Exception:
+            db.transaction_abort(trans)
+            raise
                     
         return purge_count

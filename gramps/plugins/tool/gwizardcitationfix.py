@@ -218,6 +218,7 @@ def get_button_specs() -> list[tuple[str, str, bool]]:
     return [
         ("generate", str(_("Generate report")), True),
         ("view", str(_("View report")), False),
+        ("unpack_sources", str(_("Unpack Conflated Fields")), True),
         ("consolidate_repositories", str(_("Repository Consolidate")), True),
         ("fix_repositories", str(_("Fix Repositories")), True),
         ("consolidate_sources", str(_("Source Consolidate")), True),
@@ -315,6 +316,7 @@ class GWizardCitationFixProgressMeter(ProgressMeter):
 def get_fix_layer_specs() -> list[tuple[str, str, str]]:
     """Return (layer, title, description) specs for the fix dialogs."""
     return [
+        ("unpack_sources", str(_("Unpack Fields")), str(_("Parse mixed text headers, extract repository entries, and prepare fields for deduplication."))),
         ("repositories", str(_("Fix Repositories")), str(_("Create missing repositories and link orphan sources."))),
         ("sources", str(_("Fix Sources")), str(_("Merge near-duplicates and quarantine non-sources."))),
         ("citations", str(_("Fix Citations")), str(_("Clean Tree PAGE/DATE and confidence."))),
@@ -407,10 +409,13 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
         self.close()
 
     def cb_button(self, button: Gtk.Button, key: str) -> None:
+        """Dispatch dialog button clicks."""
         if key == "generate":
             self.cb_generate_report()
         elif key == "view":
             self.cb_view_report()
+        elif key == "unpack_sources":
+            self.cb_fix_layer("unpack_sources")  # Route the new button click
         elif key == "consolidate_repositories":
             from gramps.plugins.tool.repoconsolidatedialog import RepoConsolidateDialog
             RepoConsolidateDialog(self.dbstate, transient_for=self.window).run()
@@ -468,15 +473,25 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
         engine = GWizardCitationReport()
         summary = ""
         
-        if layer == "repositories":
-            # 1. Unpack fields first
+        if layer == "unpack_sources":
+            # Run the safe splitting database transaction by itself
             fixed_count = engine.unpack_conflated_sources(self.dbstate.db, parent_window=self.window)
-            # 2. Merge repository duplicates immediately following the split
+            
+            OkDialog(
+                str(_("Field Unpacking Complete")), 
+                str(_("Successfully isolated and split %d mixed text headers into separate repository fields.") % fixed_count), 
+                parent=self.window
+            )
+            self.update_view_button()
+            return
+            
+        elif layer == "repositories":
+            # Repositories button now focuses strictly on merging matching repository names
             repo_merges = engine.consolidate_duplicate_repositories(self.dbstate.db)
             
             OkDialog(
-                str(_("Repository Cleanup Complete")), 
-                str(_("Unpacked %d fields and consolidated %d duplicate repository records.") % (fixed_count, repo_merges)), 
+                str(_("Repository Consolidate Complete")), 
+                str(_("Successfully merged %d matching repository records.") % repo_merges), 
                 parent=self.window
             )
             self.update_view_button()

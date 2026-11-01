@@ -703,7 +703,7 @@ def format_analysis(stats: dict[str, Any]) -> str:
         )
     lines.append("")
     lines.append(str(("Suggested order of fixes:")))
-    lines.append(str(("1. Run Step 1: Unpack and Split Conflated Source Fields.")))
+    lines.append(str(("1. Run Unpack and Split Conflated Source Fields.")))
     lines.append(str(("2. Merge the duplicate sources.")))
     lines.append(
         str(("3. Clean up the FamilySearch Tree source and lower the confidence."))
