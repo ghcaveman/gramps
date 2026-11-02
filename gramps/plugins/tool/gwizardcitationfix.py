@@ -117,6 +117,47 @@ def rank_golden_repo_matches(
     return ranked if limit is None else ranked[:limit]
 
 
+def infer_repository_name(
+    source_title: str, golden: list[str] | None = None
+) -> str:
+    """Infer a repository name from a source title.
+
+    A golden name is selected only when its normalized or compact form is
+    present in the title. If no golden name is identifiable, return the
+    source title so the information is preserved for later review.
+    """
+    title = source_title.strip()
+    if golden is None:
+        golden = get_golden_repository_names()
+    normalized_title = normalize_repo_name(title)
+    compact_title = normalized_title.replace(" ", "")
+    for candidate in golden:
+        normalized_candidate = normalize_repo_name(candidate)
+        if not normalized_candidate:
+            continue
+        aliases = [normalized_candidate]
+        aliases.extend(
+            normalize_repo_name(alias)
+            for alias in re.findall(r"\(([^)]+)\)", candidate)
+        )
+        entry = GoldStandardRepositories.get_by_name(candidate)
+        if entry is not None:
+            url = entry.get("url", "")
+            host = url.split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
+            aliases.append(normalize_repo_name(host))
+        for alias in aliases:
+            compact_alias = alias.replace(" ", "")
+            if (
+                alias
+                and (
+                    alias in normalized_title
+                    or compact_alias in compact_title
+                )
+            ):
+                return candidate
+    return title
+
+
 def build_repo_merge_rows(
     repo_names: list[str], golden: list[str] | None = None, limit: int = 5
 ) -> list[dict[str, Any]]:

@@ -44,15 +44,21 @@ from gi.repository import Pango
 # Gramps modules
 #
 # -------------------------------------------------------------------------
+from gramps.gen.db import DbTxn
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.lib import RepoRef
 from gramps.gui.dialog import OkDialog
 from gramps.plugins.tool.goldstandardrepos import GoldStandardRepositories
+from gramps.plugins.tool.gwizardcitationrepairengine import (
+    GWizardCitationRepairEngine,
+)
 from gramps.plugins.tool.gwizardcitationfix import (
     UNATTACHED_REPO_KEY,
     build_repo_merge_rows,
     collect_sources_by_repo,
     get_fix_description,
     get_golden_repo_display,
+    infer_repository_name,
     plan_repo_merges,
 )
 
@@ -126,6 +132,7 @@ class RepoMergeDialog(Gtk.Dialog):
             )
             done.set_halign(Gtk.Align.START)
             content.add(done)
+            content.add(self.build_buttons())
             return
         # Add header row above the scrolled grid so it stays locked
         # when scrolling through the data rows.
@@ -371,15 +378,21 @@ class RepoMergeDialog(Gtk.Dialog):
         return scrolled
 
     def build_buttons(self) -> Gtk.Box:
-        """Return the Auto/Apply button row."""
+        """Return the repository action button row."""
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         buttons.set_homogeneous(True)
         auto_button = Gtk.Button(label=str(_("Auto (best guess)")))
         apply_button = Gtk.Button(label=str(_("Apply")))
+        populate_button = Gtk.Button(label=str(_("Populate empty repositories")))
         auto_button.connect("clicked", self.cb_set_best)
         apply_button.connect("clicked", self.cb_apply)
+        populate_button.connect("clicked", self.cb_populate_empty)
+        populate_button.set_sensitive(
+            bool(self.sources_by_repo.get(UNATTACHED_REPO_KEY))
+        )
         buttons.pack_start(auto_button, True, True, 0)
         buttons.pack_start(apply_button, True, True, 0)
+        buttons.pack_start(populate_button, True, True, 0)
         return buttons
 
     def collect_repo_names(self) -> list[str]:
@@ -424,7 +437,6 @@ class RepoMergeDialog(Gtk.Dialog):
 
     def apply_merges(self, plan: dict[str, list[str]]) -> tuple[int, int]:
         """Apply repository merges/renames from a target->originals plan."""
-        from gramps.gen.db import DbTxn
         from gramps.gen.merge import MergeRepositoryQuery
 
         merged = 0
@@ -453,6 +465,41 @@ class RepoMergeDialog(Gtk.Dialog):
                 except Exception:  # pylint: disable=broad-except
                     LOG.exception("Failed to merge repository %s", original)
         return (merged, renamed)
+
+    def populate_empty_repositories(self) -> tuple[int, int]:
+        """Link sources without repositories using inferred repository names."""
+        db = self.dbstate.db
+        existing: dict[str, str] = {}
+        for repository in db.iter_repositories():
+            name = str(repository.get_name() or "").strip()
+            handle = str(repository.get_handle() or "")
+            if name and handle:
+                existing[name.casefold()] = handle
+
+        linked = 0
+        created = 0
+        with DbTxn(str(_("Populate empty repositories")), db, batch=True) as trans:
+            for source in db.iter_sources():
+                if list(source.get_reporef_list()):
+                    continue
+                title = str(source.get_title() or "").strip()
+                repository_name = infer_repository_name(title)
+                if not repository_name:
+                    repository_name = str(_("Unnamed source"))
+                key = repository_name.casefold()
+                repository_handle = existing.get(key)
+                if repository_handle is None:
+                    repository_handle = GWizardCitationRepairEngine._create_repository(
+                        db, repository_name, trans
+                    )
+                    existing[key] = repository_handle
+                    created += 1
+                reference = RepoRef()
+                reference.set_reference_handle(repository_handle)
+                source.add_repo_reference(reference)
+                db.commit_source(source, trans)
+                linked += 1
+        return linked, created
 
     def run_auto(self, parent: Gtk.Window | None = None) -> None:
         """Apply best-guess golden merges without showing the dialog."""
@@ -510,6 +557,28 @@ class RepoMergeDialog(Gtk.Dialog):
             str(
                 _("Merged %d repositories, renamed %d to golden names.")
                 % (merged, renamed)
+            ),
+            parent=self,
+        )
+        self.destroy()
+
+    def cb_populate_empty(self, _button: Gtk.Button) -> None:
+        """Populate repository references for sources that have none."""
+        try:
+            linked, created = self.populate_empty_repositories()
+        except Exception:
+            LOG.exception("Failed to populate empty repositories")
+            OkDialog(
+                str(_("Populate empty repositories")),
+                str(_("The empty repositories could not be populated.")),
+                parent=self,
+            )
+            return
+        OkDialog(
+            str(_("Repositories populated")),
+            str(
+                _("Linked %d sources and created %d repositories.")
+                % (linked, created)
             ),
             parent=self,
         )
