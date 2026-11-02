@@ -1213,9 +1213,15 @@ class GuiPersonListOption(Gtk.Box):
         self.__del_person = widgets.SimpleButton(
             "list-remove", self.__del_person_clicked
         )
+        settings = Gtk.Settings.get_default()
+        alt_order = settings.get_property("gtk-alternative-button-order")
         self.__vbbox = Gtk.ButtonBox(orientation=Gtk.Orientation.VERTICAL)
-        self.__vbbox.add(self.__add_person)
-        self.__vbbox.add(self.__del_person)
+        if alt_order:
+            self.__vbbox.add(self.__del_person)
+            self.__vbbox.add(self.__add_person)
+        else:
+            self.__vbbox.add(self.__add_person)
+            self.__vbbox.add(self.__del_person)
         self.__vbbox.set_layout(Gtk.ButtonBoxStyle.SPREAD)
         self.pack_end(self.__vbbox, False, False, 0)
 
@@ -1394,9 +1400,15 @@ class GuiPlaceListOption(Gtk.Box):
         # the container
         self.__add_place = widgets.SimpleButton("list-add", self.__add_place_clicked)
         self.__del_place = widgets.SimpleButton("list-remove", self.__del_place_clicked)
+        settings = Gtk.Settings.get_default()
+        alt_order = settings.get_property("gtk-alternative-button-order")
         self.__vbbox = Gtk.ButtonBox(orientation=Gtk.Orientation.VERTICAL)
-        self.__vbbox.add(self.__add_place)
-        self.__vbbox.add(self.__del_place)
+        if alt_order:
+            self.__vbbox.add(self.__del_place)
+            self.__vbbox.add(self.__add_place)
+        else:
+            self.__vbbox.add(self.__add_place)
+            self.__vbbox.add(self.__del_place)
         self.__vbbox.set_layout(Gtk.ButtonBoxStyle.SPREAD)
         self.pack_end(self.__vbbox, False, False, 0)
 
@@ -1540,9 +1552,15 @@ class GuiSurnameColorOption(Gtk.Box):
 
         self.add_surname = widgets.SimpleButton("list-add", self.__add_clicked)
         self.del_surname = widgets.SimpleButton("list-remove", self.__del_clicked)
+        settings = Gtk.Settings.get_default()
+        alt_order = settings.get_property("gtk-alternative-button-order")
         self.vbbox = Gtk.ButtonBox(orientation=Gtk.Orientation.VERTICAL)
-        self.vbbox.add(self.add_surname)
-        self.vbbox.add(self.del_surname)
+        if alt_order:
+            self.vbbox.add(self.del_surname)
+            self.vbbox.add(self.add_surname)
+        else:
+            self.vbbox.add(self.add_surname)
+            self.vbbox.add(self.del_surname)
         self.vbbox.set_layout(Gtk.ButtonBoxStyle.SPREAD)
         self.pack_end(self.vbbox, False, False, 0)
 
