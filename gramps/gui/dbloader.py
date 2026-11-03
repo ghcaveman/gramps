@@ -361,6 +361,9 @@ class GrampsLoginDialog(ManagedWindow):
         dialog.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("Login"), Gtk.ResponseType.OK
         )
+        dialog.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+        )
         self.set_window(dialog, None, self.title)
 
     def run(self):
@@ -397,6 +400,9 @@ class GrampsImportFileDialog(ManagedWindow):
         )
         import_dialog.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("Import"), Gtk.ResponseType.OK
+        )
+        import_dialog.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
         )
         self.set_window(import_dialog, None, self.title)
         self.setup_configs("interface.grampsimportfiledialog", 780, 630)

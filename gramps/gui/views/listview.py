@@ -1259,6 +1259,9 @@ class ListView(NavigationView):
         chooser.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Save"), Gtk.ResponseType.OK
         )
+        chooser.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+        )
         chooser.set_do_overwrite_confirmation(True)
 
         combobox = Gtk.ComboBoxText()
