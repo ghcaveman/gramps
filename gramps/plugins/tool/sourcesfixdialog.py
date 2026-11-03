@@ -232,9 +232,7 @@ class SourceFixDialog(Gtk.Dialog):
                     row = dict(
                         row,
                         keeper_handle=keeper,
-                        discard_handles=[
-                            h for h in row["all_handles"] if h != keeper
-                        ],
+                        discard_handles=[h for h in row["all_handles"] if h != keeper],
                     )
             rows.append(row)
         plan = plan_source_fixes(rows)

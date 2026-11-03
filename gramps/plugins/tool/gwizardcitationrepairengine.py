@@ -58,6 +58,8 @@ _GOLD_REPO_TYPES = {
     "Web site": RepositoryType.WEBSITE,
     "Archive": RepositoryType.ARCHIVE,
     "Library": RepositoryType.LIBRARY,
+    "Collection": RepositoryType.COLLECTION,
+    "Government Office": RepositoryType.ARCHIVE,
 }
 
 
@@ -228,7 +230,48 @@ class GWizardCitationRepairEngine:
                         db, keeper.get_handle(), duplicate.get_handle(), trans
                     ):
                         merged += 1
+            self.apply_gold_standard_details(db, trans)
         return merged
+
+    def apply_gold_standard_details(self, db: Any, trans: Any = None) -> int:
+        """Give repositories matching the golden list its type and web address.
+
+        GEDCOM carries no repository type, so imported repositories all start
+        as Gramps' default (Library). Only that default is replaced; a type
+        you chose yourself is never overwritten, and existing URLs are kept.
+        """
+        if trans is None:
+            with DbTxn(_("Apply Gold Standard Repository Details"), db) as new_trans:
+                return self.apply_gold_standard_details(db, new_trans)
+        catalog = {
+            normalize_repo_name(entry["name"]): entry
+            for entry in GoldStandardRepositories.get_all()
+        }
+        changed = 0
+        for repo in list(db.iter_repositories()):
+            entry = catalog.get(normalize_repo_name(str(repo.get_name() or "")))
+            if entry is None:
+                continue
+            modified = False
+            wanted = _GOLD_REPO_TYPES.get(entry.get("type", ""))
+            if (
+                wanted is not None
+                and repo.get_type().value == RepositoryType.LIBRARY
+                and wanted != RepositoryType.LIBRARY
+            ):
+                repo.set_type(wanted)
+                modified = True
+            url_text = str(entry.get("url") or "")
+            if url_text.startswith(("http://", "https://")) and not repo.get_url_list():
+                url = Url()
+                url.set_path(url_text)
+                url.set_type(UrlType.WEB_HOME)
+                repo.add_url(url)
+                modified = True
+            if modified:
+                db.commit_repository(repo, trans)
+                changed += 1
+        return changed
 
     # ------------------------------------------------------------
     # Step 3: sources
@@ -267,7 +310,9 @@ class GWizardCitationRepairEngine:
                 groups[key].append(source)
 
         def rank(source: Any) -> tuple[Any, ...]:
-            cites = len(list(db.find_backlink_handles(source.get_handle(), ["Citation"])))
+            cites = len(
+                list(db.find_backlink_handles(source.get_handle(), ["Citation"]))
+            )
             return (
                 -len(list(source.get_reporef_list())),
                 -cites,

@@ -135,7 +135,9 @@ class UnpackSourcesDialog(Gtk.Dialog):
         tree = Gtk.TreeView(model=self.store)
         toggle = Gtk.CellRendererToggle()
         toggle.connect("toggled", self.cb_toggled)
-        tree.append_column(Gtk.TreeViewColumn(str(_("Apply")), toggle, active=COL_APPLY))
+        tree.append_column(
+            Gtk.TreeViewColumn(str(_("Apply")), toggle, active=COL_APPLY)
+        )
         specs = [
             (COL_ID, str(_("ID")), False),
             (COL_OLD, str(_("Current title")), False),

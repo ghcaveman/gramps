@@ -62,9 +62,18 @@ REPORT_TITLE = "Citation analysis file"
 REPORT_LINE_WIDTH = 78
 
 # Rule-based diagnostic search patterns
-_FIELD_REPO_PATTERNS = re.compile(r'https?://|www\.|familysearch|ancestry|newspapers\.com|find\s?a\s?grave|myheritage|legacy\.com', re.IGNORECASE)
-_FIELD_SOURCE_PATTERNS = re.compile(r'census|death\s+certificate|birth\s+record|marriage\s+index|vital\s+records|church\s+records|obituary\s+index', re.IGNORECASE)
-_FIELD_CITATION_PATTERNS = re.compile(r'page\s+\d+|vol(ume)?\s+\d+|cert(ificate)?\s+\d+|accessed\s+\d+|entry\s+for|household\s+\d+|line\s+\d+|memorial\s+id', re.IGNORECASE)
+_FIELD_REPO_PATTERNS = re.compile(
+    r"https?://|www\.|familysearch|ancestry|newspapers\.com|find\s?a\s?grave|myheritage|legacy\.com",
+    re.IGNORECASE,
+)
+_FIELD_SOURCE_PATTERNS = re.compile(
+    r"census|death\s+certificate|birth\s+record|marriage\s+index|vital\s+records|church\s+records|obituary\s+index",
+    re.IGNORECASE,
+)
+_FIELD_CITATION_PATTERNS = re.compile(
+    r"page\s+\d+|vol(ume)?\s+\d+|cert(ificate)?\s+\d+|accessed\s+\d+|entry\s+for|household\s+\d+|line\s+\d+|memorial\s+id",
+    re.IGNORECASE,
+)
 
 
 # ------------------------------------------------------------
@@ -264,22 +273,24 @@ def report_exists(path: str | None = None) -> bool:
         path = get_report_path()
     return os.path.isfile(path)
 
+
 # ------------------------------------------------------------
-# 
-# 
+#
+#
 # Analysis helpers (pure logic, no GUI)
-# 
-# 
+#
+#
 # ------------------------------------------------------------
 
 _FILENAME_RE = re.compile(r".\w{2,5}$")
 _BARE_URL_RE = re.compile(r"^\shttps?://\S+\s$", re.IGNORECASE)
 _GENERIC_SOURCE_HINTS = (
-"official civil vital records",
-"birth, death, and burial registries",
-"state and municipal government archives",
+    "official civil vital records",
+    "birth, death, and burial registries",
+    "state and municipal government archives",
 )
 _NON_SOURCE_TITLES = ("facebook", "legacy.com", "familysearch.org")
+
 
 def normalize_source_title(title: str) -> str:
     """Return a normalized key used to group near-duplicate sources."""
@@ -288,6 +299,7 @@ def normalize_source_title(title: str) -> str:
     key = re.sub(r"\bu.?\s*s.?\b", " ", key)
     key = re.sub(r"[^a-z0-9 ]+", " ", key)
     return re.sub(r"\s+", " ", key).strip()
+
 
 def _safe_iter(db: Any, name: str) -> list[Any]:
     """Return list(db.()) or an empty list when unavailable."""
@@ -300,6 +312,7 @@ def _safe_iter(db: Any, name: str) -> list[Any]:
         LOG.exception("Failed to iterate %s", name)
     return []
 
+
 def _safe_count(db: Any, name: str, fallback_iter: str) -> int:
     """Return db.() with an iteration fallback."""
     try:
@@ -309,6 +322,7 @@ def _safe_count(db: Any, name: str, fallback_iter: str) -> int:
     except Exception:  # pylint: disable=broad-except
         LOG.exception("Failed counting via %s", name)
     return len(_safe_iter(db, fallback_iter))
+
 
 def _note_text(note: Any) -> str:
     """Return the plain text of a note."""
@@ -325,6 +339,7 @@ def _note_text(note: Any) -> str:
         except Exception:  # pylint: disable=broad-except
             return ""
 
+
 def _person_has_citation(person: Any) -> bool:
     """Return True when a person carries any direct citation."""
     try:
@@ -337,23 +352,24 @@ def _person_has_citation(person: Any) -> bool:
         pass
     return False
 
+
 def build_report_text(
     citation_count: int,
     timestamp: str,
     stages: list[str] | None = None,
     stats: dict[str, Any] | None = None,
-    ) -> str:
+) -> str:
     """Build the text content of the citation analysis report file."""
     if stages is None:
         stages = get_report_stages()
         title = str((REPORT_TITLE))
     padding = max(2, REPORT_LINE_WIDTH - len(title) - len(timestamp))
     lines = [
-    f"{title}{' ' * padding}{timestamp}",
-    "=" * REPORT_LINE_WIDTH,
-    "",
-    str(("Citations in database: %d") % citation_count),
-    "",
+        f"{title}{' ' * padding}{timestamp}",
+        "=" * REPORT_LINE_WIDTH,
+        "",
+        str(("Citations in database: %d") % citation_count),
+        "",
     ]
     if stats is not None:
         lines.append(format_analysis(stats))
@@ -361,6 +377,7 @@ def build_report_text(
         lines.extend(f"- {stage}" for stage in stages)
         lines.append("")
     return "\n".join(lines)
+
 
 def collect_db_stats(db: Any) -> dict[str, Any]:
     """Scan repositories, sources, citations, notes and media."""
@@ -372,13 +389,13 @@ def collect_db_stats(db: Any) -> dict[str, Any]:
     media_objs = _safe_iter(db, "iter_media")
     events = _safe_iter(db, "iter_events")
     stats: dict[str, Any] = {
-    "people": len(people) or _safe_count(db, "get_number_of_people", "iter_people"),
-    "families": _safe_count(db, "get_number_of_families", "iter_families"),
-    "sources": len(sources),
-    "repositories": len(repos),
-    "citations": len(citations),
-    "notes": len(notes),
-    "media": len(media_objs),
+        "people": len(people) or _safe_count(db, "get_number_of_people", "iter_people"),
+        "families": _safe_count(db, "get_number_of_families", "iter_families"),
+        "sources": len(sources),
+        "repositories": len(repos),
+        "citations": len(citations),
+        "notes": len(notes),
+        "media": len(media_objs),
     }
     try:
         stats["people"] = int(db.get_number_of_people())
@@ -436,12 +453,12 @@ def collect_db_stats(db: Any) -> dict[str, Any]:
     except Exception:  # pylint: disable=broad-except
         repo_refs = []
     row = {
-    "title": title,
-    "author": author,
-    "gramps_id": gid,
-    "handle": handle,
-    "repo_count": len(repo_refs),
-    "citations": cites_by_source.get(str(handle), 0),
+        "title": title,
+        "author": author,
+        "gramps_id": gid,
+        "handle": handle,
+        "repo_count": len(repo_refs),
+        "citations": cites_by_source.get(str(handle), 0),
     }
     source_rows.append(row)
     has_repo = bool(_FIELD_REPO_PATTERNS.search(title))
@@ -451,7 +468,13 @@ def collect_db_stats(db: Any) -> dict[str, Any]:
     if element_count >= 2:
         row["conflation_score"] = element_count
     row["elements_detected"] = [
-    k for k, v in {"Repository": has_repo, "Source": has_src_hint, "Citation": has_cit_hint}.items() if v
+        k
+        for k, v in {
+            "Repository": has_repo,
+            "Source": has_src_hint,
+            "Citation": has_cit_hint,
+        }.items()
+        if v
     ]
     conflated_sources.append(row)
     key = normalize_source_title(title)
@@ -506,7 +529,7 @@ def collect_db_stats(db: Any) -> dict[str, Any]:
     low_stripped = text.strip().lower()
     if "records not imported into repo" in lowered or low_stripped.startswith(
         "birth type:"
-        ):
+    ):
         debris.append({"gramps_id": gid, "preview": text.strip()[:100]})
     if len(text) > 500:
         long_notes.append({"gramps_id": gid, "length": len(text)})
@@ -523,7 +546,7 @@ def collect_db_stats(db: Any) -> dict[str, Any]:
     dup = sum(1 for key, count in text_counter.items() if count > 1 and key)
     stats["notes_duplicated"] = dup
     stats["notes_long"] = sorted(long_notes, key=lambda r: r["length"], reverse=True)[
-    :5
+        :5
     ]
     abs_paths: list[str] = []
     base_counter: Counter[str] = Counter()
@@ -533,11 +556,11 @@ def collect_db_stats(db: Any) -> dict[str, Any]:
             path = str(media.get_path() or "")
         except Exception:  # pylint: disable=broad-except
             path = ""
-    if path and (os.path.isabs(path) or re.match(r"^[a-zA-Z]:\", path)):
-        abs_paths.append(path)
-    base = os.path.basename(path).lower() if path else ""
-    if base:
-    base_counter[base] += 1
+        if path and (os.path.isabs(path) or re.match("^[a-zA-Z]:\\", path)):
+            abs_paths.append(path)
+        base = os.path.basename(path).lower() if path else ""
+        if base:
+            base_counter[base] += 1
     for cit in citations:
         try:
             if cit.get_media_list():
@@ -561,37 +584,38 @@ def collect_db_stats(db: Any) -> dict[str, Any]:
     stats["custom_events_total"] = sum(custom_counter.values())
     return stats
 
+
 def format_analysis(stats: dict[str, Any]) -> str:
     """Format the collected stats as the report body."""
     get = stats.get
     lines: list[str] = []
     lines.append(
-    str(
+        str(
             (
                 "Database totals: %d people, %d families, %d sources, "
                 "%d repositories, %d citations, %d notes, %d media."
             )
-        % (
-            get("people", 0),
-            get("families", 0),
-            get("sources", 0),
-            get("repositories", 0),
-            get("citations", 0),
-            get("notes", 0),
-            get("media", 0),
+            % (
+                get("people", 0),
+                get("families", 0),
+                get("sources", 0),
+                get("repositories", 0),
+                get("citations", 0),
+                get("notes", 0),
+                get("media", 0),
             )
         )
     )
     lines.append("")
     lines.append(str(("Where it matches best practice")))
     lines.append(
-    str(
-        (
-            "Most sources are collection-level with specifics in "
-            "citations (the Evidence Explained 'split' approach). "
-            "Orphan sources: %d."
-        )
-        % len(get("orphan_sources", []))
+        str(
+            (
+                "Most sources are collection-level with specifics in "
+                "citations (the Evidence Explained 'split' approach). "
+                "Orphan sources: %d."
+            )
+            % len(get("orphan_sources", []))
         )
     )
     lines.append("")
@@ -603,17 +627,28 @@ def format_analysis(stats: dict[str, Any]) -> str:
         )
     )
     for row in get("repo_rows", []):
-    lines.append(
+        lines.append(
             "- %s (%s)"
             % (row.get("name") or _("Unnamed repository"), row.get("gramps_id") or "?")
         )
     conflated = get("conflated_sources", [])
     lines.append("")
-    lines.append(str(_("Conflated Fields: %d sources contain mixed Repository/Source/Citation data.") % len(conflated)))
+    lines.append(
+        str(
+            _(
+                "Conflated Fields: %d sources contain mixed Repository/Source/Citation data."
+            )
+            % len(conflated)
+        )
+    )
     for row in conflated[:10]:
         lines.append(
             "  - %s: '%s'\n    ↳ Detected elements: %s"
-            % (row.get("gramps_id"), row.get("title"), ", ".join(row.get("elements_detected", [])))
+            % (
+                row.get("gramps_id"),
+                row.get("title"),
+                ", ".join(row.get("elements_detected", [])),
+            )
         )
     lines.append("")
     lines.append(
@@ -623,16 +658,16 @@ def format_analysis(stats: dict[str, Any]) -> str:
         )
     )
     if get("tree_citations"):
-    lines.append(
-        str(
-            (
-                "FamilySearch Family Tree citations: %d, rated "
-                "confidence 3+: %d. A user-edited tree is "
-                "derivative/secondary, so lower the confidence."
+        lines.append(
+            str(
+                (
+                    "FamilySearch Family Tree citations: %d, rated "
+                    "confidence 3+: %d. A user-edited tree is "
+                    "derivative/secondary, so lower the confidence."
+                )
+                % (get("tree_citations", 0), get("tree_conf_high", 0))
             )
-            % (get("tree_citations", 0), get("tree_conf_high", 0))
         )
-    )
     lines.append(
         str(
             ("People with no directly-attached source: %d of %d.")
@@ -642,10 +677,10 @@ def format_analysis(stats: dict[str, Any]) -> str:
     dupes = get("near_duplicates", [])
     lines.append(str(("Near-duplicate source groups: %d.") % len(dupes)))
     for group in dupes[:7]:
-    joined = "; ".join(
-        "%s '%s'" % (r.get("gramps_id"), r.get("title")) for r in group[:4]
-    )
-    lines.append("  - " + joined)
+        joined = "; ".join(
+            "%s '%s'" % (r.get("gramps_id"), r.get("title")) for r in group[:4]
+        )
+        lines.append("  - " + joined)
     for row in get("non_source_like", [])[:10]:
         lines.append(
             str(
@@ -664,10 +699,10 @@ def format_analysis(stats: dict[str, Any]) -> str:
         str(
             ("Notes that are bare URLs: %d of %d; unreferenced: %d; duplicated: %d.")
             % (
-            get("notes_bare_url", 0),
-            get("notes", 0),
-            get("notes_unreferenced", 0),
-            get("notes_duplicated", 0),
+                get("notes_bare_url", 0),
+                get("notes", 0),
+                get("notes_unreferenced", 0),
+                get("notes_duplicated", 0),
             )
         )
     )
@@ -675,7 +710,7 @@ def format_analysis(stats: dict[str, Any]) -> str:
         lines.append(
             str(
                 ("Import debris note %s: %s")
-                    % (row.get("gramps_id"), row.get("preview"))
+                % (row.get("gramps_id"), row.get("preview"))
             )
         )
     for row in get("notes_long", [])[:5]:
@@ -718,6 +753,7 @@ def format_analysis(stats: dict[str, Any]) -> str:
     lines.append("")
     return "\n".join(lines)
 
+
 def parse_report_header(text: str) -> tuple[str, str]:
     """Split the first report line into (title, timestamp) parts."""
     first = text.splitlines() if text else ""
@@ -728,16 +764,19 @@ def parse_report_header(text: str) -> tuple[str, str]:
         return (title, timestamp)
     return (first.strip(), "")
 
+
 # ------------------------------------------------------------
-# 
-# 
+#
+#
 # GWizardCitationFixProgressMeter
-# 
-# 
+#
+#
 # ------------------------------------------------------------
+
 
 class GWizardCitationFixProgressMeter(ProgressMeter):
     """Wait/hourglass progress dialog for the citation fix report flow."""
+
 
 def init(self, parent: Any = None) -> None:
     """Initialize the meter in activity mode like the GWizard flow."""
@@ -752,18 +791,21 @@ def init(self, parent: Any = None) -> None:
         mode=ProgressMeter.MODE_ACTIVITY,
     )
 
+
 def show_stage(self, text: str) -> None:
     """Update the header text and pulse the meter for a stage."""
     self.set_header(text)
     self.step()
 
+
 # ------------------------------------------------------------
-# 
-# 
+#
+#
 # Fix layer specs
-# 
-# 
+#
+#
 # ------------------------------------------------------------
+
 
 def get_fix_layer_specs() -> list[tuple[str, str, str]]:
     """Return (layer, title, description) specs for the fix dialogs."""
@@ -790,9 +832,11 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
         ),
     ]
 
+
 def get_fix_layer_titles() -> dict[str, str]:
     """Return a mapping of layer key to dialog title."""
     return {layer: title for layer, title, _desc in get_fix_layer_specs()}
+
 
 def get_fix_description(layer: str) -> str:
     """Return the description text for a fix layer."""
@@ -801,16 +845,19 @@ def get_fix_description(layer: str) -> str:
             return desc
     return layer
 
+
 # ------------------------------------------------------------
-# 
-# 
+#
+#
 # GWizardCitationFixOptions
-# 
-# 
+#
+#
 # ------------------------------------------------------------
+
 
 class GWizardCitationFixOptions(tool.ToolOptions):
     """Defines options and provides handling interface."""
+
 
 def init(self, name: str, person_id: str | None = None) -> None:
     """Initialize the options."""
@@ -818,18 +865,20 @@ def init(self, name: str, person_id: str | None = None) -> None:
     self.options_dict = {}
     self.options_help = {}
 
-# ------------------------------------------------------------
-# 
-# 
-# GWizardCitationFix
-# 
 
 # ------------------------------------------------------------
+#
+#
+# GWizardCitationFix
+#
+
+# ------------------------------------------------------------
+
 
 class GWizardCitationFix(tool.Tool, ManagedWindow):
     """Show the GWizard citation fix dialog."""
 
-def init(
+    def __init__(
         self,
         dbstate: Any,
         user: Any,
@@ -837,16 +886,17 @@ def init(
         name: str,
         callback: Any = None,
     ) -> None:
-    """Initialize the tool and open the modal dialog."""
-    uistate = user.uistate
-    tool.Tool.init(self, dbstate, options_class, name)
-    ManagedWindow.init(self, uistate, [], self.class, modal=True)
-    self.dbstate = dbstate
-    self.report_path: str | None = None
-    self.report_datetime: str | None = None
-    self._build_window(uistate)
-    self.update_view_button()
-    self.show()
+        """Initialize the tool and open the modal dialog."""
+        uistate = user.uistate
+        tool.Tool.__init__(self, dbstate, options_class, name)
+        ManagedWindow.__init__(self, uistate, [], self.__class__, modal=True)
+        self.dbstate = dbstate
+        self.report_path: str | None = None
+        self.report_datetime: str | None = None
+        self._build_window(uistate)
+        self.update_view_button()
+        self.show()
+
 
 def build_window(self, uistate: Any) -> None:
     """Build the modal dialog layout."""
@@ -886,13 +936,16 @@ def build_window(self, uistate: Any) -> None:
     self.setup_configs("interface.gwizardcitationfix", 420, 260)
     dialog.show_all()
 
+
 def build_menu_names(self, obj: Any) -> tuple[str, str]:
     """Return the menu labels for the managed window."""
     return (_("GWizard citation fix"), " ")
 
+
 def cb_close(self, dialog: Gtk.Dialog, response: int) -> None:
     """Close the dialog."""
     self.close()
+
 
 def cb_button(self, button: Gtk.Button, key: str) -> None:
     """Dispatch dialog button clicks."""
@@ -902,11 +955,13 @@ def cb_button(self, button: Gtk.Button, key: str) -> None:
         self.cb_view_report()
     elif key == "consolidate_repositories":
         from gramps.plugins.tool.repoconsolidatedialog import RepoConsolidateDialog
+
         RepoConsolidateDialog(self.dbstate, transient_for=self.window).run()
     elif key == "fix_repositories":
         self.cb_fix_layer("repositories")
     elif key == "consolidate_sources":
         from gramps.plugins.tool.sourceconsolidatedialog import SourceConsolidateDialog
+
         SourceConsolidateDialog(self.dbstate, transient_for=self.window).run()
     elif key == "fix_sources":
         self.cb_fix_layer("sources")
@@ -919,11 +974,13 @@ def cb_button(self, button: Gtk.Button, key: str) -> None:
     else:
         LOG.debug("Unknown button pressed: %s", key)
 
+
 def cb_fix_layer(self, layer: str) -> None:
     """Open the fix dialog for one GEDCOM layer."""
     titles = get_fix_layer_titles()
     title = titles.get(layer, layer)
     self.show_fix_dialog(layer, title)
+
 
 def show_fix_dialog(self, layer: str, title: str) -> None:
     """Show a per-layer dialog with an Auto best-guess button."""
@@ -958,9 +1015,11 @@ def show_fix_dialog(self, layer: str, title: str) -> None:
     dialog.run()
     dialog.destroy()
 
+
 def show_repo_merge_dialog(self) -> None:
     """Open the standalone merge-repositories dialog."""
     from gramps.plugins.tool.repomergedialog import RepoMergeDialog
+
     titles = get_fix_layer_titles()
     dialog = RepoMergeDialog(
         title=titles.get("repositories", "repositories"),
@@ -969,9 +1028,11 @@ def show_repo_merge_dialog(self) -> None:
     )
     dialog.show_dialog()
 
+
 def show_citation_fix_dialog(self) -> None:
     """Open the standalone citation-fix dialog."""
     from gramps.plugins.tool.citationsfixdialog import CitationFixDialog
+
     title = get_fix_layer_titles().get("citations", "citations")
     dialog = CitationFixDialog(
         title=title,
@@ -981,9 +1042,11 @@ def show_citation_fix_dialog(self) -> None:
     )
     dialog.show_dialog()
 
+
 def show_source_fix_dialog(self) -> None:
     """Open the standalone source-record fix dialog."""
     from gramps.plugins.tool.sourcesfixdialog import SourceFixDialog
+
     title = get_fix_layer_titles().get("sources", "sources")
     dialog = SourceFixDialog(
         title=title,
@@ -993,13 +1056,16 @@ def show_source_fix_dialog(self) -> None:
     )
     dialog.show_dialog()
 
+
 def get_fix_description(self, layer: str) -> str:
     """Return the description text for a fix layer."""
     return get_fix_description(layer)
 
+
 def cb_repo_auto(self) -> None:
     """Apply best-guess golden merges for all non-golden repositories."""
     from gramps.plugins.tool.repomergedialog import RepoMergeDialog
+
     dialog = RepoMergeDialog(
         title="",
         dbstate=self.dbstate,
@@ -1007,6 +1073,7 @@ def cb_repo_auto(self) -> None:
     )
     dialog.run_auto(parent=self.window)
     dialog.destroy()
+
 
 def cb_fix_auto(self, button: Gtk.Button, layer: str) -> None:
     """Run the best-guess auto fix for one layer (preview-first)."""
@@ -1025,6 +1092,7 @@ def cb_fix_auto(self, button: Gtk.Button, layer: str) -> None:
         parent=self.window,
     )
 
+
 def summarize_auto_fix(self, layer: str, stats: dict[str, Any] | None) -> str:
     """Return a preview summary of what auto fix would do."""
     if not stats:
@@ -1037,13 +1105,12 @@ def summarize_auto_fix(self, layer: str, stats: dict[str, Any] | None) -> str:
         return str(("Best guess would merge %d duplicate groups.") % count)
     if layer == "citations":
         count = int(stats.get("tree_citations", 0))
-        return str(
-                ("Best guess would clean %d FamilySearch Tree citations.") % count
-            )
+        return str(("Best guess would clean %d FamilySearch Tree citations.") % count)
     if layer == "notes":
         count = len(stats.get("notes_debris", []))
         return str(("Best guess would remove %d debris notes.") % count)
     return str(("Unknown layer: %s") % layer)
+
 
 def cb_auto_all(self) -> None:
     """Run best-guess auto fixes across all layers in order."""
@@ -1053,14 +1120,14 @@ def cb_auto_all(self) -> None:
         LOG.exception("Failed to analyze database for auto all")
     stats = None
     parts = [
-        self.summarize_auto_fix(layer, stats)
-        for layer, _t, d in get_fix_layer_specs()
+        self.summarize_auto_fix(layer, stats) for layer, _t, d in get_fix_layer_specs()
     ]
     OkDialog(
         str(("Auto fix preview (all layers)")),
         "\n".join(parts),
         parent=self.window,
     )
+
 
 def update_view_button(self) -> None:
     """Enable View report only when the report file exists."""
@@ -1069,6 +1136,7 @@ def update_view_button(self) -> None:
         return
     path = self.report_path or get_report_path()
     button.set_sensitive(report_exists(path))
+
 
 def _pump_events(self) -> None:
     """Let pending GTK events run so the meter stays responsive."""
@@ -1080,38 +1148,44 @@ def _pump_events(self) -> None:
         stages = get_report_stages()
         meter = GWizardCitationFixProgressMeter(parent=self.window)
         engine = GWizardCitationReport()  # Call the separate report module
-        
+
         try:
             meter.show_stage(stages[0])
             stats = engine.collect_db_stats(self.dbstate.db)
-            
+
             self.report_datetime = datetime.now().strftime("%Y-%m-%d %H:%M")
             report_body = engine.format_analysis(stats)
-            
+
             # Simple wrapper to construct header lines
-            text = f"Citation analysis file\t\t\t{self.report_datetime}\n" + ("=" * 78) + "\n\n" + report_body
-            
+            text = (
+                f"Citation analysis file\t\t\t{self.report_datetime}\n"
+                + ("=" * 78)
+                + "\n\n"
+                + report_body
+            )
+
             self.report_path = get_report_path()
             os.makedirs(os.path.dirname(self.report_path), exist_ok=True)
             with open(self.report_path, "w", encoding="utf-8") as handle:
                 handle.write(text)
-                
+
         except OSError as error:
             ErrorDialog(str(_("Report Failed")), str(error), parent=self.window)
             return
         finally:
             meter.close()
-            
+
         if self.report_path:
             self.update_view_button()
             self.cb_view_report()
+
 
 def cb_view_report(self) -> None:
     """Open the generated CitationFixReport.txt in a report window."""
     path = self.report_path or get_report_path()
     try:
         with open(path, encoding="utf-8") as handle:
-        text = handle.read()
+            text = handle.read()
     except OSError:
         OkDialog(
             str(("No report yet")),
@@ -1127,7 +1201,7 @@ def cb_view_report(self) -> None:
         transient_for=self.window,
         modal=True,
         destroy_with_parent=True,
-        )
+    )
     dialog.add_button(str(("_Close")), Gtk.ResponseType.CLOSE)
     dialog.connect("response", lambda dlg, resp: dlg.destroy())
     content = dialog.get_content_area()
@@ -1135,12 +1209,12 @@ def cb_view_report(self) -> None:
     content.set_spacing(6)
     header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
     title_label = Gtk.Label()
-    title_label.set_markup('%s' % title)
+    title_label.set_markup("%s" % title)
     title_label.set_halign(Gtk.Align.START)
     title_label.set_hexpand(True)
     header.pack_start(title_label, True, True, 0)
     date_label = Gtk.Label()
-    date_label.set_markup('%s' % timestamp)
+    date_label.set_markup("%s" % timestamp)
     date_label.set_halign(Gtk.Align.END)
     header.pack_start(date_label, False, False, 0)
     content.add(header)

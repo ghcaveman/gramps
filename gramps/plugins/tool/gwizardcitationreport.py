@@ -51,7 +51,7 @@ LONG_NOTE_CHARS = 2000
 
 class GWizardCitationReport:
     """Handles the algorithmic parsing, database scanning, and text generation."""
-    
+
     @staticmethod
     def normalize_source_title(title: str) -> str:
         return normalize_source_title(title)
@@ -156,9 +156,10 @@ class GWizardCitationReport:
         tree_high = 0
         for cit in citations:
             try:
-                if str(cit.get_reference_handle()) in tree_handles and int(
-                    cit.get_confidence_level()
-                ) >= 3:
+                if (
+                    str(cit.get_reference_handle()) in tree_handles
+                    and int(cit.get_confidence_level()) >= 3
+                ):
                     tree_high += 1
             except Exception:  # pylint: disable=broad-except
                 continue
@@ -229,7 +230,7 @@ class GWizardCitationReport:
         """Formats the collected statistics dictionary into a deep, descriptive report body."""
         get = stats.get
         lines = []
-        
+
         # 1. Database Totals Block
         lines.append(
             "Database totals: %d people, %d sources, %d repositories, %d citations, %d notes, %d media."
@@ -243,99 +244,131 @@ class GWizardCitationReport:
             )
         )
         lines.append("")
-        
+
         # 2. Positive Alignments / Best Practices
         lines.append("Where it matches best practice:")
         lines.append(
             "- Most sources are collection-level with specifics in citations (Evidence Explained approach)."
         )
         lines.append("")
-        
+
         # 3. Deficiencies / Diagnostic Room for Improvement
         lines.append("Where it falls short:")
-        
+
         # Repository Missing Log
         lines.append(
             "- Sources without a repository link: %d of %d."
             % (len(get("sources_no_repo", [])), get("sources", 0))
         )
-        
+
         # Conflated Smashed Fields Log
         conflated = get("conflated_sources", [])
-        lines.append("- Conflated Fields: %d sources contain mixed data types crammed together." % len(conflated))
+        lines.append(
+            "- Conflated Fields: %d sources contain mixed data types crammed together."
+            % len(conflated)
+        )
         for row in conflated[:10]:
             lines.append(
-                "  * %s: '%s'\n    ↳ Found elements: %s" 
-                % (row.get("gramps_id"), row.get("title"), ", ".join(row.get("elements_detected", [])))
+                "  * %s: '%s'\n    ↳ Found elements: %s"
+                % (
+                    row.get("gramps_id"),
+                    row.get("title"),
+                    ", ".join(row.get("elements_detected", [])),
+                )
             )
-            
+
         # Citation Pinpoint Page Tracking
         lines.append(
             "- Citations with no pinpoint Volume/Page detail: %d of %d."
             % (get("citations_no_page", 0), get("citations", 0))
         )
-        
+
         # FamilySearch Tree Downgrade Metrics
         if get("tree_citations"):
             lines.append(
                 "- Collaborative Tree citations found: %d (Rated High/Very High confidence: %d)."
                 % (get("tree_citations", 0), get("tree_conf_high", 0))
             )
-            
+
         # Unsourced Individuals Check
         lines.append(
             "- Individuals with zero attached source citations: %d of %d."
             % (get("people_unsourced", 0), get("people", 0))
         )
-        
+
         # Near-Duplicate String Groups Match
         dupes = get("near_duplicates", [])
         lines.append("- Near-duplicate source title clusters found: %d." % len(dupes))
         for group in dupes[:7]:
-            joined = "; ".join("%s '%s'" % (r.get("gramps_id"), r.get("title")) for r in group[:4])
+            joined = "; ".join(
+                "%s '%s'" % (r.get("gramps_id"), r.get("title")) for r in group[:4]
+            )
             lines.append("  ↳ Cluster match: " + joined)
-            
+
         # Automated Export Junk Log
         debris = get("notes_debris", [])
-        lines.append("- Import debris & migration logs hiding inside notes: %d rows." % len(debris))
+        lines.append(
+            "- Import debris & migration logs hiding inside notes: %d rows."
+            % len(debris)
+        )
         for row in debris[:5]:
-            lines.append("  ↳ Note %s preview: %s" % (row.get("gramps_id"), row.get("preview")))
-            
+            lines.append(
+                "  ↳ Note %s preview: %s" % (row.get("gramps_id"), row.get("preview"))
+            )
+
         # Long Sketched Blocks Counter
         long_notes = get("notes_long", [])
         if long_notes:
             lines.append("- Long life-sketch narrative notes:")
             for row in long_notes[:3]:
-                lines.append("  ↳ Note %s (%d chars): %s..." % (row.get("gramps_id"), row.get("length"), row.get("preview")))
-                
+                lines.append(
+                    "  ↳ Note %s (%d chars): %s..."
+                    % (row.get("gramps_id"), row.get("length"), row.get("preview"))
+                )
+
         # Media absolute layout warnings
         abs_count = get("media_absolute_count", 0)
         lines.append(
             "- Media objects carrying absolute hardcoded file paths: %d (Citations with attached media: %d)."
             % (abs_count, get("citations_with_media", 0))
         )
-        
+
         # Duplicate filename warning blocks
         dup_media = get("media_dup_basenames", {})
         if dup_media:
-            lines.append("- Duplicate filenames imported multiple times across different records:")
+            lines.append(
+                "- Duplicate filenames imported multiple times across different records:"
+            )
             for base, count in list(dup_media.items())[:5]:
                 lines.append("  * %s (Imported %dx)" % (base, count))
-                
+
         # Leftover layout warning flags
         if get("custom_events_total"):
-            lines.append("- Custom unsupported unaligned legacy event definitions: %d tags." % get("custom_events_total", 0))
-            
+            lines.append(
+                "- Custom unsupported unaligned legacy event definitions: %d tags."
+                % get("custom_events_total", 0)
+            )
+
         lines.append("")
-        
+
         # 4. Roadmap Step Breakdown Timeline
         lines.append("Suggested order of fixes:")
-        lines.append("1. Run 'Unpack Conflated Fields' to isolate hidden repository text strings.")
-        lines.append("2. Run 'Repository Consolidate' to deduplicate matching repository targets.")
-        lines.append("3. Run 'Source Consolidate' to safely group matching census & collection lines together.")
-        lines.append("4. Run 'Fix Citations' to auto-downgrade online user tree confidence metrics.")
-        lines.append("5. Run 'Fix Notes' to permanently scrub legacy automated migration log files.")
-        
+        lines.append(
+            "1. Run 'Unpack Conflated Fields' to isolate hidden repository text strings."
+        )
+        lines.append(
+            "2. Run 'Repository Consolidate' to deduplicate matching repository targets."
+        )
+        lines.append(
+            "3. Run 'Source Consolidate' to safely group matching census & collection lines together."
+        )
+        lines.append(
+            "4. Run 'Fix Citations' to auto-downgrade online user tree confidence metrics."
+        )
+        lines.append(
+            "5. Run 'Fix Notes' to permanently scrub legacy automated migration log files."
+        )
+
         return "\n".join(lines)
 
 

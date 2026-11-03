@@ -55,7 +55,9 @@ from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
 from gramps.plugins.tool.gwizardcitationreport import GWizardCitationReport
-from gramps.plugins.tool.gwizardcitationshared import normalize_repo_name as _shared_normalize
+from gramps.plugins.tool.gwizardcitationshared import (
+    normalize_repo_name as _shared_normalize,
+)
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -117,9 +119,7 @@ def rank_golden_repo_matches(
     return ranked if limit is None else ranked[:limit]
 
 
-def infer_repository_name(
-    source_title: str, golden: list[str] | None = None
-) -> str:
+def infer_repository_name(source_title: str, golden: list[str] | None = None) -> str:
     """Infer a repository name from a source title.
 
     A golden name is selected only when its normalized or compact form is
@@ -147,13 +147,7 @@ def infer_repository_name(
             aliases.append(normalize_repo_name(host))
         for alias in aliases:
             compact_alias = alias.replace(" ", "")
-            if (
-                alias
-                and (
-                    alias in normalized_title
-                    or compact_alias in compact_title
-                )
-            ):
+            if alias and (alias in normalized_title or compact_alias in compact_title):
                 return candidate
     return title
 
@@ -289,6 +283,7 @@ def get_report_path(base_dir: str | None = None) -> str:
     """Return the full path of the generated CitationFixReport.txt file."""
     if base_dir is None:
         from gramps.gen.const import USER_DATA
+
         base_dir = USER_DATA
     return os.path.join(base_dir, REPORT_FILENAME)
 
@@ -356,11 +351,35 @@ class GWizardCitationFixProgressMeter(ProgressMeter):
 def get_fix_layer_specs() -> list[tuple[str, str, str]]:
     """Return (layer, title, description) specs for the fix dialogs."""
     return [
-        ("unpack_sources", str(_("Unpack Fields")), str(_("Parse mixed text headers, extract repository entries, and prepare fields for deduplication."))),
-        ("repositories", str(_("Fix Repositories")), str(_("Create missing repositories and link orphan sources."))),
-        ("sources", str(_("Fix Sources")), str(_("Merge near-duplicates and quarantine non-sources."))),
-        ("citations", str(_("Fix Citations")), str(_("Clean Tree PAGE/DATE and confidence."))),
-        ("notes", str(_("Fix Notes")), str(_("Remove import debris and convert bare-URL notes."))),
+        (
+            "unpack_sources",
+            str(_("Unpack Fields")),
+            str(
+                _(
+                    "Parse mixed text headers, extract repository entries, and prepare fields for deduplication."
+                )
+            ),
+        ),
+        (
+            "repositories",
+            str(_("Fix Repositories")),
+            str(_("Create missing repositories and link orphan sources.")),
+        ),
+        (
+            "sources",
+            str(_("Fix Sources")),
+            str(_("Merge near-duplicates and quarantine non-sources.")),
+        ),
+        (
+            "citations",
+            str(_("Fix Citations")),
+            str(_("Clean Tree PAGE/DATE and confidence.")),
+        ),
+        (
+            "notes",
+            str(_("Fix Notes")),
+            str(_("Remove import debris and convert bare-URL notes.")),
+        ),
     ]
 
 
@@ -390,7 +409,14 @@ class GWizardCitationFixOptions(tool.ToolOptions):
 class GWizardCitationFix(tool.Tool, ManagedWindow):
     """Show the GWizard citation fix dialog."""
 
-    def __init__(self, dbstate: Any, user: Any, options_class: Any, name: str, callback: Any = None) -> None:
+    def __init__(
+        self,
+        dbstate: Any,
+        user: Any,
+        options_class: Any,
+        name: str,
+        callback: Any = None,
+    ) -> None:
         uistate = user.uistate
         tool.Tool.__init__(self, dbstate, options_class, name)
         ManagedWindow.__init__(self, uistate, [], self.__class__, modal=True)
@@ -415,12 +441,12 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
         content.set_spacing(6)
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         content.add(vbox)
-        
+
         specs = get_button_specs()
         top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         top_row.set_homogeneous(True)
         vbox.pack_start(top_row, False, False, 0)
-        
+
         self.buttons: dict[str, Gtk.Button] = {}
         for key, label, sensitive in specs[:2]:
             button = Gtk.Button(label=label)
@@ -429,7 +455,7 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             button.connect("clicked", self.cb_button, key)
             top_row.pack_start(button, True, True, 0)
             self.buttons[key] = button
-            
+
         for key, label, sensitive in specs[2:]:
             button = Gtk.Button(label=label)
             button.set_sensitive(sensitive)
@@ -437,7 +463,7 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             button.connect("clicked", self.cb_button, key)
             vbox.pack_start(button, False, False, 0)
             self.buttons[key] = button
-            
+
         self.set_window(dialog, None, str(_("GWizard citation fix")))
         self.setup_configs("interface.gwizardcitationfix", 420, 260)
         dialog.show_all()
@@ -458,11 +484,15 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             self.cb_fix_layer("unpack_sources")  # Route the new button click
         elif key == "consolidate_repositories":
             from gramps.plugins.tool.repoconsolidatedialog import RepoConsolidateDialog
+
             RepoConsolidateDialog(self.dbstate, transient_for=self.window).run()
         elif key == "fix_repositories":
             self.cb_fix_layer("repositories")
         elif key == "consolidate_sources":
-            from gramps.plugins.tool.sourceconsolidatedialog import SourceConsolidateDialog
+            from gramps.plugins.tool.sourceconsolidatedialog import (
+                SourceConsolidateDialog,
+            )
+
             SourceConsolidateDialog(self.dbstate, transient_for=self.window).run()
         elif key == "fix_sources":
             self.cb_fix_layer("sources")
@@ -480,16 +510,31 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
     def show_fix_dialog(self, layer: str, title: str) -> None:
         if layer == "unpack_sources":
             from gramps.plugins.tool.unpacksourcesdialog import UnpackSourcesDialog
-            UnpackSourcesDialog(title=title, dbstate=self.dbstate, description=get_fix_description("unpack_sources"), transient_for=self.window).show_dialog()
+
+            UnpackSourcesDialog(
+                title=title,
+                dbstate=self.dbstate,
+                description=get_fix_description("unpack_sources"),
+                transient_for=self.window,
+            ).show_dialog()
             self.update_view_button()
             return
         if layer == "repositories":
             from gramps.plugins.tool.repomergedialog import RepoMergeDialog
-            RepoMergeDialog(title=title, dbstate=self.dbstate, transient_for=self.window).show_dialog()
+
+            RepoMergeDialog(
+                title=title, dbstate=self.dbstate, transient_for=self.window
+            ).show_dialog()
             return
         if layer == "sources":
             from gramps.plugins.tool.sourcesfixdialog import SourceFixDialog
-            SourceFixDialog(title=title, dbstate=self.dbstate, description=get_fix_description("sources"), transient_for=self.window).show_dialog()
+
+            SourceFixDialog(
+                title=title,
+                dbstate=self.dbstate,
+                description=get_fix_description("sources"),
+                transient_for=self.window,
+            ).show_dialog()
             return
         if layer == "citations":
             try:
@@ -497,10 +542,17 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             except ImportError:
                 LOG.warning("citationsfixdialog not available; using auto fix")
             else:
-                CitationFixDialog(title=title, dbstate=self.dbstate, description=get_fix_description("citations"), transient_for=self.window).show_dialog()
+                CitationFixDialog(
+                    title=title,
+                    dbstate=self.dbstate,
+                    description=get_fix_description("citations"),
+                    transient_for=self.window,
+                ).show_dialog()
                 return
 
-        dialog = Gtk.Dialog(title=title, transient_for=self.window, modal=True, destroy_with_parent=True)
+        dialog = Gtk.Dialog(
+            title=title, transient_for=self.window, modal=True, destroy_with_parent=True
+        )
         dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         dialog.connect("response", lambda dlg, resp: dlg.destroy())
         content = dialog.get_content_area()
@@ -581,11 +633,23 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
         engine = GWizardCitationRepairEngine()
         db = self.dbstate.db
         steps = [
-            (str(_("Unpacked %d mixed source titles.")), engine.unpack_conflated_sources),
-            (str(_("Merged %d duplicate repository records.")), engine.consolidate_duplicate_repositories),
-            (str(_("Merged %d duplicate source records.")), engine.consolidate_duplicate_sources),
+            (
+                str(_("Unpacked %d mixed source titles.")),
+                engine.unpack_conflated_sources,
+            ),
+            (
+                str(_("Merged %d duplicate repository records.")),
+                engine.consolidate_duplicate_repositories,
+            ),
+            (
+                str(_("Merged %d duplicate source records.")),
+                engine.consolidate_duplicate_sources,
+            ),
             (str(_("Refined %d citations.")), engine.clean_and_rate_citations),
-            (str(_("Purged %d import debris notes.")), engine.purge_import_debris_notes),
+            (
+                str(_("Purged %d import debris notes.")),
+                engine.purge_import_debris_notes,
+            ),
         ]
         lines = []
         for number, (message, func) in enumerate(steps, 1):
@@ -596,7 +660,9 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                 lines.append("%d. %s" % (number, str(_("FAILED: %s")) % error))
         OkDialog(
             str(_("Global Macro Pipeline Complete")),
-            str(_("The automated best-guess pipeline results:")) + "\n\n" + "\n".join(lines),
+            str(_("The automated best-guess pipeline results:"))
+            + "\n\n"
+            + "\n".join(lines),
             parent=self.window,
         )
         self.update_view_button()
@@ -617,20 +683,25 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
         stages = get_report_stages()
         meter = GWizardCitationFixProgressMeter(parent=self.window)
         engine = GWizardCitationReport()
-        
+
         try:
             meter.show_stage(stages[0])
             self._pump_events()
             stats = engine.collect_db_stats(self.dbstate.db)
-            
+
             meter.show_stage(stages[3])
             self._pump_events()
             self.report_datetime = datetime.now().strftime("%Y-%m-%d %H:%M")
             report_body = engine.format_analysis(stats)
-            
-            text = f"{_(REPORT_TITLE)}\t\t\t{self.report_datetime}\n" + ("=" * REPORT_LINE_WIDTH) + "\n\n" + report_body
+
+            text = (
+                f"{_(REPORT_TITLE)}\t\t\t{self.report_datetime}\n"
+                + ("=" * REPORT_LINE_WIDTH)
+                + "\n\n"
+                + report_body
+            )
             self.report_path = get_report_path()
-            
+
             os.makedirs(os.path.dirname(self.report_path), exist_ok=True)
             with open(self.report_path, "w", encoding="utf-8") as handle:
                 handle.write(text)
@@ -641,10 +712,14 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             return
         finally:
             meter.close()
-            
+
         if self.report_path:
             self.update_view_button()
-            OkDialog(str(_("Report generated")), str(_("Wrote %s") % self.report_path), parent=self.window)
+            OkDialog(
+                str(_("Report generated")),
+                str(_("Wrote %s") % self.report_path),
+                parent=self.window,
+            )
             self.cb_view_report()
 
     def cb_view_report(self) -> None:
@@ -655,34 +730,34 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                 text = handle.read()
         except OSError:
             return
-            
+
         title, timestamp = parse_report_header(text)
         dialog = Gtk.Dialog(
-            title=str(_("GWizard citation fix report")), 
-            transient_for=self.window, 
-            modal=True, 
-            destroy_with_parent=True
+            title=str(_("GWizard citation fix report")),
+            transient_for=self.window,
+            modal=True,
+            destroy_with_parent=True,
         )
         dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         dialog.connect("response", lambda dlg, resp: dlg.destroy())
-        
+
         content = dialog.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
-        
+
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         title_label = Gtk.Label()
         title_label.set_markup('<span size="larger" weight="bold">%s</span>' % title)
         title_label.set_halign(Gtk.Align.START)
         title_label.set_hexpand(True)
         header.pack_start(title_label, True, True, 0)
-        
+
         date_label = Gtk.Label()
         date_label.set_markup('<span size="smaller">%s</span>' % timestamp)
         date_label.set_halign(Gtk.Align.END)
         header.pack_start(date_label, False, False, 0)
         content.add(header)
-        
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_min_content_height(300)
         scrolled.set_min_content_width(1080)
@@ -694,7 +769,7 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
         textview.get_buffer().set_text(text)
         scrolled.add(textview)
         content.pack_start(scrolled, True, True, 0)
-        
+
         dialog.show_all()
         dialog.run()
         dialog.destroy()

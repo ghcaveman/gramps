@@ -45,6 +45,7 @@ _ = glocale.translation.gettext
 class GoldStandardRepositories:
     """Catalog of gold-standard genealogy repository definitions."""
 
+    # Sorted by name so the drop-downs that show this catalog appear in order.
     GENEALOGY_REPOSITORIES: list[dict[str, str]] = sorted(
         [
             {
@@ -300,12 +301,12 @@ class GoldStandardRepositories:
                 ),
             },
             {
-                "name": "State and Municipal Civil Registries",
+                "name": "Local Government and Municipal Registries",
                 "type": "Government Office",
                 "url": "",
                 "address": "Multiple Regional Offices, Italy / USA",
                 "notes": _(
-                    "Local town halls, municipal registries, and state vital statistics archives holding primary birth, marriage, and death books."
+                    "Local town halls, municipal registries, and state vital statistics archives holding primary birth, marriage, and death books (for example Genoa, Italy and Broward County, Florida)."
                 ),
             },
             {
@@ -333,6 +334,33 @@ class GoldStandardRepositories:
                 "address": "225 West State Street, Trenton, NJ 08625, USA",
                 "notes": _(
                     "State repository holding comprehensive historical collections of births, marriages, and deaths, including early records for Camden and Somers Point."
+                ),
+            },
+            {
+                "name": "United States Patent and Trademark Office (USPTO)",
+                "type": "Government Office",
+                "url": "https://www.uspto.gov",
+                "address": "600 Dulany Street, Alexandria, VA 22314, USA",
+                "notes": _(
+                    "Federal agency holding historical patent grants, drawings, and trademark registrations, searchable by patent number."
+                ),
+            },
+            {
+                "name": "Facebook",
+                "type": "Web site",
+                "url": "https://www.facebook.com",
+                "address": "Meta Platforms, Inc., 1 Meta Way, Menlo Park, CA 94025, USA",
+                "notes": _(
+                    "Social media platform; family-posted photos, tributes, and personal announcements, usually cited as an online personal source."
+                ),
+            },
+            {
+                "name": "Personal Family Collection",
+                "type": "Collection",
+                "url": "",
+                "address": "",
+                "notes": _(
+                    "Privately held family documents, photographs, charts, letters, and heirlooms (for example a family tree document from a relative) that are not held by an archive or website."
                 ),
             },
         ],

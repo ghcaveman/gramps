@@ -73,7 +73,10 @@ class SourceConsolidateDialog(ConsolidateDialogBase):
         source = self.dbstate.db.get_source_from_handle(handle)
         if source is None:
             return handle
-        return "%s (%s)" % (source.get_title() or str(_("(unnamed)")), source.get_gramps_id())
+        return "%s (%s)" % (
+            source.get_title() or str(_("(unnamed)")),
+            source.get_gramps_id(),
+        )
 
     def merge(self, keeper_handle: str, discard_handle: str) -> bool:
         return self.engine.merge_sources(self.dbstate.db, keeper_handle, discard_handle)

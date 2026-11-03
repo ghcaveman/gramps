@@ -577,8 +577,7 @@ class RepoMergeDialog(Gtk.Dialog):
         OkDialog(
             str(_("Repositories populated")),
             str(
-                _("Linked %d sources and created %d repositories.")
-                % (linked, created)
+                _("Linked %d sources and created %d repositories.") % (linked, created)
             ),
             parent=self,
         )

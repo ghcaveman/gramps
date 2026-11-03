@@ -100,7 +100,9 @@ class ConsolidateDialogBase(Gtk.Dialog):
         box.set_hexpand(True)
         content.add(box)
 
-        self.handles = sorted(self.get_handles(), key=lambda h: self.get_label(h).lower())
+        self.handles = sorted(
+            self.get_handles(), key=lambda h: self.get_label(h).lower()
+        )
         left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         left_scroll = Gtk.ScrolledWindow()
         left_scroll.set_min_content_height(240)
