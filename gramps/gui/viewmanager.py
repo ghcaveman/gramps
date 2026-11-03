@@ -2061,6 +2061,9 @@ class QuickBackup(ManagedWindow):  # TODO move this class into its own module
         self.setup_configs("interface.quick-backup", 500, 150)
         close_button = window.add_button(_("_Close"), Gtk.ResponseType.CLOSE)
         ok_button = window.add_button(_("_OK"), Gtk.ResponseType.APPLY)
+        window.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.APPLY, Gtk.ResponseType.CLOSE]
+        )
         vbox = window.get_content_area()
         hbox = Gtk.Box()
         label = Gtk.Label(label=_("Path:"))
@@ -2206,6 +2209,9 @@ class QuickBackup(ManagedWindow):  # TODO move this class into its own module
         )
         fdialog.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Apply"), Gtk.ResponseType.OK
+        )
+        fdialog.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
         )
         mpath = path_entry.get_text()
         if not mpath:

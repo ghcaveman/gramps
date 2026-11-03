@@ -355,6 +355,9 @@ class NavigationView(PageView):
         dialog.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Jump to"), Gtk.ResponseType.OK
         )
+        dialog.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+        )
         dialog.set_default_response(Gtk.ResponseType.OK)
         dialog.vbox.show_all()
 

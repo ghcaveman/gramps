@@ -2736,6 +2736,9 @@ class GrampsPreferences(ConfigureDialog):
                 Gtk.ResponseType.OK,
             ),
         )
+        f.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+        )
         mpath = media_path(self.dbstate.db)
         f.set_current_folder(os.path.dirname(mpath))
 
@@ -2761,6 +2764,9 @@ class GrampsPreferences(ConfigureDialog):
         )
         f.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Apply"), Gtk.ResponseType.OK
+        )
+        f.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
         )
         dbpath = config.get("database.path")
         if not dbpath:
@@ -2792,6 +2798,9 @@ class GrampsPreferences(ConfigureDialog):
                 _("_Apply"),
                 Gtk.ResponseType.OK,
             ),
+        )
+        f.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
         )
         backup_path = config.get("database.backup-path")
         if not backup_path:

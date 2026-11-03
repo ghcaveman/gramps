@@ -930,6 +930,9 @@ class AddonManager(ManagedWindow):
         dialog.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_OK"), Gtk.ResponseType.OK
         )
+        dialog.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+        )
         dialog.set_default_response(Gtk.ResponseType.OK)
         dialog.vbox.show_all()
 
@@ -1511,6 +1514,9 @@ class PluginStatus(ManagedWindow):
         )
         fcd.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Open"), Gtk.ResponseType.OK
+        )
+        fcd.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
         )
         name = self.install_addon_path.get_text()
         dir = os.path.dirname(name)
