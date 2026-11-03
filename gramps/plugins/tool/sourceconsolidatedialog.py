@@ -62,7 +62,7 @@ class SourceConsolidateDialog(ConsolidateDialogBase):
             str(_("Source Consolidate")),
             dbstate,
             transient_for=transient_for,
-            default_size=(800, 600),
+            default_size=(1260, 600),
         )
         self.engine = GWizardCitationRepairEngine()
 

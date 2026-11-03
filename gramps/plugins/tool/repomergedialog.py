@@ -47,7 +47,7 @@ from gi.repository import Pango
 from gramps.gen.db import DbTxn
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.lib import RepoRef
-from gramps.gui.dialog import OkDialog
+from gramps.gui.dialog import ErrorDialog, OkDialog
 from gramps.plugins.tool.goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
@@ -126,7 +126,7 @@ class RepoMergeDialog(Gtk.Dialog):
         info.set_line_wrap(True)
         info.set_halign(Gtk.Align.START)
         content.add(info)
-        if not visible:
+        if not visible and not self.sources_by_repo.get(UNATTACHED_REPO_KEY):
             done = Gtk.Label(
                 label=str(_("All repositories already match golden names."))
             )
@@ -264,7 +264,21 @@ class RepoMergeDialog(Gtk.Dialog):
         combo.pack_start(renderer, True)
         combo.add_attribute(renderer, "text", 0)
         combo.set_active(0)
+        # Store the user's selection directly on the combo object so Apply
+        # always reads the current value, regardless of GTK timing issues
+        # with get_active().
+        combo._user_target = row["name"]
+        combo.connect("changed", self._on_combo_changed)
         return combo
+
+    def _on_combo_changed(self, combo: Gtk.ComboBox) -> None:
+        """Record the user's current selection on the combo object itself."""
+        iter_ = combo.get_active_iter()
+        if iter_ is not None:
+            model = combo.get_model()
+            combo._user_target = str(model.get_value(iter_, 1) or "")
+        else:
+            combo._user_target = ""
 
     def build_rows(
         self,
@@ -381,16 +395,13 @@ class RepoMergeDialog(Gtk.Dialog):
         """Return the repository action button row."""
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         buttons.set_homogeneous(True)
-        auto_button = Gtk.Button(label=str(_("Auto (best guess)")))
         apply_button = Gtk.Button(label=str(_("Apply")))
         populate_button = Gtk.Button(label=str(_("Populate empty repositories")))
-        auto_button.connect("clicked", self.cb_set_best)
         apply_button.connect("clicked", self.cb_apply)
         populate_button.connect("clicked", self.cb_populate_empty)
         populate_button.set_sensitive(
             bool(self.sources_by_repo.get(UNATTACHED_REPO_KEY))
         )
-        buttons.pack_start(auto_button, True, True, 0)
         buttons.pack_start(apply_button, True, True, 0)
         buttons.pack_start(populate_button, True, True, 0)
         return buttons
@@ -424,10 +435,17 @@ class RepoMergeDialog(Gtk.Dialog):
 
     def get_choice(self, combo: Gtk.ComboBox, fallback: str) -> str:
         """Return the golden repository name behind a dropdown row."""
-        active = combo.get_active_iter()
-        if active is None:
+        # Read the selection captured by the "changed" signal, stored on
+        # the combo object itself. This avoids GTK timing issues where
+        # get_active() may not reflect the user's latest choice.
+        user_target = getattr(combo, "_user_target", None)
+        if user_target:
+            return user_target
+        active = combo.get_active()
+        if active < 0:
             return fallback
-        return str(combo.get_model()[active][1] or fallback)
+        model = combo.get_model()
+        return str(model[active][1] or fallback)
 
     def get_choices(self) -> dict[str, str]:
         """Return the current original->target choice for every row."""
@@ -435,12 +453,16 @@ class RepoMergeDialog(Gtk.Dialog):
             name: self.get_choice(combo, name) for name, combo, _best in self.combos
         }
 
-    def apply_merges(self, plan: dict[str, list[str]]) -> tuple[int, int]:
-        """Apply repository merges/renames from a target->originals plan."""
+    def apply_merges(self, plan: dict[str, list[str]]) -> tuple[int, int, list[str]]:
+        """Apply repository merges/renames from a target->originals plan.
+
+        Returns (merged_count, renamed_count, error_messages).
+        """
         from gramps.gen.merge import MergeRepositoryQuery
 
         merged = 0
         renamed = 0
+        errors: list[str] = []
         db = self.dbstate.db
         for target_name, originals in plan.items():
             for original in originals:
@@ -448,6 +470,12 @@ class RepoMergeDialog(Gtk.Dialog):
                     target = self.find_repository_by_name(target_name)
                     source = self.find_repository_by_name(original)
                     if source is None:
+                        errors.append(
+                            str(
+                                _("Repository '%(original)s' not found in " "database.")
+                                % {"original": original}
+                            )
+                        )
                         continue
                     if target is None:
                         with DbTxn(
@@ -462,9 +490,18 @@ class RepoMergeDialog(Gtk.Dialog):
                         query = MergeRepositoryQuery(self.dbstate, target, source)
                         query.execute()
                         merged += 1
-                except Exception:  # pylint: disable=broad-except
+                except Exception as error:  # pylint: disable=broad-except
                     LOG.exception("Failed to merge repository %s", original)
-        return (merged, renamed)
+                    errors.append(
+                        str(
+                            _("Failed to merge repository '%(original)s': " "%(error)s")
+                            % {
+                                "original": original,
+                                "error": str(error),
+                            }
+                        )
+                    )
+        return (merged, renamed, errors)
 
     def populate_empty_repositories(self) -> tuple[int, int]:
         """Link sources without repositories using inferred repository names."""
@@ -532,26 +569,40 @@ class RepoMergeDialog(Gtk.Dialog):
         self.run()
         self.destroy()
 
-    def cb_set_best(self, _button: Gtk.Button) -> None:
-        """Select the best-guess golden name in every dropdown."""
-        for _name, combo, best in self.combos:
-            model = combo.get_model()
-            for index, option_row in enumerate(model):
-                if str(option_row[1]) == best:
-                    combo.set_active(index)
-                    break
-
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply the user choices as repository merges/renames."""
         plan = plan_repo_merges(self.get_choices())
         if not plan:
+            choices = self.get_choices()
+            detail = "\n".join(
+                f"  {name} -> {target}" for name, target in sorted(choices.items())
+            )
             OkDialog(
                 str(_("Nothing to merge")),
-                str(_("All rows are set to bypass (keep current name).")),
+                str(
+                    _(
+                        "All rows are set to bypass (keep current name).\n\n"
+                        "Choices read from dialog:\n%s"
+                    )
+                    % detail
+                ),
                 parent=self,
             )
             return
-        merged, renamed = self.apply_merges(plan)
+        merged, renamed, errors = self.apply_merges(plan)
+        if errors:
+            ErrorDialog(
+                str(_("Repository merge problems")),
+                str(
+                    _(
+                        "Merged %d repositories, renamed %d to golden "
+                        "names.\n\nThe following could not be applied:\n%s"
+                    )
+                    % (merged, renamed, "\n".join(errors))
+                ),
+                parent=self,
+            )
+            return
         OkDialog(
             str(_("Repositories merged")),
             str(

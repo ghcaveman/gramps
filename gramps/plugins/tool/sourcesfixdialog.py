@@ -82,6 +82,7 @@ class SourceFixDialog(Gtk.Dialog):
         self.row_combos: list[tuple[dict[str, Any], Gtk.ComboBox]] = []
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         self.connect("response", lambda dlg, resp: dlg.destroy())
+        self.set_default_size(1260, 420)
         content = self.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
