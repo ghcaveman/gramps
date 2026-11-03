@@ -49,6 +49,10 @@ from gramps.gen.db import DbTxn
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import ErrorDialog, OkDialog
 from gramps.plugins.tool.goldstandardrepos import GoldStandardRepositories
+from gramps.plugins.tool.gwizardcitationshared import (
+    build_title_repo_index,
+    suggest_repository,
+)
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
@@ -93,13 +97,16 @@ class RepoMergeDialog(Gtk.Dialog):
         self.row_targets: list[tuple[dict[str, str], Gtk.ComboBox]] = []
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         self.connect("response", lambda dlg, resp: dlg.destroy())
-        self.set_default_size(1260, 420)
+        self.set_default_size(1480, 420)
         content = self.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
 
         # Collect repository rows and associated sources.
         self.sources_by_repo = self.collect_sources_by_repo()
+        self.hint_index = build_title_repo_index(
+            [row for row in self.collect_source_rows() if row["repo_handle"]]
+        )
         rows = build_repo_merge_rows(self.collect_repo_names())
         visible = [row for row in rows if not row["skip"]]
 
@@ -157,11 +164,16 @@ class RepoMergeDialog(Gtk.Dialog):
         right_head.set_markup("<b>%s</b>" % str(_("Sources")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
-        for head in (left_head, mid_head, right_head):
+        hint_head = Gtk.Label()
+        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head.set_halign(Gtk.Align.START)
+        hint_head.set_hexpand(True)
+        for head in (left_head, mid_head, right_head, hint_head):
             head.get_style_context().add_class("merge-cell")
         header_grid.attach(left_head, 0, 0, 1, 1)
         header_grid.attach(mid_head, 1, 0, 1, 1)
         header_grid.attach(right_head, 2, 0, 1, 1)
+        header_grid.attach(hint_head, 3, 0, 1, 1)
         content.add(header_grid)
 
         content.pack_start(
@@ -245,11 +257,16 @@ class RepoMergeDialog(Gtk.Dialog):
         right_head.set_markup("<b>%s</b>" % str(_("Sources")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
-        for head in (left_head, mid_head, right_head):
+        hint_head = Gtk.Label()
+        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head.set_halign(Gtk.Align.START)
+        hint_head.set_hexpand(True)
+        for head in (left_head, mid_head, right_head, hint_head):
             head.get_style_context().add_class("merge-cell")
         grid.attach(left_head, 0, 0, 1, 1)
         grid.attach(mid_head, 1, 0, 1, 1)
         grid.attach(right_head, 2, 0, 1, 1)
+        grid.attach(hint_head, 3, 0, 1, 1)
 
     def _install_grid_css(self) -> None:
         """Install CSS that draws borders around every grid cell.
@@ -322,6 +339,32 @@ class RepoMergeDialog(Gtk.Dialog):
             combo._user_target = str(model.get_value(iter_, 1) or "")
         else:
             combo._user_target = ""
+
+    def compute_hint(
+        self, repo_name: str, info: dict[str, str], combo: Gtk.ComboBox
+    ) -> tuple[str, str] | None:
+        """Return ``(golden repository, reason)`` suggested for a grid row."""
+        offered = {str(row[1]) for row in combo.get_model()}
+        golden = [name for name in GoldStandardRepositories.get_names() if name in offered]
+        current = "" if repo_name == UNATTACHED_REPO_KEY else repo_name
+        return suggest_repository(
+            info.get("title", ""),
+            info.get("source_handle", ""),
+            current,
+            self.hint_index,
+            golden,
+        )
+
+    def attach_hint(
+        self, info: dict[str, str], repo_name: str, combo: Gtk.ComboBox
+    ) -> str:
+        """Record the hint on the row info and return the text to display."""
+        found = self.compute_hint(repo_name, info, combo)
+        if found is None:
+            info["hint_target"] = ""
+            return ""
+        info["hint_target"], info["hint_reason"] = found
+        return "%s\n(%s)" % found
 
     def build_rows(
         self,
@@ -428,21 +471,27 @@ class RepoMergeDialog(Gtk.Dialog):
                 src_label.get_style_context().add_class("merge-cell")
                 grid.attach(src_label, 2, row_index, 1, 1)
 
+            # Column 3: hint for this row (suggested repository and why).
+            row_info = (
+                info
+                if info is not None
+                else {"source_handle": "", "repo_handle": "", "repo_name": repo_name}
+            )
+            hint_label = Gtk.Label(label=self.attach_hint(row_info, repo_name, combo))
+            hint_label.set_halign(Gtk.Align.START)
+            hint_label.set_line_wrap(True)
+            hint_label.set_max_width_chars(40)
+            hint_label.get_style_context().add_class("merge-cell")
+            grid.attach(hint_label, 3, row_index, 1, 1)
+
             # Track the combo per grid row for later retrieval of choices.
             self.combos.append((repo_name, combo, str(row_dict["best_guess"])))
-            self.row_targets.append(
-                (
-                    info
-                    if info is not None
-                    else {"source_handle": "", "repo_handle": "", "repo_name": repo_name},
-                    combo,
-                )
-            )
+            self.row_targets.append((row_info, combo))
             row_index += 1
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_min_content_height(330)
-        scrolled.set_min_content_width(1116)
+        scrolled.set_min_content_width(1330)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
@@ -453,8 +502,13 @@ class RepoMergeDialog(Gtk.Dialog):
         """Return the repository action button row."""
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         buttons.set_homogeneous(True)
+        n_hints = sum(1 for info, _combo in self.row_targets if info.get("hint_target"))
+        accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        accept_button.set_sensitive(n_hints > 0)
+        accept_button.connect("clicked", self.cb_accept_hints)
         apply_button = Gtk.Button(label=str(_("Apply")))
         apply_button.connect("clicked", self.cb_apply)
+        buttons.pack_start(accept_button, True, True, 0)
         buttons.pack_start(apply_button, True, True, 0)
         return buttons
 
@@ -585,6 +639,34 @@ class RepoMergeDialog(Gtk.Dialog):
         self.show_all()
         self.run()
         self.destroy()
+
+    def cb_accept_hints(self, _button: Gtk.Button) -> None:
+        """Set each unchanged drop-down to its hint; Apply still has to be pressed."""
+        accepted = 0
+        for info, combo in self.row_targets:
+            target = info.get("hint_target")
+            if not target:
+                continue
+            original = info["repo_name"]
+            # Keep any choice the user already made by hand.
+            if self.get_choice(combo, original) != original:
+                continue
+            for index, model_row in enumerate(combo.get_model()):
+                if str(model_row[1]) == target:
+                    combo.set_active(index)
+                    accepted += 1
+                    break
+        OkDialog(
+            str(_("Hints accepted")),
+            str(
+                _(
+                    "Set %d drop-downs to the suggested repository. Review "
+                    "them, change any that look wrong, then press Apply."
+                )
+            )
+            % accepted,
+            parent=self,
+        )
 
     def collect_changes(
         self,

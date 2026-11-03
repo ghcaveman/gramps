@@ -26,7 +26,9 @@
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import difflib
 import re
+from collections import Counter, defaultdict
 from typing import Any
 from urllib.parse import urlparse
 
@@ -35,7 +37,10 @@ from urllib.parse import urlparse
 # Gramps modules
 #
 # -------------------------------------------------------------------------
+from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.plugins.tool.goldstandardrepos import GoldStandardRepositories
+
+_ = glocale.translation.sgettext
 
 # ------------------------------------------------------------
 #
@@ -249,3 +254,117 @@ def split_conflated_title(title: str) -> dict[str, str] | None:
         "new_title": new_title,
         "moved_text": "; ".join(moved),
     }
+
+
+# ------------------------------------------------------------
+#
+# Repository hints (suggest a golden repository for a source)
+#
+# ------------------------------------------------------------
+_YEAR_RANGE = re.compile(r"\b\d{4}\s*[-\u2013]\s*(?:\d{4}|current|present)\b", re.IGNORECASE)
+_ANCESTRY_ONLY = re.compile(
+    r"^(?:global|web)\s*[,:]|\s&\s|church and town records|^philadelphia, pennsylvania",
+    re.IGNORECASE,
+)
+_CENSUS_TITLE = re.compile(r"\b\d{4} united states federal census\b", re.IGNORECASE)
+
+
+def build_title_repo_index(rows: list[dict[str, str]]) -> dict[str, list[tuple[str, str]]]:
+    """Index which repositories sources of a given title are already linked to.
+
+    ``rows`` are dicts with ``title``, ``source_handle`` and ``repo_name``
+    (a source with no repository has an empty or placeholder name and is
+    skipped by passing only linked rows).
+    """
+    index: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for row in rows:
+        key = normalize_source_title(row.get("title", ""))
+        if key and row.get("repo_name"):
+            index[key].append((row.get("source_handle", ""), row["repo_name"]))
+    return dict(index)
+
+
+def closest_golden_name(name: str, golden: list[str], threshold: float = 0.8) -> str | None:
+    """Return the golden name most similar to ``name`` when similar enough."""
+    plain = normalize_repo_name(name)
+    if not plain:
+        return None
+    best, best_score = None, 0.0
+    for candidate in golden:
+        key = normalize_repo_name(candidate)
+        score = difflib.SequenceMatcher(None, plain, key).ratio()
+        # A golden name inside a longer name (or the reverse) is a strong match,
+        # e.g. "Local Government and Municipal Registries (Genoa, IT ...)".
+        if len(key) >= 8 and (f" {key} " in f" {plain} " or f" {plain} " in f" {key} "):
+            score = max(score, 0.95)
+        if score > best_score:
+            best, best_score = candidate, score
+    return best if best_score >= threshold else None
+
+
+def suggest_repository(
+    title: str,
+    source_handle: str,
+    current_repo: str,
+    index: dict[str, list[tuple[str, str]]],
+    golden: list[str],
+) -> tuple[str, str] | None:
+    """Suggest a golden repository for a source, with the reason.
+
+    A repository the source already has outranks everything else when its
+    name is close to a golden name (it is simply misnamed). After that the
+    evidence is tried from strongest to weakest: another source with the
+    same title that is already linked to a repository, Ancestry-only title
+    wording, a repository named in the title, and FamilySearch-style
+    collection titles. Returns ``(golden name, reason)`` or None when there
+    is no evidence; a suggestion equal to the current repository is not
+    returned.
+    """
+    lookup = {normalize_repo_name(name): name for name in golden}
+    current_key = normalize_repo_name(current_repo or "")
+
+    def result(name: str | None, reason: str) -> tuple[str, str] | None:
+        if not name or normalize_repo_name(name) == current_key:
+            return None
+        return (name, reason)
+
+    # 0. The source already has a repository whose name is close to a golden
+    #    name: it is simply misnamed, and that outranks anything in the title.
+    if current_repo:
+        near = closest_golden_name(current_repo, golden)
+        if near:
+            return result(near, _("closest golden name to the current repository"))
+
+    # 1. Another source with the same title already has a repository.
+    votes: Counter = Counter()
+    for other_handle, repo_name in index.get(normalize_source_title(title), []):
+        golden_name = lookup.get(normalize_repo_name(repo_name))
+        if other_handle != source_handle and golden_name:
+            votes[golden_name] += 1
+    if votes:
+        name = votes.most_common(1)[0][0]
+        return result(name, _("same title already linked to %s") % name)
+
+    # 2. Ancestry-only naming (checked before a site named inside the title,
+    #    because "U.S., Find A Grave Index" is an Ancestry database).
+    if "Ancestry.com" in golden and (
+        re.search(r"\bU\.S\.", title or "")
+        or _CENSUS_TITLE.search(title or "")
+        or _ANCESTRY_ONLY.search(title or "")
+    ):
+        return result("Ancestry.com", _("Ancestry-style database title"))
+
+    # 3. A golden repository named in the title.
+    mention = find_repository_mention(title or "")
+    if mention and mention[0] in golden:
+        return result(mention[0], _("title names %s") % mention[0])
+
+    uspto = "United States Patent and Trademark Office (USPTO)"
+    if uspto in golden and re.search(r"patent\s+(?:and\s+trademark\s+)?office|\buspto\b", title or "", re.IGNORECASE):
+        return result(uspto, _("title names the patent office"))
+
+    # 4. State-style collection title without "U.S." is FamilySearch naming.
+    if "FamilySearch" in golden and _YEAR_RANGE.search(title or ""):
+        return result("FamilySearch", _("likely: FamilySearch-style collection title"))
+
+    return None
