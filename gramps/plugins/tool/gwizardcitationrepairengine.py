@@ -273,6 +273,65 @@ class GWizardCitationRepairEngine:
                 changed += 1
         return changed
 
+    def reassign_source_repositories(
+        self, db: Any, changes: list[dict[str, str]]
+    ) -> tuple[int, int]:
+        """Point individual sources at the repositories chosen for them.
+
+        Each change is ``{"source_handle", "old_repo_handle", "target_name"}``.
+        ``old_repo_handle`` is the repository the row currently shows (empty
+        for a source that has none). The target repository is found by name
+        (ignoring case and punctuation) and created, with the type and web
+        address from the golden list, when it does not exist yet.
+
+        Returns ``(sources changed, repositories created)``.
+        """
+        repo_map: dict[str, str] = {}
+        for repo in db.iter_repositories():
+            key = normalize_repo_name(str(repo.get_name() or ""))
+            if key:
+                repo_map.setdefault(key, repo.get_handle())
+
+        changed = 0
+        created = 0
+        with DbTxn(_("Change Source Repositories"), db) as trans:
+            for change in changes:
+                target = str(change.get("target_name") or "").strip()
+                if not target:
+                    continue
+                try:
+                    source = db.get_source_from_handle(change["source_handle"])
+                    if source is None:
+                        continue
+                    key = normalize_repo_name(target)
+                    new_handle = repo_map.get(key)
+                    if not new_handle:
+                        new_handle = self._create_repository(db, target, trans)
+                        repo_map[key] = new_handle
+                        created += 1
+                    old_handle = str(change.get("old_repo_handle") or "")
+                    if old_handle == new_handle:
+                        continue
+                    current = [
+                        ref.get_reference_handle() for ref in source.get_reporef_list()
+                    ]
+                    if old_handle and old_handle in current:
+                        source.replace_repo_references(old_handle, new_handle)
+                    elif new_handle not in current:
+                        repo_ref = RepoRef()
+                        repo_ref.set_reference_handle(new_handle)
+                        source.add_repo_reference(repo_ref)
+                    else:
+                        continue
+                    db.commit_source(source, trans)
+                    changed += 1
+                except Exception:  # pylint: disable=broad-except
+                    LOG.exception(
+                        "Failed to change repository of source %s",
+                        change.get("source_handle"),
+                    )
+        return changed, created
+
     # ------------------------------------------------------------
     # Step 3: sources
     # ------------------------------------------------------------
