@@ -393,6 +393,9 @@ class TestcaseGenerator(tool.BatchTool):
         self.top.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
         self.top.add_button(_("_OK"), Gtk.ResponseType.OK)
         self.top.add_button(_("_Help"), Gtk.ResponseType.HELP)
+        self.top.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL, Gtk.ResponseType.HELP]
+        )
         self.top.show_all()
 
         while True:

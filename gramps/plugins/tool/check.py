@@ -834,6 +834,9 @@ class CheckIntegrity:
             fs_top.add_buttons(
                 _("_Cancel"), Gtk.ResponseType.CANCEL, _("_OK"), Gtk.ResponseType.OK
             )
+            fs_top.set_alternative_button_order_from_array(
+                [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+            )
             fs_top.set_current_folder(self.last_img_dir)
             response = fs_top.run()
             if response == Gtk.ResponseType.OK:

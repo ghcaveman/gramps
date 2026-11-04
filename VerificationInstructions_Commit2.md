@@ -1,6 +1,6 @@
 # GUI Verification Instructions for Native GTK Alternative Button Order Changes (Commit 2)
 
-This document provides step-by-step instructions to navigate to each of the dialogs updated with GTK's native `set_alternative_button_order_from_array` method to validate the button ordering on Windows and Linux.
+This document provides step-by-step instructions to navigate to each of the dialogs updated in Commit 2 with GTK's native `set_alternative_button_order_from_array` method to validate the button ordering on Windows and Linux.
 
 ---
 
@@ -8,7 +8,7 @@ This document provides step-by-step instructions to navigate to each of the dial
 
 All dialogs below use `set_alternative_button_order_from_array`.
 * **When running on Linux / macOS** (`gtk-alternative-button-order = False`): The buttons appear in the default GTK order (`[Cancel / Close]` on the left, `[OK / Affirmative Action]` on the right).
-* **When running on Windows** (`gtk-alternative-button-order = True`): GTK automatically reorders the action buttons to place the affirmative button on the left (`[OK / Affirmative Action]` on the left, `[Cancel / Close]` on the right).
+* **When running on Windows** (`gtk-alternative-button-order = True`): GTK automatically reorders the action buttons to match the Windows convention (`[OK / Affirmative Action]` on the left, `[Cancel / Close]` on the right).
 
 ---
 
@@ -112,7 +112,7 @@ All dialogs below use `set_alternative_button_order_from_array`.
 ### 2.4 Database Login Dialog (`GrampsLoginDialog`)
 * **File**: `gramps/gui/dbloader.py`
 * **How to Navigate**:
-  1. Connect to or configure a database backend requiring authentication (e.g., PostgreSQL or MySQL via **Family Trees → Manage Family Trees... → New**).
+  1. Connect to or configure a database backend requiring authentication (e.g., PostgreSQL or MySQL).
 * **What to Observe**:
   * Action buttons at the bottom of the login credentials dialog:
     * **Linux**: `[Cancel]` `[Login]`
@@ -127,9 +127,8 @@ All dialogs below use `set_alternative_button_order_from_array`.
 * **How to Navigate**:
   1. From the top menu bar, select **Reports → Graphs → Family Lines Graph...**
   2. Under the **"Family colors"** section, click the `[+]` button to add a surname color rule.
-  3. The **"Select surname"** modal dialog appears.
 * **What to Observe**:
-  * Action buttons at the bottom of the dialog:
+  * Action buttons at the bottom of the modal dialog:
     * **Linux**: `[Cancel]` `[OK]`
     * **Windows**: `[OK]` `[Cancel]`
 

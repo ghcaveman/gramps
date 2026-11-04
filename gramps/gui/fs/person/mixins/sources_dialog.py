@@ -192,6 +192,9 @@ class SourcesDialogMixin:
 
         dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
         dlg.add_button(_("Import selected"), Gtk.ResponseType.OK)
+        dlg.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+        )
 
         box = dlg.get_content_area()
         box.set_spacing(10)
