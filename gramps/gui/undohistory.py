@@ -85,6 +85,15 @@ class UndoHistory(ManagedWindow):
         self.redo_button = window.add_button(_("_Redo"), Gtk.ResponseType.ACCEPT)
         self.clear_button = window.add_button(_("_Clear"), Gtk.ResponseType.APPLY)
         self.close_button = window.add_button(_("_Close"), Gtk.ResponseType.CLOSE)
+        window.set_alternative_button_order_from_array(
+            [
+                Gtk.ResponseType.REJECT,
+                Gtk.ResponseType.ACCEPT,
+                Gtk.ResponseType.APPLY,
+                Gtk.ResponseType.CLOSE,
+                Gtk.ResponseType.HELP,
+            ]
+        )
 
         self.set_window(window, None, self.title)
         self.setup_configs("interface.undohistory", 500, 200)
