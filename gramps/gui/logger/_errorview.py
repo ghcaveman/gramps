@@ -187,3 +187,6 @@ class ErrorView(ManagedWindow):
         self.top.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
         self.top.add_button(_("Report"), Gtk.ResponseType.YES)
         self.top.add_button(_("_Help"), Gtk.ResponseType.HELP)
+        self.top.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.YES, Gtk.ResponseType.CANCEL, Gtk.ResponseType.HELP]
+        )

@@ -819,6 +819,9 @@ def _prompt(
 
     dialog.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     apply_button = dialog.add_button(_("Apply Selected"), Gtk.ResponseType.OK)
+    dialog.set_alternative_button_order_from_array(
+        [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+    )
     _add_style(apply_button, "suggested-action")
     dialog.set_default_response(Gtk.ResponseType.OK)
 
@@ -1493,6 +1496,9 @@ def _export_picker_dialog(
     dialog.set_default_size(760, 520)
     dialog.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     dialog.add_button(_("Export"), Gtk.ResponseType.OK)
+    dialog.set_alternative_button_order_from_array(
+        [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+    )
     dialog.set_default_response(Gtk.ResponseType.OK)
 
     box = dialog.get_content_area()

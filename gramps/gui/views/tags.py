@@ -735,4 +735,7 @@ class EditTag(ManagedWindow):
         top.add_button(_("_Help"), Gtk.ResponseType.HELP)
         top.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
         top.add_button(_("_OK"), Gtk.ResponseType.OK)
+        top.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL, Gtk.ResponseType.HELP]
+        )
         return top

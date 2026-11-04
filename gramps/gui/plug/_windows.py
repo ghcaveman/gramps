@@ -1870,6 +1870,9 @@ class ToolManagedWindowBase(ManagedWindow):
 
         self.ok = self.window.add_button(_("_Execute"), Gtk.ResponseType.OK)
         self.ok.connect("clicked", self.on_ok_clicked)
+        self.window.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+        )
 
         self.window.set_default_size(600, -1)
 

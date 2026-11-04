@@ -408,6 +408,9 @@ class EventComparisonResults(ManagedWindow):
         f.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Save"), Gtk.ResponseType.OK
         )
+        f.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+        )
 
         f.set_current_folder(get_curr_dir())
         status = f.run()

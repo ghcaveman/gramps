@@ -1114,6 +1114,9 @@ class GeoGraphyView(OsmGps, NavigationView):
         kml.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Apply"), Gtk.ResponseType.OK
         )
+        kml.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+        )
         mpath = USER_HOME
         kml.set_current_folder(os.path.dirname(mpath))
         kml.set_filter(filtering)
@@ -1538,6 +1541,9 @@ class GeoGraphyView(OsmGps, NavigationView):
         )
         selected_dir.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Apply"), Gtk.ResponseType.OK
+        )
+        selected_dir.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
         )
         mpath = config.get("geography.path")
         if not mpath:
