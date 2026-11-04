@@ -152,27 +152,31 @@ class RepoMergeDialog(Gtk.Dialog):
         header_grid.set_vexpand(False)
         header_grid.get_style_context().add_class("merge-grid")
 
+        # Column 0: Sources (moved from position 2)
+        sources_head = Gtk.Label()
+        sources_head.set_markup("<b>%s</b>" % str(_("Sources")))
+        sources_head.set_halign(Gtk.Align.START)
+        sources_head.set_hexpand(True)
+        # Column 1: Repository (moved from position 0)
         left_head = Gtk.Label()
         left_head.set_markup("<b>%s</b>" % str(_("Repository")))
         left_head.set_halign(Gtk.Align.START)
         left_head.set_hexpand(True)
+        # Column 2: Merge into (golden) (moved from position 1)
         mid_head = Gtk.Label()
         mid_head.set_markup("<b>%s</b>" % str(_("Merge into (golden)")))
         mid_head.set_halign(Gtk.Align.START)
         mid_head.set_hexpand(True)
-        right_head = Gtk.Label()
-        right_head.set_markup("<b>%s</b>" % str(_("Sources")))
-        right_head.set_halign(Gtk.Align.START)
-        right_head.set_hexpand(True)
+        # Column 3: Hint (kept at position 3)
         hint_head = Gtk.Label()
         hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
-        for head in (left_head, mid_head, right_head, hint_head):
+        for head in (sources_head, left_head, mid_head, hint_head):
             head.get_style_context().add_class("merge-cell")
-        header_grid.attach(left_head, 0, 0, 1, 1)
-        header_grid.attach(mid_head, 1, 0, 1, 1)
-        header_grid.attach(right_head, 2, 0, 1, 1)
+        header_grid.attach(sources_head, 0, 0, 1, 1)
+        header_grid.attach(left_head, 1, 0, 1, 1)
+        header_grid.attach(mid_head, 2, 0, 1, 1)
         header_grid.attach(hint_head, 3, 0, 1, 1)
         content.add(header_grid)
 
@@ -239,33 +243,37 @@ class RepoMergeDialog(Gtk.Dialog):
         return rows
 
     def build_header(self, grid: Gtk.Grid) -> None:
-        """Add the three-column header row to the repository/source grid.
+        """Add the header row to the repository/source grid.
 
         The header lives in the same grid as the data rows so the column
         edges line up vertically instead of being allocated by separate
-        containers.
+        containers.  The "Sources" column is now the first column.
         """
+        # Column 0: Sources (moved from position 2)
+        sources_head = Gtk.Label()
+        sources_head.set_markup("<b>%s</b>" % str(_("Sources")))
+        sources_head.set_halign(Gtk.Align.START)
+        sources_head.set_hexpand(True)
+        # Column 1: Repository (moved from position 0)
         left_head = Gtk.Label()
         left_head.set_markup("<b>%s</b>" % str(_("Repository")))
         left_head.set_halign(Gtk.Align.START)
         left_head.set_hexpand(True)
+        # Column 2: Merge into (golden) (moved from position 1)
         mid_head = Gtk.Label()
         mid_head.set_markup("<b>%s</b>" % str(_("Merge into (golden)")))
         mid_head.set_halign(Gtk.Align.START)
         mid_head.set_hexpand(True)
-        right_head = Gtk.Label()
-        right_head.set_markup("<b>%s</b>" % str(_("Sources")))
-        right_head.set_halign(Gtk.Align.START)
-        right_head.set_hexpand(True)
+        # Column 3: Hint (kept at position 3)
         hint_head = Gtk.Label()
         hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
-        for head in (left_head, mid_head, right_head, hint_head):
+        for head in (sources_head, left_head, mid_head, hint_head):
             head.get_style_context().add_class("merge-cell")
-        grid.attach(left_head, 0, 0, 1, 1)
-        grid.attach(mid_head, 1, 0, 1, 1)
-        grid.attach(right_head, 2, 0, 1, 1)
+        grid.attach(sources_head, 0, 0, 1, 1)
+        grid.attach(left_head, 1, 0, 1, 1)
+        grid.attach(mid_head, 2, 0, 1, 1)
         grid.attach(hint_head, 3, 0, 1, 1)
 
     def _install_grid_css(self) -> None:
@@ -345,7 +353,9 @@ class RepoMergeDialog(Gtk.Dialog):
     ) -> tuple[str, str] | None:
         """Return ``(golden repository, reason)`` suggested for a grid row."""
         offered = {str(row[1]) for row in combo.get_model()}
-        golden = [name for name in GoldStandardRepositories.get_names() if name in offered]
+        golden = [
+            name for name in GoldStandardRepositories.get_names() if name in offered
+        ]
         current = "" if repo_name == UNATTACHED_REPO_KEY else repo_name
         return suggest_repository(
             info.get("title", ""),
@@ -418,20 +428,45 @@ class RepoMergeDialog(Gtk.Dialog):
 
         # Row 0 is the header; data rows start below it. Each source entry
         # gets its own row with its own merge-target dropdown (Option 2).
-        # Column 0: repository name label (repeated per row).
-        # Column 1: one combo per source row, with the original name first
+        # Column 0: source title for this row (moved from column 2).
+        # Column 1: repository name label (moved from column 0).
+        # Column 2: one combo per source row, with the original name first
         #   as the bypass option, then golden repo names.
-        # Column 2: the source title for this row.
+        # Column 3: hint for this row (kept at column 3).
         row_index = 1
         for repo_name, source_title, info in flat_rows:
-            # Column 0: repository name for this row.
+            # Column 0: the source title for this row.
+            if source_title == "(no sources)":
+                placeholder = Gtk.Label(label=str(_("(no sources)")))
+                placeholder.set_halign(Gtk.Align.START)
+                placeholder.set_line_wrap(True)
+                placeholder.set_max_width_chars(60)
+                placeholder.get_style_context().add_class("merge-cell")
+                grid.attach(placeholder, 0, row_index, 1, 1)
+            elif source_title == "(no repository)":
+                placeholder = Gtk.Label(label=str(_("(no repository)")))
+                placeholder.set_halign(Gtk.Align.START)
+                placeholder.set_line_wrap(True)
+                placeholder.set_max_width_chars(60)
+                placeholder.get_style_context().add_class("merge-cell")
+                grid.attach(placeholder, 0, row_index, 1, 1)
+            else:
+                src_label = Gtk.Label(label=source_title)
+                src_label.set_halign(Gtk.Align.START)
+                src_label.set_line_wrap(True)
+                src_label.set_max_width_chars(60)
+                src_label.get_style_context().add_class("merge-cell")
+                grid.attach(src_label, 0, row_index, 1, 1)
+
+            # Column 1: repository name label for this row.
             repo_label = Gtk.Label(label=repo_name)
             repo_label.set_halign(Gtk.Align.START)
             repo_label.set_line_wrap(True)
+            repo_label.set_max_width_chars(60)
             repo_label.get_style_context().add_class("merge-cell")
-            grid.attach(repo_label, 0, row_index, 1, 1)
+            grid.attach(repo_label, 1, row_index, 1, 1)
 
-            # Column 1: a separate merge-target combobox for this source row.
+            # Column 2: a separate merge-target combobox for this source row.
             # Find the row dict for this repo to build the combo.
             if repo_name == UNATTACHED_REPO_KEY:
                 # Unattached sources have no repo; show golden repo names
@@ -446,30 +481,7 @@ class RepoMergeDialog(Gtk.Dialog):
                 row_dict = next(r for r in sorted_rows if r["name"] == repo_name)
             combo = self._make_combo(row_dict)
             combo.get_style_context().add_class("merge-cell")
-            grid.attach(combo, 1, row_index, 1, 1)
-
-            # Column 2: the source title for this row.
-            if source_title == "(no sources)":
-                placeholder = Gtk.Label(label=str(_("(no sources)")))
-                placeholder.set_halign(Gtk.Align.START)
-                placeholder.set_line_wrap(True)
-                placeholder.set_max_width_chars(60)
-                placeholder.get_style_context().add_class("merge-cell")
-                grid.attach(placeholder, 2, row_index, 1, 1)
-            elif source_title == "(no repository)":
-                placeholder = Gtk.Label(label=str(_("(no repository)")))
-                placeholder.set_halign(Gtk.Align.START)
-                placeholder.set_line_wrap(True)
-                placeholder.set_max_width_chars(60)
-                placeholder.get_style_context().add_class("merge-cell")
-                grid.attach(placeholder, 2, row_index, 1, 1)
-            else:
-                src_label = Gtk.Label(label=source_title)
-                src_label.set_halign(Gtk.Align.START)
-                src_label.set_line_wrap(True)
-                src_label.set_max_width_chars(60)
-                src_label.get_style_context().add_class("merge-cell")
-                grid.attach(src_label, 2, row_index, 1, 1)
+            grid.attach(combo, 2, row_index, 1, 1)
 
             # Column 3: hint for this row (suggested repository and why).
             row_info = (
