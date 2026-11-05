@@ -890,6 +890,7 @@ gramps/plugins/tool/sourcesfixdialog.py
 gramps/plugins/tool/unpacksourcesdialog.py
 gramps/plugins/tool/unpackcitationsdialog.py
 gramps/plugins/tool/notesfixdialog.py
+gramps/plugins/tool/citationattributesdialog.py
 gramps/plugins/tool/mergecitations.py
 gramps/plugins/tool/notrelated.glade
 gramps/plugins/tool/notrelated.py

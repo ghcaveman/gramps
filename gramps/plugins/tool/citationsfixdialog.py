@@ -407,6 +407,10 @@ class CitationFixDialog(Gtk.Dialog):
 
     def cb_citation_attributes(self, _button: Gtk.Button) -> None:
         """Open the citation-attributes dialog (modal to this dialog)."""
+        from gramps.plugins.tool.citationattributesdialog import (
+            CitationAttributesDialog,
+        )
+
         dlg = CitationAttributesDialog(
             title=str(_("Citation Attributes")),
             dbstate=self.dbstate,
@@ -624,122 +628,12 @@ class CitationFixDialog(Gtk.Dialog):
 
 # ------------------------------------------------------------
 #
-# CitationAttributesDialog
+# CitationAttributesDialog (imported from dedicated module)
 #
 # ------------------------------------------------------------
-class CitationAttributesDialog(Gtk.Dialog):
-    """Dialog for assigning citation attributes.
-
-    Left column: Parametric Key (values) listing Source Type, Information
-    Type and Evidence Type.  Right column: Assigned Key (values) showing
-    the attribute currently assigned to each.  If no attributes have been
-    assigned yet, a "Create default attributes" button is shown which
-    assigns them 1:1.
-    """
-
-    def __init__(
-        self,
-        title: str,
-        dbstate: Any,
-        transient_for: Gtk.Window | None = None,
-    ) -> None:
-        """Build the citation-attributes dialog."""
-        super().__init__(
-            title=title,
-            transient_for=transient_for,
-            modal=True,
-            destroy_with_parent=True,
-        )
-        self.dbstate = dbstate
-        self.assigned: dict[str, str] = {}
-        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        self.connect("response", lambda dlg, resp: dlg.destroy())
-        content = self.get_content_area()
-        content.set_border_width(12)
-        content.set_spacing(6)
-
-        # Header row: Parametric Key (values) | Assigned Key (values)
-        header_grid = Gtk.Grid()
-        header_grid.set_column_spacing(0)
-        header_grid.set_row_spacing(0)
-        header_grid.set_column_homogeneous(True)
-        header_grid.set_hexpand(True)
-        header_grid.set_vexpand(False)
-        left_head = Gtk.Label()
-        left_head.set_markup("<b>%s</b>" % str(_("Parametric Key (values)")))
-        left_head.set_halign(Gtk.Align.START)
-        left_head.set_hexpand(True)
-        right_head = Gtk.Label()
-        right_head.set_markup("<b>%s</b>" % str(_("Assigned Key (values)")))
-        right_head.set_halign(Gtk.Align.START)
-        right_head.set_hexpand(True)
-        header_grid.attach(left_head, 0, 0, 1, 1)
-        header_grid.attach(right_head, 1, 0, 1, 1)
-        content.add(header_grid)
-
-        # The three parametric keys and their possible values.
-        self.param_items = [
-            (_("Source Type"), _("Original or Derivative")),
-            (_("Information Type"), _("Primary or Secondary")),
-            (_("Evidence Type"), _("Direct or Indirect")),
-        ]
-
-        self.assigned_labels: list[Gtk.Label] = []
-        grid = Gtk.Grid()
-        grid.set_column_spacing(0)
-        grid.set_row_spacing(0)
-        grid.set_column_homogeneous(True)
-        grid.set_hexpand(True)
-        grid.set_vexpand(True)
-        for index, (key, values) in enumerate(self.param_items):
-            left_label = Gtk.Label(label="%s (%s)" % (key, values))
-            left_label.set_halign(Gtk.Align.START)
-            left_label.set_line_wrap(True)
-            grid.attach(left_label, 0, index, 1, 1)
-
-            right_label = Gtk.Label(label="\u2014")
-            right_label.set_halign(Gtk.Align.START)
-            right_label.set_line_wrap(True)
-            self.assigned_labels.append(right_label)
-            grid.attach(right_label, 1, index, 1, 1)
-        content.add(grid)
-
-        # If nothing assigned yet, offer to create defaults (1:1).
-        self.create_button = Gtk.Button(label=str(_("Create default attributes")))
-        self.create_button.connect("clicked", self.cb_create_defaults)
-        content.add(self.create_button)
-        self._update_create_button()
-
-        content.add(self.build_buttons())
-
-    def _update_create_button(self) -> None:
-        """Hide the create button once defaults have been assigned."""
-        if self.assigned:
-            self.create_button.set_visible(False)
-        else:
-            self.create_button.set_visible(True)
-
-    def cb_create_defaults(self, _button: Gtk.Button) -> None:
-        """Assign default attributes 1:1 (parametric key -> same value)."""
-        for key, _values in self.param_items:
-            self.assigned[key] = key
-        for index, (key, _values) in enumerate(self.param_items):
-            self.assigned_labels[index].set_text(self.assigned.get(key, "\u2014"))
-        self._update_create_button()
-
-    def build_buttons(self) -> Gtk.Box:
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        buttons.set_homogeneous(True)
-        close_button = Gtk.Button(label=str(_("_Close")))
-        close_button.connect("clicked", lambda b: self.destroy())
-        buttons.pack_start(close_button, True, True, 0)
-        return buttons
-
-    def show_dialog(self) -> None:
-        self.show_all()
-        self.run()
-        self.destroy()
-
+from gramps.plugins.tool.citationattributesdialog import (
+    CitationAttributesDialog,
+)
 
 # ------------------------------------------------------------
 #
