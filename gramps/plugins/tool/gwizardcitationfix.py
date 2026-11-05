@@ -256,6 +256,7 @@ def get_button_specs() -> list[tuple[str, str, bool]]:
         ("consolidate_repositories", str(_("Repository Consolidate")), True),
         ("fix_repositories", str(_("Fix Repositories")), True),
         ("fix_sources", str(_("Fix Sources")), True),
+        ("unpack_citations", str(_("Unpack Conflated Citation")), True),
         ("fix_citations", str(_("Fix Citations")), True),
         ("fix_notes", str(_("Fix Notes")), True),
         ("auto_all", str(_("Auto (best guess all)")), True),
@@ -368,6 +369,15 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
             "sources",
             str(_("Fix Sources")),
             str(_("Merge near-duplicates and quarantine non-sources.")),
+        ),
+        (
+            "unpack_citations",
+            str(_("Unpack Conflated Citation")),
+            str(
+                _(
+                    "Extract dates and URLs mixed into volume/page strings or notes, and unpack citation fields."
+                )
+            ),
         ),
         (
             "citations",
@@ -489,6 +499,8 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             self.cb_fix_layer("repositories")
         elif key == "fix_sources":
             self.cb_fix_layer("sources")
+        elif key == "unpack_citations":
+            self.cb_fix_layer("unpack_citations")
         elif key == "fix_citations":
             self.cb_fix_layer("citations")
         elif key == "fix_notes":
@@ -528,6 +540,17 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                 description=get_fix_description("sources"),
                 transient_for=self.window,
             ).show_dialog()
+            return
+        if layer == "unpack_citations":
+            from gramps.plugins.tool.unpackcitationsdialog import UnpackCitationsDialog
+
+            UnpackCitationsDialog(
+                title=title,
+                dbstate=self.dbstate,
+                description=get_fix_description("unpack_citations"),
+                transient_for=self.window,
+            ).show_dialog()
+            self.update_view_button()
             return
         if layer == "citations":
             try:

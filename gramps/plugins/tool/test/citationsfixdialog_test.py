@@ -384,6 +384,52 @@ class CitationFixDialogTest(unittest.TestCase):
         mock_entry_conf.set_text.assert_called_with("1")
         mock_entry_page.set_text.assert_called_with("p. 100")
 
+    def test_manual_page_date_does_not_count_as_hint(self) -> None:
+        """Citations with only missing page/date (no extracted data) should not count as hints on the button."""
+        src = FakeSource(handle="s1", title="Parish Register")
+        # Citation with no page, no date, no extractable URL/date in text
+        cit1 = FakeCitation(
+            handle="c1",
+            ref_handle="s1",
+            gramps_id="C0001",
+            page="",
+            confidence=2,
+        )
+        # Citation with extractable URL
+        cit2 = FakeCitation(
+            handle="c2",
+            ref_handle="s1",
+            gramps_id="C0002",
+            page="",
+            confidence=2,
+        )
+        cit2.get_note_list = lambda: ["n1"]  # type: ignore[assignment]
+        note = FakeNote(text="See https://example.com/record")
+        db = FakeDb(sources=[src], citations=[cit1, cit2], notes={"n1": note})
+
+        rows = build_citation_fix_rows(db)
+        self.assertEqual(len(rows), 2)
+
+        # cit1 has no actionable hint
+        r1 = next(r for r in rows if r["citation_handle"] == "c1")
+        self.assertEqual(r1["hint_text"], "")
+        self.assertEqual(r1["suggested_page"], "")
+        self.assertEqual(r1["suggested_date"], "")
+
+        # cit2 has an actionable hint (URL extracted)
+        r2 = next(r for r in rows if r["citation_handle"] == "c2")
+        self.assertIn("Extract URL", r2["hint_text"])
+        self.assertEqual(r2["suggested_page"], "https://example.com/record")
+
+        dlg = CitationFixDialog.__new__(CitationFixDialog)
+        dlg.row_targets = [{"row": r1}, {"row": r2}]
+        with unittest.mock.patch(
+            "gramps.plugins.tool.citationsfixdialog.Gtk.Button"
+        ) as btn_mock:
+            dlg.build_buttons()
+            # Button label should show (1), NOT (2)
+            btn_mock.assert_any_call(label="Accept hints (1)")
+
 
 if __name__ == "__main__":
     unittest.main()

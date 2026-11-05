@@ -236,6 +236,7 @@ def get_button_specs() -> list[tuple[str, str, bool]]:
         ("consolidate_repositories", str(_("Repository Consolidate")), True),
         ("fix_repositories", str(_("Fix Repositories")), True),
         ("fix_sources", str(_("Fix Sources")), True),
+        ("unpack_citations", str(_("Unpack Conflated Citation")), True),
         ("fix_citations", str(_("Fix Citations")), True),
         ("fix_notes", str(_("Fix Notes")), True),
         ("auto_all", str(_("Auto (best guess all)")), True),
@@ -961,6 +962,8 @@ def cb_button(self, button: Gtk.Button, key: str) -> None:
         self.cb_fix_layer("repositories")
     elif key == "fix_sources":
         self.cb_fix_layer("sources")
+    elif key == "unpack_citations":
+        self.cb_fix_layer("unpack_citations")
     elif key == "fix_citations":
         self.cb_fix_layer("citations")
     elif key == "fix_notes":

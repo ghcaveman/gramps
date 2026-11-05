@@ -386,7 +386,12 @@ class CitationFixDialog(Gtk.Dialog):
         n_hints = sum(
             1
             for target in self.row_targets
-            if target["row"].get("hint_text") or target["row"].get("best_guess")
+            if bool(
+                target["row"].get("suggested_conf")
+                or target["row"].get("suggested_page")
+                or target["row"].get("suggested_date")
+                or target["row"].get("suggested_notes")
+            )
         )
         accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
         accept_button.set_sensitive(n_hints > 0)
@@ -988,13 +993,9 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
 
             if suggested_page:
                 hint_actions.append(_("Extract URL to Page"))
-            elif not page:
-                hint_actions.append(_("Add page/volume (manual)"))
 
             if suggested_date:
                 hint_actions.append(_("Extract date: %s") % suggested_date)
-            elif not date_str:
-                hint_actions.append(_("Add date (manual)"))
 
             if hint_actions:
                 hint_text = "\n".join(hint_actions)

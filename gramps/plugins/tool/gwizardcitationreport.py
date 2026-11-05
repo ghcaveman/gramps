@@ -903,12 +903,15 @@ class GWizardCitationReport:
             "3. Run 'Fix Sources' to safely group matching census & collection lines together."
         )
         lines.append(
-            "4. Run 'Fix Citations' to auto-downgrade online user tree confidence metrics."
+            "4. Run 'Unpack Conflated Citation' to separate access dates, URLs, and volume/page strings."
         )
         lines.append(
-            "5. Run 'Fix Notes' to permanently scrub legacy automated migration log files."
+            "5. Run 'Fix Citations' to auto-downgrade online user tree confidence metrics."
         )
-        step = 6
+        lines.append(
+            "6. Run 'Fix Notes' to permanently scrub legacy automated migration log files."
+        )
+        step = 7
         if (
             get("sources_bad_fields")
             or get("sources_citation_style")
