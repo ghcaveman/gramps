@@ -565,6 +565,17 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                     transient_for=self.window,
                 ).show_dialog()
                 return
+        if layer == "notes":
+            from gramps.plugins.tool.notesfixdialog import NotesFixDialog
+
+            NotesFixDialog(
+                title=title,
+                dbstate=self.dbstate,
+                description=get_fix_description("notes"),
+                transient_for=self.window,
+            ).show_dialog()
+            self.update_view_button()
+            return
 
         dialog = Gtk.Dialog(
             title=title, transient_for=self.window, modal=True, destroy_with_parent=True
