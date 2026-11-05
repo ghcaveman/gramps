@@ -91,7 +91,7 @@ class CitationFixDialog(Gtk.Dialog):
         self.row_targets: list[dict[str, Any]] = []
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         self.connect("response", lambda dlg, resp: dlg.destroy())
-        self.set_default_size(1480, 560)
+        self.set_default_size(1600, 560)
         content = self.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
@@ -270,8 +270,8 @@ class CitationFixDialog(Gtk.Dialog):
             src_label.set_xalign(0.0)
             src_label.set_line_wrap(True)
             src_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            src_label.set_size_request(130, -1)
-            src_label.set_max_width_chars(16)
+            src_label.set_size_request(260, -1)
+            src_label.set_max_width_chars(32)
             grid.attach(src_label, 0, row_index, 1, 1)
 
             # Column 1: Citation details with 3 guaranteed separate lines, word-wrapping and fixed size
@@ -316,7 +316,7 @@ class CitationFixDialog(Gtk.Dialog):
 
             # Column 2: target Volume/Page entry (empty by default)
             page_entry = Gtk.Entry()
-            page_entry.set_width_chars(15)
+            page_entry.set_width_chars(30)
             page_entry.set_text("")
             grid.attach(page_entry, 2, row_index, 1, 1)
 
@@ -334,7 +334,7 @@ class CitationFixDialog(Gtk.Dialog):
 
             # Column 5: target Notes entry (empty by default)
             notes_entry = Gtk.Entry()
-            notes_entry.set_width_chars(16)
+            notes_entry.set_width_chars(32)
             notes_entry.set_text("")
             grid.attach(notes_entry, 5, row_index, 1, 1)
 
