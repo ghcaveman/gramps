@@ -47,7 +47,10 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
-from gramps.plugins.tool.gwizardcitationshared import normalize_source_title
+from gramps.plugins.tool.gwizardcitationshared import (
+    normalize_source_title,
+    suggest_source_merge_target,
+)
 from gramps.plugins.tool.gwizardconsolidatebase import ConsolidateDialogBase
 
 _ = glocale.translation.sgettext
@@ -118,102 +121,11 @@ class SourceConsolidateDialog(ConsolidateDialogBase):
 
     def compute_hint(self, selected_handle: str) -> tuple[str, str] | None:
         """Suggest a merge target source with a reason, similar to RepoMergeDialog."""
-        db = self.dbstate.db
-        source = db.get_source_from_handle(selected_handle)
-        if source is None:
-            return None
-
-        title = str(source.get_title() or "")
-        norm_title = normalize_source_title(title)
-        src_cites = self._get_citations_count(selected_handle)
-        src_repos = {
-            ref.ref
-            for ref in source.get_reporef_list()
-            if hasattr(ref, "ref") and ref.ref
-        }
-        src_author = str(source.get_author() or "").strip().lower()
-
-        best_handle: str | None = None
-        best_score = 0
-        best_reason = ""
-
-        for target_handle in self.target_handles:
-            target = db.get_source_from_handle(target_handle)
-            if target is None:
-                continue
-
-            target_title = str(target.get_title() or "")
-            target_norm = normalize_source_title(target_title)
-            target_cites = self._get_citations_count(target_handle)
-            target_repos = {
-                ref.ref
-                for ref in target.get_reporef_list()
-                if hasattr(ref, "ref") and ref.ref
-            }
-
-            score = 0
-            reason = ""
-
-            # 1. Exact or normalized title match
-            if title and target_title and title.lower() == target_title.lower():
-                score = 2000 + target_cites * 10 + len(target_repos)
-                reason = str(
-                    _("Exact title match (%(target_cites)d citations vs %(src_cites)d)")
-                    % {"target_cites": target_cites, "src_cites": src_cites}
-                )
-            elif norm_title and target_norm and norm_title == target_norm:
-                score = 1500 + target_cites * 10 + len(target_repos)
-                reason = str(
-                    _(
-                        "Matching normalized title (%(target_cites)d citations vs %(src_cites)d)"
-                    )
-                    % {"target_cites": target_cites, "src_cites": src_cites}
-                )
-            else:
-                ratio = (
-                    difflib.SequenceMatcher(None, norm_title, target_norm).ratio()
-                    if norm_title and target_norm
-                    else 0.0
-                )
-                shared_repos = src_repos & target_repos
-                if shared_repos and ratio >= 0.70:
-                    score = 1000 + int(ratio * 100) + target_cites * 5
-                    repo_name = ""
-                    for r_h in shared_repos:
-                        repo_obj = db.get_repository_from_handle(r_h)
-                        if repo_obj and repo_obj.get_name():
-                            repo_name = repo_obj.get_name()
-                            break
-                    if repo_name:
-                        reason = str(
-                            _("Shared repository '%(repo)s' (%(pct)d%% title match)")
-                            % {"repo": repo_name, "pct": int(ratio * 100)}
-                        )
-                    else:
-                        reason = str(
-                            _("Shared repository (%(pct)d%% title match)")
-                            % {"pct": int(ratio * 100)}
-                        )
-                elif ratio >= 0.80:
-                    score = 500 + int(ratio * 100) + target_cites * 5
-                    reason = str(
-                        _("%(pct)d%% title similarity (%(target_cites)d citations)")
-                        % {"pct": int(ratio * 100), "target_cites": target_cites}
-                    )
-                elif src_author and ratio >= 0.60:
-                    target_author = str(target.get_author() or "").strip().lower()
-                    if target_author and target_author == src_author:
-                        score = 400 + int(ratio * 100) + target_cites * 5
-                        reason = str(
-                            _("Same author '%(author)s' and similar title")
-                            % {"author": source.get_author()}
-                        )
-
-            if score > best_score:
-                best_score = score
-                best_handle = target_handle
-                best_reason = reason
-
-        if best_handle is not None and best_reason:
-            return (best_handle, best_reason)
-        return None
+        if self._cites_by_source is None:
+            self._get_citations_count(selected_handle)
+        return suggest_source_merge_target(
+            selected_handle,
+            self.target_handles,
+            self.dbstate.db,
+            self._cites_by_source,
+        )

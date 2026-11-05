@@ -50,6 +50,9 @@ from gramps.plugins.tool.gwizardcitationreport import collect_db_stats
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
+from gramps.plugins.tool.gwizardcitationshared import (
+    suggest_source_merge_target,
+)
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -613,7 +616,158 @@ def build_source_fix_rows(
                 }
             )
 
-    # 2) Sources with leading or trailing whitespace
+    # 2) Fuzzy title & heuristic similarity matching
+    if db:
+        all_handles: list[str] = []
+        if hasattr(db, "iter_source_handles"):
+            try:
+                all_handles = list(db.iter_source_handles())
+            except Exception:
+                all_handles = []
+        if not all_handles:
+            all_handles = [
+                r["handle"] for r in stats.get("source_rows", []) if r.get("handle")
+            ]
+
+        cites_by_source = {
+            r["handle"]: r.get("citations", 0)
+            for r in stats.get("source_rows", [])
+            if r.get("handle")
+        }
+
+        keeper_rows_by_handle: dict[str, dict[str, Any]] = {
+            r["handle"]: r for r in rows if r.get("is_keeper")
+        }
+
+        for handle in all_handles:
+            if handle in handled_handles:
+                continue
+            match = suggest_source_merge_target(
+                handle, all_handles, db, cites_by_source
+            )
+            if not match:
+                continue
+
+            target_handle, reason = match
+            if target_handle == handle:
+                continue
+
+            target_src = None
+            try:
+                target_src = db.get_source_from_handle(target_handle)
+            except Exception:
+                pass
+            if target_src is None:
+                continue
+
+            t_disp = _source_display(
+                {
+                    "title": target_src.get_title(),
+                    "gramps_id": target_src.get_gramps_id(),
+                    "citations": cites_by_source.get(target_handle, 0),
+                    "repo_count": len(list(target_src.get_reporef_list() or [])),
+                }
+            )
+
+            src_obj = None
+            try:
+                src_obj = db.get_source_from_handle(handle)
+            except Exception:
+                pass
+            if src_obj is None:
+                continue
+
+            s_disp = _source_display(
+                {
+                    "title": src_obj.get_title(),
+                    "gramps_id": src_obj.get_gramps_id(),
+                    "citations": cites_by_source.get(handle, 0),
+                    "repo_count": len(list(src_obj.get_reporef_list() or [])),
+                }
+            )
+
+            # Between handle and target_handle, determine the preferred keeper
+            src_score = (
+                len(list(src_obj.get_reporef_list() or [])),
+                cites_by_source.get(handle, 0),
+            )
+            target_score = (
+                len(list(target_src.get_reporef_list() or [])),
+                cites_by_source.get(target_handle, 0),
+            )
+            if src_score >= target_score:
+                k_handle = handle
+                k_src = src_obj
+                k_disp = s_disp
+                d_handle = target_handle
+                d_src = target_src
+                d_disp = t_disp
+            else:
+                k_handle = target_handle
+                k_src = target_src
+                k_disp = t_disp
+                d_handle = handle
+                d_src = src_obj
+                d_disp = s_disp
+
+            # 1. Add/update keeper row (hint is blank)
+            if k_handle not in handled_handles:
+                k_repo_name = repo_name_by_handle.get(k_handle) or (
+                    str(_("(no repository)"))
+                    if not list(k_src.get_reporef_list() or [])
+                    else str(_("Repository"))
+                )
+                k_row = {
+                    "handle": k_handle,
+                    "title": str(k_src.get_title() or ""),
+                    "gramps_id": str(k_src.get_gramps_id() or ""),
+                    "display": k_disp,
+                    "repo_name": k_repo_name,
+                    "citations": cites_by_source.get(k_handle, 0),
+                    "options": [(k_disp, k_handle), (d_disp, d_handle)],
+                    "best_guess": k_disp,
+                    "hint_target": "",
+                    "hint_reason": "",
+                    "hint_display": "",
+                    "problem": "merge",
+                    "is_keeper": True,
+                    "skip": False,
+                }
+                rows.append(k_row)
+                handled_handles.add(k_handle)
+                keeper_rows_by_handle[k_handle] = k_row
+            else:
+                if k_handle in keeper_rows_by_handle:
+                    k_row = keeper_rows_by_handle[k_handle]
+                    if (d_disp, d_handle) not in k_row["options"]:
+                        k_row["options"].append((d_disp, d_handle))
+
+            # 2. Add duplicate row (hint points to keeper)
+            d_repo_name = repo_name_by_handle.get(d_handle) or (
+                str(_("(no repository)"))
+                if not list(d_src.get_reporef_list() or [])
+                else str(_("Repository"))
+            )
+            d_row = {
+                "handle": d_handle,
+                "title": str(d_src.get_title() or ""),
+                "gramps_id": str(d_src.get_gramps_id() or ""),
+                "display": d_disp,
+                "repo_name": d_repo_name,
+                "citations": cites_by_source.get(d_handle, 0),
+                "options": [(d_disp, d_handle), (k_disp, k_handle)],
+                "best_guess": d_disp,
+                "hint_target": k_handle,
+                "hint_reason": reason,
+                "hint_display": "%s\n(%s)" % (k_disp, reason),
+                "problem": "merge",
+                "is_keeper": False,
+                "skip": False,
+            }
+            rows.append(d_row)
+            handled_handles.add(d_handle)
+
+    # 3) Sources with leading or trailing whitespace
     for row in stats.get("source_rows", []):
         handle = row.get("handle")
         if not handle or handle in handled_handles:
@@ -692,7 +846,7 @@ def build_source_fix_rows(
             }
         )
 
-    # 3) Orphan / no-repository sources -> quarantine action
+    # 4) Orphan / no-repository sources -> quarantine action
     for row in stats.get("source_rows", []):
         handle = row.get("handle")
         if not handle or handle in handled_handles:

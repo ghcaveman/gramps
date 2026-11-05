@@ -261,7 +261,9 @@ def split_conflated_title(title: str) -> dict[str, str] | None:
 # Repository hints (suggest a golden repository for a source)
 #
 # ------------------------------------------------------------
-_YEAR_RANGE = re.compile(r"\b\d{4}\s*[-\u2013]\s*(?:\d{4}|current|present)\b", re.IGNORECASE)
+_YEAR_RANGE = re.compile(
+    r"\b\d{4}\s*[-\u2013]\s*(?:\d{4}|current|present)\b", re.IGNORECASE
+)
 _ANCESTRY_ONLY = re.compile(
     r"^(?:global|web)\s*[,:]|\s&\s|church and town records|^philadelphia, pennsylvania",
     re.IGNORECASE,
@@ -269,7 +271,9 @@ _ANCESTRY_ONLY = re.compile(
 _CENSUS_TITLE = re.compile(r"\b\d{4} united states federal census\b", re.IGNORECASE)
 
 
-def build_title_repo_index(rows: list[dict[str, str]]) -> dict[str, list[tuple[str, str]]]:
+def build_title_repo_index(
+    rows: list[dict[str, str]],
+) -> dict[str, list[tuple[str, str]]]:
     """Index which repositories sources of a given title are already linked to.
 
     ``rows`` are dicts with ``title``, ``source_handle`` and ``repo_name``
@@ -284,7 +288,9 @@ def build_title_repo_index(rows: list[dict[str, str]]) -> dict[str, list[tuple[s
     return dict(index)
 
 
-def closest_golden_name(name: str, golden: list[str], threshold: float = 0.8) -> str | None:
+def closest_golden_name(
+    name: str, golden: list[str], threshold: float = 0.8
+) -> str | None:
     """Return the golden name most similar to ``name`` when similar enough."""
     plain = normalize_repo_name(name)
     if not plain:
@@ -360,11 +366,138 @@ def suggest_repository(
         return result(mention[0], _("title names %s") % mention[0])
 
     uspto = "United States Patent and Trademark Office (USPTO)"
-    if uspto in golden and re.search(r"patent\s+(?:and\s+trademark\s+)?office|\buspto\b", title or "", re.IGNORECASE):
+    if uspto in golden and re.search(
+        r"patent\s+(?:and\s+trademark\s+)?office|\buspto\b", title or "", re.IGNORECASE
+    ):
         return result(uspto, _("title names the patent office"))
 
     # 4. State-style collection title without "U.S." is FamilySearch naming.
     if "FamilySearch" in golden and _YEAR_RANGE.search(title or ""):
         return result("FamilySearch", _("likely: FamilySearch-style collection title"))
 
+    return None
+
+
+def suggest_source_merge_target(
+    selected_handle: str,
+    candidate_handles: list[str],
+    db: Any,
+    cites_by_source: dict[str, int] | Counter[str] | None = None,
+) -> tuple[str, str] | None:
+    """Suggest a merge target source with a reason, using fuzzy & heuristic matching."""
+    if not selected_handle or not candidate_handles or not db:
+        return None
+
+    try:
+        source = db.get_source_from_handle(selected_handle)
+    except Exception:
+        return None
+    if source is None:
+        return None
+
+    title = str(source.get_title() or "")
+    norm_title = normalize_source_title(title)
+    src_cites = cites_by_source.get(selected_handle, 0) if cites_by_source else 0
+    src_repos = set()
+    try:
+        for ref in source.get_reporef_list() or []:
+            if hasattr(ref, "ref") and ref.ref:
+                src_repos.add(ref.ref)
+    except Exception:
+        pass
+    src_author = str(source.get_author() or "").strip().lower()
+
+    best_handle: str | None = None
+    best_score = 0
+    best_reason = ""
+
+    for target_handle in candidate_handles:
+        if target_handle == selected_handle:
+            continue
+        try:
+            target = db.get_source_from_handle(target_handle)
+        except Exception:
+            continue
+        if target is None:
+            continue
+
+        target_title = str(target.get_title() or "")
+        target_norm = normalize_source_title(target_title)
+        target_cites = cites_by_source.get(target_handle, 0) if cites_by_source else 0
+        target_repos = set()
+        try:
+            for ref in target.get_reporef_list() or []:
+                if hasattr(ref, "ref") and ref.ref:
+                    target_repos.add(ref.ref)
+        except Exception:
+            pass
+
+        score = 0
+        reason = ""
+
+        # 1. Exact or normalized title match
+        if title and target_title and title.lower() == target_title.lower():
+            score = 2000 + target_cites * 10 + len(target_repos)
+            reason = str(
+                _("Exact title match (%(target_cites)d citations vs %(src_cites)d)")
+                % {"target_cites": target_cites, "src_cites": src_cites}
+            )
+        elif norm_title and target_norm and norm_title == target_norm:
+            score = 1500 + target_cites * 10 + len(target_repos)
+            reason = str(
+                _(
+                    "Matching normalized title (%(target_cites)d citations vs %(src_cites)d)"
+                )
+                % {"target_cites": target_cites, "src_cites": src_cites}
+            )
+        else:
+            ratio = (
+                difflib.SequenceMatcher(None, norm_title, target_norm).ratio()
+                if norm_title and target_norm
+                else 0.0
+            )
+            shared_repos = src_repos & target_repos
+            if shared_repos and ratio >= 0.70:
+                score = 1000 + int(ratio * 100) + target_cites * 5
+                repo_name = ""
+                for r_h in shared_repos:
+                    try:
+                        repo_obj = db.get_repository_from_handle(r_h)
+                        if repo_obj and repo_obj.get_name():
+                            repo_name = repo_obj.get_name()
+                            break
+                    except Exception:
+                        pass
+                if repo_name:
+                    reason = str(
+                        _("Shared repository '%(repo)s' (%(pct)d%% title match)")
+                        % {"repo": repo_name, "pct": int(ratio * 100)}
+                    )
+                else:
+                    reason = str(
+                        _("Shared repository (%(pct)d%% title match)")
+                        % {"pct": int(ratio * 100)}
+                    )
+            elif ratio >= 0.80:
+                score = 500 + int(ratio * 100) + target_cites * 5
+                reason = str(
+                    _("%(pct)d%% title similarity (%(target_cites)d citations)")
+                    % {"pct": int(ratio * 100), "target_cites": target_cites}
+                )
+            elif src_author and ratio >= 0.60:
+                target_author = str(target.get_author() or "").strip().lower()
+                if target_author and target_author == src_author:
+                    score = 400 + int(ratio * 100) + target_cites * 5
+                    reason = str(
+                        _("Same author '%(author)s' and similar title")
+                        % {"author": source.get_author()}
+                    )
+
+        if score > best_score:
+            best_score = score
+            best_handle = target_handle
+            best_reason = reason
+
+    if best_handle is not None and best_reason:
+        return (best_handle, best_reason)
     return None

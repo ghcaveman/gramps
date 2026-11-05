@@ -314,6 +314,66 @@ class SourceFixDialogTest(unittest.TestCase):
         self.assertEqual(updated_s.get_title(), "World War I Draft Registration")
         self.assertEqual(updated_s.get_author(), "Selective Service System")
 
+    def test_build_source_fix_rows_fuzzy_heuristic_match(self) -> None:
+        """Verify fuzzy and heuristic similarity matches produce keeper/duplicate rows with reasons."""
+        with DbTxn("Create fuzzy matching sources", self.db) as trans:
+            repo = Repository()
+            repo.set_name("Ancestry.com")
+            r_h = self.db.add_repository(repo, trans)
+
+            s1 = Source()
+            s1.set_title("California Death Index, 1940-1997")
+            rref1 = RepoRef()
+            rref1.set_reference_handle(r_h)
+            s1.add_repo_reference(rref1)
+            s1_h = self.db.add_source(s1, trans)
+
+            s2 = Source()
+            s2.set_title("California Death Records 1940-1997")
+            rref2 = RepoRef()
+            rref2.set_reference_handle(r_h)
+            s2.add_repo_reference(rref2)
+            s2_h = self.db.add_source(s2, trans)
+
+        # stats without near_duplicates (since titles are not exact normalized matches)
+        stats = {
+            "near_duplicates": [],
+            "source_rows": [
+                {
+                    "handle": s1_h,
+                    "title": "California Death Index, 1940-1997",
+                    "gramps_id": "S0001",
+                    "citations": 5,
+                    "repo_count": 1,
+                },
+                {
+                    "handle": s2_h,
+                    "title": "California Death Records 1940-1997",
+                    "gramps_id": "S0002",
+                    "citations": 1,
+                    "repo_count": 1,
+                },
+            ],
+        }
+
+        rows = build_source_fix_rows(stats, self.db)
+        self.assertEqual(len(rows), 2)
+
+        # S1 is the keeper (5 citations vs 1)
+        r_keeper = next(r for r in rows if r["handle"] == s1_h)
+        self.assertTrue(r_keeper["is_keeper"])
+        self.assertEqual(r_keeper["hint_target"], "")
+        self.assertEqual(r_keeper["hint_display"], "")  # Blank hint!
+
+        # S2 is the duplicate suggested to merge into S1
+        r_dup = next(r for r in rows if r["handle"] == s2_h)
+        self.assertFalse(r_dup["is_keeper"])
+        self.assertEqual(r_dup["hint_target"], s1_h)
+        self.assertIn("Ancestry.com", r_dup["hint_reason"])
+        self.assertEqual(
+            r_dup["options"][0][1], s2_h
+        )  # Default choice is self (DB value)
+
 
 if __name__ == "__main__":
     unittest.main()
