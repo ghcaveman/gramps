@@ -1,0 +1,108 @@
+# Transcript: Building an Interface for the National Archives (NARA) API
+
+To gather data from the National Archives (NARA), you will want to interface with the National Archives Catalog API v2 (https://github.com/usnationalarchives/Catalog-API). This API allows you to programmatically query NARA's vast repository of over 95% of its nationwide holdings, metadata, public contributions, and digital object URLs.
+
+Below is a step-by-step guide and a ready-to-use Python interface utilizing the `requests` library to fetch archival records.
+
+### Step 1: Get an API Key
+While the API is completely open and free, NARA enforces a default rate limit of 10,000 queries per month and requires an API key to track quotas. 
+* To get your key, simply email the NARA Catalog API team at Catalog_API@nara.gov. 
+
+### Step 2: The Python Interface Code
+This script sets up a clean, reusable interface class. It searches the `/api/v2/records/search` endpoint and structures the results into simple, readable text.
+
+```python
+import requests
+
+class NaraCatalogInterface:
+    def __init__(self, api_key: str):
+        """Initializes the interface with NARA's API v2 Base URL and your API Key."""
+        self.base_url = "https://catalog.archives.gov/api/v2"
+        self.headers = {
+            "Content-Type": "application/json",
+            "x-api-key": api_key  # Header authentication requirement for v2
+        }
+
+    def search_records(self, query: str, rows: int = 5, material_type: str = None):
+        """Searches the NARA Catalog for historical records.
+        
+        Parameters:
+        - query: The search term or string (e.g., 'Civil War', 'Immigration')
+        - rows: Number of records to return per page (Default: 5)
+        - material_type: Filter by 'textual records', 'photographs', etc.
+        """
+        endpoint = f"{self.base_url}/records/search"
+        
+        # Construct query parameters
+        params = {
+            "q": query,
+            "limit": rows
+        }
+        
+        if material_type:
+            params["typeOfMaterials"] = material_type
+            
+        try:
+            response = requests.get(endpoint, headers=self.headers, params=params)
+            
+            # Check if request was successful
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"Error {response.status_code}: Unable to fetch data. Verify your API key.")
+                return None
+                
+        except requests.exceptions.RequestException as e:
+            print(f"An error occurred: {e}")
+            return None
+
+# ==========================================
+# EXAMPLE USAGE
+# ==========================================
+if __name__ == "__main__":
+    # Replace with your actual NARA API Key
+    MY_API_KEY = "YOUR_NARA_API_KEY_HERE"
+    
+    # Initialize our NARA API client
+    nara_client = NaraCatalogInterface(api_key=MY_API_KEY)
+    
+    # Search for records containing 'Project Blue Book' that are sound recordings
+    search_term = "Project Blue Book"
+    print(f"Searching NARA for: '{search_term}'...\n")
+    
+    results = nara_client.search_records(query=search_term, rows=3, material_type="sound recordings")
+    
+    # Parse and display the results cleanly
+    if results and "body" in results and "hits" in results["body"]:
+        hits = results["body"]["hits"]["hits"]
+        
+        for idx, item in enumerate(hits, 1):
+            source = item.get("_source", {})
+            record = source.get("record", {})
+            
+            # Extract common metadata points
+            naid = source.get("naId", "N/A")
+            title = record.get("title", "No Title Provided")
+            creators = [c.get("heading", "") for c in record.get("authors", {}).get("creator", [])]
+            
+            print(f"[{idx}] NAID (National Archives Identifier): {naid}")
+            print(f"    Title: {title}")
+            print(f"    Creators: {', '.join(creators) if creators else 'Unknown'}")
+            
+            # Check if there are digitized objects attached (images/audio)
+            digital_objects = record.get("digitalObjects", [])
+            if digital_objects:
+                print(f"    Digitized Media Linked: {len(digital_objects)} object(s)")
+                # Print the direct link to the first digitized file if available
+                first_url = digital_objects.get("objectUrl")
+                if first_url:
+                    print(f"    View File: {first_url}")
+            print("-" * 50)
+    else:
+        print("No records found or error parsing JSON.")
+```
+
+### Tips for Customizing Your Interface
+1. **Filtering Results:** You can append more specific parameters to the `params` dictionary in the script. For example, adding `"availableOnline": True` restricts your data sweep strictly to documents that have already been digitized.
+2. **Bulk Data Exports:** If your script intends to pull massive sets of files, keep your `limit` parameters reasonable per request. NARA's modern v2 cluster features robust full-text search capabilities driven by OCR text tools, making large data sweeps fast.
+3. **Write Capability:** If you ever want to expand this interface to let users add tags or submit community transcripts from your custom application, you can pivot the script to make an authenticated `POST` request to endpoints like `/api/v2/tags/`.

@@ -536,6 +536,34 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard NARA Merge
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardnara",
+    name=_("GWizard NARA Merge"),
+    description=_(
+        "Family Tree Processing Tool to search the National Archives (NARA) "
+        "catalog and compare/merge archival data side-by-side with the open Family Tree."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizardnara.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardNaraMergeTool",
+    optionclass="GWizardNaraMergeToolOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardNaraMerge_Tool",
+)
+
+# ------------------------------------------------------------------------
+#
 # Find database Loop
 #
 # ------------------------------------------------------------------------
