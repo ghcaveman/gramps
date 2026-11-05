@@ -197,7 +197,7 @@ class CitationFixDialogTest(unittest.TestCase):
     """Verify CitationFixDialog and build_citation_fix_rows behavior."""
 
     def test_volume_page_separated_from_citation_display(self) -> None:
-        """Volume/page or URL should be stored in 'page' and excluded from citation_display."""
+        """Volume/page or URL should be stored in 'page' and included in multi-line citation_display."""
         src = FakeSource(handle="s1", title="Census 1900")
         cit = FakeCitation(
             handle="c1",
@@ -215,12 +215,14 @@ class CitationFixDialogTest(unittest.TestCase):
         self.assertEqual(
             row["page"], "https://www.familysearch.org/ark:/61903/1:1:M9123"
         )
-        self.assertEqual(row["citation_display"], "(C0001)")
-        self.assertNotIn("https://", row["citation_display"])
-        self.assertNotIn("p.", row["citation_display"])
+        self.assertIn("(C0001) |", row["citation_display"])
+        self.assertIn(
+            "https://www.familysearch.org/ark:/61903/1:1:M9123 |",
+            row["citation_display"],
+        )
 
     def test_empty_volume_page(self) -> None:
-        """When volume/page is empty, 'page' should be empty string."""
+        """When volume/page is empty, 'page' should be empty string and display uses placeholder."""
         src = FakeSource(handle="s1", title="Parish Register")
         cit = FakeCitation(
             handle="c2",
@@ -235,11 +237,11 @@ class CitationFixDialogTest(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         row = rows[0]
         self.assertEqual(row["page"], "")
-        self.assertEqual(row["citation_display"], "(C0002)")
+        self.assertIn("(C0002) |", row["citation_display"])
         self.assertNotIn("Confidence", row["citation_display"])
 
     def test_citation_text_displayed_with_id_in_parens(self) -> None:
-        """Actual citation text should be displayed with Gramps ID in parens at the end."""
+        """Actual citation text should be displayed with Gramps ID in parens and combined lines."""
         src = FakeSource(handle="s1", title="Census 1900")
         cit = FakeCitation(
             handle="c3",
@@ -255,23 +257,28 @@ class CitationFixDialogTest(unittest.TestCase):
         rows = build_citation_fix_rows(db)
         self.assertEqual(len(rows), 1)
         row = rows[0]
+        expected_lines = [
+            "Household record for Lincoln family (C123456) |",
+            "p. 15B | — |",
+            "Household record for Lincoln family",
+        ]
         self.assertEqual(
             row["citation_display"],
-            "Household record for Lincoln family (C123456)",
+            "\n".join(expected_lines),
         )
         self.assertNotIn("Confidence", row["citation_display"])
 
     def test_build_header_columns(self) -> None:
-        """Header should attach 7 columns with proportional spans: Source (2), Citation (6), Volume/Page (3), Date (2), Notes (4), Conf (2), Hint (5)."""
+        """Header should attach 4 columns with proportional spans: Source (3), Citation (14), Conf (2), Hint (5)."""
         grid = MagicMock()
         dlg = CitationFixDialog.__new__(CitationFixDialog)
         dlg.build_header(grid)
 
-        self.assertEqual(len(grid.attach.call_args_list), 7)
+        self.assertEqual(len(grid.attach.call_args_list), 4)
         cols = [call.args[1] for call in grid.attach.call_args_list]
         spans = [call.args[3] for call in grid.attach.call_args_list]
-        self.assertEqual(cols, [0, 2, 8, 11, 13, 17, 19])
-        self.assertEqual(spans, [2, 6, 3, 2, 4, 2, 5])
+        self.assertEqual(cols, [0, 3, 17, 19])
+        self.assertEqual(spans, [3, 14, 2, 5])
         self.assertEqual(sum(spans), 24)
 
     def test_build_rows_column_count_and_proportions(self) -> None:
@@ -283,7 +290,7 @@ class CitationFixDialogTest(unittest.TestCase):
         row = {
             "source_name": "Test Source",
             "options": ["Option 1"],
-            "citation_display": "C0001",
+            "citation_display": "C0001 |\n— | — |\n—",
             "page": "https://www.familysearch.org/ark:/61903/1:1:M9123",
             "date": "1900",
             "notes_preview": "Some note",
@@ -302,9 +309,9 @@ class CitationFixDialogTest(unittest.TestCase):
 
         attached_cols = [call.args[1] for call in grid_mock.attach.call_args_list]
         attached_spans = [call.args[3] for call in grid_mock.attach.call_args_list]
-        self.assertEqual(len(grid_mock.attach.call_args_list), 7)
-        self.assertEqual(attached_cols, [0, 2, 8, 11, 13, 17, 19])
-        self.assertEqual(attached_spans, [2, 6, 3, 2, 4, 2, 5])
+        self.assertEqual(len(grid_mock.attach.call_args_list), 4)
+        self.assertEqual(attached_cols, [0, 3, 17, 19])
+        self.assertEqual(attached_spans, [3, 14, 2, 5])
         self.assertEqual(sum(attached_spans), 24)
         self.assertEqual(len(dlg.combos), 1)
 
