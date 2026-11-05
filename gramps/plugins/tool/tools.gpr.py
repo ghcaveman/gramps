@@ -536,6 +536,34 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard WikiTree Merge
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardwikitree",
+    name=_("GWizard WikiTree Merge"),
+    description=_(
+        "Family Tree Processing Tool to search WikiTree profiles and ancestors "
+        "and compare/merge data side-by-side with the open Family Tree."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizardwikitree.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardWikiTreeMergeTool",
+    optionclass="GWizardWikiTreeMergeToolOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardWikiTreeMerge_Tool",
+)
+
+# ------------------------------------------------------------------------
+#
 # Find database Loop
 #
 # ------------------------------------------------------------------------

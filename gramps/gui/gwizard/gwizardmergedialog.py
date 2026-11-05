@@ -583,9 +583,12 @@ class GWizardMergeDialog(Gtk.Dialog):
             lab.set_markup("<b>%s</b>" % GLib.markup_escape_text(text))
             return lab
 
+        source_title = self.gwizard.context.get("source_title")
         source_path = self.gwizard.context.get("gedcom_path")
-        incoming_title = _("Incoming GEDCOM")
-        if source_path:
+        incoming_title = _("Incoming Data")
+        if source_title:
+            incoming_title = _("Incoming: %s") % source_title
+        elif source_path:
             filename = truncate_display_name(
                 os.path.basename(source_path),
                 max_length=30,
