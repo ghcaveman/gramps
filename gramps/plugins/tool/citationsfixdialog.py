@@ -64,8 +64,8 @@ class CitationFixDialog(Gtk.Dialog):
     """Review and fix citation problems in a dialog.
 
     Six columns: Source (the source the citation references),
-    Suggested (a dropdown of fix actions), Citation (citation details
-    such as ID, date, confidence), Volume/Page (the citation volume/page
+    Citation (citation details such as ID, date, confidence),
+    Hint (a dropdown of fix actions), Volume/Page (the citation volume/page
     or URL reference), Notes (a short preview of the citation notes with
     a "..." button to view/copy the full text), and Conf (the confidence
     level from the database with its calculated QUAY value, shown as
@@ -143,14 +143,14 @@ class CitationFixDialog(Gtk.Dialog):
         left_head.set_markup("<b>%s</b>" % str(_("Source")))
         left_head.set_halign(Gtk.Align.START)
         left_head.set_hexpand(True)
-        mid_head = Gtk.Label()
-        mid_head.set_markup("<b>%s</b>" % str(_("Suggested")))
-        mid_head.set_halign(Gtk.Align.START)
-        mid_head.set_hexpand(True)
         right_head = Gtk.Label()
         right_head.set_markup("<b>%s</b>" % str(_("Citation")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
+        mid_head = Gtk.Label()
+        mid_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        mid_head.set_halign(Gtk.Align.START)
+        mid_head.set_hexpand(True)
         page_head = Gtk.Label()
         page_head.set_markup("<b>%s</b>" % str(_("Volume/Page")))
         page_head.set_halign(Gtk.Align.START)
@@ -163,12 +163,12 @@ class CitationFixDialog(Gtk.Dialog):
         conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
         conf_head.set_halign(Gtk.Align.START)
         conf_head.set_hexpand(True)
-        header_grid.attach(left_head, 0, 0, 3, 1)
-        header_grid.attach(mid_head, 3, 0, 2, 1)
-        header_grid.attach(right_head, 5, 0, 2, 1)
-        header_grid.attach(page_head, 7, 0, 4, 1)
-        header_grid.attach(notes_head, 11, 0, 2, 1)
-        header_grid.attach(conf_head, 13, 0, 1, 1)
+        header_grid.attach(left_head, 0, 0, 2, 1)
+        header_grid.attach(right_head, 2, 0, 8, 1)
+        header_grid.attach(mid_head, 10, 0, 5, 1)
+        header_grid.attach(page_head, 15, 0, 3, 1)
+        header_grid.attach(notes_head, 18, 0, 4, 1)
+        header_grid.attach(conf_head, 22, 0, 2, 1)
         content.add(header_grid)
 
         content.add(self.build_rows(self.rows))
@@ -191,15 +191,16 @@ class CitationFixDialog(Gtk.Dialog):
         left_head = Gtk.Label()
         left_head.set_markup("<b>%s</b>" % str(_("Source")))
         left_head.set_halign(Gtk.Align.START)
+        left_head.set_line_wrap(True)
         left_head.set_hexpand(True)
-        mid_head = Gtk.Label()
-        mid_head.set_markup("<b>%s</b>" % str(_("Suggested")))
-        mid_head.set_halign(Gtk.Align.START)
-        mid_head.set_hexpand(True)
         right_head = Gtk.Label()
         right_head.set_markup("<b>%s</b>" % str(_("Citation")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
+        mid_head = Gtk.Label()
+        mid_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        mid_head.set_halign(Gtk.Align.START)
+        mid_head.set_hexpand(True)
         page_head = Gtk.Label()
         page_head.set_markup("<b>%s</b>" % str(_("Volume/Page")))
         page_head.set_halign(Gtk.Align.START)
@@ -212,15 +213,15 @@ class CitationFixDialog(Gtk.Dialog):
         conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
         conf_head.set_halign(Gtk.Align.START)
         conf_head.set_hexpand(True)
-        grid.attach(left_head, 0, 0, 3, 1)
-        grid.attach(mid_head, 3, 0, 2, 1)
-        grid.attach(right_head, 5, 0, 2, 1)
-        grid.attach(page_head, 7, 0, 4, 1)
-        grid.attach(notes_head, 11, 0, 2, 1)
-        grid.attach(conf_head, 13, 0, 1, 1)
+        grid.attach(left_head, 0, 0, 2, 1)
+        grid.attach(right_head, 2, 0, 8, 1)
+        grid.attach(mid_head, 10, 0, 5, 1)
+        grid.attach(page_head, 15, 0, 3, 1)
+        grid.attach(notes_head, 18, 0, 4, 1)
+        grid.attach(conf_head, 22, 0, 2, 1)
 
     def build_rows(self, rows: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        """Build a 6-column grid with proportional spans: Source (3) | Suggested (2) | Citation (2) | Volume/Page (4) | Notes (2) | Conf (1)."""
+        """Build a 6-column grid with proportional spans: Source (2) | Citation (8) | Hint (5) | Volume/Page (3) | Notes (4) | Conf (2)."""
         grid = Gtk.Grid()
         grid.set_column_spacing(0)
         grid.set_row_spacing(0)
@@ -230,37 +231,38 @@ class CitationFixDialog(Gtk.Dialog):
 
         row_index = 0
         for row in rows:
-            # Column 0 (span 3): source name
+            # Column 0 (span 2): source name with word-wrap
             src_label = Gtk.Label(label=row["source_name"])
             src_label.set_halign(Gtk.Align.START)
             src_label.set_line_wrap(True)
             src_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            grid.attach(src_label, 0, row_index, 3, 1)
+            src_label.set_max_width_chars(18)
+            grid.attach(src_label, 0, row_index, 2, 1)
 
-            # Column 1 (span 2): suggested fix dropdown
+            # Column 1 (span 8): citation details
+            cit_label = Gtk.Label(label=row["citation_display"])
+            cit_label.set_halign(Gtk.Align.START)
+            cit_label.set_line_wrap(True)
+            cit_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            grid.attach(cit_label, 2, row_index, 8, 1)
+
+            # Column 2 (span 5): hint dropdown
             combo = Gtk.ComboBoxText()
             combo.set_hexpand(True)
             for option in row["options"]:
                 combo.append_text(option)
             combo.set_active(0)
-            grid.attach(combo, 3, row_index, 2, 1)
+            grid.attach(combo, 10, row_index, 5, 1)
 
-            # Column 2 (span 2): citation details
-            cit_label = Gtk.Label(label=row["citation_display"])
-            cit_label.set_halign(Gtk.Align.START)
-            cit_label.set_line_wrap(True)
-            cit_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            grid.attach(cit_label, 5, row_index, 2, 1)
-
-            # Column 3 (span 4): volume/page or URL
+            # Column 3 (span 3): volume/page or URL
             page_text = row.get("page", "")
             page_label = Gtk.Label(label=page_text if page_text else "\u2014")
             page_label.set_halign(Gtk.Align.START)
             page_label.set_line_wrap(True)
             page_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            grid.attach(page_label, 7, row_index, 4, 1)
+            grid.attach(page_label, 15, row_index, 3, 1)
 
-            # Column 4 (span 2): notes (preview + "more" button)
+            # Column 4 (span 4): notes (preview + "more" button)
             notes_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
             notes_preview = row.get("notes_preview", "")
             notes_label = Gtk.Label(label=notes_preview if notes_preview else "\u2014")
@@ -274,13 +276,13 @@ class CitationFixDialog(Gtk.Dialog):
                 more_btn.set_relief(Gtk.ReliefStyle.NONE)
                 more_btn.connect("clicked", self.cb_show_notes, notes_text)
                 notes_box.pack_start(more_btn, False, False, 0)
-            grid.attach(notes_box, 11, row_index, 2, 1)
+            grid.attach(notes_box, 18, row_index, 4, 1)
 
-            # Column 5 (span 1): confidence / QUAY
+            # Column 5 (span 2): confidence / QUAY
             conf_label = Gtk.Label(label=row["confidence_display"])
             conf_label.set_halign(Gtk.Align.START)
             conf_label.set_line_wrap(True)
-            grid.attach(conf_label, 13, row_index, 1, 1)
+            grid.attach(conf_label, 22, row_index, 2, 1)
 
             self.combos.append((row["citation_handle"], combo, row["best_guess"]))
             row_index += 1
@@ -609,15 +611,6 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
             except Exception:
                 pass
 
-            parts = []
-            if gid:
-                parts.append(gid)
-            if date_str:
-                parts.append(date_str)
-            if conf >= 3:
-                parts.append("Confidence %d" % conf)
-            citation_display = " | ".join(parts) if parts else "(no details)"
-
             # Count citation attributes (media references, notes, source
             # attributes) for this citation.
             attr_count = 0
@@ -634,24 +627,72 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
             except Exception:
                 pass
 
-            # Resolve citation notes to text for the Notes column.
+            # Resolve citation notes to text for Citation and Notes columns.
             notes_text = ""
+            citation_text = ""
             try:
+                from gramps.gen.lib import NoteType
+
                 note_handles = list(cit.get_note_list() or [])
-                note_texts: list[str] = []
+                cit_note_texts: list[str] = []
+                other_note_texts: list[str] = []
                 for nh in note_handles:
                     try:
                         note = db.get_note_from_handle(nh)
                         if note is not None:
-                            note_texts.append(str(note.get_styledtext()))
+                            ntxt = str(
+                                note.get_styledtext() or note.get() or ""
+                            ).strip()
+                            if ntxt:
+                                ntype = getattr(note, "type", None)
+                                if ntype == NoteType.CITATION:
+                                    cit_note_texts.append(ntxt)
+                                else:
+                                    other_note_texts.append(ntxt)
                     except Exception:
                         pass
-                notes_text = "\n\n".join(note_texts)
+                all_notes = cit_note_texts + other_note_texts
+                notes_text = "\n\n".join(all_notes)
+                preferred = cit_note_texts or other_note_texts
+                if preferred:
+                    first_line = preferred[0].splitlines()[0].strip()
+                    citation_text = " ".join(first_line.split())
+                    if len(citation_text) > 120:
+                        citation_text = citation_text[:117] + "..."
             except Exception:
                 pass
+
+            # Check source attributes on the citation if no note text
+            if not citation_text:
+                try:
+                    for attr in cit.get_attribute_list() or []:
+                        val = str(attr.get_value() or "").strip()
+                        if val:
+                            citation_text = " ".join(val.split())
+                            if len(citation_text) > 120:
+                                citation_text = citation_text[:117] + "..."
+                            break
+                except Exception:
+                    pass
+
             notes_preview = notes_text.replace("\n", " ")
             if len(notes_preview) > 40:
                 notes_preview = notes_preview[:40] + "\u2026"
+
+            details = []
+            if citation_text:
+                details.append(citation_text)
+            if date_str and (not citation_text or date_str not in citation_text):
+                details.append(date_str)
+
+            text_part = ", ".join(details)
+            if gid:
+                if text_part:
+                    citation_display = f"{text_part} ({gid})"
+                else:
+                    citation_display = f"({gid})"
+            else:
+                citation_display = text_part if text_part else "(no details)"
 
             # QUAY value mirrors the GEDCOM export mapping
             # (exportgedcom.QUALITY_MAP): CONF_VERY_HIGH/4 -> Q3,

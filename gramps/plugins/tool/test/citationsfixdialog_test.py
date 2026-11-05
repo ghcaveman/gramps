@@ -148,14 +148,32 @@ class FakeCitation:
         return []
 
 
+class FakeNote:
+    """Mock Note object."""
+
+    def __init__(self, text: str, note_type: int | None = None) -> None:
+        self.text = text
+        self.type = note_type
+
+    def get_styledtext(self) -> str:
+        return self.text
+
+    def get(self) -> str:
+        return self.text
+
+
 class FakeDb:
     """Mock Gramps database."""
 
     def __init__(
-        self, sources: list[FakeSource], citations: list[FakeCitation]
+        self,
+        sources: list[FakeSource],
+        citations: list[FakeCitation],
+        notes: dict[str, FakeNote] | None = None,
     ) -> None:
         self.sources = sources
         self.citations = citations
+        self.notes = notes or {}
 
     def iter_sources(self) -> list[FakeSource]:
         """Return mock sources."""
@@ -165,9 +183,9 @@ class FakeDb:
         """Return mock citations."""
         return self.citations
 
-    def get_note_from_handle(self, _handle: str) -> None:
-        """Return None for notes."""
-        return None
+    def get_note_from_handle(self, handle: str) -> FakeNote | None:
+        """Return mock note if present."""
+        return self.notes.get(handle)
 
 
 # ------------------------------------------------------------
@@ -197,7 +215,7 @@ class CitationFixDialogTest(unittest.TestCase):
         self.assertEqual(
             row["page"], "https://www.familysearch.org/ark:/61903/1:1:M9123"
         )
-        self.assertEqual(row["citation_display"], "C0001")
+        self.assertEqual(row["citation_display"], "(C0001)")
         self.assertNotIn("https://", row["citation_display"])
         self.assertNotIn("p.", row["citation_display"])
 
@@ -209,7 +227,7 @@ class CitationFixDialogTest(unittest.TestCase):
             ref_handle="s1",
             gramps_id="C0002",
             page="",
-            confidence=2,
+            confidence=3,
         )
         db = FakeDb(sources=[src], citations=[cit])
 
@@ -217,10 +235,34 @@ class CitationFixDialogTest(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         row = rows[0]
         self.assertEqual(row["page"], "")
-        self.assertEqual(row["citation_display"], "C0002")
+        self.assertEqual(row["citation_display"], "(C0002)")
+        self.assertNotIn("Confidence", row["citation_display"])
+
+    def test_citation_text_displayed_with_id_in_parens(self) -> None:
+        """Actual citation text should be displayed with Gramps ID in parens at the end."""
+        src = FakeSource(handle="s1", title="Census 1900")
+        cit = FakeCitation(
+            handle="c3",
+            ref_handle="s1",
+            gramps_id="C123456",
+            page="p. 15B",
+            confidence=4,
+        )
+        cit.get_note_list = lambda: ["n1"]  # type: ignore[assignment]
+        note = FakeNote(text="Household record for Lincoln family")
+        db = FakeDb(sources=[src], citations=[cit], notes={"n1": note})
+
+        rows = build_citation_fix_rows(db)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(
+            row["citation_display"],
+            "Household record for Lincoln family (C123456)",
+        )
+        self.assertNotIn("Confidence", row["citation_display"])
 
     def test_build_header_columns(self) -> None:
-        """Header should attach 6 columns with proportional spans covering 14 units."""
+        """Header should attach 6 columns with proportional spans: Source (2), Citation (8), Hint (5), Volume/Page (3), Notes (4), Conf (2)."""
         grid = MagicMock()
         dlg = CitationFixDialog.__new__(CitationFixDialog)
         dlg.build_header(grid)
@@ -228,12 +270,12 @@ class CitationFixDialogTest(unittest.TestCase):
         self.assertEqual(len(grid.attach.call_args_list), 6)
         cols = [call.args[1] for call in grid.attach.call_args_list]
         spans = [call.args[3] for call in grid.attach.call_args_list]
-        self.assertEqual(cols, [0, 3, 5, 7, 11, 13])
-        self.assertEqual(spans, [3, 2, 2, 4, 2, 1])
-        self.assertEqual(sum(spans), 14)
+        self.assertEqual(cols, [0, 2, 10, 15, 18, 22])
+        self.assertEqual(spans, [2, 8, 5, 3, 4, 2])
+        self.assertEqual(sum(spans), 24)
 
     def test_build_rows_column_count_and_proportions(self) -> None:
-        """build_rows should attach widgets with proportional spans covering 14 units."""
+        """build_rows should attach widgets with proportional spans covering 24 units."""
         grid_mock = MagicMock()
         dlg = CitationFixDialog.__new__(CitationFixDialog)
         dlg.combos = []
@@ -259,9 +301,9 @@ class CitationFixDialogTest(unittest.TestCase):
 
         attached_cols = [call.args[1] for call in grid_mock.attach.call_args_list]
         attached_spans = [call.args[3] for call in grid_mock.attach.call_args_list]
-        self.assertEqual(attached_cols, [0, 3, 5, 7, 11, 13])
-        self.assertEqual(attached_spans, [3, 2, 2, 4, 2, 1])
-        self.assertEqual(sum(attached_spans), 14)
+        self.assertEqual(attached_cols, [0, 2, 10, 15, 18, 22])
+        self.assertEqual(attached_spans, [2, 8, 5, 3, 4, 2])
+        self.assertEqual(sum(attached_spans), 24)
         self.assertEqual(len(dlg.combos), 1)
 
 
