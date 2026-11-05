@@ -148,13 +148,18 @@ class CitationFixDialog(Gtk.Dialog):
         conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
         conf_head.set_halign(Gtk.Align.START)
         conf_head.set_hexpand(True)
+        date_head = Gtk.Label()
+        date_head.set_markup("<b>%s</b>" % str(_("Date")))
+        date_head.set_halign(Gtk.Align.START)
+        date_head.set_hexpand(True)
         mid_head = Gtk.Label()
         mid_head.set_markup("<b>%s</b>" % str(_("Hint")))
         mid_head.set_halign(Gtk.Align.START)
         mid_head.set_hexpand(True)
         header_grid.attach(left_head, 0, 0, 3, 1)
-        header_grid.attach(right_head, 3, 0, 14, 1)
-        header_grid.attach(conf_head, 17, 0, 2, 1)
+        header_grid.attach(right_head, 3, 0, 12, 1)
+        header_grid.attach(conf_head, 15, 0, 2, 1)
+        header_grid.attach(date_head, 17, 0, 2, 1)
         header_grid.attach(mid_head, 19, 0, 5, 1)
         content.add(header_grid)
 
@@ -188,17 +193,22 @@ class CitationFixDialog(Gtk.Dialog):
         conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
         conf_head.set_halign(Gtk.Align.START)
         conf_head.set_hexpand(True)
+        date_head = Gtk.Label()
+        date_head.set_markup("<b>%s</b>" % str(_("Date")))
+        date_head.set_halign(Gtk.Align.START)
+        date_head.set_hexpand(True)
         mid_head = Gtk.Label()
         mid_head.set_markup("<b>%s</b>" % str(_("Hint")))
         mid_head.set_halign(Gtk.Align.START)
         mid_head.set_hexpand(True)
         grid.attach(left_head, 0, 0, 3, 1)
-        grid.attach(right_head, 3, 0, 14, 1)
-        grid.attach(conf_head, 17, 0, 2, 1)
+        grid.attach(right_head, 3, 0, 12, 1)
+        grid.attach(conf_head, 15, 0, 2, 1)
+        grid.attach(date_head, 17, 0, 2, 1)
         grid.attach(mid_head, 19, 0, 5, 1)
 
     def build_rows(self, rows: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        """Build a 4-column grid with proportional spans: Source (3) | Citation (14) | Conf (2) | Hint (5)."""
+        """Build a 5-column grid with proportional spans: Source (3) | Citation (12) | Conf (2) | Date (2) | Hint (5)."""
         grid = Gtk.Grid()
         grid.set_column_spacing(0)
         grid.set_row_spacing(0)
@@ -216,7 +226,7 @@ class CitationFixDialog(Gtk.Dialog):
             src_label.set_max_width_chars(24)
             grid.attach(src_label, 0, row_index, 3, 1)
 
-            # Column 1 (span 14): combined citation details
+            # Column 1 (span 12): combined citation details
             cit_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
             cit_label = Gtk.Label(label=row["citation_display"])
             cit_label.set_halign(Gtk.Align.START)
@@ -229,15 +239,23 @@ class CitationFixDialog(Gtk.Dialog):
                 more_btn.set_relief(Gtk.ReliefStyle.NONE)
                 more_btn.connect("clicked", self.cb_show_notes, notes_text)
                 cit_box.pack_start(more_btn, False, False, 0)
-            grid.attach(cit_box, 3, row_index, 14, 1)
+            grid.attach(cit_box, 3, row_index, 12, 1)
 
-            # Column 2 (span 2): confidence / QUAY
+            # Column 2 (span 2): confidence / QUAY (placed before Date)
             conf_label = Gtk.Label(label=row["confidence_display"])
             conf_label.set_halign(Gtk.Align.START)
             conf_label.set_line_wrap(True)
-            grid.attach(conf_label, 17, row_index, 2, 1)
+            grid.attach(conf_label, 15, row_index, 2, 1)
 
-            # Column 3 (span 5): hint dropdown (last column)
+            # Column 3 (span 2): date
+            date_text = row.get("date", "")
+            date_label = Gtk.Label(label=date_text if date_text else "\u2014")
+            date_label.set_halign(Gtk.Align.START)
+            date_label.set_line_wrap(True)
+            date_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            grid.attach(date_label, 17, row_index, 2, 1)
+
+            # Column 4 (span 5): hint dropdown (last column)
             combo = Gtk.ComboBoxText()
             combo.set_hexpand(True)
             for option in row["options"]:
@@ -651,28 +669,10 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
             if len(notes_preview) > 40:
                 notes_preview = notes_preview[:40] + "\u2026"
 
-            if citation_text:
-                c_part = f"{citation_text} ({gid})" if gid else citation_text
-            elif gid:
-                c_part = f"({gid})"
-            else:
-                c_part = "(no details)"
-            line1 = f"{c_part} |"
-
-            page_val = page if page else "—"
-            date_val = date_str if date_str else "—"
-            line2 = f"{page_val} | {date_val} |"
-
-            notes_val = notes_preview if notes_preview else "—"
-            line3 = notes_val
-
-            citation_display = f"{line1}\n{line2}\n{line3}"
-
             # QUAY value mirrors the GEDCOM export mapping
             # (exportgedcom.QUALITY_MAP): CONF_VERY_HIGH/4 -> Q3,
             # CONF_HIGH/3 -> Q2, CONF_LOW/1 -> Q1,
-            # CONF_VERY_LOW/0 -> Q0.  CONF_NORMAL/2 has no QUAY value,
-            # so it is shown as (Q-).
+            # CONF_VERY_LOW/0 -> Q0.
             if conf >= 4:
                 quay = 3
             elif conf == 3:
@@ -684,9 +684,26 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
             else:
                 quay = None
             if quay is None:
-                confidence_display = "%d (Q-)" % conf
+                confidence_display = f"{conf}(-)"
             else:
-                confidence_display = "%d (Q%d)" % (conf, quay)
+                confidence_display = f"{conf}({quay})"
+
+            if citation_text:
+                c_part = f"{citation_text} ({gid})" if gid else citation_text
+            elif gid:
+                c_part = f"({gid})"
+            else:
+                c_part = "(no details)"
+            line1 = f"{c_part} |"
+
+            page_val = page if page else "—"
+            date_val = date_str if date_str else "—"
+            line2 = f"{page_val} | conf:  {confidence_display} | {date_val} |"
+
+            notes_val = notes_preview if notes_preview else "—"
+            line3 = notes_val
+
+            citation_display = f"{line1}\n{line2}\n{line3}"
 
             # Determine suggested actions
             options: list[str] = []

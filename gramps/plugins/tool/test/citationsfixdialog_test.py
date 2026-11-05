@@ -259,7 +259,7 @@ class CitationFixDialogTest(unittest.TestCase):
         row = rows[0]
         expected_lines = [
             "Household record for Lincoln family (C123456) |",
-            "p. 15B | — |",
+            "p. 15B | conf:  4(3) | — |",
             "Household record for Lincoln family",
         ]
         self.assertEqual(
@@ -269,16 +269,16 @@ class CitationFixDialogTest(unittest.TestCase):
         self.assertNotIn("Confidence", row["citation_display"])
 
     def test_build_header_columns(self) -> None:
-        """Header should attach 4 columns with proportional spans: Source (3), Citation (14), Conf (2), Hint (5)."""
+        """Header should attach 5 columns with proportional spans: Source (3), Citation (12), Conf (2), Date (2), Hint (5)."""
         grid = MagicMock()
         dlg = CitationFixDialog.__new__(CitationFixDialog)
         dlg.build_header(grid)
 
-        self.assertEqual(len(grid.attach.call_args_list), 4)
+        self.assertEqual(len(grid.attach.call_args_list), 5)
         cols = [call.args[1] for call in grid.attach.call_args_list]
         spans = [call.args[3] for call in grid.attach.call_args_list]
-        self.assertEqual(cols, [0, 3, 17, 19])
-        self.assertEqual(spans, [3, 14, 2, 5])
+        self.assertEqual(cols, [0, 3, 15, 17, 19])
+        self.assertEqual(spans, [3, 12, 2, 2, 5])
         self.assertEqual(sum(spans), 24)
 
     def test_build_rows_column_count_and_proportions(self) -> None:
@@ -290,12 +290,12 @@ class CitationFixDialogTest(unittest.TestCase):
         row = {
             "source_name": "Test Source",
             "options": ["Option 1"],
-            "citation_display": "C0001 |\n— | — |\n—",
+            "citation_display": "C0001 |\n— | conf:  2(-) | — |\n—",
             "page": "https://www.familysearch.org/ark:/61903/1:1:M9123",
             "date": "1900",
             "notes_preview": "Some note",
             "notes_text": "Some note text",
-            "confidence_display": "2 (Q-)",
+            "confidence_display": "2(-)",
             "citation_handle": "c1",
             "best_guess": "Option 1",
         }
@@ -309,9 +309,9 @@ class CitationFixDialogTest(unittest.TestCase):
 
         attached_cols = [call.args[1] for call in grid_mock.attach.call_args_list]
         attached_spans = [call.args[3] for call in grid_mock.attach.call_args_list]
-        self.assertEqual(len(grid_mock.attach.call_args_list), 4)
-        self.assertEqual(attached_cols, [0, 3, 17, 19])
-        self.assertEqual(attached_spans, [3, 14, 2, 5])
+        self.assertEqual(len(grid_mock.attach.call_args_list), 5)
+        self.assertEqual(attached_cols, [0, 3, 15, 17, 19])
+        self.assertEqual(attached_spans, [3, 12, 2, 2, 5])
         self.assertEqual(sum(attached_spans), 24)
         self.assertEqual(len(dlg.combos), 1)
 
