@@ -40,7 +40,23 @@ if "gi" not in sys.modules:
     gi_mock = MagicMock()
 
     class _FakeDialog:
-        pass
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def get_content_area(self) -> MagicMock:
+            return MagicMock()
+
+        def add_button(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def connect(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def set_default_size(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def show_all(self) -> None:
+            pass
 
     gi_mock.repository.Gtk.Dialog = _FakeDialog
     sys.modules["gi"] = gi_mock
