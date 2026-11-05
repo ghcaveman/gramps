@@ -363,35 +363,11 @@ class SourceFixDialog(Gtk.Dialog):
 
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply chosen source merges, trims, and quarantines."""
-        plan: dict[str, Any] = {"merge": [], "quarantine": [], "trim": []}
-        merges_by_keeper: dict[str, list[str]] = defaultdict(list)
-
-        for row, combo in self.row_combos:
-            source_handle = row["handle"]
-            chosen = self.get_choice(combo, source_handle)
-            if chosen == source_handle:
-                # Kept as-is
-                continue
-            if chosen == "trim":
-                plan["trim"].append({"source_handle": source_handle})
-            elif chosen == "quarantine":
-                plan["quarantine"].append(
-                    {
-                        "source_handle": source_handle,
-                        "target_repo_name": _QUARANTINE_REPO_NAME,
-                    }
-                )
-            else:
-                # Merge into chosen keeper handle
-                merges_by_keeper[chosen].append(source_handle)
-
-        for keeper, discards in merges_by_keeper.items():
-            plan["merge"].append(
-                {
-                    "keeper_handle": keeper,
-                    "discard_handles": [h for h in discards if h != keeper],
-                }
-            )
+        rows_with_choices = [
+            dict(row, chosen_target=self.get_choice(combo, row["handle"]))
+            for row, combo in self.row_combos
+        ]
+        plan = plan_source_fixes(rows_with_choices)
 
         if (
             not plan.get("merge")
@@ -892,6 +868,18 @@ def build_source_fix_rows(
     return rows
 
 
+def _resolve_merge_target(handle: str, merge_targets: dict[str, str]) -> str:
+    """Follow merge chains to find the final target, detecting cycles."""
+    visited = set()
+    curr = handle
+    while curr in merge_targets:
+        if curr in visited:
+            break
+        visited.add(curr)
+        curr = merge_targets[curr]
+    return curr
+
+
 def plan_source_fixes(
     rows: list[dict[str, Any]],
 ) -> dict[str, list[dict[str, Any]]]:
@@ -901,7 +889,9 @@ def plan_source_fixes(
         "quarantine": [],
         "trim": [],
     }
-    merges_by_keeper: dict[str, list[str]] = defaultdict(list)
+    merge_targets: dict[str, str] = {}
+    quarantine_handles: set[str] = set()
+    trim_handles: set[str] = set()
 
     for row in rows:
         if row.get("skip"):
@@ -919,33 +909,46 @@ def plan_source_fixes(
                     }
                 )
             elif row.get("problem") == "quarantine" and "quarantine_handle" in row:
-                plan["quarantine"].append(
-                    {
-                        "source_handle": row["quarantine_handle"],
-                        "target_repo_name": _QUARANTINE_REPO_NAME,
-                    }
-                )
+                quarantine_handles.add(row["quarantine_handle"])
             continue
 
         if chosen == "trim":
-            plan["trim"].append({"source_handle": handle})
+            trim_handles.add(handle)
         elif chosen == "quarantine":
+            quarantine_handles.add(handle)
+        elif chosen != handle:
+            merge_targets[handle] = chosen
+
+    # Resolve transitive merges and cycles so discards point to the final surviving keeper
+    merges_by_keeper: dict[str, set[str]] = defaultdict(set)
+    for src_h in merge_targets:
+        final_keeper = _resolve_merge_target(src_h, merge_targets)
+        if final_keeper != src_h:
+            merges_by_keeper[final_keeper].add(src_h)
+
+    for keeper, discards in merges_by_keeper.items():
+        clean_discards = [h for h in discards if h != keeper]
+        if clean_discards:
+            plan["merge"].append(
+                {
+                    "keeper_handle": keeper,
+                    "discard_handles": clean_discards,
+                }
+            )
+
+    for handle in trim_handles:
+        if handle not in merge_targets:
+            plan["trim"].append({"source_handle": handle})
+
+    for handle in quarantine_handles:
+        if handle not in merge_targets:
             plan["quarantine"].append(
                 {
                     "source_handle": handle,
                     "target_repo_name": _QUARANTINE_REPO_NAME,
                 }
             )
-        elif chosen != handle:
-            merges_by_keeper[chosen].append(handle)
 
-    for keeper, discards in merges_by_keeper.items():
-        plan["merge"].append(
-            {
-                "keeper_handle": keeper,
-                "discard_handles": [h for h in discards if h != keeper],
-            }
-        )
     return plan
 
 
@@ -972,10 +975,13 @@ def apply_source_fixes(dbstate: Any, plan: dict[str, Any]) -> tuple[int, int, in
     quarantined = 0
     trimmed = 0
 
+    already_merged_or_deleted: set[str] = set()
     quarantine_handle = _get_or_create_quarantine_repo(db)
 
     for entry in plan.get("trim", []):
         src_handle = entry["source_handle"]
+        if src_handle in already_merged_or_deleted:
+            continue
         try:
             source = db.get_source_from_handle(src_handle)
             if source is None:
@@ -1006,17 +1012,23 @@ def apply_source_fixes(dbstate: Any, plan: dict[str, Any]) -> tuple[int, int, in
 
     for entry in plan.get("merge", []):
         keeper = entry["keeper_handle"]
+        if keeper in already_merged_or_deleted:
+            LOG.warning("Keeper %s was already merged; skipping", keeper)
+            continue
         for discard in entry.get("discard_handles", []):
-            if discard == keeper:
+            if discard == keeper or discard in already_merged_or_deleted:
                 continue
             try:
                 if engine.merge_sources(db, keeper, discard):
                     merged += 1
+                    already_merged_or_deleted.add(discard)
             except Exception:  # pylint: disable=broad-except
                 LOG.exception("Failed to merge source %s into %s", discard, keeper)
 
     for entry in plan.get("quarantine", []):
         src_handle = entry["source_handle"]
+        if src_handle in already_merged_or_deleted:
+            continue
         try:
             source = db.get_source_from_handle(src_handle)
             if source is None:

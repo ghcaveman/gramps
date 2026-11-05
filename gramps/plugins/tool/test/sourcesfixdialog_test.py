@@ -374,6 +374,47 @@ class SourceFixDialogTest(unittest.TestCase):
             r_dup["options"][0][1], s2_h
         )  # Default choice is self (DB value)
 
+    def test_apply_source_fixes_transitive_and_deleted_safety(self) -> None:
+        """Verify apply_source_fixes resolves transitive chains and handles missing/deleted handles without crashing."""
+        with DbTxn("Create sources for chain", self.db) as trans:
+            s1 = Source()
+            s1.set_title("Target Master Source")
+            s1_h = self.db.add_source(s1, trans)
+
+            s2 = Source()
+            s2.set_title("Intermediate Source")
+            s2_h = self.db.add_source(s2, trans)
+
+            s3 = Source()
+            s3.set_title("Leaf Source")
+            s3_h = self.db.add_source(s3, trans)
+
+        # Plan with transitive chain s3 -> s2, s2 -> s1, plus an already-nonexistent handle
+        rows = [
+            {"handle": s1_h, "chosen_target": s1_h},
+            {"handle": s2_h, "chosen_target": s1_h},
+            {"handle": s3_h, "chosen_target": s2_h},
+            {"handle": "nonexistent_h", "chosen_target": s1_h},
+        ]
+        plan = plan_source_fixes(rows)
+
+        class DummyDbState:
+            def __init__(self, db: DbWriteBase) -> None:
+                self.db = db
+
+        # Should merge s2 and s3 into s1, skip nonexistent_h gracefully without HandleError
+        merged, quarantined, trimmed = apply_source_fixes(DummyDbState(self.db), plan)
+        self.assertEqual(merged, 2)
+        self.assertEqual(quarantined, 0)
+        self.assertEqual(trimmed, 0)
+
+        # s1 should still exist, s2 and s3 should be gone
+        self.assertIsNotNone(self.db.get_source_from_handle(s1_h))
+        with self.assertRaises(HandleError):
+            self.db.get_source_from_handle(s2_h)
+        with self.assertRaises(HandleError):
+            self.db.get_source_from_handle(s3_h)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -344,8 +344,14 @@ class GWizardCitationRepairEngine:
                 return self.merge_sources(db, keeper_handle, discard_handle, new_trans)
         if keeper_handle == discard_handle:
             return False
-        keeper = db.get_source_from_handle(keeper_handle)
-        discard = db.get_source_from_handle(discard_handle)
+        try:
+            keeper = db.get_source_from_handle(keeper_handle)
+        except Exception:
+            keeper = None
+        try:
+            discard = db.get_source_from_handle(discard_handle)
+        except Exception:
+            discard = None
         if keeper is None or discard is None:
             return False
         for _cls, citation_handle in list(
