@@ -179,7 +179,11 @@ class _ScanErrors:
             self._groups[key] = group
             LOG.warning(
                 "GWizard report: %s failed in %s: %s: %s",
-                where, func, group["error_type"], message, exc_info=exc,
+                where,
+                func,
+                group["error_type"],
+                message,
+                exc_info=exc,
             )
         group["count"] += 1
 
@@ -212,9 +216,7 @@ class GWizardCitationReport:
         return normalize_source_title(title)
 
     @staticmethod
-    def _person_has_citation(
-        person: Any, db: Any = None, errors: Any = None
-    ) -> bool:
+    def _person_has_citation(person: Any, db: Any = None, errors: Any = None) -> bool:
         """True when the person, a name, or one of their events has a citation."""
         try:
             if person.get_citation_list():
@@ -239,8 +241,12 @@ class GWizardCitationReport:
         return note_text(note)
 
     def collect_placement_stats(
-        self, sources: list[Any], citations: list[Any], repos: list[Any],
-        cites_by_source: Counter, near_duplicates: list[list[dict[str, Any]]],
+        self,
+        sources: list[Any],
+        citations: list[Any],
+        repos: list[Any],
+        cites_by_source: Counter,
+        near_duplicates: list[list[dict[str, Any]]],
     ) -> dict[str, Any]:
         """Checks for data sitting in the wrong field and for source hygiene.
 
@@ -293,15 +299,17 @@ class GWizardCitationReport:
         out["sources_non_titles"] = non_titles
         out["sources_placeholder"] = placeholders
         out["sources_unused"] = [
-            {"gramps_id": str(s.get_gramps_id() or ""),
-             "title": str(s.get_title() or "")}
+            {
+                "gramps_id": str(s.get_gramps_id() or ""),
+                "title": str(s.get_title() or ""),
+            }
             for s in sources
             if cites_by_source.get(str(s.get_handle()), 0) == 0
         ]
 
         # --- Citation text placement ------------------------------------
         templates: Counter = Counter()
-        fragments: Counter = Counter()          # source label -> count
+        fragments: Counter = Counter()  # source label -> count
         access_in_page = 0
         access_in_page_no_date = 0
         source_like_pages: dict[str, set] = defaultdict(set)
@@ -326,8 +334,11 @@ class GWizardCitationReport:
                     if _page_looks_like_source_text(page):
                         source_like_pages[label].add(page)
                 if not (
-                    page or has_date or cit.get_attribute_list()
-                    or cit.get_note_list() or cit.get_media_list()
+                    page
+                    or has_date
+                    or cit.get_attribute_list()
+                    or cit.get_note_list()
+                    or cit.get_media_list()
                 ):
                     empty_cits += 1
                     empty_by_source[label] += 1
@@ -347,10 +358,12 @@ class GWizardCitationReport:
         known = [frozenset(r["gramps_id"] for r in g) for g in near_duplicates]
         rows = []
         for src in sources:
-            rows.append({
-                "gramps_id": str(src.get_gramps_id() or ""),
-                "title": str(src.get_title() or ""),
-            })
+            rows.append(
+                {
+                    "gramps_id": str(src.get_gramps_id() or ""),
+                    "title": str(src.get_title() or ""),
+                }
+            )
 
         def _groups(strip: bool) -> list[list[dict[str, Any]]]:
             buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -360,12 +373,18 @@ class GWizardCitationReport:
                     buckets[key].append(row)
             return [g for g in buckets.values() if len(g) > 1]
 
-        safe = [g for g in _groups(False)
-                if frozenset(r["gramps_id"] for r in g) not in known]
+        safe = [
+            g
+            for g in _groups(False)
+            if frozenset(r["gramps_id"] for r in g) not in known
+        ]
         safe_sets = known + [frozenset(r["gramps_id"] for r in g) for g in safe]
-        versions = [g for g in _groups(True)
-                    if frozenset(r["gramps_id"] for r in g) not in safe_sets]
-        out["dupes_loose"] = safe          # same title once 'U.S.' etc. is ignored
+        versions = [
+            g
+            for g in _groups(True)
+            if frozenset(r["gramps_id"] for r in g) not in safe_sets
+        ]
+        out["dupes_loose"] = safe  # same title once 'U.S.' etc. is ignored
         out["dupes_year_variants"] = versions  # same title, different year range
 
         # --- Repository hygiene -----------------------------------------
@@ -443,7 +462,9 @@ class GWizardCitationReport:
                 if cit.get_media_list():
                     with_media += 1
             except Exception as exc:  # pylint: disable=broad-except
-                self._errors.record("citations: source link/page/media counts", exc, cit)
+                self._errors.record(
+                    "citations: source link/page/media counts", exc, cit
+                )
                 continue
         stats["citations_no_page"] = no_page
         stats["citations_with_media"] = with_media
@@ -505,7 +526,10 @@ class GWizardCitationReport:
         try:
             stats.update(
                 self.collect_placement_stats(
-                    sources, citations, repos, cites_by_source,
+                    sources,
+                    citations,
+                    repos,
+                    cites_by_source,
                     stats["near_duplicates"],
                 )
             )
@@ -514,7 +538,8 @@ class GWizardCitationReport:
 
         # People -------------------------------------------------------
         stats["people_unsourced"] = sum(
-            1 for person in people
+            1
+            for person in people
             if not self._person_has_citation(person, db, self._errors)
         )
 
@@ -631,8 +656,7 @@ class GWizardCitationReport:
         if like_src:
             out.append(
                 "- Citation pages that read like a collection name (belongs in "
-                "the source title?): %d sources affected."
-                % len(like_src)
+                "the source title?): %d sources affected." % len(like_src)
             )
             for label, pages in list(like_src.items())[:4]:
                 out.append("  ↳ %s: %s" % (label, "; ".join(pages[:2])[:100]))
@@ -655,11 +679,14 @@ class GWizardCitationReport:
                 detail = "; ".join(
                     "%s (%s)" % (f, ", ".join(p)) for f, p in row["problems"].items()
                 )
-                out.append("  ↳ %s '%s': %s" % (row["gramps_id"], row["title"][:50], detail))
+                out.append(
+                    "  ↳ %s '%s': %s" % (row["gramps_id"], row["title"][:50], detail)
+                )
         cstyle = get("sources_citation_style", [])
         if cstyle:
             out.append(
-                "- Source titles that look like a pasted citation string: %d." % len(cstyle)
+                "- Source titles that look like a pasted citation string: %d."
+                % len(cstyle)
             )
             for row in cstyle[:3]:
                 out.append(
@@ -673,7 +700,9 @@ class GWizardCitationReport:
                 % len(non_titles)
             )
             for row in non_titles[:4]:
-                out.append("  ↳ %s '%s' (%s)" % (row["gramps_id"], row["title"], row["kind"]))
+                out.append(
+                    "  ↳ %s '%s' (%s)" % (row["gramps_id"], row["title"], row["kind"])
+                )
         placeholders = get("sources_placeholder", [])
         if placeholders:
             cites = sum(r["citations"] for r in placeholders)
@@ -694,7 +723,10 @@ class GWizardCitationReport:
             )
             for group in loose[:5]:
                 out.append(
-                    "  ↳ " + "; ".join("%s '%s'" % (r["gramps_id"], r["title"][:45]) for r in group[:3])
+                    "  ↳ "
+                    + "; ".join(
+                        "%s '%s'" % (r["gramps_id"], r["title"][:45]) for r in group[:3]
+                    )
                 )
         variants = get("dupes_year_variants", [])
         if variants:
@@ -704,12 +736,18 @@ class GWizardCitationReport:
             )
             for group in variants[:4]:
                 out.append(
-                    "  ↳ " + "; ".join("%s '%s'" % (r["gramps_id"], r["title"][:45]) for r in group[:3])
+                    "  ↳ "
+                    + "; ".join(
+                        "%s '%s'" % (r["gramps_id"], r["title"][:45]) for r in group[:3]
+                    )
                 )
 
         # Repository hygiene
         if get("repos_unused"):
-            out.append("- Repositories not linked to any source: %d." % len(get("repos_unused")))
+            out.append(
+                "- Repositories not linked to any source: %d."
+                % len(get("repos_unused"))
+            )
         if get("repos_address_is_name"):
             out.append(
                 "- Repositories whose address just repeats the name: %d."
@@ -862,7 +900,7 @@ class GWizardCitationReport:
             "2. Run 'Repository Consolidate' to deduplicate matching repository targets."
         )
         lines.append(
-            "3. Run 'Source Consolidate' to safely group matching census & collection lines together."
+            "3. Run 'Fix Sources' to safely group matching census & collection lines together."
         )
         lines.append(
             "4. Run 'Fix Citations' to auto-downgrade online user tree confidence metrics."
@@ -872,8 +910,10 @@ class GWizardCitationReport:
         )
         step = 6
         if (
-            get("sources_bad_fields") or get("sources_citation_style")
-            or get("page_fragments") or get("page_access_dates_no_date")
+            get("sources_bad_fields")
+            or get("sources_citation_style")
+            or get("page_fragments")
+            or get("page_access_dates_no_date")
         ):
             lines.append(
                 "%d. Clean source titles (markup, quotes) and move access dates and "

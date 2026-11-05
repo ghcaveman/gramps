@@ -255,7 +255,6 @@ def get_button_specs() -> list[tuple[str, str, bool]]:
         ("unpack_sources", str(_("Unpack Conflated Fields")), True),
         ("consolidate_repositories", str(_("Repository Consolidate")), True),
         ("fix_repositories", str(_("Fix Repositories")), True),
-        ("consolidate_sources", str(_("Source Consolidate")), True),
         ("fix_sources", str(_("Fix Sources")), True),
         ("fix_citations", str(_("Fix Citations")), True),
         ("fix_notes", str(_("Fix Notes")), True),
@@ -488,12 +487,6 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             RepoConsolidateDialog(self.dbstate, transient_for=self.window).run()
         elif key == "fix_repositories":
             self.cb_fix_layer("repositories")
-        elif key == "consolidate_sources":
-            from gramps.plugins.tool.sourceconsolidatedialog import (
-                SourceConsolidateDialog,
-            )
-
-            SourceConsolidateDialog(self.dbstate, transient_for=self.window).run()
         elif key == "fix_sources":
             self.cb_fix_layer("sources")
         elif key == "fix_citations":

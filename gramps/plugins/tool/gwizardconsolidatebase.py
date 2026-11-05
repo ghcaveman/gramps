@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Shared base dialog for the GWizard repository / source consolidate steps."""
+"""Shared base dialog for the GWizard repository consolidate step."""
 
 # -------------------------------------------------------------------------
 #
