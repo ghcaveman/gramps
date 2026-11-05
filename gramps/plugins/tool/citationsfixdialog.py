@@ -131,56 +131,68 @@ class CitationFixDialog(Gtk.Dialog):
 
         # Header row above the scrolled grid so it stays locked when
         # scrolling through the data rows.
+        # Header row above the scrolled grid so it stays locked when scrolling
         header_grid = Gtk.Grid()
-        header_grid.set_column_spacing(0)
+        header_grid.set_column_spacing(6)
         header_grid.set_row_spacing(0)
-        header_grid.set_column_homogeneous(True)
         header_grid.set_hexpand(True)
         header_grid.set_vexpand(False)
 
         left_head = Gtk.Label()
         left_head.set_markup("<b>%s</b>" % str(_("Source")))
         left_head.set_halign(Gtk.Align.START)
-        left_head.set_hexpand(True)
+        left_head.set_hexpand(False)
 
         right_head = Gtk.Label()
         right_head.set_markup("<b>%s</b>" % str(_("Citation")))
         right_head.set_halign(Gtk.Align.START)
-        right_head.set_hexpand(True)
+        right_head.set_hexpand(False)
 
         page_head = Gtk.Label()
         page_head.set_markup("<b>%s</b>" % str(_("Volume/Page")))
         page_head.set_halign(Gtk.Align.START)
-        page_head.set_hexpand(True)
+        page_head.set_hexpand(False)
 
         conf_head = Gtk.Label()
         conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
         conf_head.set_halign(Gtk.Align.START)
-        conf_head.set_hexpand(True)
+        conf_head.set_hexpand(False)
 
         date_head = Gtk.Label()
         date_head.set_markup("<b>%s</b>" % str(_("Date")))
         date_head.set_halign(Gtk.Align.START)
-        date_head.set_hexpand(True)
+        date_head.set_hexpand(False)
 
         notes_head = Gtk.Label()
         notes_head.set_markup("<b>%s</b>" % str(_("Notes")))
         notes_head.set_halign(Gtk.Align.START)
-        notes_head.set_hexpand(True)
+        notes_head.set_hexpand(False)
 
         hint_head = Gtk.Label()
         hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
 
-        header_grid.attach(left_head, 0, 0, 2, 1)
-        header_grid.attach(right_head, 2, 0, 7, 1)
-        header_grid.attach(page_head, 9, 0, 3, 1)
-        header_grid.attach(conf_head, 12, 0, 2, 1)
-        header_grid.attach(date_head, 14, 0, 2, 1)
-        header_grid.attach(notes_head, 16, 0, 3, 1)
-        header_grid.attach(hint_head, 19, 0, 5, 1)
+        header_grid.attach(left_head, 0, 0, 1, 1)
+        header_grid.attach(right_head, 1, 0, 1, 1)
+        header_grid.attach(page_head, 2, 0, 1, 1)
+        header_grid.attach(conf_head, 3, 0, 1, 1)
+        header_grid.attach(date_head, 4, 0, 1, 1)
+        header_grid.attach(notes_head, 5, 0, 1, 1)
+        header_grid.attach(hint_head, 6, 0, 1, 1)
         content.add(header_grid)
+
+        # SizeGroups to ensure each header column exactly matches the data column width below
+        self.column_sizegroups = [
+            Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL) for _ in range(7)
+        ]
+        self.column_sizegroups[0].add_widget(left_head)
+        self.column_sizegroups[1].add_widget(right_head)
+        self.column_sizegroups[2].add_widget(page_head)
+        self.column_sizegroups[3].add_widget(conf_head)
+        self.column_sizegroups[4].add_widget(date_head)
+        self.column_sizegroups[5].add_widget(notes_head)
+        self.column_sizegroups[6].add_widget(hint_head)
 
         content.add(self.build_rows(self.rows))
         hint_footer = Gtk.Label(
@@ -202,110 +214,150 @@ class CitationFixDialog(Gtk.Dialog):
         left_head.set_markup("<b>%s</b>" % str(_("Source")))
         left_head.set_halign(Gtk.Align.START)
         left_head.set_line_wrap(True)
-        left_head.set_hexpand(True)
+        left_head.set_hexpand(False)
 
         right_head = Gtk.Label()
         right_head.set_markup("<b>%s</b>" % str(_("Citation")))
         right_head.set_halign(Gtk.Align.START)
-        right_head.set_hexpand(True)
+        right_head.set_hexpand(False)
 
         page_head = Gtk.Label()
         page_head.set_markup("<b>%s</b>" % str(_("Volume/Page")))
         page_head.set_halign(Gtk.Align.START)
-        page_head.set_hexpand(True)
+        page_head.set_hexpand(False)
 
         conf_head = Gtk.Label()
         conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
         conf_head.set_halign(Gtk.Align.START)
-        conf_head.set_hexpand(True)
+        conf_head.set_hexpand(False)
 
         date_head = Gtk.Label()
         date_head.set_markup("<b>%s</b>" % str(_("Date")))
         date_head.set_halign(Gtk.Align.START)
-        date_head.set_hexpand(True)
+        date_head.set_hexpand(False)
 
         notes_head = Gtk.Label()
         notes_head.set_markup("<b>%s</b>" % str(_("Notes")))
         notes_head.set_halign(Gtk.Align.START)
-        notes_head.set_hexpand(True)
+        notes_head.set_hexpand(False)
 
         hint_head = Gtk.Label()
         hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
 
-        grid.attach(left_head, 0, 0, 2, 1)
-        grid.attach(right_head, 2, 0, 7, 1)
-        grid.attach(page_head, 9, 0, 3, 1)
-        grid.attach(conf_head, 12, 0, 2, 1)
-        grid.attach(date_head, 14, 0, 2, 1)
-        grid.attach(notes_head, 16, 0, 3, 1)
-        grid.attach(hint_head, 19, 0, 5, 1)
+        grid.attach(left_head, 0, 0, 1, 1)
+        grid.attach(right_head, 1, 0, 1, 1)
+        grid.attach(page_head, 2, 0, 1, 1)
+        grid.attach(conf_head, 3, 0, 1, 1)
+        grid.attach(date_head, 4, 0, 1, 1)
+        grid.attach(notes_head, 5, 0, 1, 1)
+        grid.attach(hint_head, 6, 0, 1, 1)
 
     def build_rows(self, rows: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        """Build a 7-column grid with proportional spans: Source (2) | Citation (7) | Volume/Page (3) | Conf (2) | Date (2) | Notes (3) | Hint (5)."""
+        """Build the data grid with 7 columns aligned to headers."""
         grid = Gtk.Grid()
-        grid.set_column_spacing(4)
-        grid.set_row_spacing(4)
-        grid.set_column_homogeneous(True)
+        grid.set_column_spacing(6)
+        grid.set_row_spacing(6)
         grid.set_hexpand(True)
         grid.set_vexpand(True)
 
         row_index = 0
         for row in rows:
-            # Column 0 (span 2): source name with word-wrap
+            # Column 0: source name with word-wrap and fixed width
             src_label = Gtk.Label(label=row["source_name"])
             src_label.set_halign(Gtk.Align.START)
+            src_label.set_xalign(0.0)
             src_label.set_line_wrap(True)
             src_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            src_label.set_max_width_chars(18)
-            grid.attach(src_label, 0, row_index, 2, 1)
+            src_label.set_size_request(130, -1)
+            src_label.set_max_width_chars(16)
+            grid.attach(src_label, 0, row_index, 1, 1)
 
-            # Column 1 (span 7): combined database citation details
-            cit_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
-            cit_label = Gtk.Label(label=row["citation_display"])
-            cit_label.set_halign(Gtk.Align.START)
-            cit_label.set_line_wrap(True)
-            cit_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            cit_box.pack_start(cit_label, True, True, 0)
+            # Column 1: Citation details with 3 guaranteed separate lines, word-wrapping and fixed size
+            cit_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            cit_box.set_size_request(280, -1)
+            cit_lines = row["citation_display"].split("\n")
+            line1_text = cit_lines[0] if len(cit_lines) > 0 else ""
+            line2_text = cit_lines[1] if len(cit_lines) > 1 else ""
+            line3_text = "\n".join(cit_lines[2:]) if len(cit_lines) > 2 else ""
+
+            l1 = Gtk.Label(label=line1_text)
+            l1.set_xalign(0.0)
+            l1.set_line_wrap(True)
+            l1.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            l1.set_max_width_chars(38)
+            cit_box.pack_start(l1, False, False, 0)
+
+            l2 = Gtk.Label(label=line2_text)
+            l2.set_xalign(0.0)
+            l2.set_line_wrap(True)
+            l2.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            l2.set_max_width_chars(38)
+            cit_box.pack_start(l2, False, False, 0)
+
+            l3_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+            l3 = Gtk.Label(label=line3_text)
+            l3.set_xalign(0.0)
+            l3.set_line_wrap(True)
+            l3.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            l3.set_max_width_chars(35)
+            l3_box.pack_start(l3, True, True, 0)
+
             notes_text = row.get("notes_text", "")
             if notes_text:
                 more_btn = Gtk.Button(label="\u2026")
                 more_btn.set_relief(Gtk.ReliefStyle.NONE)
                 more_btn.connect("clicked", self.cb_show_notes, notes_text)
-                cit_box.pack_start(more_btn, False, False, 0)
-            grid.attach(cit_box, 2, row_index, 7, 1)
+                l3_box.pack_start(more_btn, False, False, 0)
+            cit_box.pack_start(l3_box, False, False, 0)
 
-            # Column 2 (span 3): target Volume/Page entry (empty by default)
+            grid.attach(cit_box, 1, row_index, 1, 1)
+
+            # Column 2: target Volume/Page entry (empty by default)
             page_entry = Gtk.Entry()
-            page_entry.set_hexpand(True)
+            page_entry.set_width_chars(15)
             page_entry.set_text("")
-            grid.attach(page_entry, 9, row_index, 3, 1)
+            grid.attach(page_entry, 2, row_index, 1, 1)
 
-            # Column 3 (span 2): target Conf entry (empty by default, placed before Date)
+            # Column 3: target Conf entry (empty by default, placed before Date)
             conf_entry = Gtk.Entry()
-            conf_entry.set_hexpand(True)
+            conf_entry.set_width_chars(6)
             conf_entry.set_text("")
-            grid.attach(conf_entry, 12, row_index, 2, 1)
+            grid.attach(conf_entry, 3, row_index, 1, 1)
 
-            # Column 4 (span 2): target Date entry (empty by default)
+            # Column 4: target Date entry (empty by default)
             date_entry = Gtk.Entry()
-            date_entry.set_hexpand(True)
+            date_entry.set_width_chars(12)
             date_entry.set_text("")
-            grid.attach(date_entry, 14, row_index, 2, 1)
+            grid.attach(date_entry, 4, row_index, 1, 1)
 
-            # Column 5 (span 3): target Notes entry (empty by default)
+            # Column 5: target Notes entry (empty by default)
             notes_entry = Gtk.Entry()
-            notes_entry.set_hexpand(True)
+            notes_entry.set_width_chars(16)
             notes_entry.set_text("")
-            grid.attach(notes_entry, 16, row_index, 3, 1)
+            grid.attach(notes_entry, 5, row_index, 1, 1)
 
-            # Column 6 (span 5): Hint text box (not a dropdown)
-            hint_entry = Gtk.Entry()
-            hint_entry.set_hexpand(True)
-            hint_entry.set_text(row.get("hint_text", row.get("best_guess", "")))
-            hint_entry.set_editable(False)
-            grid.attach(hint_entry, 19, row_index, 5, 1)
+            # Column 6: Hint label (not a text box / dropdown), hints appended on separate lines
+            hint_label = Gtk.Label(
+                label=row.get("hint_text", row.get("best_guess", ""))
+            )
+            hint_label.set_halign(Gtk.Align.START)
+            hint_label.set_xalign(0.0)
+            hint_label.set_line_wrap(True)
+            hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            hint_label.set_size_request(200, -1)
+            hint_label.set_max_width_chars(28)
+            grid.attach(hint_label, 6, row_index, 1, 1)
+
+            if hasattr(self, "column_sizegroups"):
+                self.column_sizegroups[0].add_widget(src_label)
+                self.column_sizegroups[1].add_widget(cit_box)
+                self.column_sizegroups[2].add_widget(page_entry)
+                self.column_sizegroups[3].add_widget(conf_entry)
+                self.column_sizegroups[4].add_widget(date_entry)
+                self.column_sizegroups[5].add_widget(notes_entry)
+                self.column_sizegroups[6].add_widget(hint_label)
 
             self.row_targets.append(
                 {
@@ -314,7 +366,7 @@ class CitationFixDialog(Gtk.Dialog):
                     "conf_entry": conf_entry,
                     "date_entry": date_entry,
                     "notes_entry": notes_entry,
-                    "hint_entry": hint_entry,
+                    "hint_label": hint_label,
                 }
             )
             row_index += 1
@@ -939,7 +991,7 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
                 hint_actions.append(_("Add date (manual)"))
 
             if hint_actions:
-                hint_text = "; ".join(hint_actions)
+                hint_text = "\n".join(hint_actions)
                 if problem is None or problem == PROBLEM_NONE:
                     problem = PROBLEM_MANUAL_REVIEW
                 if not options:

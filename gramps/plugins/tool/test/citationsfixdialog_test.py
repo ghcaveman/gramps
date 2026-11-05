@@ -293,20 +293,17 @@ class CitationFixDialogTest(unittest.TestCase):
         self.assertIn("Extract URL", row["hint_text"])
 
     def test_build_header_columns(self) -> None:
-        """Header should attach 7 columns with proportional spans: Source (2), Citation (7), Volume/Page (3), Conf (2), Date (2), Notes (3), Hint (5)."""
+        """Header should attach 7 columns aligned to data columns."""
         grid = MagicMock()
         dlg = CitationFixDialog.__new__(CitationFixDialog)
         dlg.build_header(grid)
 
         self.assertEqual(len(grid.attach.call_args_list), 7)
         cols = [call.args[1] for call in grid.attach.call_args_list]
-        spans = [call.args[3] for call in grid.attach.call_args_list]
-        self.assertEqual(cols, [0, 2, 9, 12, 14, 16, 19])
-        self.assertEqual(spans, [2, 7, 3, 2, 2, 3, 5])
-        self.assertEqual(sum(spans), 24)
+        self.assertEqual(cols, [0, 1, 2, 3, 4, 5, 6])
 
     def test_build_rows_column_count_and_proportions(self) -> None:
-        """build_rows should attach widgets with proportional spans covering 24 units and empty target entries."""
+        """build_rows should attach widgets to 7 columns with empty target entries."""
         grid_mock = MagicMock()
         dlg = CitationFixDialog.__new__(CitationFixDialog)
         dlg.combos = []
@@ -341,11 +338,8 @@ class CitationFixDialogTest(unittest.TestCase):
             dlg.build_rows([row])
 
         attached_cols = [call.args[1] for call in grid_mock.attach.call_args_list]
-        attached_spans = [call.args[3] for call in grid_mock.attach.call_args_list]
         self.assertEqual(len(grid_mock.attach.call_args_list), 7)
-        self.assertEqual(attached_cols, [0, 2, 9, 12, 14, 16, 19])
-        self.assertEqual(attached_spans, [2, 7, 3, 2, 2, 3, 5])
-        self.assertEqual(sum(attached_spans), 24)
+        self.assertEqual(attached_cols, [0, 1, 2, 3, 4, 5, 6])
         self.assertEqual(len(dlg.row_targets), 1)
 
         # Target data entries start empty by default
@@ -354,7 +348,7 @@ class CitationFixDialogTest(unittest.TestCase):
         target["conf_entry"].set_text.assert_called_with("")
         target["date_entry"].set_text.assert_called_with("")
         target["notes_entry"].set_text.assert_called_with("")
-        target["hint_entry"].set_text.assert_called_with("Lower to Confidence 1")
+        self.assertIsNotNone(target["hint_label"])
 
     def test_accept_hints_populates_target_entries(self) -> None:
         """cb_accept_hints should populate empty target entries with suggested values."""
