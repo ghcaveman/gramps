@@ -350,7 +350,7 @@ class CitationFixDialog(Gtk.Dialog):
             hint_label.set_max_width_chars(28)
             grid.attach(hint_label, 6, row_index, 1, 1)
 
-            if hasattr(self, "column_sizegroups"):
+            if row_index == 0 and hasattr(self, "column_sizegroups"):
                 self.column_sizegroups[0].add_widget(src_label)
                 self.column_sizegroups[1].add_widget(cit_box)
                 self.column_sizegroups[2].add_widget(page_entry)
@@ -748,11 +748,18 @@ PROBLEM_NONE = "none"
 NO_SOURCE = "(no source)"
 
 
+_URL_REGEX = re.compile(r"https?://[^\s<>\"'()]+", re.IGNORECASE)
+_DATE_FULL_REGEX = re.compile(
+    r"\b(?:\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2})\b"
+)
+_DATE_YEAR_REGEX = re.compile(r"\b(1[5-9]\d{2}|20[0-2]\d)\b")
+
+
 def _extract_url_from_text(text: str) -> str:
     """Extract the first HTTP/HTTPS URL from text."""
     if not text:
         return ""
-    match = re.search(r"https?://[^\s<>\"'()]+", text, re.IGNORECASE)
+    match = _URL_REGEX.search(text)
     return match.group(0).rstrip(".,;:") if match else ""
 
 
@@ -760,13 +767,10 @@ def _extract_date_from_text(text: str) -> str:
     """Extract a date or 4-digit year string from text."""
     if not text:
         return ""
-    full = re.search(
-        r"\b(?:\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2})\b",
-        text,
-    )
+    full = _DATE_FULL_REGEX.search(text)
     if full:
         return full.group(0).strip()
-    year = re.search(r"\b(1[5-9]\d{2}|20[0-2]\d)\b", text)
+    year = _DATE_YEAR_REGEX.search(text)
     return year.group(0) if year else ""
 
 
@@ -955,14 +959,16 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
             suggested_date = ""
             suggested_notes = ""
 
-            corpus = f"{citation_text} {notes_text}"
-            extracted_url = _extract_url_from_text(corpus)
-            extracted_date = _extract_date_from_text(corpus)
-
-            if not page and extracted_url:
-                suggested_page = extracted_url
-            if not date_str and extracted_date:
-                suggested_date = extracted_date
+            if not page or not date_str:
+                corpus = f"{citation_text} {notes_text}"
+                if not page:
+                    extracted_url = _extract_url_from_text(corpus)
+                    if extracted_url:
+                        suggested_page = extracted_url
+                if not date_str:
+                    extracted_date = _extract_date_from_text(corpus)
+                    if extracted_date:
+                        suggested_date = extracted_date
 
             hint_actions: list[str] = []
             if is_tree and conf >= 3:
