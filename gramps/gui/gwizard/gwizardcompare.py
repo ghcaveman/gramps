@@ -1736,6 +1736,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                 lines.append(self._format_event_line(event, db))
             except Exception as e:
                 LOG.warning("Detail lookup failed: %s", e)
+        lines.sort()
         return lines
 
     def _get_familysearch_id(self, person: Person, db: Any) -> str:

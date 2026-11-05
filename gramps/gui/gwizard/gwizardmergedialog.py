@@ -861,23 +861,31 @@ class GWizardMergeDialog(Gtk.Dialog):
         primary_source_handles = {handle for handle in (l_b[2], l_d[2]) if handle}
         source_groups = person_events_by_type(sd, left)
         target_groups = person_events_by_type(td, right)
-        # For each event type we need to align source and target events.
-        # Previously we simply paired by index, which could mis‑align when the
-        # number of events differed.  We now attempt to match events by their
-        # rendered line representation.  This provides a deterministic
-        # matching based on the visible content (date, place, description).
-        for etype in dict.fromkeys(list(source_groups) + list(target_groups)):
-            s_items = source_groups.get(etype, [])
-            t_items = target_groups.get(etype, [])
+
+        def event_sort_key(db: Any, handle: str) -> str:
+            ev = safe_get_event(db, handle)
+            return self._event_line_from(db, ev) if ev else ""
+
+        # For each event type we align source and target events, sorted in
+        # alphabetic order so the database and file sides match cleanly.
+        for etype in sorted(set(source_groups.keys()) | set(target_groups.keys())):
+            s_event_handles = sorted(
+                source_groups.get(etype, []),
+                key=lambda h: event_sort_key(sd, h),
+            )
+            t_event_handles = sorted(
+                target_groups.get(etype, []),
+                key=lambda h: event_sort_key(td, h),
+            )
 
             # Build dictionaries of handle -> rendered line for quick lookup.
             s_lines = {
                 handle: self._event_line_from(sd, safe_get_event(sd, handle))
-                for handle in s_items
+                for handle in s_event_handles
             }
             t_lines = {
                 handle: self._event_line_from(td, safe_get_event(td, handle))
-                for handle in t_items
+                for handle in t_event_handles
             }
 
             # Track which target handles have been paired.
@@ -888,18 +896,17 @@ class GWizardMergeDialog(Gtk.Dialog):
             # as used.
             for s_handle, s_line in s_lines.items():
                 match_handle: str | None = None
-                for t_handle, t_line in t_lines.items():
-                    if t_handle in used_t_handles:
+                for t_candidate_h, t_line in t_lines.items():
+                    if t_candidate_h in used_t_handles:
                         continue
                     if s_line == t_line:
-                        match_handle = t_handle
+                        match_handle = t_candidate_h
                         break
-                t_handle = match_handle
-                if t_handle:
-                    used_t_handles.add(t_handle)
+                if match_handle:
+                    used_t_handles.add(match_handle)
                 # Retrieve event objects for the row.
                 s_event = safe_get_event(sd, s_handle) if s_handle else None
-                t_event = safe_get_event(td, t_handle) if t_handle else None
+                t_event = safe_get_event(td, match_handle) if match_handle else None
                 key = (
                     "event:" + s_handle
                     if s_handle and s_handle not in primary_source_handles
@@ -984,6 +991,8 @@ class GWizardMergeDialog(Gtk.Dialog):
 
     def _event_line_from(self, db: Any, event: Any) -> str:
         """Return an event's date, place, and description for display."""
+        if not event:
+            return ""
         date_str = glocale.date_displayer.display(event.get_date_object())
         place = ""
         ph = event.get_place_handle()
