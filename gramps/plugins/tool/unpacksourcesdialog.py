@@ -97,9 +97,22 @@ class UnpackSourcesDialog(Gtk.Dialog):
             self.plan.append(item)
 
         self.row_targets: list[dict[str, Any]] = []
+        self.set_default_size(1400, 520)
+
+        # Action buttons in dialog action area (always visible at bottom)
+        n_hints = len(self.plan)
+        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button.set_sensitive(n_hints > 0)
+        self.accept_button.connect("clicked", self.cb_accept_hints)
+        self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
+
+        self.apply_button = Gtk.Button(label=str(_("Apply")))
+        self.apply_button.set_sensitive(n_hints > 0)
+        self.apply_button.connect("clicked", self.cb_apply)
+        self.add_action_widget(self.apply_button, Gtk.ResponseType.APPLY)
+
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         self.connect("response", lambda dlg, resp: dlg.destroy())
-        self.set_default_size(1400, 420)
 
         content = self.get_content_area()
         content.set_border_width(12)
@@ -178,7 +191,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
         self.column_sizegroups[3].add_widget(pub_head)
         self.column_sizegroups[4].add_widget(hint_head)
 
-        content.add(self.build_rows(self.plan))
+        content.pack_start(self.build_rows(self.plan), True, True, 0)
 
         hint_footer = Gtk.Label(
             label=str(
@@ -190,8 +203,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
         )
         hint_footer.set_line_wrap(True)
         hint_footer.set_halign(Gtk.Align.START)
-        content.add(hint_footer)
-        content.add(self.build_buttons())
+        content.pack_start(hint_footer, False, False, 0)
 
     def build_rows(self, entries: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
         """Build the data grid for reviewing and editing unpacked sources."""

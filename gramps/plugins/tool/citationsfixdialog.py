@@ -91,7 +91,7 @@ class CitationFixDialog(Gtk.Dialog):
         self.row_targets: list[dict[str, Any]] = []
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         self.connect("response", lambda dlg, resp: dlg.destroy())
-        self.set_default_size(1480, 450)
+        self.set_default_size(1480, 560)
         content = self.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
@@ -194,7 +194,7 @@ class CitationFixDialog(Gtk.Dialog):
         self.column_sizegroups[5].add_widget(notes_head)
         self.column_sizegroups[6].add_widget(hint_head)
 
-        content.add(self.build_rows(self.rows))
+        content.pack_start(self.build_rows(self.rows), True, True, 0)
         hint_footer = Gtk.Label(
             label=str(
                 _(
@@ -205,8 +205,8 @@ class CitationFixDialog(Gtk.Dialog):
         )
         hint_footer.set_line_wrap(True)
         hint_footer.set_halign(Gtk.Align.START)
-        content.add(hint_footer)
-        content.add(self.build_buttons())
+        content.pack_start(hint_footer, False, False, 0)
+        content.pack_start(self.build_buttons(), False, False, 0)
 
     def build_header(self, grid: Gtk.Grid) -> None:
         """Attach the header to a grid (kept for API compat)."""
