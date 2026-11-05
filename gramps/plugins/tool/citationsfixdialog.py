@@ -63,15 +63,12 @@ NO_SOURCE = "(no source)"
 class CitationFixDialog(Gtk.Dialog):
     """Review and fix citation problems in a dialog.
 
-    Six columns: Source (the source the citation references),
-    Citation (citation details such as ID, date, confidence),
-    Hint (a dropdown of fix actions), Volume/Page (the citation volume/page
-    or URL reference), Notes (a short preview of the citation notes with
-    a "..." button to view/copy the full text), and Conf (the confidence
-    level from the database with its calculated QUAY value, shown as
-    (Qn)).  Citations are listed one per row, sorted by source name
-    alphabetically, with citations that have no source reference listed
-    last under "(no source)".
+    Four columns: Source (the source the citation references),
+    Citation (combined citation details, volume/page, date, and notes),
+    Conf (the confidence level from the database with its calculated QUAY
+    value, shown as (Qn)), and Hint (a dropdown of fix actions).
+    Citations are listed one per row, sorted by source name alphabetically,
+    with citations that have no source reference listed last under "(no source)".
     """
 
     def __init__(
@@ -155,6 +152,10 @@ class CitationFixDialog(Gtk.Dialog):
         page_head.set_markup("<b>%s</b>" % str(_("Volume/Page")))
         page_head.set_halign(Gtk.Align.START)
         page_head.set_hexpand(True)
+        date_head = Gtk.Label()
+        date_head.set_markup("<b>%s</b>" % str(_("Date")))
+        date_head.set_halign(Gtk.Align.START)
+        date_head.set_hexpand(True)
         notes_head = Gtk.Label()
         notes_head.set_markup("<b>%s</b>" % str(_("Notes")))
         notes_head.set_halign(Gtk.Align.START)
@@ -163,12 +164,17 @@ class CitationFixDialog(Gtk.Dialog):
         conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
         conf_head.set_halign(Gtk.Align.START)
         conf_head.set_hexpand(True)
+        mid_head = Gtk.Label()
+        mid_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        mid_head.set_halign(Gtk.Align.START)
+        mid_head.set_hexpand(True)
         header_grid.attach(left_head, 0, 0, 2, 1)
-        header_grid.attach(right_head, 2, 0, 8, 1)
-        header_grid.attach(mid_head, 10, 0, 5, 1)
-        header_grid.attach(page_head, 15, 0, 3, 1)
-        header_grid.attach(notes_head, 18, 0, 4, 1)
-        header_grid.attach(conf_head, 22, 0, 2, 1)
+        header_grid.attach(right_head, 2, 0, 6, 1)
+        header_grid.attach(page_head, 8, 0, 3, 1)
+        header_grid.attach(date_head, 11, 0, 2, 1)
+        header_grid.attach(notes_head, 13, 0, 4, 1)
+        header_grid.attach(conf_head, 17, 0, 2, 1)
+        header_grid.attach(mid_head, 19, 0, 5, 1)
         content.add(header_grid)
 
         content.add(self.build_rows(self.rows))
@@ -197,14 +203,14 @@ class CitationFixDialog(Gtk.Dialog):
         right_head.set_markup("<b>%s</b>" % str(_("Citation")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
-        mid_head = Gtk.Label()
-        mid_head.set_markup("<b>%s</b>" % str(_("Hint")))
-        mid_head.set_halign(Gtk.Align.START)
-        mid_head.set_hexpand(True)
         page_head = Gtk.Label()
         page_head.set_markup("<b>%s</b>" % str(_("Volume/Page")))
         page_head.set_halign(Gtk.Align.START)
         page_head.set_hexpand(True)
+        date_head = Gtk.Label()
+        date_head.set_markup("<b>%s</b>" % str(_("Date")))
+        date_head.set_halign(Gtk.Align.START)
+        date_head.set_hexpand(True)
         notes_head = Gtk.Label()
         notes_head.set_markup("<b>%s</b>" % str(_("Notes")))
         notes_head.set_halign(Gtk.Align.START)
@@ -213,15 +219,20 @@ class CitationFixDialog(Gtk.Dialog):
         conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
         conf_head.set_halign(Gtk.Align.START)
         conf_head.set_hexpand(True)
+        mid_head = Gtk.Label()
+        mid_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        mid_head.set_halign(Gtk.Align.START)
+        mid_head.set_hexpand(True)
         grid.attach(left_head, 0, 0, 2, 1)
-        grid.attach(right_head, 2, 0, 8, 1)
-        grid.attach(mid_head, 10, 0, 5, 1)
-        grid.attach(page_head, 15, 0, 3, 1)
-        grid.attach(notes_head, 18, 0, 4, 1)
-        grid.attach(conf_head, 22, 0, 2, 1)
+        grid.attach(right_head, 2, 0, 6, 1)
+        grid.attach(page_head, 8, 0, 3, 1)
+        grid.attach(date_head, 11, 0, 2, 1)
+        grid.attach(notes_head, 13, 0, 4, 1)
+        grid.attach(conf_head, 17, 0, 2, 1)
+        grid.attach(mid_head, 19, 0, 5, 1)
 
     def build_rows(self, rows: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        """Build a 6-column grid with proportional spans: Source (2) | Citation (8) | Hint (5) | Volume/Page (3) | Notes (4) | Conf (2)."""
+        """Build a 7-column grid with proportional spans: Source (2) | Citation (6) | Volume/Page (3) | Date (2) | Notes (4) | Conf (2) | Hint (5)."""
         grid = Gtk.Grid()
         grid.set_column_spacing(0)
         grid.set_row_spacing(0)
@@ -239,28 +250,28 @@ class CitationFixDialog(Gtk.Dialog):
             src_label.set_max_width_chars(18)
             grid.attach(src_label, 0, row_index, 2, 1)
 
-            # Column 1 (span 8): citation details
+            # Column 1 (span 6): citation details
             cit_label = Gtk.Label(label=row["citation_display"])
             cit_label.set_halign(Gtk.Align.START)
             cit_label.set_line_wrap(True)
             cit_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            grid.attach(cit_label, 2, row_index, 8, 1)
+            grid.attach(cit_label, 2, row_index, 6, 1)
 
-            # Column 2 (span 5): hint dropdown
-            combo = Gtk.ComboBoxText()
-            combo.set_hexpand(True)
-            for option in row["options"]:
-                combo.append_text(option)
-            combo.set_active(0)
-            grid.attach(combo, 10, row_index, 5, 1)
-
-            # Column 3 (span 3): volume/page or URL
+            # Column 2 (span 3): volume/page or URL
             page_text = row.get("page", "")
             page_label = Gtk.Label(label=page_text if page_text else "\u2014")
             page_label.set_halign(Gtk.Align.START)
             page_label.set_line_wrap(True)
             page_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            grid.attach(page_label, 15, row_index, 3, 1)
+            grid.attach(page_label, 8, row_index, 3, 1)
+
+            # Column 3 (span 2): date
+            date_text = row.get("date", "")
+            date_label = Gtk.Label(label=date_text if date_text else "\u2014")
+            date_label.set_halign(Gtk.Align.START)
+            date_label.set_line_wrap(True)
+            date_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            grid.attach(date_label, 11, row_index, 2, 1)
 
             # Column 4 (span 4): notes (preview + "more" button)
             notes_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
@@ -276,13 +287,21 @@ class CitationFixDialog(Gtk.Dialog):
                 more_btn.set_relief(Gtk.ReliefStyle.NONE)
                 more_btn.connect("clicked", self.cb_show_notes, notes_text)
                 notes_box.pack_start(more_btn, False, False, 0)
-            grid.attach(notes_box, 18, row_index, 4, 1)
+            grid.attach(notes_box, 13, row_index, 4, 1)
 
             # Column 5 (span 2): confidence / QUAY
             conf_label = Gtk.Label(label=row["confidence_display"])
             conf_label.set_halign(Gtk.Align.START)
             conf_label.set_line_wrap(True)
-            grid.attach(conf_label, 22, row_index, 2, 1)
+            grid.attach(conf_label, 17, row_index, 2, 1)
+
+            # Column 6 (span 5): hint dropdown (last column)
+            combo = Gtk.ComboBoxText()
+            combo.set_hexpand(True)
+            for option in row["options"]:
+                combo.append_text(option)
+            combo.set_active(0)
+            grid.attach(combo, 19, row_index, 5, 1)
 
             self.combos.append((row["citation_handle"], combo, row["best_guess"]))
             row_index += 1
@@ -603,7 +622,18 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
                 pass
             try:
                 date_obj = cit.get_date_object()
-                date_str = str(date_obj) if date_obj else ""
+                if (
+                    date_obj
+                    and hasattr(date_obj, "is_empty")
+                    and not date_obj.is_empty()
+                ):
+                    from gramps.gen.datehandler import get_date
+
+                    date_str = get_date(cit) or str(date_obj)
+                elif date_obj:
+                    date_str = str(date_obj)
+                else:
+                    date_str = ""
             except Exception:
                 pass
             try:

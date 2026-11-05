@@ -262,16 +262,16 @@ class CitationFixDialogTest(unittest.TestCase):
         self.assertNotIn("Confidence", row["citation_display"])
 
     def test_build_header_columns(self) -> None:
-        """Header should attach 6 columns with proportional spans: Source (2), Citation (8), Hint (5), Volume/Page (3), Notes (4), Conf (2)."""
+        """Header should attach 7 columns with proportional spans: Source (2), Citation (6), Volume/Page (3), Date (2), Notes (4), Conf (2), Hint (5)."""
         grid = MagicMock()
         dlg = CitationFixDialog.__new__(CitationFixDialog)
         dlg.build_header(grid)
 
-        self.assertEqual(len(grid.attach.call_args_list), 6)
+        self.assertEqual(len(grid.attach.call_args_list), 7)
         cols = [call.args[1] for call in grid.attach.call_args_list]
         spans = [call.args[3] for call in grid.attach.call_args_list]
-        self.assertEqual(cols, [0, 2, 10, 15, 18, 22])
-        self.assertEqual(spans, [2, 8, 5, 3, 4, 2])
+        self.assertEqual(cols, [0, 2, 8, 11, 13, 17, 19])
+        self.assertEqual(spans, [2, 6, 3, 2, 4, 2, 5])
         self.assertEqual(sum(spans), 24)
 
     def test_build_rows_column_count_and_proportions(self) -> None:
@@ -285,6 +285,7 @@ class CitationFixDialogTest(unittest.TestCase):
             "options": ["Option 1"],
             "citation_display": "C0001",
             "page": "https://www.familysearch.org/ark:/61903/1:1:M9123",
+            "date": "1900",
             "notes_preview": "Some note",
             "notes_text": "Some note text",
             "confidence_display": "2 (Q-)",
@@ -301,8 +302,9 @@ class CitationFixDialogTest(unittest.TestCase):
 
         attached_cols = [call.args[1] for call in grid_mock.attach.call_args_list]
         attached_spans = [call.args[3] for call in grid_mock.attach.call_args_list]
-        self.assertEqual(attached_cols, [0, 2, 10, 15, 18, 22])
-        self.assertEqual(attached_spans, [2, 8, 5, 3, 4, 2])
+        self.assertEqual(len(grid_mock.attach.call_args_list), 7)
+        self.assertEqual(attached_cols, [0, 2, 8, 11, 13, 17, 19])
+        self.assertEqual(attached_spans, [2, 6, 3, 2, 4, 2, 5])
         self.assertEqual(sum(attached_spans), 24)
         self.assertEqual(len(dlg.combos), 1)
 
