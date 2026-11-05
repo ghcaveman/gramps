@@ -27,6 +27,7 @@
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import logging
+import re
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -87,6 +88,7 @@ class CitationFixDialog(Gtk.Dialog):
         )
         self.dbstate = dbstate
         self.combos: list[tuple[str, Gtk.ComboBox, str]] = []
+        self.row_targets: list[dict[str, Any]] = []
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         self.connect("response", lambda dlg, resp: dlg.destroy())
         self.set_default_size(1480, 450)
@@ -140,42 +142,58 @@ class CitationFixDialog(Gtk.Dialog):
         left_head.set_markup("<b>%s</b>" % str(_("Source")))
         left_head.set_halign(Gtk.Align.START)
         left_head.set_hexpand(True)
+
         right_head = Gtk.Label()
         right_head.set_markup("<b>%s</b>" % str(_("Citation")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
+
+        page_head = Gtk.Label()
+        page_head.set_markup("<b>%s</b>" % str(_("Volume/Page")))
+        page_head.set_halign(Gtk.Align.START)
+        page_head.set_hexpand(True)
+
         conf_head = Gtk.Label()
         conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
         conf_head.set_halign(Gtk.Align.START)
         conf_head.set_hexpand(True)
+
         date_head = Gtk.Label()
         date_head.set_markup("<b>%s</b>" % str(_("Date")))
         date_head.set_halign(Gtk.Align.START)
         date_head.set_hexpand(True)
-        mid_head = Gtk.Label()
-        mid_head.set_markup("<b>%s</b>" % str(_("Hint")))
-        mid_head.set_halign(Gtk.Align.START)
-        mid_head.set_hexpand(True)
-        header_grid.attach(left_head, 0, 0, 3, 1)
-        header_grid.attach(right_head, 3, 0, 12, 1)
-        header_grid.attach(conf_head, 15, 0, 2, 1)
-        header_grid.attach(date_head, 17, 0, 2, 1)
-        header_grid.attach(mid_head, 19, 0, 5, 1)
+
+        notes_head = Gtk.Label()
+        notes_head.set_markup("<b>%s</b>" % str(_("Notes")))
+        notes_head.set_halign(Gtk.Align.START)
+        notes_head.set_hexpand(True)
+
+        hint_head = Gtk.Label()
+        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head.set_halign(Gtk.Align.START)
+        hint_head.set_hexpand(True)
+
+        header_grid.attach(left_head, 0, 0, 2, 1)
+        header_grid.attach(right_head, 2, 0, 7, 1)
+        header_grid.attach(page_head, 9, 0, 3, 1)
+        header_grid.attach(conf_head, 12, 0, 2, 1)
+        header_grid.attach(date_head, 14, 0, 2, 1)
+        header_grid.attach(notes_head, 16, 0, 3, 1)
+        header_grid.attach(hint_head, 19, 0, 5, 1)
         content.add(header_grid)
 
         content.add(self.build_rows(self.rows))
-        hint = Gtk.Label(
+        hint_footer = Gtk.Label(
             label=str(
                 _(
-                    "Lowering confidence does not delete citations; it only "
-                    "records that the FamilySearch Tree is a derivative "
-                    "source.  Missing page/date must be entered by hand."
+                    "Press 'Accept hints' to populate suggested changes into "
+                    "the target columns, edit any values as needed, then press 'Apply'."
                 )
             )
         )
-        hint.set_line_wrap(True)
-        hint.set_halign(Gtk.Align.START)
-        content.add(hint)
+        hint_footer.set_line_wrap(True)
+        hint_footer.set_halign(Gtk.Align.START)
+        content.add(hint_footer)
         content.add(self.build_buttons())
 
     def build_header(self, grid: Gtk.Grid) -> None:
@@ -185,48 +203,65 @@ class CitationFixDialog(Gtk.Dialog):
         left_head.set_halign(Gtk.Align.START)
         left_head.set_line_wrap(True)
         left_head.set_hexpand(True)
+
         right_head = Gtk.Label()
         right_head.set_markup("<b>%s</b>" % str(_("Citation")))
         right_head.set_halign(Gtk.Align.START)
         right_head.set_hexpand(True)
+
+        page_head = Gtk.Label()
+        page_head.set_markup("<b>%s</b>" % str(_("Volume/Page")))
+        page_head.set_halign(Gtk.Align.START)
+        page_head.set_hexpand(True)
+
         conf_head = Gtk.Label()
         conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
         conf_head.set_halign(Gtk.Align.START)
         conf_head.set_hexpand(True)
+
         date_head = Gtk.Label()
         date_head.set_markup("<b>%s</b>" % str(_("Date")))
         date_head.set_halign(Gtk.Align.START)
         date_head.set_hexpand(True)
-        mid_head = Gtk.Label()
-        mid_head.set_markup("<b>%s</b>" % str(_("Hint")))
-        mid_head.set_halign(Gtk.Align.START)
-        mid_head.set_hexpand(True)
-        grid.attach(left_head, 0, 0, 3, 1)
-        grid.attach(right_head, 3, 0, 12, 1)
-        grid.attach(conf_head, 15, 0, 2, 1)
-        grid.attach(date_head, 17, 0, 2, 1)
-        grid.attach(mid_head, 19, 0, 5, 1)
+
+        notes_head = Gtk.Label()
+        notes_head.set_markup("<b>%s</b>" % str(_("Notes")))
+        notes_head.set_halign(Gtk.Align.START)
+        notes_head.set_hexpand(True)
+
+        hint_head = Gtk.Label()
+        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head.set_halign(Gtk.Align.START)
+        hint_head.set_hexpand(True)
+
+        grid.attach(left_head, 0, 0, 2, 1)
+        grid.attach(right_head, 2, 0, 7, 1)
+        grid.attach(page_head, 9, 0, 3, 1)
+        grid.attach(conf_head, 12, 0, 2, 1)
+        grid.attach(date_head, 14, 0, 2, 1)
+        grid.attach(notes_head, 16, 0, 3, 1)
+        grid.attach(hint_head, 19, 0, 5, 1)
 
     def build_rows(self, rows: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        """Build a 5-column grid with proportional spans: Source (3) | Citation (12) | Conf (2) | Date (2) | Hint (5)."""
+        """Build a 7-column grid with proportional spans: Source (2) | Citation (7) | Volume/Page (3) | Conf (2) | Date (2) | Notes (3) | Hint (5)."""
         grid = Gtk.Grid()
-        grid.set_column_spacing(0)
-        grid.set_row_spacing(0)
+        grid.set_column_spacing(4)
+        grid.set_row_spacing(4)
         grid.set_column_homogeneous(True)
         grid.set_hexpand(True)
         grid.set_vexpand(True)
 
         row_index = 0
         for row in rows:
-            # Column 0 (span 3): source name with word-wrap
+            # Column 0 (span 2): source name with word-wrap
             src_label = Gtk.Label(label=row["source_name"])
             src_label.set_halign(Gtk.Align.START)
             src_label.set_line_wrap(True)
             src_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            src_label.set_max_width_chars(24)
-            grid.attach(src_label, 0, row_index, 3, 1)
+            src_label.set_max_width_chars(18)
+            grid.attach(src_label, 0, row_index, 2, 1)
 
-            # Column 1 (span 12): combined citation details
+            # Column 1 (span 7): combined database citation details
             cit_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
             cit_label = Gtk.Label(label=row["citation_display"])
             cit_label.set_halign(Gtk.Align.START)
@@ -239,31 +274,49 @@ class CitationFixDialog(Gtk.Dialog):
                 more_btn.set_relief(Gtk.ReliefStyle.NONE)
                 more_btn.connect("clicked", self.cb_show_notes, notes_text)
                 cit_box.pack_start(more_btn, False, False, 0)
-            grid.attach(cit_box, 3, row_index, 12, 1)
+            grid.attach(cit_box, 2, row_index, 7, 1)
 
-            # Column 2 (span 2): confidence / QUAY (placed before Date)
-            conf_label = Gtk.Label(label=row["confidence_display"])
-            conf_label.set_halign(Gtk.Align.START)
-            conf_label.set_line_wrap(True)
-            grid.attach(conf_label, 15, row_index, 2, 1)
+            # Column 2 (span 3): target Volume/Page entry (empty by default)
+            page_entry = Gtk.Entry()
+            page_entry.set_hexpand(True)
+            page_entry.set_text("")
+            grid.attach(page_entry, 9, row_index, 3, 1)
 
-            # Column 3 (span 2): date
-            date_text = row.get("date", "")
-            date_label = Gtk.Label(label=date_text if date_text else "\u2014")
-            date_label.set_halign(Gtk.Align.START)
-            date_label.set_line_wrap(True)
-            date_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            grid.attach(date_label, 17, row_index, 2, 1)
+            # Column 3 (span 2): target Conf entry (empty by default, placed before Date)
+            conf_entry = Gtk.Entry()
+            conf_entry.set_hexpand(True)
+            conf_entry.set_text("")
+            grid.attach(conf_entry, 12, row_index, 2, 1)
 
-            # Column 4 (span 5): hint dropdown (last column)
-            combo = Gtk.ComboBoxText()
-            combo.set_hexpand(True)
-            for option in row["options"]:
-                combo.append_text(option)
-            combo.set_active(0)
-            grid.attach(combo, 19, row_index, 5, 1)
+            # Column 4 (span 2): target Date entry (empty by default)
+            date_entry = Gtk.Entry()
+            date_entry.set_hexpand(True)
+            date_entry.set_text("")
+            grid.attach(date_entry, 14, row_index, 2, 1)
 
-            self.combos.append((row["citation_handle"], combo, row["best_guess"]))
+            # Column 5 (span 3): target Notes entry (empty by default)
+            notes_entry = Gtk.Entry()
+            notes_entry.set_hexpand(True)
+            notes_entry.set_text("")
+            grid.attach(notes_entry, 16, row_index, 3, 1)
+
+            # Column 6 (span 5): Hint text box (not a dropdown)
+            hint_entry = Gtk.Entry()
+            hint_entry.set_hexpand(True)
+            hint_entry.set_text(row.get("hint_text", row.get("best_guess", "")))
+            hint_entry.set_editable(False)
+            grid.attach(hint_entry, 19, row_index, 5, 1)
+
+            self.row_targets.append(
+                {
+                    "row": row,
+                    "page_entry": page_entry,
+                    "conf_entry": conf_entry,
+                    "date_entry": date_entry,
+                    "notes_entry": notes_entry,
+                    "hint_entry": hint_entry,
+                }
+            )
             row_index += 1
 
         scrolled = Gtk.ScrolledWindow()
@@ -278,13 +331,19 @@ class CitationFixDialog(Gtk.Dialog):
     def build_buttons(self) -> Gtk.Box:
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         buttons.set_homogeneous(True)
-        auto_button = Gtk.Button(label=str(_("Auto (best guess)")))
+        n_hints = sum(
+            1
+            for target in self.row_targets
+            if target["row"].get("hint_text") or target["row"].get("best_guess")
+        )
+        accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        accept_button.set_sensitive(n_hints > 0)
         apply_button = Gtk.Button(label=str(_("Apply")))
         attrs_button = Gtk.Button(label=str(_("Citation Attributes")))
-        auto_button.connect("clicked", self.cb_set_best)
+        accept_button.connect("clicked", self.cb_accept_hints)
         apply_button.connect("clicked", self.cb_apply)
         attrs_button.connect("clicked", self.cb_citation_attributes)
-        buttons.pack_start(auto_button, True, True, 0)
+        buttons.pack_start(accept_button, True, True, 0)
         buttons.pack_start(apply_button, True, True, 0)
         buttons.pack_start(attrs_button, True, True, 0)
         return buttons
@@ -300,37 +359,94 @@ class CitationFixDialog(Gtk.Dialog):
 
     def get_choices(self) -> dict[str, str]:
         return {
-            citation_handle: self.get_choice(combo, citation_handle)
-            for citation_handle, combo, _best in self.combos
+            target["row"]["citation_handle"]: target["hint_entry"].get_text()
+            for target in self.row_targets
         }
 
-    def get_choice(self, combo: Gtk.ComboBox, fallback: str) -> str:
-        active = combo.get_active_iter()
-        if active is None:
-            return fallback
-        return str(combo.get_model()[active][0])
+    def cb_accept_hints(self, _button: Gtk.Button) -> None:
+        """Populate suggested values into target columns."""
+        populated_count = 0
+        for target in self.row_targets:
+            row = target["row"]
+            hint_text = row.get("hint_text") or row.get("best_guess", "")
+            if not hint_text:
+                continue
+
+            sug_conf = row.get("suggested_conf", "")
+            if not sug_conf and "Lower to Confidence" in hint_text:
+                digits = "".join(c for c in hint_text if c.isdigit())
+                if digits:
+                    sug_conf = digits
+
+            sug_page = row.get("suggested_page", "")
+            sug_date = row.get("suggested_date", "")
+            sug_notes = row.get("suggested_notes", "")
+
+            changed = False
+            if sug_conf and not target["conf_entry"].get_text():
+                target["conf_entry"].set_text(sug_conf)
+                changed = True
+            if sug_page and not target["page_entry"].get_text():
+                target["page_entry"].set_text(sug_page)
+                changed = True
+            if sug_date and not target["date_entry"].get_text():
+                target["date_entry"].set_text(sug_date)
+                changed = True
+            if sug_notes and not target["notes_entry"].get_text():
+                target["notes_entry"].set_text(sug_notes)
+                changed = True
+
+            if changed:
+                populated_count += 1
+
+        OkDialog(
+            str(_("Hints accepted")),
+            str(
+                _(
+                    "Populated suggested data into target columns for %d citations. "
+                    "Review or edit them, then press Apply."
+                )
+            )
+            % populated_count,
+            parent=self,
+        )
+
+    def cb_set_best(self, button: Gtk.Button) -> None:
+        """Backward-compatible alias for cb_accept_hints."""
+        self.cb_accept_hints(button)
 
     def run_auto(self, parent: Gtk.Window | None = None) -> None:
         """Apply best-guess fixes without showing the dialog."""
         rows = build_citation_fix_rows(self.dbstate.db)
-        plan = plan_citation_fixes(rows)
+        from gramps.gen.db import DbTxn
+
         owner = parent or self.get_transient_for()
-        if not plan.get("tree_confidence") and not plan.get("manual_review"):
-            OkDialog(
-                str(_("Nothing to clean")),
-                str(_("No citation problems found.")),
-                parent=owner,
-            )
-            return
-        changed = apply_citation_fixes(self.dbstate, plan)
-        lowered = changed.get("tree_confidence_lowered", 0)
-        manual = plan.get("manual_review", 0)
+        applied_count = 0
+        with DbTxn(_("Auto-fix citations"), self.dbstate.db) as trans:
+            for row in rows:
+                cit_handle = row["citation_handle"]
+                try:
+                    cit = self.dbstate.db.get_citation_from_handle(cit_handle)
+                except Exception:
+                    cit = None
+                if cit is None:
+                    continue
+
+                modified = False
+                sug_conf = row.get("suggested_conf", "")
+                if sug_conf:
+                    digits = "".join(c for c in sug_conf if c.isdigit())
+                    if digits:
+                        cit.set_confidence_level(int(digits))
+                        modified = True
+
+                if modified:
+                    self.dbstate.db.commit_citation(cit, trans)
+                    applied_count += 1
+
         OkDialog(
             str(_("Auto clean: citations")),
-            str(
-                _("Lowered confidence of %d citations, %d need manual review.")
-                % (lowered, manual)
-            ),
+            str(_("Updated %d citations.") % applied_count),
             parent=owner,
         )
 
@@ -338,14 +454,6 @@ class CitationFixDialog(Gtk.Dialog):
         self.show_all()
         self.run()
         self.destroy()
-
-    def cb_set_best(self, _button: Gtk.Button) -> None:
-        for citation_handle, combo, best in self.combos:
-            model = combo.get_model()
-            for index in range(len(model)):
-                if str(model[index][0]) == best:
-                    combo.set_active(index)
-                    break
 
     def cb_show_notes(self, _button: Gtk.Button, notes_text: str) -> None:
         """Show the full citation notes in a dialog (selectable for copy)."""
@@ -376,25 +484,82 @@ class CitationFixDialog(Gtk.Dialog):
         dlg.destroy()
 
     def cb_apply(self, _button: Gtk.Button) -> None:
-        """Apply the user choices as citation fixes."""
-        rows = build_citation_fix_rows(self.dbstate.db)
-        plan = plan_citation_fixes(rows)
-        if not plan.get("tree_confidence") and not plan.get("manual_review"):
+        """Apply target column data directly into citation records in the database."""
+        from gramps.gen.db import DbTxn
+        from gramps.gen.lib import Note
+
+        applied_count = 0
+        with DbTxn(_("Apply citation fixes"), self.dbstate.db) as trans:
+            for target in self.row_targets:
+                row = target["row"]
+                cit_handle = row["citation_handle"]
+                try:
+                    cit = self.dbstate.db.get_citation_from_handle(cit_handle)
+                except Exception:
+                    cit = None
+                if cit is None:
+                    continue
+
+                modified = False
+
+                # 1. Volume/Page
+                new_page = target["page_entry"].get_text().strip()
+                if new_page:
+                    cit.set_page(new_page)
+                    modified = True
+
+                # 2. Conf
+                new_conf_str = target["conf_entry"].get_text().strip()
+                if new_conf_str:
+                    digits = "".join(
+                        c for c in new_conf_str.split("(")[0] if c.isdigit()
+                    )
+                    if digits:
+                        conf_val = max(0, min(int(digits), 4))
+                        cit.set_confidence_level(conf_val)
+                        modified = True
+
+                # 3. Date
+                new_date_str = target["date_entry"].get_text().strip()
+                if new_date_str:
+                    try:
+                        from gramps.gen.datehandler import parser as dateparser
+
+                        d_obj = dateparser.parse(new_date_str)
+                        cit.set_date_object(d_obj)
+                        modified = True
+                    except Exception:
+                        pass
+
+                # 4. Notes
+                new_notes_str = target["notes_entry"].get_text().strip()
+                if new_notes_str:
+                    note = Note()
+                    note.set(new_notes_str)
+                    n_h = self.dbstate.db.add_note(note, trans)
+                    cit.add_note(n_h)
+                    modified = True
+
+                if modified:
+                    self.dbstate.db.commit_citation(cit, trans)
+                    applied_count += 1
+
+        if applied_count == 0:
             OkDialog(
-                str(_("Nothing to clean")),
-                str(_("No citation problems found.")),
+                str(_("Nothing to apply")),
+                str(
+                    _(
+                        "No target values entered. Press 'Accept hints' or type "
+                        "values into the target columns first."
+                    )
+                ),
                 parent=self,
             )
             return
-        changed = apply_citation_fixes(self.dbstate, plan)
-        lowered = changed.get("tree_confidence_lowered", 0)
-        manual = plan.get("manual_review", 0)
+
         OkDialog(
             str(_("Citation fixes applied")),
-            str(
-                _("Lowered confidence of %d citations, %d need manual review.")
-                % (lowered, manual)
-            ),
+            str(_("Updated %d citations in the database.") % applied_count),
             parent=self,
         )
         self.destroy()
@@ -529,6 +694,28 @@ PROBLEM_MANUAL_REVIEW = "manual_review"
 PROBLEM_NONE = "none"
 
 NO_SOURCE = "(no source)"
+
+
+def _extract_url_from_text(text: str) -> str:
+    """Extract the first HTTP/HTTPS URL from text."""
+    if not text:
+        return ""
+    match = re.search(r"https?://[^\s<>\"'()]+", text, re.IGNORECASE)
+    return match.group(0).rstrip(".,;:") if match else ""
+
+
+def _extract_date_from_text(text: str) -> str:
+    """Extract a date or 4-digit year string from text."""
+    if not text:
+        return ""
+    full = re.search(
+        r"\b(?:\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2})\b",
+        text,
+    )
+    if full:
+        return full.group(0).strip()
+    year = re.search(r"\b(1[5-9]\d{2}|20[0-2]\d)\b", text)
+    return year.group(0) if year else ""
 
 
 def build_citation_fix_rows(db) -> list[dict[str, Any]]:
@@ -711,28 +898,58 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
             problem = None
 
             is_tree = src_handle in tree_handles
+            suggested_conf = ""
+            suggested_page = ""
+            suggested_date = ""
+            suggested_notes = ""
+
+            corpus = f"{citation_text} {notes_text}"
+            extracted_url = _extract_url_from_text(corpus)
+            extracted_date = _extract_date_from_text(corpus)
+
+            if not page and extracted_url:
+                suggested_page = extracted_url
+            if not date_str and extracted_date:
+                suggested_date = extracted_date
+
+            hint_actions: list[str] = []
             if is_tree and conf >= 3:
+                hint_actions.append(_("Lower to Confidence 1"))
+                suggested_conf = "1"
+                problem = PROBLEM_TREE_CONFIDENCE
                 options = [
                     _("Lower to Confidence 1"),
                     _("Lower to Confidence 2"),
                     _("No change"),
                 ]
                 best_guess = _("Lower to Confidence 1")
-                problem = PROBLEM_TREE_CONFIDENCE
             else:
-                manual_actions: list[str] = []
-                if not page:
-                    manual_actions.append(_("Add page/volume (manual)"))
-                if not date_str:
-                    manual_actions.append(_("Add date (manual)"))
-                if manual_actions:
-                    options = manual_actions
-                    best_guess = manual_actions[0]
+                options = []
+                best_guess = ""
+                problem = PROBLEM_NONE
+
+            if suggested_page:
+                hint_actions.append(_("Extract URL to Page"))
+            elif not page:
+                hint_actions.append(_("Add page/volume (manual)"))
+
+            if suggested_date:
+                hint_actions.append(_("Extract date: %s") % suggested_date)
+            elif not date_str:
+                hint_actions.append(_("Add date (manual)"))
+
+            if hint_actions:
+                hint_text = "; ".join(hint_actions)
+                if problem is None or problem == PROBLEM_NONE:
                     problem = PROBLEM_MANUAL_REVIEW
-                else:
-                    options = [_("No action needed")]
-                    best_guess = _("No action needed")
-                    problem = PROBLEM_NONE
+                if not options:
+                    options = hint_actions
+                    best_guess = hint_actions[0]
+            else:
+                hint_text = ""
+                options = [_("No action needed")]
+                best_guess = _("No action needed")
+                problem = PROBLEM_NONE
 
             rows.append(
                 {
@@ -749,6 +966,11 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
                     "notes_preview": notes_preview,
                     "options": options,
                     "best_guess": best_guess,
+                    "hint_text": hint_text,
+                    "suggested_conf": suggested_conf,
+                    "suggested_page": suggested_page,
+                    "suggested_date": suggested_date,
+                    "suggested_notes": suggested_notes,
                     "problem": problem,
                 }
             )

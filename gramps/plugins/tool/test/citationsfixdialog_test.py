@@ -268,24 +268,49 @@ class CitationFixDialogTest(unittest.TestCase):
         )
         self.assertNotIn("Confidence", row["citation_display"])
 
+    def test_extract_date_and_url_from_citation_data(self) -> None:
+        """Date and URL should be extracted from citation data when page/date are empty."""
+        src = FakeSource(handle="s1", title="Parish Register")
+        cit = FakeCitation(
+            handle="c4",
+            ref_handle="s1",
+            gramps_id="C0004",
+            page="",
+            confidence=2,
+        )
+        cit.get_note_list = lambda: ["n2"]  # type: ignore[assignment]
+        note = FakeNote(
+            text="Marriage on 15 June 1895 accessed at https://www.example.org/records/1234"
+        )
+        db = FakeDb(sources=[src], citations=[cit], notes={"n2": note})
+
+        rows = build_citation_fix_rows(db)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["suggested_date"], "15 June 1895")
+        self.assertEqual(row["suggested_page"], "https://www.example.org/records/1234")
+        self.assertIn("Extract date", row["hint_text"])
+        self.assertIn("Extract URL", row["hint_text"])
+
     def test_build_header_columns(self) -> None:
-        """Header should attach 5 columns with proportional spans: Source (3), Citation (12), Conf (2), Date (2), Hint (5)."""
+        """Header should attach 7 columns with proportional spans: Source (2), Citation (7), Volume/Page (3), Conf (2), Date (2), Notes (3), Hint (5)."""
         grid = MagicMock()
         dlg = CitationFixDialog.__new__(CitationFixDialog)
         dlg.build_header(grid)
 
-        self.assertEqual(len(grid.attach.call_args_list), 5)
+        self.assertEqual(len(grid.attach.call_args_list), 7)
         cols = [call.args[1] for call in grid.attach.call_args_list]
         spans = [call.args[3] for call in grid.attach.call_args_list]
-        self.assertEqual(cols, [0, 3, 15, 17, 19])
-        self.assertEqual(spans, [3, 12, 2, 2, 5])
+        self.assertEqual(cols, [0, 2, 9, 12, 14, 16, 19])
+        self.assertEqual(spans, [2, 7, 3, 2, 2, 3, 5])
         self.assertEqual(sum(spans), 24)
 
     def test_build_rows_column_count_and_proportions(self) -> None:
-        """build_rows should attach widgets with proportional spans covering 24 units."""
+        """build_rows should attach widgets with proportional spans covering 24 units and empty target entries."""
         grid_mock = MagicMock()
         dlg = CitationFixDialog.__new__(CitationFixDialog)
         dlg.combos = []
+        dlg.row_targets = []
 
         row = {
             "source_name": "Test Source",
@@ -298,22 +323,72 @@ class CitationFixDialogTest(unittest.TestCase):
             "confidence_display": "2(-)",
             "citation_handle": "c1",
             "best_guess": "Option 1",
+            "hint_text": "Lower to Confidence 1",
+            "suggested_conf": "1",
         }
 
-        # Mock Gtk.Grid instantiated inside build_rows
-        with unittest.mock.patch(
-            "gramps.plugins.tool.citationsfixdialog.Gtk.Grid",
-            return_value=grid_mock,
+        # Mock Gtk.Grid and Gtk.Entry instantiated inside build_rows
+        with (
+            unittest.mock.patch(
+                "gramps.plugins.tool.citationsfixdialog.Gtk.Grid",
+                return_value=grid_mock,
+            ),
+            unittest.mock.patch(
+                "gramps.plugins.tool.citationsfixdialog.Gtk.Entry",
+                side_effect=lambda: MagicMock(),
+            ),
         ):
             dlg.build_rows([row])
 
         attached_cols = [call.args[1] for call in grid_mock.attach.call_args_list]
         attached_spans = [call.args[3] for call in grid_mock.attach.call_args_list]
-        self.assertEqual(len(grid_mock.attach.call_args_list), 5)
-        self.assertEqual(attached_cols, [0, 3, 15, 17, 19])
-        self.assertEqual(attached_spans, [3, 12, 2, 2, 5])
+        self.assertEqual(len(grid_mock.attach.call_args_list), 7)
+        self.assertEqual(attached_cols, [0, 2, 9, 12, 14, 16, 19])
+        self.assertEqual(attached_spans, [2, 7, 3, 2, 2, 3, 5])
         self.assertEqual(sum(attached_spans), 24)
-        self.assertEqual(len(dlg.combos), 1)
+        self.assertEqual(len(dlg.row_targets), 1)
+
+        # Target data entries start empty by default
+        target = dlg.row_targets[0]
+        target["page_entry"].set_text.assert_called_with("")
+        target["conf_entry"].set_text.assert_called_with("")
+        target["date_entry"].set_text.assert_called_with("")
+        target["notes_entry"].set_text.assert_called_with("")
+        target["hint_entry"].set_text.assert_called_with("Lower to Confidence 1")
+
+    def test_accept_hints_populates_target_entries(self) -> None:
+        """cb_accept_hints should populate empty target entries with suggested values."""
+        dlg = CitationFixDialog.__new__(CitationFixDialog)
+        mock_entry_conf = MagicMock()
+        mock_entry_conf.get_text.return_value = ""
+        mock_entry_page = MagicMock()
+        mock_entry_page.get_text.return_value = ""
+        mock_entry_date = MagicMock()
+        mock_entry_date.get_text.return_value = ""
+        mock_entry_notes = MagicMock()
+        mock_entry_notes.get_text.return_value = ""
+        mock_entry_hint = MagicMock()
+
+        dlg.row_targets = [
+            {
+                "row": {
+                    "hint_text": "Lower to Confidence 1",
+                    "suggested_conf": "1",
+                    "suggested_page": "p. 100",
+                },
+                "conf_entry": mock_entry_conf,
+                "page_entry": mock_entry_page,
+                "date_entry": mock_entry_date,
+                "notes_entry": mock_entry_notes,
+                "hint_entry": mock_entry_hint,
+            }
+        ]
+
+        with unittest.mock.patch("gramps.plugins.tool.citationsfixdialog.OkDialog"):
+            dlg.cb_accept_hints(MagicMock())
+
+        mock_entry_conf.set_text.assert_called_with("1")
+        mock_entry_page.set_text.assert_called_with("p. 100")
 
 
 if __name__ == "__main__":
