@@ -34,7 +34,7 @@ from typing import Any
 # GTK modules
 #
 # -------------------------------------------------------------------------
-from gi.repository import Gtk
+from gi.repository import Gtk, Pango
 
 # -------------------------------------------------------------------------
 #
@@ -154,11 +154,18 @@ class SourceFixDialog(Gtk.Dialog):
             left.set_max_width_chars(44)
             line.pack_start(left, True, True, 0)
             combo = Gtk.ComboBoxText()
-            combo.set_hexpand(True)
+            combo.set_hexpand(False)
+            combo.set_size_request(_FIX_COMBO_WIDTH, -1)
+            # Truncate over-long option text with an ellipsis while keeping
+            # the full text in the model, so best-guess matching and the
+            # choice values returned by get_choice() are unaffected.
+            cells = combo.get_cells()
+            if cells:
+                cells[0].set_property("ellipsize", Pango.EllipsizeMode.END)
             for option in row["options"]:
                 combo.append_text(option)
             combo.set_active(0)
-            line.pack_start(combo, True, True, 0)
+            line.pack_start(combo, False, False, 0)
             listbox.pack_start(line, False, False, 0)
             self.combos.append(
                 (
@@ -262,6 +269,10 @@ class SourceFixDialog(Gtk.Dialog):
 #
 # ------------------------------------------------------------
 _QUARANTINE_REPO_NAME = "Quarantine"
+
+# Width in pixels of every fix-option drop-down, so all drop-downs in the
+# dialog are the same size regardless of their content.
+_FIX_COMBO_WIDTH = 260
 
 
 def _source_display(row):
