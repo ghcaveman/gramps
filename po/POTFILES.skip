@@ -696,6 +696,10 @@ gramps/plugins/thumbnailer/imagethumb.py
 # Development tools
 #
 gramps/plugins/tool/__init__.py
+gramps/plugins/tool/test/__init__.py
+gramps/plugins/tool/test/citationsfixdialog_test.py
+gramps/plugins/tool/test/gwizardcitationfix_test.py
+gramps/plugins/tool/test/sourceconsolidatedialog_test.py
 #
 # plugins/view directory
 #

@@ -207,9 +207,12 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         self.paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         main_box.pack_start(self.paned, True, True, 0)
 
+        source_title = gwizard.context.get("source_title")
         source_path = gwizard.context.get("gedcom_path")
-        incoming_title = _("Incoming GEDCOM")
-        if source_path:
+        incoming_title = _("Incoming Data")
+        if source_title:
+            incoming_title = _("Incoming: %s") % source_title
+        elif source_path:
             filename = truncate_display_name(
                 os.path.basename(source_path), max_length=60, preserve_extension=True
             )
