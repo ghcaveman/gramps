@@ -106,8 +106,9 @@ class SourceFixDialog(Gtk.Dialog):
                 description
                 if description is not None
                 else _(
-                    "Merge near-duplicate sources into a single source, and "
-                    "quarantine orphan, non-source, and unrepositoryed records."
+                    "Merge near-duplicate sources into a single source, trim "
+                    "leading or trailing whitespace, and quarantine orphan and "
+                    "unrepositoryed records."
                 )
             ),
         )
@@ -168,9 +169,9 @@ class SourceFixDialog(Gtk.Dialog):
         hint = Gtk.Label(
             label=str(
                 _(
-                    "Merging combines the duplicate sources into one; "
-                    "quarantine moves the problem source to a review "
-                    "repository and keeps its citations."
+                    "Merging combines duplicate sources into one; trimming "
+                    "removes leading/trailing whitespace; quarantine moves "
+                    "problem sources to a review repository."
                 )
             )
         )
@@ -358,8 +359,8 @@ class SourceFixDialog(Gtk.Dialog):
         self.cb_accept_hints(button)
 
     def cb_apply(self, _button: Gtk.Button) -> None:
-        """Apply chosen source merges and quarantines."""
-        plan: dict[str, Any] = {"merge": [], "quarantine": []}
+        """Apply chosen source merges, trims, and quarantines."""
+        plan: dict[str, Any] = {"merge": [], "quarantine": [], "trim": []}
         merges_by_keeper: dict[str, list[str]] = defaultdict(list)
 
         for row, combo in self.row_combos:
@@ -368,7 +369,9 @@ class SourceFixDialog(Gtk.Dialog):
             if chosen == source_handle:
                 # Kept as-is
                 continue
-            if chosen == "quarantine":
+            if chosen == "trim":
+                plan["trim"].append({"source_handle": source_handle})
+            elif chosen == "quarantine":
                 plan["quarantine"].append(
                     {
                         "source_handle": source_handle,
@@ -387,7 +390,11 @@ class SourceFixDialog(Gtk.Dialog):
                 }
             )
 
-        if not plan.get("merge") and not plan.get("quarantine"):
+        if (
+            not plan.get("merge")
+            and not plan.get("quarantine")
+            and not plan.get("trim")
+        ):
             OkDialog(
                 str(_("Nothing to fix")),
                 str(_("No source-record problems to fix.")),
@@ -395,13 +402,35 @@ class SourceFixDialog(Gtk.Dialog):
             )
             return
 
-        merged, quarantined = apply_source_fixes(self.dbstate, plan)
+        merged, quarantined, trimmed = apply_source_fixes(self.dbstate, plan)
+        msg_parts = []
+        if merged > 0:
+            msg_parts.append(
+                glocale.translation.ngettext(
+                    "merged %d duplicate source",
+                    "merged %d duplicate sources",
+                    merged,
+                )
+                % merged
+            )
+        if trimmed > 0:
+            msg_parts.append(
+                glocale.translation.ngettext(
+                    "trimmed %d source", "trimmed %d sources", trimmed
+                )
+                % trimmed
+            )
+        if quarantined > 0:
+            msg_parts.append(
+                glocale.translation.ngettext(
+                    "quarantined %d source", "quarantined %d sources", quarantined
+                )
+                % quarantined
+            )
+        msg = ", ".join(msg_parts).capitalize() + "."
         OkDialog(
             str(_("Source fixes applied")),
-            str(
-                _("Merged %d duplicate sources, quarantined %d.")
-                % (merged, quarantined)
-            ),
+            msg,
             parent=self,
         )
         self.destroy()
@@ -412,13 +441,35 @@ class SourceFixDialog(Gtk.Dialog):
         rows = build_source_fix_rows(stats, self.dbstate.db)
         plan = plan_source_fixes(rows)
         owner = parent or self.get_transient_for()
-        merged, quarantined = apply_source_fixes(self.dbstate, plan)
+        merged, quarantined, trimmed = apply_source_fixes(self.dbstate, plan)
+        msg_parts = []
+        if merged > 0:
+            msg_parts.append(
+                glocale.translation.ngettext(
+                    "merged %d duplicate source",
+                    "merged %d duplicate sources",
+                    merged,
+                )
+                % merged
+            )
+        if trimmed > 0:
+            msg_parts.append(
+                glocale.translation.ngettext(
+                    "trimmed %d source", "trimmed %d sources", trimmed
+                )
+                % trimmed
+            )
+        if quarantined > 0:
+            msg_parts.append(
+                glocale.translation.ngettext(
+                    "quarantined %d source", "quarantined %d sources", quarantined
+                )
+                % quarantined
+            )
+        msg = ", ".join(msg_parts).capitalize() + "."
         OkDialog(
             str(_("Auto fix: sources")),
-            str(
-                _("Merged %d duplicate sources, quarantined %d.")
-                % (merged, quarantined)
-            ),
+            msg,
             parent=owner,
         )
 
@@ -473,13 +524,22 @@ def build_source_fix_rows(
 ) -> list[dict[str, Any]]:
     """Build per-source fix rows from collected database stats."""
     rows: list[dict[str, Any]] = []
+    handled_handles: set[str] = set()
 
     repo_name_by_handle: dict[str, str] = {}
+    clean_sources_by_title: dict[str, dict[str, Any]] = {}
     if db:
         try:
             for src_h in db.iter_source_handles():
                 src = db.get_source_from_handle(src_h)
                 if src:
+                    s_title = str(src.get_title() or "")
+                    if s_title and s_title == s_title.strip():
+                        clean_sources_by_title[s_title.strip().lower()] = {
+                            "handle": src_h,
+                            "title": s_title,
+                            "gramps_id": str(src.get_gramps_id() or ""),
+                        }
                     refs = list(src.get_reporef_list())
                     if refs:
                         r_h = refs[0].get_reference_handle()
@@ -502,6 +562,7 @@ def build_source_fix_rows(
 
         for member in group:
             m_handle = member["handle"]
+            handled_handles.add(m_handle)
             m_disp = _source_display(member)
             is_keeper = m_handle == keeper["handle"]
 
@@ -552,16 +613,89 @@ def build_source_fix_rows(
                 }
             )
 
-    # 2) Orphan / no-repository sources -> quarantine action
-    merged_handles = {
-        m["handle"]
-        for g in stats.get("near_duplicates", [])
-        for m in g
-        if m.get("handle")
-    }
+    # 2) Sources with leading or trailing whitespace
     for row in stats.get("source_rows", []):
         handle = row.get("handle")
-        if not handle or handle in merged_handles:
+        if not handle or handle in handled_handles:
+            continue
+
+        title = str(row.get("title") or "")
+        author = str(row.get("author") or "")
+        pub = str(row.get("publication") or row.get("publication_info") or "")
+        abbr = str(row.get("abbreviation") or "")
+
+        # Also check db object if fields not in row dict
+        if db and not author and not pub and not abbr:
+            try:
+                src_obj = db.get_source_from_handle(handle)
+                if src_obj:
+                    title = str(src_obj.get_title() or "")
+                    author = str(src_obj.get_author() or "")
+                    pub = str(src_obj.get_publication_info() or "")
+                    abbr = str(src_obj.get_abbreviation() or "")
+            except Exception:  # pylint: disable=broad-except
+                pass
+
+        ws_fields = []
+        if title != title.strip():
+            ws_fields.append("title")
+        if author != author.strip():
+            ws_fields.append("author")
+        if pub != pub.strip():
+            ws_fields.append("publication")
+        if abbr != abbr.strip():
+            ws_fields.append("abbreviation")
+
+        if not ws_fields:
+            continue
+
+        handled_handles.add(handle)
+        s_disp = _source_display(row)
+        options: list[tuple[str, str]] = [(s_disp, handle)]
+
+        # Check if an existing source with the clean title already exists
+        clean_match = clean_sources_by_title.get(title.strip().lower())
+        if clean_match and clean_match["handle"] != handle:
+            match_disp = "%s (%s)" % (clean_match["title"], clean_match["gramps_id"])
+            options.append((_("Merge into '%s'") % match_disp, clean_match["handle"]))
+            options.append((str(_("Trim whitespace")), "trim"))
+            hint_target = clean_match["handle"]
+            hint_reason = str(_("Duplicate with clean title"))
+            hint_display = "%s\n(%s)" % (match_disp, hint_reason)
+        else:
+            options.append((str(_("Trim whitespace")), "trim"))
+            hint_target = "trim"
+            hint_reason = str(_("Leading/trailing whitespace"))
+            hint_display = "%s\n(%s)" % (str(_("Trim whitespace")), hint_reason)
+
+        if row.get("repo_count", 0) == 0:
+            options.append((str(_("Quarantine (new repository)")), "quarantine"))
+
+        repo_name = repo_name_by_handle.get(handle) or str(_("(no repository)"))
+
+        rows.append(
+            {
+                "handle": handle,
+                "title": title,
+                "gramps_id": row.get("gramps_id", ""),
+                "display": s_disp,
+                "repo_name": repo_name,
+                "citations": row.get("citations", 0),
+                "options": options,
+                "best_guess": s_disp,
+                "hint_target": hint_target,
+                "hint_reason": hint_reason,
+                "hint_display": hint_display,
+                "problem": "trim",
+                "is_keeper": False,
+                "skip": False,
+            }
+        )
+
+    # 3) Orphan / no-repository sources -> quarantine action
+    for row in stats.get("source_rows", []):
+        handle = row.get("handle")
+        if not handle or handle in handled_handles:
             continue
         reasons = []
         if row.get("citations", 0) == 0:
@@ -608,7 +742,11 @@ def plan_source_fixes(
     rows: list[dict[str, Any]],
 ) -> dict[str, list[dict[str, Any]]]:
     """Turn dialog rows into an apply plan without touching the database."""
-    plan: dict[str, list[dict[str, Any]]] = {"merge": [], "quarantine": []}
+    plan: dict[str, list[dict[str, Any]]] = {
+        "merge": [],
+        "quarantine": [],
+        "trim": [],
+    }
     merges_by_keeper: dict[str, list[str]] = defaultdict(list)
 
     for row in rows:
@@ -635,7 +773,9 @@ def plan_source_fixes(
                 )
             continue
 
-        if chosen == "quarantine":
+        if chosen == "trim":
+            plan["trim"].append({"source_handle": handle})
+        elif chosen == "quarantine":
             plan["quarantine"].append(
                 {
                     "source_handle": handle,
@@ -670,14 +810,45 @@ def _get_or_create_quarantine_repo(db: Any) -> str:
     return str(repo.get_handle() or "")
 
 
-def apply_source_fixes(dbstate: Any, plan: dict[str, Any]) -> tuple[int, int]:
+def apply_source_fixes(dbstate: Any, plan: dict[str, Any]) -> tuple[int, int, int]:
     """Apply a source-fix plan against the database."""
     db = dbstate.db
     engine = GWizardCitationRepairEngine()
     merged = 0
     quarantined = 0
+    trimmed = 0
 
     quarantine_handle = _get_or_create_quarantine_repo(db)
+
+    for entry in plan.get("trim", []):
+        src_handle = entry["source_handle"]
+        try:
+            source = db.get_source_from_handle(src_handle)
+            if source is None:
+                continue
+            title = str(source.get_title() or "")
+            author = str(source.get_author() or "")
+            pub = str(source.get_publication_info() or "")
+            abbr = str(source.get_abbreviation() or "")
+            changed = False
+            if title != title.strip():
+                source.set_title(title.strip())
+                changed = True
+            if author != author.strip():
+                source.set_author(author.strip())
+                changed = True
+            if pub != pub.strip():
+                source.set_publication_info(pub.strip())
+                changed = True
+            if abbr != abbr.strip():
+                source.set_abbreviation(abbr.strip())
+                changed = True
+            if changed:
+                with DbTxn(_("Trim source whitespace"), db) as trans:
+                    db.commit_source(source, trans)
+                trimmed += 1
+        except Exception:  # pylint: disable=broad-except
+            LOG.exception("Failed to trim source whitespace %s", src_handle)
 
     for entry in plan.get("merge", []):
         keeper = entry["keeper_handle"]
@@ -706,4 +877,4 @@ def apply_source_fixes(dbstate: Any, plan: dict[str, Any]) -> tuple[int, int]:
         except Exception:  # pylint: disable=broad-except
             LOG.exception("Failed to quarantine source %s", src_handle)
 
-    return merged, quarantined
+    return merged, quarantined, trimmed

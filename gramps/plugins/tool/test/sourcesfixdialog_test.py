@@ -244,9 +244,10 @@ class SourceFixDialogTest(unittest.TestCase):
             "quarantine": [{"source_handle": s3_h, "target_repo_name": "Quarantine"}],
         }
 
-        merged, quarantined = apply_source_fixes(DummyDbState(self.db), plan)
+        merged, quarantined, trimmed = apply_source_fixes(DummyDbState(self.db), plan)
         self.assertEqual(merged, 1)
         self.assertEqual(quarantined, 1)
+        self.assertEqual(trimmed, 0)
 
         # Verify s2 was merged into s1 (citation moved to s1, s2 deleted)
         with self.assertRaises(HandleError):
@@ -261,6 +262,57 @@ class SourceFixDialogTest(unittest.TestCase):
             updated_s3.get_reporef_list()[0].get_reference_handle()
         )
         self.assertEqual(q_repo.get_name(), "Quarantine")
+
+    def test_build_source_fix_rows_whitespace(self) -> None:
+        """Verify sources with leading/trailing whitespace produce a trim row."""
+        stats = {
+            "near_duplicates": [],
+            "source_rows": [
+                {
+                    "handle": "s_ws",
+                    "title": "  Military Service Records  ",
+                    "gramps_id": "S0099",
+                    "citations": 3,
+                    "repo_count": 1,
+                }
+            ],
+        }
+
+        rows = build_source_fix_rows(stats)
+        self.assertEqual(len(rows), 1)
+
+        r = rows[0]
+        self.assertEqual(r["handle"], "s_ws")
+        self.assertEqual(r["problem"], "trim")
+        self.assertEqual(r["options"][0][1], "s_ws")  # Default choice is self
+        self.assertEqual(r["options"][1][1], "trim")  # Option to trim
+        self.assertEqual(r["hint_target"], "trim")
+        self.assertIn("Trim whitespace", r["hint_display"])
+
+    def test_apply_source_fixes_trim(self) -> None:
+        """Verify apply_source_fixes trims leading/trailing whitespace."""
+        with DbTxn("Create whitespace source", self.db) as trans:
+            s = Source()
+            s.set_title("  World War I Draft Registration  ")
+            s.set_author("  Selective Service System  ")
+            s_h = self.db.add_source(s, trans)
+
+        class DummyDbState:
+            def __init__(self, db: DbWriteBase) -> None:
+                self.db = db
+
+        plan = {
+            "merge": [],
+            "quarantine": [],
+            "trim": [{"source_handle": s_h}],
+        }
+
+        merged, quarantined, trimmed = apply_source_fixes(DummyDbState(self.db), plan)
+        self.assertEqual(trimmed, 1)
+
+        updated_s = self.db.get_source_from_handle(s_h)
+        self.assertEqual(updated_s.get_title(), "World War I Draft Registration")
+        self.assertEqual(updated_s.get_author(), "Selective Service System")
 
 
 if __name__ == "__main__":
