@@ -252,7 +252,7 @@ def get_button_specs() -> list[tuple[str, str, bool]]:
     return [
         ("generate", str(_("Generate report")), True),
         ("view", str(_("View report")), False),
-        ("unpack_sources", str(_("Unpack Conflated Fields")), True),
+        ("unpack_sources", str(_("Unpack Conflated Source")), True),
         ("consolidate_repositories", str(_("Repository Consolidate")), True),
         ("fix_repositories", str(_("Fix Repositories")), True),
         ("fix_sources", str(_("Fix Sources")), True),
@@ -352,7 +352,7 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
     return [
         (
             "unpack_sources",
-            str(_("Unpack Fields")),
+            str(_("Unpack Conflated Source")),
             str(
                 _(
                     "Parse mixed text headers, extract repository entries, and prepare fields for deduplication."

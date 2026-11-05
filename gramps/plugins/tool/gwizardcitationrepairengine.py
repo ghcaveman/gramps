@@ -110,7 +110,7 @@ class GWizardCitationRepairEngine:
                 repo_map.setdefault(key, repo.get_handle())
 
         count = 0
-        with DbTxn(_("Unpack Conflated Fields"), db) as trans:
+        with DbTxn(_("Unpack Conflated Source"), db) as trans:
             for entry in plan:
                 if not entry.get("apply", True):
                     continue

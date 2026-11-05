@@ -894,7 +894,7 @@ class GWizardCitationReport:
         # 4. Roadmap Step Breakdown Timeline
         lines.append("Suggested order of fixes:")
         lines.append(
-            "1. Run 'Unpack Conflated Fields' to isolate hidden repository text strings."
+            "1. Run 'Unpack Conflated Source' to isolate hidden repository text strings."
         )
         lines.append(
             "2. Run 'Repository Consolidate' to deduplicate matching repository targets."

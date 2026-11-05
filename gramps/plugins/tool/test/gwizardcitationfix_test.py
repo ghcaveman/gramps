@@ -232,6 +232,7 @@ def get_button_specs() -> list[tuple[str, str, bool]]:
     return [
         ("generate", str(_("Generate report")), True),
         ("view", str(_("View report")), False),
+        ("unpack_sources", str(_("Unpack Conflated Source")), True),
         ("consolidate_repositories", str(_("Repository Consolidate")), True),
         ("fix_repositories", str(_("Fix Repositories")), True),
         ("fix_sources", str(_("Fix Sources")), True),
