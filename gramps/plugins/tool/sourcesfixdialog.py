@@ -151,6 +151,7 @@ class SourceFixDialog(Gtk.Dialog):
         scrolled.add(listbox)
         for row in rows:
             line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            line.set_homogeneous(True)
             left = Gtk.Label(label=row["display"])
             left.set_halign(Gtk.Align.START)
             left.set_hexpand(True)
@@ -158,18 +159,18 @@ class SourceFixDialog(Gtk.Dialog):
             left.set_max_width_chars(44)
             line.pack_start(left, True, True, 0)
             combo = Gtk.ComboBoxText()
-            combo.set_hexpand(False)
-            combo.set_size_request(_FIX_COLUMN_WIDTH, -1)
+            combo.set_hexpand(True)
             # Truncate over-long option text with an ellipsis while keeping
             # the full text in the model, so best-guess matching and the
             # choice values returned by get_choice() are unaffected.
             cells = combo.get_cells()
             if cells:
                 cells[0].set_property("ellipsize", Pango.EllipsizeMode.END)
+                cells[0].set_property("max-width-chars", 44)
             for option in row["options"]:
                 combo.append_text(option)
             combo.set_active(0)
-            line.pack_start(combo, False, False, 0)
+            line.pack_start(combo, True, True, 0)
             listbox.pack_start(line, False, False, 0)
             self.combos.append(
                 (
@@ -273,11 +274,6 @@ class SourceFixDialog(Gtk.Dialog):
 #
 # ------------------------------------------------------------
 _QUARANTINE_REPO_NAME = "Quarantine"
-
-# Width in pixels of each column of the fix grid. The dialog content area is
-# 882 - (2 * 12 border) = 858 px; splitting that into two equal columns with
-# 12 px spacing between them gives 423 px per column.
-_FIX_COLUMN_WIDTH = 423
 
 
 def _source_display(row):
