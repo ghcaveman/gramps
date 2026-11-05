@@ -1,0 +1,253 @@
+#
+# Gramps - a GTK+/GNOME based genealogy program
+#
+# Copyright (C) 2026  Kevin White
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+
+"""Tests for CitationFixDialog and citation fix row construction."""
+
+# -------------------------------------------------------------------------
+#
+# Standard Python modules
+#
+# -------------------------------------------------------------------------
+from __future__ import annotations
+import sys
+import unittest
+from typing import Any
+from unittest.mock import MagicMock
+
+# -------------------------------------------------------------------------
+#
+# GTK mock fallback when running without display or PyGObject
+#
+# -------------------------------------------------------------------------
+if "gi" not in sys.modules:
+    gi_mock = MagicMock()
+
+    class _FakeDialog:
+        pass
+
+    gi_mock.repository.Gtk.Dialog = _FakeDialog
+    sys.modules["gi"] = gi_mock
+    sys.modules["gi.repository"] = gi_mock.repository
+
+# -------------------------------------------------------------------------
+#
+# Gramps modules
+#
+# -------------------------------------------------------------------------
+from gramps.plugins.tool.citationsfixdialog import (
+    CitationFixDialog,
+    build_citation_fix_rows,
+)
+
+
+# ------------------------------------------------------------
+#
+# Fake database objects for testing
+#
+# ------------------------------------------------------------
+class FakeSource:
+    """Mock Source object."""
+
+    def __init__(self, handle: str, title: str) -> None:
+        self.handle = handle
+        self.title = title
+
+    def get_handle(self) -> str:
+        """Return the mock handle."""
+        return self.handle
+
+    def get_title(self) -> str:
+        """Return the mock title."""
+        return self.title
+
+
+class FakeCitation:
+    """Mock Citation object."""
+
+    def __init__(
+        self,
+        handle: str,
+        ref_handle: str,
+        gramps_id: str,
+        page: str,
+        confidence: int = 2,
+    ) -> None:
+        self.handle = handle
+        self.ref_handle = ref_handle
+        self.gramps_id = gramps_id
+        self.page = page
+        self.confidence = confidence
+
+    def get_handle(self) -> str:
+        """Return the mock handle."""
+        return self.handle
+
+    def get_reference_handle(self) -> str:
+        """Return the mock referenced source handle."""
+        return self.ref_handle
+
+    def get_gramps_id(self) -> str:
+        """Return the mock Gramps ID."""
+        return self.gramps_id
+
+    def get_page(self) -> str:
+        """Return the mock page or URL string."""
+        return self.page
+
+    def get_date_object(self) -> None:
+        """Return None for date object."""
+        return None
+
+    def get_confidence_level(self) -> int:
+        """Return the mock confidence level."""
+        return self.confidence
+
+    def get_media_list(self) -> list[str]:
+        """Return empty media list."""
+        return []
+
+    def get_note_list(self) -> list[str]:
+        """Return empty note list."""
+        return []
+
+    def get_attribute_list(self) -> list[str]:
+        """Return empty attribute list."""
+        return []
+
+
+class FakeDb:
+    """Mock Gramps database."""
+
+    def __init__(
+        self, sources: list[FakeSource], citations: list[FakeCitation]
+    ) -> None:
+        self.sources = sources
+        self.citations = citations
+
+    def iter_sources(self) -> list[FakeSource]:
+        """Return mock sources."""
+        return self.sources
+
+    def iter_citations(self) -> list[FakeCitation]:
+        """Return mock citations."""
+        return self.citations
+
+    def get_note_from_handle(self, _handle: str) -> None:
+        """Return None for notes."""
+        return None
+
+
+# ------------------------------------------------------------
+#
+# Test cases
+#
+# ------------------------------------------------------------
+class CitationFixDialogTest(unittest.TestCase):
+    """Verify CitationFixDialog and build_citation_fix_rows behavior."""
+
+    def test_volume_page_separated_from_citation_display(self) -> None:
+        """Volume/page or URL should be stored in 'page' and excluded from citation_display."""
+        src = FakeSource(handle="s1", title="Census 1900")
+        cit = FakeCitation(
+            handle="c1",
+            ref_handle="s1",
+            gramps_id="C0001",
+            page="https://www.familysearch.org/ark:/61903/1:1:M9123",
+            confidence=2,
+        )
+        db = FakeDb(sources=[src], citations=[cit])
+
+        rows = build_citation_fix_rows(db)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+
+        self.assertEqual(
+            row["page"], "https://www.familysearch.org/ark:/61903/1:1:M9123"
+        )
+        self.assertEqual(row["citation_display"], "C0001")
+        self.assertNotIn("https://", row["citation_display"])
+        self.assertNotIn("p.", row["citation_display"])
+
+    def test_empty_volume_page(self) -> None:
+        """When volume/page is empty, 'page' should be empty string."""
+        src = FakeSource(handle="s1", title="Parish Register")
+        cit = FakeCitation(
+            handle="c2",
+            ref_handle="s1",
+            gramps_id="C0002",
+            page="",
+            confidence=2,
+        )
+        db = FakeDb(sources=[src], citations=[cit])
+
+        rows = build_citation_fix_rows(db)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["page"], "")
+        self.assertEqual(row["citation_display"], "C0002")
+
+    def test_build_header_columns(self) -> None:
+        """Header should attach 6 columns with proportional spans covering 14 units."""
+        grid = MagicMock()
+        dlg = CitationFixDialog.__new__(CitationFixDialog)
+        dlg.build_header(grid)
+
+        self.assertEqual(len(grid.attach.call_args_list), 6)
+        cols = [call.args[1] for call in grid.attach.call_args_list]
+        spans = [call.args[3] for call in grid.attach.call_args_list]
+        self.assertEqual(cols, [0, 3, 5, 7, 11, 13])
+        self.assertEqual(spans, [3, 2, 2, 4, 2, 1])
+        self.assertEqual(sum(spans), 14)
+
+    def test_build_rows_column_count_and_proportions(self) -> None:
+        """build_rows should attach widgets with proportional spans covering 14 units."""
+        grid_mock = MagicMock()
+        dlg = CitationFixDialog.__new__(CitationFixDialog)
+        dlg.combos = []
+
+        row = {
+            "source_name": "Test Source",
+            "options": ["Option 1"],
+            "citation_display": "C0001",
+            "page": "https://www.familysearch.org/ark:/61903/1:1:M9123",
+            "notes_preview": "Some note",
+            "notes_text": "Some note text",
+            "confidence_display": "2 (Q-)",
+            "citation_handle": "c1",
+            "best_guess": "Option 1",
+        }
+
+        # Mock Gtk.Grid instantiated inside build_rows
+        with unittest.mock.patch(
+            "gramps.plugins.tool.citationsfixdialog.Gtk.Grid",
+            return_value=grid_mock,
+        ):
+            dlg.build_rows([row])
+
+        attached_cols = [call.args[1] for call in grid_mock.attach.call_args_list]
+        attached_spans = [call.args[3] for call in grid_mock.attach.call_args_list]
+        self.assertEqual(attached_cols, [0, 3, 5, 7, 11, 13])
+        self.assertEqual(attached_spans, [3, 2, 2, 4, 2, 1])
+        self.assertEqual(sum(attached_spans), 14)
+        self.assertEqual(len(dlg.combos), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

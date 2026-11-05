@@ -33,7 +33,7 @@ import re
 from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Any
-from gwizardcitationreport import GWizardCitationReport
+from gramps.plugins.tool.gwizardcitationreport import GWizardCitationReport
 
 # -------------------------------------------------------------------------
 #
