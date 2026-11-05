@@ -82,7 +82,7 @@ class SourceFixDialog(Gtk.Dialog):
         self.row_combos: list[tuple[dict[str, Any], Gtk.ComboBox]] = []
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         self.connect("response", lambda dlg, resp: dlg.destroy())
-        self.set_default_size(1260, 420)
+        self.set_default_size(882, 420)
         content = self.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
@@ -136,6 +136,10 @@ class SourceFixDialog(Gtk.Dialog):
         right_head.set_hexpand(True)
         header.pack_start(left_head, True, True, 0)
         header.pack_start(right_head, True, True, 0)
+        # Distribute extra space evenly so both columns take up half each and
+        # the right-hand header stays left-justified rather than filling the
+        # remaining space and sitting flush against the dialog edge.
+        header.set_homogeneous(True)
         return header
 
     def build_rows(self, rows: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
@@ -155,7 +159,7 @@ class SourceFixDialog(Gtk.Dialog):
             line.pack_start(left, True, True, 0)
             combo = Gtk.ComboBoxText()
             combo.set_hexpand(False)
-            combo.set_size_request(_FIX_COMBO_WIDTH, -1)
+            combo.set_size_request(_FIX_COLUMN_WIDTH, -1)
             # Truncate over-long option text with an ellipsis while keeping
             # the full text in the model, so best-guess matching and the
             # choice values returned by get_choice() are unaffected.
@@ -270,9 +274,10 @@ class SourceFixDialog(Gtk.Dialog):
 # ------------------------------------------------------------
 _QUARANTINE_REPO_NAME = "Quarantine"
 
-# Width in pixels of every fix-option drop-down, so all drop-downs in the
-# dialog are the same size regardless of their content.
-_FIX_COMBO_WIDTH = 260
+# Width in pixels of each column of the fix grid. The dialog content area is
+# 882 - (2 * 12 border) = 858 px; splitting that into two equal columns with
+# 12 px spacing between them gives 423 px per column.
+_FIX_COLUMN_WIDTH = 423
 
 
 def _source_display(row):
