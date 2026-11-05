@@ -151,11 +151,13 @@ class UnpackCitationsDialogTest(unittest.TestCase):
 
         self.assertEqual(len(dlg.row_targets), 1)
         target = dlg.row_targets[0]
+        target["cit_entry"].set_text.assert_called_with("")
         target["page_entry"].set_text.assert_called_with("")
         target["date_entry"].set_text.assert_called_with("")
         target["notes_entry"].set_text.assert_called_with("")
 
         # Simulate empty entries
+        target["cit_entry"].get_text.return_value = ""
         target["page_entry"].get_text.return_value = ""
         target["date_entry"].get_text.return_value = ""
         target["notes_entry"].get_text.return_value = ""
@@ -183,8 +185,10 @@ class UnpackCitationsDialogTest(unittest.TestCase):
         dlg.dbstate = self.dbstate
         dlg.destroy = MagicMock()
 
+        mock_cit = MagicMock()
+        mock_cit.get_text.return_value = "Citation text note"
         mock_page = MagicMock()
-        mock_page.get_text.return_value = "Cleaned Page 42"
+        mock_page.get_text.return_value = "Page 42"
         mock_date = MagicMock()
         mock_date.get_text.return_value = "1920"
         mock_notes = MagicMock()
@@ -193,6 +197,7 @@ class UnpackCitationsDialogTest(unittest.TestCase):
         dlg.row_targets = [
             {
                 "entry": {"citation_handle": c_handle},
+                "cit_entry": mock_cit,
                 "page_entry": mock_page,
                 "date_entry": mock_date,
                 "notes_entry": mock_notes,
@@ -203,7 +208,7 @@ class UnpackCitationsDialogTest(unittest.TestCase):
             dlg.cb_apply(MagicMock())
 
         updated_cit = self.db.get_citation_from_handle(c_handle)
-        self.assertEqual(updated_cit.get_page(), "Cleaned Page 42")
+        self.assertEqual(updated_cit.get_page(), "Page 42")
         self.assertIsNotNone(updated_cit.get_date_object())
         self.assertGreater(len(updated_cit.get_note_list()), 0)
 

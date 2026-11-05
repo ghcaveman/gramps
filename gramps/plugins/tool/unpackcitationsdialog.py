@@ -45,7 +45,7 @@ from gi.repository import Gtk, Pango
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
 from gramps.gen.db import DbTxn
-from gramps.gen.lib import Note
+from gramps.gen.lib import Note, NoteType
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -242,7 +242,7 @@ def plan_unpack_conflated_citations(db: Any) -> list[dict[str, Any]]:
 #
 # ------------------------------------------------------------
 class UnpackCitationsDialog(Gtk.Dialog):
-    """Review and unpack conflated citation data into clean volume/page, date, and notes."""
+    """Review and unpack conflated citation data into citation, volume/page/URL, date, and notes."""
 
     def __init__(
         self,
@@ -261,7 +261,7 @@ class UnpackCitationsDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.plan = plan_unpack_conflated_citations(dbstate.db)
         self.row_targets: list[dict[str, Any]] = []
-        self.set_default_size(1480, 520)
+        self.set_default_size(1560, 520)
 
         # Action buttons in dialog action bar (always visible at bottom)
         n_hints = len(self.plan)
@@ -315,12 +315,17 @@ class UnpackCitationsDialog(Gtk.Dialog):
         header_grid.set_vexpand(False)
 
         src_head = Gtk.Label()
-        src_head.set_markup("<b>%s</b>" % str(_("Source & Citation")))
+        src_head.set_markup("<b>%s</b>" % str(_("Source")))
         src_head.set_halign(Gtk.Align.START)
         src_head.set_hexpand(False)
 
+        cit_head = Gtk.Label()
+        cit_head.set_markup("<b>%s</b>" % str(_("Citation")))
+        cit_head.set_halign(Gtk.Align.START)
+        cit_head.set_hexpand(False)
+
         page_head = Gtk.Label()
-        page_head.set_markup("<b>%s</b>" % str(_("Clean Volume/Page")))
+        page_head.set_markup("<b>%s</b>" % str(_("Volume/Page/URL")))
         page_head.set_halign(Gtk.Align.START)
         page_head.set_hexpand(False)
 
@@ -330,7 +335,7 @@ class UnpackCitationsDialog(Gtk.Dialog):
         date_head.set_hexpand(False)
 
         notes_head = Gtk.Label()
-        notes_head.set_markup("<b>%s</b>" % str(_("Notes / URL")))
+        notes_head.set_markup("<b>%s</b>" % str(_("Notes")))
         notes_head.set_halign(Gtk.Align.START)
         notes_head.set_hexpand(False)
 
@@ -340,21 +345,23 @@ class UnpackCitationsDialog(Gtk.Dialog):
         hint_head.set_hexpand(True)
 
         header_grid.attach(src_head, 0, 0, 1, 1)
-        header_grid.attach(page_head, 1, 0, 1, 1)
-        header_grid.attach(date_head, 2, 0, 1, 1)
-        header_grid.attach(notes_head, 3, 0, 1, 1)
-        header_grid.attach(hint_head, 4, 0, 1, 1)
+        header_grid.attach(cit_head, 1, 0, 1, 1)
+        header_grid.attach(page_head, 2, 0, 1, 1)
+        header_grid.attach(date_head, 3, 0, 1, 1)
+        header_grid.attach(notes_head, 4, 0, 1, 1)
+        header_grid.attach(hint_head, 5, 0, 1, 1)
         content.add(header_grid)
 
         # SizeGroups ensuring header columns match data columns below
         self.column_sizegroups = [
-            Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL) for _ in range(5)
+            Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL) for _ in range(6)
         ]
         self.column_sizegroups[0].add_widget(src_head)
-        self.column_sizegroups[1].add_widget(page_head)
-        self.column_sizegroups[2].add_widget(date_head)
-        self.column_sizegroups[3].add_widget(notes_head)
-        self.column_sizegroups[4].add_widget(hint_head)
+        self.column_sizegroups[1].add_widget(cit_head)
+        self.column_sizegroups[2].add_widget(page_head)
+        self.column_sizegroups[3].add_widget(date_head)
+        self.column_sizegroups[4].add_widget(notes_head)
+        self.column_sizegroups[5].add_widget(hint_head)
 
         content.pack_start(self.build_rows(self.plan), True, True, 0)
 
@@ -380,45 +387,51 @@ class UnpackCitationsDialog(Gtk.Dialog):
 
         row_index = 0
         for entry in entries:
-            # Column 0: Source & Citation details
+            # Column 0: Source details
             src_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            src_box.set_size_request(280, -1)
+            src_box.set_size_request(240, -1)
             lines = entry.get("display_text", "").splitlines()
             l1 = Gtk.Label(label=lines[0] if len(lines) > 0 else "")
             l1.set_xalign(0.0)
             l1.set_line_wrap(True)
             l1.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            l1.set_max_width_chars(38)
+            l1.set_max_width_chars(32)
             src_box.pack_start(l1, False, False, 0)
 
             l2 = Gtk.Label(label=lines[1] if len(lines) > 1 else "")
             l2.set_xalign(0.0)
             l2.set_line_wrap(True)
             l2.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            l2.set_max_width_chars(38)
+            l2.set_max_width_chars(32)
             src_box.pack_start(l2, False, False, 0)
 
             grid.attach(src_box, 0, row_index, 1, 1)
 
-            # Column 1: Clean Volume/Page entry (empty by default)
+            # Column 1: Citation entry (text box, empty by default)
+            cit_entry = Gtk.Entry()
+            cit_entry.set_width_chars(20)
+            cit_entry.set_text("")
+            grid.attach(cit_entry, 1, row_index, 1, 1)
+
+            # Column 2: Volume/Page/URL entry (empty by default)
             page_entry = Gtk.Entry()
             page_entry.set_width_chars(24)
             page_entry.set_text("")
-            grid.attach(page_entry, 1, row_index, 1, 1)
+            grid.attach(page_entry, 2, row_index, 1, 1)
 
-            # Column 2: Date entry (empty by default)
+            # Column 3: Date entry (empty by default)
             date_entry = Gtk.Entry()
             date_entry.set_width_chars(14)
             date_entry.set_text("")
-            grid.attach(date_entry, 2, row_index, 1, 1)
+            grid.attach(date_entry, 3, row_index, 1, 1)
 
-            # Column 3: Notes / URL entry (empty by default)
+            # Column 4: Notes entry (empty by default)
             notes_entry = Gtk.Entry()
-            notes_entry.set_width_chars(24)
+            notes_entry.set_width_chars(20)
             notes_entry.set_text("")
-            grid.attach(notes_entry, 3, row_index, 1, 1)
+            grid.attach(notes_entry, 4, row_index, 1, 1)
 
-            # Column 4: Hint label
+            # Column 5: Hint label
             hint_label = Gtk.Label(label=entry.get("hint_text", ""))
             hint_label.set_halign(Gtk.Align.START)
             hint_label.set_xalign(0.0)
@@ -426,18 +439,20 @@ class UnpackCitationsDialog(Gtk.Dialog):
             hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
             hint_label.set_size_request(240, -1)
             hint_label.set_max_width_chars(32)
-            grid.attach(hint_label, 4, row_index, 1, 1)
+            grid.attach(hint_label, 5, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):
                 self.column_sizegroups[0].add_widget(src_box)
-                self.column_sizegroups[1].add_widget(page_entry)
-                self.column_sizegroups[2].add_widget(date_entry)
-                self.column_sizegroups[3].add_widget(notes_entry)
-                self.column_sizegroups[4].add_widget(hint_label)
+                self.column_sizegroups[1].add_widget(cit_entry)
+                self.column_sizegroups[2].add_widget(page_entry)
+                self.column_sizegroups[3].add_widget(date_entry)
+                self.column_sizegroups[4].add_widget(notes_entry)
+                self.column_sizegroups[5].add_widget(hint_label)
 
             self.row_targets.append(
                 {
                     "entry": entry,
+                    "cit_entry": cit_entry,
                     "page_entry": page_entry,
                     "date_entry": date_entry,
                     "notes_entry": notes_entry,
@@ -460,11 +475,15 @@ class UnpackCitationsDialog(Gtk.Dialog):
         populated_count = 0
         for target in self.row_targets:
             item = target["entry"]
+            sug_cit = item.get("suggested_citation", "")
             sug_page = item.get("suggested_page", "")
             sug_date = item.get("suggested_date", "")
             sug_notes = item.get("suggested_notes", "")
 
             changed = False
+            if sug_cit and not target["cit_entry"].get_text():
+                target["cit_entry"].set_text(sug_cit)
+                changed = True
             if sug_page and not target["page_entry"].get_text():
                 target["page_entry"].set_text(sug_page)
                 changed = True
@@ -496,11 +515,12 @@ class UnpackCitationsDialog(Gtk.Dialog):
         with DbTxn(_("Unpack Conflated Citation"), self.dbstate.db) as trans:
             for target in self.row_targets:
                 item = target["entry"]
+                new_cit = target["cit_entry"].get_text().strip()
                 new_page = target["page_entry"].get_text().strip()
                 new_date = target["date_entry"].get_text().strip()
                 new_notes = target["notes_entry"].get_text().strip()
 
-                if not new_page and not new_date and not new_notes:
+                if not new_cit and not new_page and not new_date and not new_notes:
                     continue
 
                 c_handle = item.get("citation_handle")
@@ -525,6 +545,14 @@ class UnpackCitationsDialog(Gtk.Dialog):
                         modified = True
                     except Exception:
                         pass
+
+                if new_cit:
+                    note = Note()
+                    note.set(new_cit)
+                    note.set_type(NoteType.CITATION)
+                    n_h = self.dbstate.db.add_note(note, trans)
+                    cit.add_note(n_h)
+                    modified = True
 
                 if new_notes:
                     note = Note()
