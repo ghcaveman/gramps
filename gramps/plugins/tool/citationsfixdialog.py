@@ -89,7 +89,6 @@ class CitationFixDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.combos: list[tuple[str, Gtk.ComboBox, str]] = []
         self.row_targets: list[dict[str, Any]] = []
-        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         self.set_default_size(1280, 560)
         content = self.get_content_area()
         content.set_border_width(12)
@@ -205,7 +204,29 @@ class CitationFixDialog(Gtk.Dialog):
         hint_footer.set_line_wrap(True)
         hint_footer.set_halign(Gtk.Align.START)
         content.pack_start(hint_footer, False, False, 0)
-        content.pack_start(self.build_buttons(), False, False, 0)
+
+        # Action area buttons (sized the same as Close and placed to its left)
+        n_hints = sum(
+            1
+            for target in self.row_targets
+            if bool(
+                target["row"].get("suggested_conf")
+                or target["row"].get("suggested_page")
+                or target["row"].get("suggested_date")
+                or target["row"].get("suggested_notes")
+            )
+        )
+        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button.set_sensitive(n_hints > 0)
+        self.accept_button.connect("clicked", self.cb_accept_hints)
+        self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
+
+        self.apply_button = Gtk.Button(label=str(_("Apply")))
+        self.apply_button.set_sensitive(len(self.rows) > 0)
+        self.apply_button.connect("clicked", self.cb_apply)
+        self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
+
+        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
 
     def build_header(self, grid: Gtk.Grid) -> None:
         """Attach the header to a grid (kept for API compat)."""
@@ -392,7 +413,7 @@ class CitationFixDialog(Gtk.Dialog):
                 or target["row"].get("suggested_notes")
             )
         )
-        accept_button = Gtk.Button(label=str(_("Apply hints (%d)")) % n_hints)
+        accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
         accept_button.set_sensitive(n_hints > 0)
         apply_button = Gtk.Button(label=str(_("Apply")))
         accept_button.connect("clicked", self.cb_accept_hints)

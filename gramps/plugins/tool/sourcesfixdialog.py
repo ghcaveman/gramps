@@ -85,8 +85,7 @@ class SourceFixDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.combos: list[tuple[str, Gtk.ComboBox, str]] = []
         self.row_combos: list[tuple[dict[str, Any], Gtk.ComboBox]] = []
-        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        self.set_default_size(1480, 420)
+        self.set_default_size(1480, 520)
         content = self.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
@@ -180,7 +179,20 @@ class SourceFixDialog(Gtk.Dialog):
         hint.set_line_wrap(True)
         hint.set_halign(Gtk.Align.START)
         content.add(hint)
-        content.add(self.build_buttons())
+
+        # Action area buttons (Accept hints and Apply placed to the left of Close)
+        n_hints = sum(1 for row, _combo in self.row_combos if row.get("hint_target"))
+        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button.set_sensitive(n_hints > 0)
+        self.accept_button.connect("clicked", self.cb_accept_hints)
+        self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
+
+        self.apply_button = Gtk.Button(label=str(_("Apply")))
+        self.apply_button.set_sensitive(len(rows) > 0)
+        self.apply_button.connect("clicked", self.cb_apply)
+        self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
+
+        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
 
     def _install_grid_css(self) -> None:
         """Install CSS that draws borders around every grid cell."""
@@ -301,7 +313,7 @@ class SourceFixDialog(Gtk.Dialog):
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         buttons.set_homogeneous(True)
         n_hints = sum(1 for row, _combo in self.row_combos if row.get("hint_target"))
-        accept_button = Gtk.Button(label=str(_("Apply hints (%d)")) % n_hints)
+        accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
         accept_button.set_sensitive(n_hints > 0)
         accept_button.connect("clicked", self.cb_accept_hints)
         apply_button = Gtk.Button(label=str(_("Apply")))

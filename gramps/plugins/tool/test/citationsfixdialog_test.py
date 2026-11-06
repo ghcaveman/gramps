@@ -428,7 +428,7 @@ class CitationFixDialogTest(unittest.TestCase):
         ) as btn_mock:
             dlg.build_buttons()
             # Button label should show (1), NOT (2)
-            btn_mock.assert_any_call(label="Apply hints (1)")
+            btn_mock.assert_any_call(label="Accept hints (1)")
 
 
 if __name__ == "__main__":

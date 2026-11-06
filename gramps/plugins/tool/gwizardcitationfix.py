@@ -453,8 +453,6 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             modal=True,
             destroy_with_parent=True,
         )
-        dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        dialog.connect("response", self.cb_close)
         content = dialog.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
@@ -475,13 +473,21 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             top_row.pack_start(button, True, True, 0)
             self.buttons[key] = button
 
-        for key, label, sensitive in specs[2:]:
+        for key, label, sensitive in specs[2:-1]:
             button = Gtk.Button(label=label)
             button.set_sensitive(sensitive)
             button.set_hexpand(True)
             button.connect("clicked", self.cb_button, key)
             vbox.pack_start(button, False, False, 0)
             self.buttons[key] = button
+
+        # Action area buttons (Accept all hints placed to the left of Close)
+        auto_all_btn = Gtk.Button(label=str(_("Accept all hints")))
+        auto_all_btn.connect("clicked", self.cb_button, "auto_all")
+        dialog.add_action_widget(auto_all_btn, Gtk.ResponseType.NONE)
+        self.buttons["auto_all"] = auto_all_btn
+        dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
+        dialog.connect("response", self.cb_close)
 
         self.set_window(dialog, None, str(_("GWizard citation fix")))
         self.setup_configs("interface.gwizardcitationfix", 420, 260)
