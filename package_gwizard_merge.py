@@ -51,6 +51,7 @@ from __future__ import annotations
 import argparse
 import logging
 import re
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -271,6 +272,121 @@ def build_test_data(repo_root: Path) -> dict[str, bytes]:
     return members
 
 
+def build_translations(repo_root: Path) -> bytes:
+    """
+    Generate the translation template (po/template.pot) from source .py files.
+
+    This function extracts translatable strings (wrapped in ``_()``) from the
+    source .py files that are bundled in the zip (not the test files) and
+    generates a valid ``.pot`` (portable object template) file.
+
+    The standalone addon registration file (GWizardFileMerge.gpr.py) is
+    generated separately by ``build_gpr()``. This function instead produces
+    the gettext translation template so the addon can be translated by
+    translators.
+
+    :param repo_root: Repository root holding the source files.
+    :returns: The rendered translation template content.
+    """
+    import ast
+    import datetime
+
+    # Files that go into the bundle (not the test files).
+    source_files = [
+        "gramps/gen/gwizard/gwizardgedcom.py",
+        "gramps/gen/gwizard/gwizard.py",
+        "gramps/gui/gwizard/gwizardcompare.py",
+        "gramps/gui/gwizard/gwizardlauncher.py",
+        "gramps/plugins/tool/gwizardmerge.py",
+        "gramps/gui/gwizard/gwizardmergedialog.py",
+    ]
+
+    # Collect translatable strings from each source file.
+    # Each entry is (file_path, line_number, string_value).
+    entries: list[tuple[str, int, str]] = []
+    seen: set[str] = set()
+    for rel_path in source_files:
+        full_path = repo_root / rel_path
+        if not full_path.is_file():
+            continue
+        source_code = full_path.read_text(encoding="utf-8")
+        try:
+            tree = ast.parse(source_code, filename=rel_path)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            # Match calls to _(...) for translation.
+            if isinstance(func, ast.Name) and func.id == "_":
+                if node.args:
+                    arg = node.args[0]
+                    msgid: str | None = None
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        msgid = arg.value
+                    elif isinstance(arg, ast.BinOp) and isinstance(arg.op, ast.Mod):
+                        # Handle "string % var" pattern.
+                        if isinstance(arg.left, ast.Constant) and isinstance(
+                            arg.left.value, str
+                        ):
+                            msgid = arg.left.value
+                    if msgid is not None and msgid not in seen:
+                        seen.add(msgid)
+                        entries.append((rel_path, node.lineno, msgid))
+
+    # Generate the .pot file content.
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M%z")
+    lines: list[str] = [
+        "# SOME DESCRIPTIVE TITLE.",
+        "# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER",
+        "# This file is distributed under the same license as the PACKAGE package.",
+        "# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.",
+        "#",
+        "#, fuzzy",
+        'msgid ""',
+        'msgstr ""',
+        f'"Project-Id-Version: PACKAGE VERSION\\n"',
+        '"Report-Msgid-Bugs-To: \\n"',
+        f'"POT-Creation-Date: {now}\\n"',
+        '"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\\n"',
+        '"Last-Translator: FULL NAME <EMAIL@ADDRESS>\\n"',
+        '"Language-Team: LANGUAGE <LL@li.org>\\n"',
+        '"Language: \\n"',
+        '"MIME-Version: 1.0\\n"',
+        '"Content-Type: text/plain; charset=UTF-8\\n"',
+        '"Content-Transfer-Encoding: 8bit\\n"',
+        '"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\\n"',
+        "",
+    ]
+
+    for file_path, line_no, msgid in entries:
+        lines.append(f"#: {file_path}:{line_no}")
+        # Escape special characters in msgid.
+        escaped = msgid.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'msgid "{escaped}"')
+        lines.append('msgstr ""')
+        lines.append("")
+
+    content = "\n".join(lines).encode("utf-8")
+
+    # Create the po/ directory and write po/template.pot.
+    po_dir = repo_root / "po"
+    po_dir.mkdir(exist_ok=True)
+    target_po = po_dir / "template.pot"
+    target_po.write_bytes(content)
+
+    result = target_po.read_bytes()
+
+    target_po.unlink(missing_ok=True)
+    try:
+        po_dir.rmdir()
+    except OSError:
+        pass
+
+    return result
+
+
 def build_zip(repo_root: Path, output: Path, version: str = "0.0.1") -> Path:
     """Build the ``GWizardFileMerge.zip`` bundle next to this script."""
     members: dict[str, bytes] = {}
@@ -308,6 +424,12 @@ def build_zip(repo_root: Path, output: Path, version: str = "0.0.1") -> Path:
             archive.writestr(f"{PACKAGE}/tests/data/", b"")
             for member in sorted(data_members):
                 archive.writestr(f"{PACKAGE}/tests/data/{member}", data_members[member])
+
+        # Include the translation template (po/template.pot) generated from the
+        # source .py files.
+        po_template = build_translations(repo_root)
+        archive.writestr(f"{PACKAGE}/po/template.pot", po_template)
+
     LOG.info("Wrote %s (%d bytes)", output, output.stat().st_size)
     return output
 
