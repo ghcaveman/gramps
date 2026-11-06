@@ -540,7 +540,7 @@ register(
 register(
     TOOL,
     id="citationattributes",
-    name=_("Citation Attributes"),
+    name=_("GWizard Citation Attributes"),
     description=_(
         "Assign Genealogical Proof Standard (GPS) quality attributes and confidence ratings to citations."
     ),

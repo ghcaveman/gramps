@@ -258,6 +258,7 @@ def get_button_specs() -> list[tuple[str, str, bool]]:
         ("fix_sources", str(_("Fix Sources")), True),
         ("unpack_citations", str(_("Unpack Conflated Citation")), True),
         ("fix_citations", str(_("Fix Citations")), True),
+        ("citation_attributes", str(_("Citation Attributes")), True),
         ("fix_notes", str(_("Fix Notes")), True),
         ("auto_all", str(_("Auto (best guess all)")), True),
     ]
@@ -385,6 +386,15 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
             str(_("Clean Tree PAGE/DATE and confidence.")),
         ),
         (
+            "citation_attributes",
+            str(_("Citation Attributes")),
+            str(
+                _(
+                    "Assign Genealogical Proof Standard (GPS) quality attributes and confidence ratings to citations."
+                )
+            ),
+        ),
+        (
             "notes",
             str(_("Fix Notes")),
             str(_("Remove import debris and convert bare-URL notes.")),
@@ -503,6 +513,8 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             self.cb_fix_layer("unpack_citations")
         elif key == "fix_citations":
             self.cb_fix_layer("citations")
+        elif key == "citation_attributes":
+            self.cb_fix_layer("citation_attributes")
         elif key == "fix_notes":
             self.cb_fix_layer("notes")
         elif key == "auto_all":
@@ -565,6 +577,19 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                     transient_for=self.window,
                 ).show_dialog()
                 return
+        if layer == "citation_attributes":
+            from gramps.plugins.tool.citationattributesdialog import (
+                CitationAttributesDialog,
+            )
+
+            CitationAttributesDialog(
+                title=title,
+                dbstate=self.dbstate,
+                description=get_fix_description("citation_attributes"),
+                transient_for=self.window,
+            ).show_dialog()
+            self.update_view_button()
+            return
         if layer == "notes":
             from gramps.plugins.tool.notesfixdialog import NotesFixDialog
 
