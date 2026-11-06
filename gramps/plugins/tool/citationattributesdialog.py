@@ -74,7 +74,7 @@ def suggest_citation_attributes(
             "source_type": "Authored",
             "info_type": "Secondary",
             "evidence_type": "Indirect",
-            "quay": "1",
+            "quay": "1(1)",
             "hint_text": _(
                 "Online compiled tree (suggest Authored, Secondary, Indirect)"
             ),
@@ -95,7 +95,7 @@ def suggest_citation_attributes(
             "source_type": "Original",
             "info_type": "Primary",
             "evidence_type": "Direct",
-            "quay": "3",
+            "quay": "4(3)",
             "hint_text": _(
                 "Firsthand vital/parish record (suggest Original, Primary, Direct)"
             ),
@@ -110,7 +110,7 @@ def suggest_citation_attributes(
                 "source_type": "Derivative",
                 "info_type": "Secondary",
                 "evidence_type": "Direct",
-                "quay": "2",
+                "quay": "2(-)",
                 "hint_text": _(
                     "Census index/database (suggest Derivative, Secondary, Direct)"
                 ),
@@ -119,7 +119,7 @@ def suggest_citation_attributes(
             "source_type": "Original",
             "info_type": "Primary",
             "evidence_type": "Direct",
-            "quay": "3",
+            "quay": "4(3)",
             "hint_text": _(
                 "Census schedule record (suggest Original, Primary, Direct)"
             ),
@@ -134,7 +134,7 @@ def suggest_citation_attributes(
             "source_type": "Derivative",
             "info_type": "Secondary",
             "evidence_type": "Direct",
-            "quay": "2",
+            "quay": "2(-)",
             "hint_text": _(
                 "Cemetery database/index (suggest Derivative, Secondary, Direct)"
             ),
@@ -155,19 +155,29 @@ def suggest_citation_attributes(
             "source_type": "Authored",
             "info_type": "Secondary",
             "evidence_type": "Indirect",
-            "quay": "2",
+            "quay": "2(-)",
             "hint_text": _(
                 "Compiled history/book (suggest Authored, Secondary, Indirect)"
             ),
         }
 
     # Fallback based on confidence level
-    if curr_conf >= 3:
+    if curr_conf >= 4:
         return {
             "source_type": "Original",
             "info_type": "Primary",
             "evidence_type": "Direct",
-            "quay": "3",
+            "quay": "4(3)",
+            "hint_text": _(
+                "High confidence evidence (suggest Original, Primary, Direct)"
+            ),
+        }
+    elif curr_conf == 3:
+        return {
+            "source_type": "Original",
+            "info_type": "Primary",
+            "evidence_type": "Direct",
+            "quay": "3(2)",
             "hint_text": _(
                 "High confidence evidence (suggest Original, Primary, Direct)"
             ),
@@ -177,7 +187,7 @@ def suggest_citation_attributes(
         "source_type": "Derivative",
         "info_type": "Secondary",
         "evidence_type": "Direct",
-        "quay": "2",
+        "quay": "2(-)",
         "hint_text": _("Derivative source (suggest Derivative, Secondary, Direct)"),
     }
 
@@ -379,7 +389,7 @@ class CitationAttributesDialog(Gtk.Dialog):
         et_head.set_hexpand(False)
 
         quay_head = Gtk.Label()
-        quay_head.set_markup("<b>%s</b>" % str(_("QUAY")))
+        quay_head.set_markup("<b>%s</b>" % str(_("Conf(Q)")))
         quay_head.set_halign(Gtk.Align.START)
         quay_head.set_hexpand(False)
 
@@ -607,8 +617,12 @@ class CitationAttributesDialog(Gtk.Dialog):
 
                 cit.set_attribute_list(attrs)
 
-                if qy and qy.isdigit():
-                    cit.set_confidence_level(int(qy))
+                if qy:
+                    digits = "".join(
+                        c for c in qy.split("(")[0] if c.isdigit()
+                    )
+                    if digits:
+                        cit.set_confidence_level(max(0, min(int(digits), 4)))
 
                 self.dbstate.db.commit_citation(cit, trans)
                 applied_count += 1

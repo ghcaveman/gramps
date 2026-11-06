@@ -98,38 +98,38 @@ class CitationAttributesDialogTest(unittest.TestCase):
 
     def test_suggest_citation_attributes_gps_matrix(self) -> None:
         """GPS matrix suggestions match genealogical evidence types according to standard."""
-        # 1. Vital Certificate -> Original, Primary, Direct, QUAY 3
+        # 1. Vital Certificate -> Original, Primary, Direct, QUAY 4(3)
         sug_cert = suggest_citation_attributes(
             "State Birth Certificate", "cert 402", "", 3
         )
         self.assertEqual(sug_cert["source_type"], "Original")
         self.assertEqual(sug_cert["info_type"], "Primary")
         self.assertEqual(sug_cert["evidence_type"], "Direct")
-        self.assertEqual(sug_cert["quay"], "3")
+        self.assertEqual(sug_cert["quay"], "4(3)")
 
-        # 2. Census database/index -> Derivative, Secondary, Direct, QUAY 2
+        # 2. Census database/index -> Derivative, Secondary, Direct, QUAY 2(-)
         sug_census = suggest_citation_attributes(
             "1900 US Federal Census Index", "p. 15", "", 2
         )
         self.assertEqual(sug_census["source_type"], "Derivative")
         self.assertEqual(sug_census["info_type"], "Secondary")
         self.assertEqual(sug_census["evidence_type"], "Direct")
-        self.assertEqual(sug_census["quay"], "2")
+        self.assertEqual(sug_census["quay"], "2(-)")
 
-        # 3. Online tree -> Authored, Secondary, Indirect, QUAY 1
+        # 3. Online tree -> Authored, Secondary, Indirect, QUAY 1(1)
         sug_tree = suggest_citation_attributes("FamilySearch Family Tree", "", "", 1)
         self.assertEqual(sug_tree["source_type"], "Authored")
         self.assertEqual(sug_tree["info_type"], "Secondary")
         self.assertEqual(sug_tree["evidence_type"], "Indirect")
-        self.assertEqual(sug_tree["quay"], "1")
+        self.assertEqual(sug_tree["quay"], "1(1)")
 
-        # 4. Cemetery database -> Derivative, Secondary, Direct, QUAY 2
+        # 4. Cemetery database -> Derivative, Secondary, Direct, QUAY 2(-)
         sug_cem = suggest_citation_attributes("Find A Grave Memorial", "12345", "", 2)
         self.assertEqual(sug_cem["source_type"], "Derivative")
         self.assertEqual(sug_cem["info_type"], "Secondary")
         self.assertEqual(sug_cem["evidence_type"], "Direct")
 
-        # 5. Compiled book/history -> Authored, Secondary, Indirect, QUAY 2
+        # 5. Compiled book/history -> Authored, Secondary, Indirect, QUAY 2(-)
         sug_book = suggest_citation_attributes(
             "History of Lincoln Family in America", "p. 100", "", 2
         )
@@ -157,7 +157,7 @@ class CitationAttributesDialogTest(unittest.TestCase):
         self.assertEqual(row["suggested_src_type"], "Derivative")
         self.assertEqual(row["suggested_info_type"], "Secondary")
         self.assertEqual(row["suggested_ev_type"], "Direct")
-        self.assertEqual(row["suggested_quay"], "2")
+        self.assertEqual(row["suggested_quay"], "2(-)")
 
     def test_build_rows_and_accept_hints(self) -> None:
         """Target textboxes start empty by default, and accept_hints populates them."""
@@ -172,7 +172,7 @@ class CitationAttributesDialogTest(unittest.TestCase):
                 "suggested_src_type": "Derivative",
                 "suggested_info_type": "Secondary",
                 "suggested_ev_type": "Direct",
-                "suggested_quay": "2",
+                "suggested_quay": "2(-)",
                 "hint_text": "Census index (suggest Derivative, Secondary, Direct)",
             }
         ]
@@ -209,7 +209,7 @@ class CitationAttributesDialogTest(unittest.TestCase):
         target["st_entry"].set_text.assert_called_with("Derivative")
         target["it_entry"].set_text.assert_called_with("Secondary")
         target["et_entry"].set_text.assert_called_with("Direct")
-        target["quay_entry"].set_text.assert_called_with("2")
+        target["quay_entry"].set_text.assert_called_with("2(-)")
 
     def test_cb_apply_commits_src_attributes_to_database(self) -> None:
         """Applying target entries saves SrcAttribute objects and confidence on citation."""
@@ -234,7 +234,7 @@ class CitationAttributesDialogTest(unittest.TestCase):
         mock_et = MagicMock()
         mock_et.get_text.return_value = "Direct"
         mock_qy = MagicMock()
-        mock_qy.get_text.return_value = "3"
+        mock_qy.get_text.return_value = "4(3)"
 
         dlg.row_targets = [
             {
@@ -257,7 +257,7 @@ class CitationAttributesDialogTest(unittest.TestCase):
         self.assertEqual(attr_dict.get("Source Type"), "Original")
         self.assertEqual(attr_dict.get("Information Type"), "Primary")
         self.assertEqual(attr_dict.get("Evidence Type"), "Direct")
-        self.assertEqual(updated_cit.get_confidence_level(), 3)
+        self.assertEqual(updated_cit.get_confidence_level(), 4)
 
 
 if __name__ == "__main__":
