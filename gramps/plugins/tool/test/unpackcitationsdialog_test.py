@@ -124,6 +124,7 @@ class UnpackCitationsDialogTest(unittest.TestCase):
         dlg = UnpackCitationsDialog.__new__(UnpackCitationsDialog)
         dlg.dbstate = self.dbstate
         dlg.row_targets = []
+        dlg.column_sizegroups = [MagicMock() for _ in range(6)]
 
         entries = [
             {

@@ -441,7 +441,7 @@ class UnpackCitationsDialog(Gtk.Dialog):
             grid.attach(hint_label, 5, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):
-                self.column_sizegroups[0].add_widget(src_label)
+                self.column_sizegroups[0].add_widget(cit_label)
                 self.column_sizegroups[1].add_widget(cit_entry)
                 self.column_sizegroups[2].add_widget(page_entry)
                 self.column_sizegroups[3].add_widget(date_entry)

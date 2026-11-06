@@ -90,7 +90,7 @@ class CitationFixDialog(Gtk.Dialog):
         self.combos: list[tuple[str, Gtk.ComboBox, str]] = []
         self.row_targets: list[dict[str, Any]] = []
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        self.set_default_size(1600, 560)
+        self.set_default_size(1280, 560)
         content = self.get_content_area()
         content.set_border_width(12)
         content.set_spacing(6)
@@ -269,13 +269,13 @@ class CitationFixDialog(Gtk.Dialog):
             src_label.set_xalign(0.0)
             src_label.set_line_wrap(True)
             src_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            src_label.set_size_request(260, -1)
-            src_label.set_max_width_chars(32)
+            src_label.set_size_request(210, -1)
+            src_label.set_max_width_chars(26)
             grid.attach(src_label, 0, row_index, 1, 1)
 
             # Column 1: Citation details with 3 guaranteed separate lines, word-wrapping and fixed size
             cit_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            cit_box.set_size_request(280, -1)
+            cit_box.set_size_request(225, -1)
             cit_lines = row["citation_display"].split("\n")
             line1_text = cit_lines[0] if len(cit_lines) > 0 else ""
             line2_text = cit_lines[1] if len(cit_lines) > 1 else ""
@@ -285,14 +285,14 @@ class CitationFixDialog(Gtk.Dialog):
             l1.set_xalign(0.0)
             l1.set_line_wrap(True)
             l1.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            l1.set_max_width_chars(38)
+            l1.set_max_width_chars(30)
             cit_box.pack_start(l1, False, False, 0)
 
             l2 = Gtk.Label(label=line2_text)
             l2.set_xalign(0.0)
             l2.set_line_wrap(True)
             l2.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            l2.set_max_width_chars(38)
+            l2.set_max_width_chars(30)
             cit_box.pack_start(l2, False, False, 0)
 
             l3_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
@@ -300,7 +300,7 @@ class CitationFixDialog(Gtk.Dialog):
             l3.set_xalign(0.0)
             l3.set_line_wrap(True)
             l3.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            l3.set_max_width_chars(35)
+            l3.set_max_width_chars(28)
             l3_box.pack_start(l3, True, True, 0)
 
             notes_text = row.get("notes_text", "")
@@ -315,25 +315,25 @@ class CitationFixDialog(Gtk.Dialog):
 
             # Column 2: target Volume/Page entry (empty by default)
             page_entry = Gtk.Entry()
-            page_entry.set_width_chars(30)
+            page_entry.set_width_chars(24)
             page_entry.set_text("")
             grid.attach(page_entry, 2, row_index, 1, 1)
 
             # Column 3: target Conf entry (empty by default, placed before Date)
             conf_entry = Gtk.Entry()
-            conf_entry.set_width_chars(6)
+            conf_entry.set_width_chars(5)
             conf_entry.set_text("")
             grid.attach(conf_entry, 3, row_index, 1, 1)
 
             # Column 4: target Date entry (empty by default)
             date_entry = Gtk.Entry()
-            date_entry.set_width_chars(12)
+            date_entry.set_width_chars(10)
             date_entry.set_text("")
             grid.attach(date_entry, 4, row_index, 1, 1)
 
             # Column 5: target Notes entry (empty by default)
             notes_entry = Gtk.Entry()
-            notes_entry.set_width_chars(32)
+            notes_entry.set_width_chars(25)
             notes_entry.set_text("")
             grid.attach(notes_entry, 5, row_index, 1, 1)
 
@@ -345,8 +345,8 @@ class CitationFixDialog(Gtk.Dialog):
             hint_label.set_xalign(0.0)
             hint_label.set_line_wrap(True)
             hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            hint_label.set_size_request(200, -1)
-            hint_label.set_max_width_chars(28)
+            hint_label.set_size_request(160, -1)
+            hint_label.set_max_width_chars(22)
             grid.attach(hint_label, 6, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):
@@ -372,7 +372,7 @@ class CitationFixDialog(Gtk.Dialog):
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_min_content_height(330)
-        scrolled.set_min_content_width(1330)
+        scrolled.set_min_content_width(1060)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
