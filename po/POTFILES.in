@@ -881,6 +881,7 @@ gramps/plugins/tool/finddupes.glade
 gramps/plugins/tool/finddupes.py
 gramps/plugins/tool/findloop.py
 gramps/plugins/tool/mediamanager.py
+gramps/plugins/tool/gwizardmediafix.py
 gramps/plugins/tool/mergecitations.glade
 gramps/plugins/tool/mergecitations.py
 gramps/plugins/tool/notrelated.glade
