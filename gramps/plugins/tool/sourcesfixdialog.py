@@ -302,7 +302,7 @@ class SourceFixDialog(Gtk.Dialog):
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         buttons.set_homogeneous(True)
         n_hints = sum(1 for row, _combo in self.row_combos if row.get("hint_target"))
-        accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        accept_button = Gtk.Button(label=str(_("Apply hints (%d)")) % n_hints)
         accept_button.set_sensitive(n_hints > 0)
         accept_button.connect("clicked", self.cb_accept_hints)
         apply_button = Gtk.Button(label=str(_("Apply")))
@@ -412,7 +412,6 @@ class SourceFixDialog(Gtk.Dialog):
             msg,
             parent=self,
         )
-        self.destroy()
 
     def run_auto(self, parent: Gtk.Window | None = None) -> None:
         """Run the best-guess auto fix by accepting all hints and applying."""

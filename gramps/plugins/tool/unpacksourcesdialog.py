@@ -101,7 +101,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
 
         # Action buttons in dialog action area (always visible at bottom)
         n_hints = len(self.plan)
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button = Gtk.Button(label=str(_("Apply hints (%d)")) % n_hints)
         self.accept_button.set_sensitive(n_hints > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
@@ -410,7 +410,6 @@ class UnpackSourcesDialog(Gtk.Dialog):
             str(_("Unpacked %d conflated sources.")) % applied_count,
             parent=self,
         )
-        self.destroy()
 
     def show_dialog(self) -> None:
         """Display the modal dialog."""

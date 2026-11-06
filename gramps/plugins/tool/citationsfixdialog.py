@@ -393,7 +393,7 @@ class CitationFixDialog(Gtk.Dialog):
                 or target["row"].get("suggested_notes")
             )
         )
-        accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        accept_button = Gtk.Button(label=str(_("Apply hints (%d)")) % n_hints)
         accept_button.set_sensitive(n_hints > 0)
         apply_button = Gtk.Button(label=str(_("Apply")))
         attrs_button = Gtk.Button(label=str(_("Citation Attributes")))
@@ -623,7 +623,6 @@ class CitationFixDialog(Gtk.Dialog):
             str(_("Updated %d citations in the database.") % applied_count),
             parent=self,
         )
-        self.destroy()
 
 
 # ------------------------------------------------------------
