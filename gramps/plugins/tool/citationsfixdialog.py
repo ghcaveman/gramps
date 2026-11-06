@@ -153,7 +153,7 @@ class CitationFixDialog(Gtk.Dialog):
         page_head.set_hexpand(False)
 
         conf_head = Gtk.Label()
-        conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
+        conf_head.set_markup("<b>%s</b>" % str(_("Conf(Q)")))
         conf_head.set_halign(Gtk.Align.START)
         conf_head.set_hexpand(False)
 
@@ -226,7 +226,7 @@ class CitationFixDialog(Gtk.Dialog):
         page_head.set_hexpand(False)
 
         conf_head = Gtk.Label()
-        conf_head.set_markup("<b>%s</b>" % str(_("Conf")))
+        conf_head.set_markup("<b>%s</b>" % str(_("Conf(Q)")))
         conf_head.set_halign(Gtk.Align.START)
         conf_head.set_hexpand(False)
 
