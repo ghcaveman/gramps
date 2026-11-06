@@ -618,9 +618,7 @@ class CitationAttributesDialog(Gtk.Dialog):
                 cit.set_attribute_list(attrs)
 
                 if qy:
-                    digits = "".join(
-                        c for c in qy.split("(")[0] if c.isdigit()
-                    )
+                    digits = "".join(c for c in qy.split("(")[0] if c.isdigit())
                     if digits:
                         cit.set_confidence_level(max(0, min(int(digits), 4)))
 

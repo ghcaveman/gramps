@@ -395,27 +395,11 @@ class CitationFixDialog(Gtk.Dialog):
         accept_button = Gtk.Button(label=str(_("Apply hints (%d)")) % n_hints)
         accept_button.set_sensitive(n_hints > 0)
         apply_button = Gtk.Button(label=str(_("Apply")))
-        attrs_button = Gtk.Button(label=str(_("Citation Attributes")))
         accept_button.connect("clicked", self.cb_accept_hints)
         apply_button.connect("clicked", self.cb_apply)
-        attrs_button.connect("clicked", self.cb_citation_attributes)
         buttons.pack_start(accept_button, True, True, 0)
         buttons.pack_start(apply_button, True, True, 0)
-        buttons.pack_start(attrs_button, True, True, 0)
         return buttons
-
-    def cb_citation_attributes(self, _button: Gtk.Button) -> None:
-        """Open the citation-attributes dialog (modal to this dialog)."""
-        from gramps.plugins.tool.citationattributesdialog import (
-            CitationAttributesDialog,
-        )
-
-        dlg = CitationAttributesDialog(
-            title=str(_("Citation Attributes")),
-            dbstate=self.dbstate,
-            transient_for=self,
-        )
-        dlg.show_dialog()
 
     def get_choices(self) -> dict[str, str]:
         return {
@@ -631,15 +615,6 @@ class CitationFixDialog(Gtk.Dialog):
             parent=self,
         )
 
-
-# ------------------------------------------------------------
-#
-# CitationAttributesDialog (imported from dedicated module)
-#
-# ------------------------------------------------------------
-from gramps.plugins.tool.citationattributesdialog import (
-    CitationAttributesDialog,
-)
 
 # ------------------------------------------------------------
 #

@@ -322,7 +322,7 @@ class UnpackCitationsDialog(Gtk.Dialog):
         header_grid.set_vexpand(False)
 
         src_head = Gtk.Label()
-        src_head.set_markup("<b>%s</b>" % str(_("Source & Citation")))
+        src_head.set_markup("<b>%s</b>" % str(_("Source")))
         src_head.set_halign(Gtk.Align.START)
         src_head.set_hexpand(False)
 
@@ -394,33 +394,27 @@ class UnpackCitationsDialog(Gtk.Dialog):
 
         row_index = 0
         for entry in entries:
-            # Column 0: Source & Citation details (from database)
+            # Column 0: Source details (Label)
             src_text = entry.get("source_display", "")
-            cit_text = entry.get("citation_display", "")
-            first_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            first_box.set_size_request(240, -1)
-            l_src = Gtk.Label(label=src_text)
-            l_src.set_xalign(0.0)
-            l_src.set_line_wrap(True)
-            l_src.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            l_src.set_max_width_chars(32)
-            first_box.pack_start(l_src, False, False, 0)
-            l_cit = Gtk.Label(label=cit_text)
-            l_cit.set_xalign(0.0)
-            l_cit.set_line_wrap(True)
-            l_cit.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            l_cit.set_max_width_chars(32)
-            first_box.pack_start(l_cit, False, False, 0)
-            grid.attach(first_box, 0, row_index, 1, 1)
+            src_label = Gtk.Label(label=src_text)
+            src_label.set_halign(Gtk.Align.START)
+            src_label.set_xalign(0.0)
+            src_label.set_line_wrap(True)
+            src_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            src_label.set_size_request(200, -1)
+            src_label.set_max_width_chars(28)
+            grid.attach(src_label, 0, row_index, 1, 1)
 
-            # Column 1: Citation entry (text box, defaults to same as citation data)
-            cit_entry = Gtk.Entry()
-            cit_entry.set_width_chars(35)
-            c_gid = entry.get("citation_gid", "")
-            if c_gid:
-                cit_entry.set_placeholder_text(f"({c_gid})")
-            cit_entry.set_text(cit_text)
-            grid.attach(cit_entry, 1, row_index, 1, 1)
+            # Column 1: Citation details (Label)
+            cit_text = entry.get("citation_display", "")
+            cit_label = Gtk.Label(label=cit_text)
+            cit_label.set_halign(Gtk.Align.START)
+            cit_label.set_xalign(0.0)
+            cit_label.set_line_wrap(True)
+            cit_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            cit_label.set_size_request(240, -1)
+            cit_label.set_max_width_chars(32)
+            grid.attach(cit_label, 1, row_index, 1, 1)
 
             # Column 2: Volume/Page/URL entry (empty by default)
             page_entry = Gtk.Entry()
@@ -451,8 +445,8 @@ class UnpackCitationsDialog(Gtk.Dialog):
             grid.attach(hint_label, 5, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):
-                self.column_sizegroups[0].add_widget(first_box)
-                self.column_sizegroups[1].add_widget(cit_entry)
+                self.column_sizegroups[0].add_widget(src_label)
+                self.column_sizegroups[1].add_widget(cit_label)
                 self.column_sizegroups[2].add_widget(page_entry)
                 self.column_sizegroups[3].add_widget(date_entry)
                 self.column_sizegroups[4].add_widget(notes_entry)
@@ -461,7 +455,6 @@ class UnpackCitationsDialog(Gtk.Dialog):
             self.row_targets.append(
                 {
                     "entry": entry,
-                    "cit_entry": cit_entry,
                     "page_entry": page_entry,
                     "date_entry": date_entry,
                     "notes_entry": notes_entry,
@@ -484,15 +477,11 @@ class UnpackCitationsDialog(Gtk.Dialog):
         populated_count = 0
         for target in self.row_targets:
             item = target["entry"]
-            sug_cit = item.get("suggested_citation", "")
             sug_page = item.get("suggested_page", "")
             sug_date = item.get("suggested_date", "")
             sug_notes = item.get("suggested_notes", "")
 
             changed = False
-            if sug_cit and not target["cit_entry"].get_text():
-                target["cit_entry"].set_text(sug_cit)
-                changed = True
             if sug_page and not target["page_entry"].get_text():
                 target["page_entry"].set_text(sug_page)
                 changed = True
@@ -524,12 +513,11 @@ class UnpackCitationsDialog(Gtk.Dialog):
         with DbTxn(_("Unpack Conflated Citation"), self.dbstate.db) as trans:
             for target in self.row_targets:
                 item = target["entry"]
-                new_cit = target["cit_entry"].get_text().strip()
                 new_page = target["page_entry"].get_text().strip()
                 new_date = target["date_entry"].get_text().strip()
                 new_notes = target["notes_entry"].get_text().strip()
 
-                if not new_cit and not new_page and not new_date and not new_notes:
+                if not new_page and not new_date and not new_notes:
                     continue
 
                 c_handle = item.get("citation_handle")
@@ -554,14 +542,6 @@ class UnpackCitationsDialog(Gtk.Dialog):
                         modified = True
                     except Exception:
                         pass
-
-                if new_cit:
-                    note = Note()
-                    note.set(new_cit)
-                    note.set_type(NoteType.CITATION)
-                    n_h = self.dbstate.db.add_note(note, trans)
-                    cit.add_note(n_h)
-                    modified = True
 
                 if new_notes:
                     note = Note()
