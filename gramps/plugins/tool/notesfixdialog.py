@@ -153,10 +153,10 @@ class NotesFixDialog(Gtk.Dialog):
         self.apply_button = Gtk.Button(label=str(_("Apply")))
         self.apply_button.set_sensitive(n_hints > 0)
         self.apply_button.connect("clicked", self.cb_apply)
-        self.add_action_widget(self.apply_button, Gtk.ResponseType.APPLY)
+        self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
 
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        self.connect("response", lambda dlg, resp: dlg.destroy())
+        self.connect("response", self.cb_response)
 
         content = self.get_content_area()
         content.set_border_width(12)
@@ -195,17 +195,17 @@ class NotesFixDialog(Gtk.Dialog):
         header_grid.set_vexpand(False)
 
         from_head = Gtk.Label()
-        from_head.set_markup("<b>%s</b>" % str(_("From (Current Note)")))
+        from_head.set_markup("<b>%s</b>" % str(_("Note")))
         from_head.set_halign(Gtk.Align.START)
         from_head.set_hexpand(False)
 
         action_head = Gtk.Label()
-        action_head.set_markup("<b>%s</b>" % str(_("To (Action)")))
+        action_head.set_markup("<b>%s</b>" % str(_("Action")))
         action_head.set_halign(Gtk.Align.START)
         action_head.set_hexpand(False)
 
         to_head = Gtk.Label()
-        to_head.set_markup("<b>%s</b>" % str(_("To (New Text)")))
+        to_head.set_markup("<b>%s</b>" % str(_("Note")))
         to_head.set_halign(Gtk.Align.START)
         to_head.set_hexpand(False)
 
@@ -424,8 +424,24 @@ class NotesFixDialog(Gtk.Dialog):
             parent=self,
         )
 
+    def cb_response(self, dlg: Gtk.Dialog, resp: int) -> None:
+        """Only destroy dialog if user explicitly clicked Close or window close."""
+        if resp in (
+            Gtk.ResponseType.CLOSE,
+            Gtk.ResponseType.CANCEL,
+            Gtk.ResponseType.DELETE_EVENT,
+        ):
+            dlg.destroy()
+
     def show_dialog(self) -> None:
-        """Display the modal dialog."""
+        """Display the modal dialog until user explicitly closes it."""
         self.show_all()
-        self.run()
+        while True:
+            resp = self.run()
+            if resp in (
+                Gtk.ResponseType.CLOSE,
+                Gtk.ResponseType.CANCEL,
+                Gtk.ResponseType.DELETE_EVENT,
+            ):
+                break
         self.destroy()
