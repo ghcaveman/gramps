@@ -103,7 +103,7 @@ class UnpackSourcesDialogTest(unittest.TestCase):
                 "repo_name": "Ancestry.com",
                 "new_title": "1900 US Census",
                 "moved_text": "Roll 123",
-                "hint_text": "Extract repository 'Ancestry.com'\nClean title to '1900 US Census'",
+                "hint_text": "Extract repository 'Ancestry.com'\nSource title to '1900 US Census'",
             }
         ]
 

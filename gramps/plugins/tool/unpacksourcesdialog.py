@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Step 1 dialog: review and unpack conflated source titles into repositories and clean titles."""
+"""Step 1 dialog: review and unpack conflated source titles into repositories and source titles."""
 
 # -------------------------------------------------------------------------
 #
@@ -60,7 +60,7 @@ LOG = logging.getLogger(__name__)
 #
 # ------------------------------------------------------------
 class UnpackSourcesDialog(Gtk.Dialog):
-    """Review and unpack conflated sources into repositories, clean titles, and publication info."""
+    """Review and unpack conflated sources into repositories, source titles, and publication info."""
 
     def __init__(
         self,
@@ -87,7 +87,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
                 hint_parts.append(_("Extract repository '%s'") % repo_name)
             new_title = item.get("new_title", "")
             if new_title:
-                hint_parts.append(_("Clean title to '%s'") % new_title)
+                hint_parts.append(_("Source title to '%s'") % new_title)
             moved = item.get("moved_text", "")
             if moved:
                 hint_parts.append(
@@ -97,7 +97,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
             self.plan.append(item)
 
         self.row_targets: list[dict[str, Any]] = []
-        self.set_default_size(1400, 520)
+        self.set_default_size(1060, 520)
 
         # Action buttons in dialog action area (always visible at bottom)
         n_hints = len(self.plan)
@@ -159,7 +159,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
         repo_head.set_hexpand(False)
 
         title_head = Gtk.Label()
-        title_head.set_markup("<b>%s</b>" % str(_("Clean Title")))
+        title_head.set_markup("<b>%s</b>" % str(_("Source Title")))
         title_head.set_halign(Gtk.Align.START)
         title_head.set_hexpand(False)
 
@@ -202,6 +202,9 @@ class UnpackSourcesDialog(Gtk.Dialog):
         )
         hint_footer.set_line_wrap(True)
         hint_footer.set_halign(Gtk.Align.START)
+        # Widen the hint footer so the explanatory text has roughly twice the
+        # vertical room it previously had.
+        hint_footer.set_size_request(-1, 45)
         content.pack_start(hint_footer, False, False, 0)
 
     def build_rows(self, entries: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
@@ -234,9 +237,11 @@ class UnpackSourcesDialog(Gtk.Dialog):
             repo_entry.set_text("")
             grid.attach(repo_entry, 1, row_index, 1, 1)
 
-            # Column 2: Target Clean Title entry (empty by default)
+            # Column 2: Target Source Title entry (empty by default)
             title_entry = Gtk.Entry()
-            title_entry.set_width_chars(24)
+            # Source titles can be long enough that horizontal scrolling is
+            # undesirable, so give the field extra room (was 24 chars).
+            title_entry.set_width_chars(48)
             title_entry.set_text("")
             grid.attach(title_entry, 2, row_index, 1, 1)
 
@@ -276,7 +281,9 @@ class UnpackSourcesDialog(Gtk.Dialog):
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_min_content_height(300)
-        scrolled.set_min_content_width(1200)
+        # Keep the scrollable area at the new, narrower content width so the
+        # dialog does not leave dead space on the right.
+        scrolled.set_min_content_width(950)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
@@ -377,7 +384,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
                         repo_ref.set_reference_handle(repo_handle)
                         source.add_repo_reference(repo_ref)
 
-                # 2. Clean Title
+                # 2. Source Title
                 if new_title:
                     source.set_title(new_title)
 
