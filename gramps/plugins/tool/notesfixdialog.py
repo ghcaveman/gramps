@@ -424,7 +424,14 @@ class NotesFixDialog(Gtk.Dialog):
         )
 
     def show_dialog(self) -> None:
-        """Display the modal dialog."""
+        """Display the modal dialog until user explicitly closes it."""
         self.show_all()
-        self.run()
+        while True:
+            resp = self.run()
+            if resp in (
+                Gtk.ResponseType.CLOSE,
+                Gtk.ResponseType.CANCEL,
+                Gtk.ResponseType.DELETE_EVENT,
+            ):
+                break
         self.destroy()
