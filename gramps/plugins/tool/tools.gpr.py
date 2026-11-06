@@ -507,6 +507,32 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard Media Fix
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardmediafix",
+    name=_("GWizard Media Fix"),
+    description=_(
+        "Find missing media files, consolidate media locations, and apply filename standards."
+    ),
+    version="1.0",
+    gramps_target_version=MODULE_VERSION,
+    status=STABLE,
+    fname="gwizardmediafix.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardMediaFix",
+    optionclass="GWizardMediaFixOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url=TOOLS_HELP,
+)
+
+# ------------------------------------------------------------------------
+#
 # Find database Loop
 #
 # ------------------------------------------------------------------------
