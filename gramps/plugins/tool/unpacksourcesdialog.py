@@ -109,10 +109,9 @@ class UnpackSourcesDialog(Gtk.Dialog):
         self.apply_button = Gtk.Button(label=str(_("Apply")))
         self.apply_button.set_sensitive(n_hints > 0)
         self.apply_button.connect("clicked", self.cb_apply)
-        self.add_action_widget(self.apply_button, Gtk.ResponseType.APPLY)
+        self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
 
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        self.connect("response", lambda dlg, resp: dlg.destroy())
 
         content = self.get_content_area()
         content.set_border_width(12)
@@ -412,14 +411,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
         )
 
     def show_dialog(self) -> None:
-        """Display the modal dialog until user explicitly closes it."""
+        """Display the modal dialog."""
         self.show_all()
-        while True:
-            resp = self.run()
-            if resp in (
-                Gtk.ResponseType.CLOSE,
-                Gtk.ResponseType.CANCEL,
-                Gtk.ResponseType.DELETE_EVENT,
-            ):
-                break
+        self.run()
         self.destroy()

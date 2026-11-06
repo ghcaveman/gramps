@@ -90,7 +90,6 @@ class CitationFixDialog(Gtk.Dialog):
         self.combos: list[tuple[str, Gtk.ComboBox, str]] = []
         self.row_targets: list[dict[str, Any]] = []
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        self.connect("response", lambda dlg, resp: dlg.destroy())
         self.set_default_size(1600, 560)
         content = self.get_content_area()
         content.set_border_width(12)
@@ -513,14 +512,7 @@ class CitationFixDialog(Gtk.Dialog):
 
     def show_dialog(self) -> None:
         self.show_all()
-        while True:
-            resp = self.run()
-            if resp in (
-                Gtk.ResponseType.CLOSE,
-                Gtk.ResponseType.CANCEL,
-                Gtk.ResponseType.DELETE_EVENT,
-            ):
-                break
+        self.run()
         self.destroy()
 
     def cb_show_notes(self, _button: Gtk.Button, notes_text: str) -> None:

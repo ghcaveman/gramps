@@ -86,7 +86,6 @@ class SourceFixDialog(Gtk.Dialog):
         self.combos: list[tuple[str, Gtk.ComboBox, str]] = []
         self.row_combos: list[tuple[dict[str, Any], Gtk.ComboBox]] = []
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        self.connect("response", lambda dlg, resp: dlg.destroy())
         self.set_default_size(1480, 420)
         content = self.get_content_area()
         content.set_border_width(12)
@@ -452,16 +451,9 @@ class SourceFixDialog(Gtk.Dialog):
         )
 
     def show_dialog(self) -> None:
-        """Show and run the modal dialog until user explicitly closes it."""
+        """Show and run the modal dialog."""
         self.show_all()
-        while True:
-            resp = self.run()
-            if resp in (
-                Gtk.ResponseType.CLOSE,
-                Gtk.ResponseType.CANCEL,
-                Gtk.ResponseType.DELETE_EVENT,
-            ):
-                break
+        self.run()
         self.destroy()
 
 
