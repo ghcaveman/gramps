@@ -269,7 +269,7 @@ class UnpackCitationsDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.plan = plan_unpack_conflated_citations(dbstate.db)
         self.row_targets: list[dict[str, Any]] = []
-        self.set_default_size(1560, 520)
+        self.set_default_size(1180, 480)
 
         # Action buttons in dialog action bar (always visible at bottom)
         n_hints = len(self.plan)
@@ -464,8 +464,8 @@ class UnpackCitationsDialog(Gtk.Dialog):
             row_index += 1
 
         scrolled = Gtk.ScrolledWindow()
-        scrolled.set_min_content_height(300)
-        scrolled.set_min_content_width(1200)
+        scrolled.set_min_content_height(280)
+        scrolled.set_min_content_width(1120)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)

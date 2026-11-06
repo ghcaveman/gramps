@@ -315,7 +315,7 @@ class CitationAttributesDialog(Gtk.Dialog):
         self.set_default_size(950, 520)
 
         n_hints = sum(1 for r in self.rows if not r["has_all"])
-        self.accept_button = Gtk.Button(label=str(_("Apply hints (%d)")) % n_hints)
+        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
         self.accept_button.set_sensitive(n_hints > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
@@ -443,45 +443,45 @@ class CitationAttributesDialog(Gtk.Dialog):
         for entry in entries:
             # Column 0: Source & Citation details (Input - Label)
             src_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            src_box.set_size_request(170, -1)
+            src_box.set_size_request(220, -1)
             lines = entry.get("display_text", "").splitlines()
             l1 = Gtk.Label(label=lines[0] if len(lines) > 0 else "")
             l1.set_xalign(0.0)
             l1.set_line_wrap(True)
             l1.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            l1.set_max_width_chars(24)
+            l1.set_max_width_chars(30)
             src_box.pack_start(l1, False, False, 0)
 
             l2 = Gtk.Label(label=lines[1] if len(lines) > 1 else "")
             l2.set_xalign(0.0)
             l2.set_line_wrap(True)
             l2.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            l2.set_max_width_chars(24)
+            l2.set_max_width_chars(30)
             src_box.pack_start(l2, False, False, 0)
 
             grid.attach(src_box, 0, row_index, 1, 1)
 
             # Column 1: Source Type - Entry (empty by default)
             st_entry = Gtk.Entry()
-            st_entry.set_width_chars(11)
+            st_entry.set_width_chars(14)
             st_entry.set_text("")
             grid.attach(st_entry, 1, row_index, 1, 1)
 
             # Column 2: Information Type - Entry (empty by default)
             it_entry = Gtk.Entry()
-            it_entry.set_width_chars(11)
+            it_entry.set_width_chars(14)
             it_entry.set_text("")
             grid.attach(it_entry, 2, row_index, 1, 1)
 
             # Column 3: Evidence Type - Entry (empty by default)
             et_entry = Gtk.Entry()
-            et_entry.set_width_chars(11)
+            et_entry.set_width_chars(14)
             et_entry.set_text("")
             grid.attach(et_entry, 3, row_index, 1, 1)
 
             # Column 4: QUAY - Entry (empty by default)
             quay_entry = Gtk.Entry()
-            quay_entry.set_width_chars(4)
+            quay_entry.set_width_chars(6)
             quay_entry.set_text("")
             grid.attach(quay_entry, 4, row_index, 1, 1)
 
@@ -491,8 +491,8 @@ class CitationAttributesDialog(Gtk.Dialog):
             hint_label.set_xalign(0.0)
             hint_label.set_line_wrap(True)
             hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            hint_label.set_size_request(160, -1)
-            hint_label.set_max_width_chars(22)
+            hint_label.set_size_request(220, -1)
+            hint_label.set_max_width_chars(30)
             grid.attach(hint_label, 5, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):
@@ -517,7 +517,7 @@ class CitationAttributesDialog(Gtk.Dialog):
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_min_content_height(300)
-        scrolled.set_min_content_width(720)
+        scrolled.set_min_content_width(900)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
