@@ -128,7 +128,7 @@ class UnpackCitationsDialogTest(unittest.TestCase):
         entries = [
             {
                 "citation_handle": "c1",
-                "display_text": "1900 Census\nCitation: Roll 123",
+                "display_source": "1900 Census (S0001)",
                 "suggested_page": "Roll 123",
                 "suggested_date": "1900",
                 "suggested_notes": "https://example.com",

@@ -209,10 +209,7 @@ def plan_unpack_conflated_citations(db: Any) -> list[dict[str, Any]]:
             "\n".join(hint_parts) if hint_parts else _("Unpack citation elements")
         )
 
-        display_lines = [
-            f"{src_title} ({src_gid})" if src_gid else src_title,
-            f"Citation: {raw_page if raw_page else '—'} | {curr_date if curr_date else '—'} ({c_gid})",
-        ]
+        display_source = f"{src_title} ({src_gid})" if src_gid else src_title
 
         plan.append(
             {
@@ -223,7 +220,7 @@ def plan_unpack_conflated_citations(db: Any) -> list[dict[str, Any]]:
                 "source_gid": src_gid,
                 "raw_page": raw_page,
                 "curr_date": curr_date,
-                "display_text": "\n".join(display_lines),
+                "display_source": display_source,
                 "suggested_page": suggested_page,
                 "suggested_date": suggested_date,
                 "suggested_notes": suggested_notes,
@@ -388,28 +385,22 @@ class UnpackCitationsDialog(Gtk.Dialog):
         row_index = 0
         for entry in entries:
             # Column 0: Source details
-            src_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            src_box.set_size_request(240, -1)
-            lines = entry.get("display_text", "").splitlines()
-            l1 = Gtk.Label(label=lines[0] if len(lines) > 0 else "")
-            l1.set_xalign(0.0)
-            l1.set_line_wrap(True)
-            l1.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            l1.set_max_width_chars(32)
-            src_box.pack_start(l1, False, False, 0)
+            src_text = entry.get("display_source", entry.get("source_title", ""))
+            src_label = Gtk.Label(label=src_text)
+            src_label.set_halign(Gtk.Align.START)
+            src_label.set_xalign(0.0)
+            src_label.set_line_wrap(True)
+            src_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            src_label.set_size_request(240, -1)
+            src_label.set_max_width_chars(32)
+            grid.attach(src_label, 0, row_index, 1, 1)
 
-            l2 = Gtk.Label(label=lines[1] if len(lines) > 1 else "")
-            l2.set_xalign(0.0)
-            l2.set_line_wrap(True)
-            l2.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            l2.set_max_width_chars(32)
-            src_box.pack_start(l2, False, False, 0)
-
-            grid.attach(src_box, 0, row_index, 1, 1)
-
-            # Column 1: Citation entry (text box, empty by default)
+            # Column 1: Citation entry (text box, empty by default, 75% wider)
             cit_entry = Gtk.Entry()
-            cit_entry.set_width_chars(20)
+            cit_entry.set_width_chars(35)
+            c_gid = entry.get("citation_gid", "")
+            if c_gid:
+                cit_entry.set_placeholder_text(f"({c_gid})")
             cit_entry.set_text("")
             grid.attach(cit_entry, 1, row_index, 1, 1)
 
@@ -442,7 +433,7 @@ class UnpackCitationsDialog(Gtk.Dialog):
             grid.attach(hint_label, 5, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):
-                self.column_sizegroups[0].add_widget(src_box)
+                self.column_sizegroups[0].add_widget(src_label)
                 self.column_sizegroups[1].add_widget(cit_entry)
                 self.column_sizegroups[2].add_widget(page_entry)
                 self.column_sizegroups[3].add_widget(date_entry)
