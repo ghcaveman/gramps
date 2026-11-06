@@ -260,7 +260,7 @@ def get_button_specs() -> list[tuple[str, str, bool]]:
         ("fix_citations", str(_("Fix Citations")), True),
         ("citation_attributes", str(_("Citation Attributes")), True),
         ("fix_notes", str(_("Fix Notes")), True),
-        ("auto_all", str(_("Auto (best guess all)")), True),
+        ("auto_all", str(_("Accept all hints")), True),
     ]
 
 
