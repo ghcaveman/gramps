@@ -80,6 +80,7 @@ from gramps.plugins.tool.gwizardmediafix import (
     ConsolidateMediaLocationDialog,
     ApplyFilenameStandardsDialog,
     sanitize_standard_filename,
+    generate_media_fix_report,
 )
 
 
@@ -200,9 +201,25 @@ class GWizardMediaFixTest(unittest.TestCase):
 
         tool_instance._build_window(mock_user.uistate)
 
+        self.assertIn("generate", tool_instance.buttons)
         self.assertIn("find_missing", tool_instance.buttons)
         self.assertIn("consolidate_location", tool_instance.buttons)
         self.assertIn("apply_standards", tool_instance.buttons)
+        self.assertNotIn("view", tool_instance.buttons)
+
+    def test_generate_media_fix_report(self) -> None:
+        """Report generation counts missing, found, absolute, and non-standard files."""
+        with DbTxn("Create media for report", self.db) as trans:
+            m1 = Media()
+            m1.set_description("Test Missing")
+            m1.set_path("some/missing/file.png")
+            self.db.add_media(m1, trans)
+
+        report = generate_media_fix_report(self.db)
+        self.assertIn("GWIZARD MEDIA FIX REPORT", report)
+        self.assertIn("Total media records:       1", report)
+        self.assertIn("Files missing on disk:     1", report)
+        self.assertIn("Test Missing", report)
 
 
 if __name__ == "__main__":

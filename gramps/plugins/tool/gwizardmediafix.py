@@ -680,7 +680,7 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
         self.apply_button = Gtk.Button(label=str(_("Apply")))
         self.apply_button.set_sensitive(n_hints > 0)
         self.apply_button.connect("clicked", self.cb_apply)
-        self.add_action_widget(self.apply_button, Gtk.ResponseType.APPLY)
+        self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
 
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
 
@@ -888,6 +888,101 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
         self.destroy()
 
 
+def generate_media_fix_report(db: Any) -> str:
+    """Scan all media objects in database, check existence with os.path.exists(), and return formatted report."""
+    base_dir = media_path(db) if db else ""
+    total = 0
+    found = 0
+    missing = 0
+    absolute_paths = 0
+    non_standard = 0
+
+    missing_list: list[tuple[str, str, str]] = []
+    abs_list: list[tuple[str, str, str]] = []
+    non_std_list: list[tuple[str, str, str]] = []
+
+    for media in db.iter_media():
+        total += 1
+        m_gid = str(media.get_gramps_id() or "")
+        desc = str(media.get_description() or "")
+
+        # Inspect file path(s) using media.get_path() or media.get_file_list() if available
+        if hasattr(media, "get_file_list"):
+            raw_paths = media.get_file_list() or []
+            if not raw_paths:
+                raw_paths = [str(media.get_path() or "")]
+        else:
+            raw_paths = [str(media.get_path() or "")]
+
+        for raw_path in raw_paths:
+            # Check existence on filesystem
+            try:
+                full_path = media_path_full(db, raw_path)
+            except Exception:
+                full_path = raw_path
+
+            if os.path.exists(full_path):
+                found += 1
+            else:
+                missing += 1
+                missing_list.append((m_gid, desc, raw_path))
+
+            # Check absolute path
+            if os.path.isabs(raw_path):
+                absolute_paths += 1
+                abs_list.append((m_gid, desc, raw_path))
+
+            # Check filename standards
+            if raw_path and sanitize_standard_filename(raw_path) != raw_path:
+                non_standard += 1
+                non_std_list.append((m_gid, desc, raw_path))
+
+    lines: list[str] = [
+        "=" * 72,
+        "GWIZARD MEDIA FIX REPORT",
+        "=" * 72,
+        "",
+        "SUMMARY METRICS:",
+        f"  Total media records:       {total}",
+        f"  Files found on disk:       {found}",
+        f"  Files missing on disk:     {missing}",
+        f"  Absolute file paths:       {absolute_paths}",
+        f"  Non-standard filenames:    {non_standard}",
+        f"  Base media directory:      {base_dir if base_dir else '(none configured)'}",
+        "",
+    ]
+
+    if missing_list:
+        lines.append("-" * 72)
+        lines.append(f"MISSING FILES ({len(missing_list)} items):")
+        lines.append("-" * 72)
+        for gid, desc, path in missing_list:
+            lines.append(f"  [{gid}] {desc}")
+            lines.append(f"    Path: {path}")
+        lines.append("")
+
+    if abs_list:
+        lines.append("-" * 72)
+        lines.append(f"ABSOLUTE PATHS ({len(abs_list)} items):")
+        lines.append("-" * 72)
+        for gid, desc, path in abs_list:
+            lines.append(f"  [{gid}] {desc}")
+            lines.append(f"    Path: {path}")
+        lines.append("")
+
+    if non_std_list:
+        lines.append("-" * 72)
+        lines.append(f"NON-STANDARD FILENAMES ({len(non_std_list)} items):")
+        lines.append("-" * 72)
+        for gid, desc, path in non_std_list:
+            lines.append(f"  [{gid}] {desc}")
+            lines.append(f"    Current:  {path}")
+            lines.append(f"    Standard: {sanitize_standard_filename(path)}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 # ------------------------------------------------------------
 #
 # GWizardMediaFix Window Controller
@@ -915,6 +1010,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         tool.Tool.__init__(self, dbstate, options_class, name)
         ManagedWindow.__init__(self, uistate, [], self.__class__, modal=True)
         self.dbstate = dbstate
+        self.report_path: str | None = None
         self._build_window(uistate)
         self.show()
 
@@ -932,8 +1028,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         desc = Gtk.Label(
             label=str(
                 _(
-                    "Comprehensive utility to find missing media files on disk, consolidate "
-                    "media storage locations into relative paths, and enforce standardized filename formats."
+                    "Comprehensive utility to inspect media files across your database, find missing files, "
+                    "consolidate storage locations into relative paths, and enforce standardized filename formats."
                 )
             )
         )
@@ -945,6 +1041,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         content.pack_start(vbox, True, True, 0)
 
         specs = [
+            ("generate", str(_("Generate report"))),
             ("find_missing", str(_("Find missing media"))),
             ("consolidate_location", str(_("Consolidate media location"))),
             ("apply_standards", str(_("Apply filename standards"))),
@@ -962,14 +1059,98 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         dialog.connect("response", self.cb_close)
 
         self.set_window(dialog, None, str(_("GWizard Media Fix")))
-        self.setup_configs("interface.gwizardmediafix", 420, 240)
+        self.setup_configs("interface.gwizardmediafix", 440, 280)
         dialog.show_all()
 
     def cb_close(self, dialog: Gtk.Dialog, response: int) -> None:
         self.close()
 
+    def cb_generate_report(self) -> None:
+        """Prompt file chooser for GWizardMediaFixReport.txt and write generated report."""
+        chooser = Gtk.FileChooserDialog(
+            title=str(_("Save Media Fix Report")),
+            transient_for=self.window,
+            action=Gtk.FileChooserAction.SAVE,
+        )
+        chooser.add_buttons(
+            str(_("_Cancel")),
+            Gtk.ResponseType.CANCEL,
+            str(_("_Save")),
+            Gtk.ResponseType.OK,
+        )
+        chooser.set_current_name("GWizardMediaFixReport.txt")
+
+        base_dir = (
+            media_path(self.dbstate.db) if self.dbstate and self.dbstate.db else ""
+        )
+        if base_dir and os.path.isdir(base_dir):
+            chooser.set_current_folder(base_dir)
+
+        status = chooser.run()
+        target_path = chooser.get_filename() if status == Gtk.ResponseType.OK else None
+        chooser.destroy()
+
+        if not target_path:
+            return
+
+        report_text = generate_media_fix_report(self.dbstate.db)
+        try:
+            with open(target_path, "w", encoding="utf-8") as handle:
+                handle.write(report_text)
+            self.report_path = target_path
+            OkDialog(
+                str(_("Report Generated")),
+                str(_("Report written to %s.") % target_path),
+                parent=self.window,
+            )
+            self.cb_view_report()
+        except OSError as err:
+            LOG.error("Failed to write report: %s", err)
+
+    def cb_view_report(self) -> None:
+        """Open generated report in viewer dialog."""
+        if not self.report_path or not os.path.exists(self.report_path):
+            return
+
+        try:
+            with open(self.report_path, "r", encoding="utf-8") as handle:
+                text = handle.read()
+        except OSError:
+            return
+
+        dialog = Gtk.Dialog(
+            title=str(_("GWizard Media Fix Report")),
+            transient_for=self.window,
+            modal=True,
+            destroy_with_parent=True,
+        )
+        dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
+        dialog.connect("response", lambda dlg, resp: dlg.destroy())
+        dialog.set_default_size(800, 500)
+
+        content = dialog.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+
+        textview = Gtk.TextView()
+        textview.set_editable(False)
+        textview.set_wrap_mode(Gtk.WrapMode.WORD)
+        textview.get_buffer().set_text(text)
+        scrolled.add(textview)
+
+        content.pack_start(scrolled, True, True, 0)
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
+
     def cb_button(self, button: Gtk.Button, key: str) -> None:
-        if key == "find_missing":
+        if key == "generate":
+            self.cb_generate_report()
+        elif key == "find_missing":
             dlg = FindMissingMediaDialog(
                 title=str(_("Find Missing Media")),
                 dbstate=self.dbstate,
