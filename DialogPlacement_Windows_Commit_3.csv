@@ -1,0 +1,166 @@
+Dialog Name,Filename,Button Names,Adheres to Windows Standard,Order Changes on Linux
+addmedia,gramps/gui/glade/addmedia.glade,Cancel:OK:Help,No,No
+baseselector,gramps/gui/glade/baseselector.glade,Cancel:OK:Help,No,No
+book,gramps/gui/glade/book.glade,Delete:Close:OK,No,No
+Book,gramps/gui/glade/book.glade,Close:OK:Help,No,No
+Clipboard,gramps/gui/glade/clipboard.glade,Help:Clear All:Clear:Close,Yes,No
+grampscfg,gramps/gui/glade/configure.glade,Cancel:OK,No,No
+Revision comment - Gramps,gramps/gui/glade/dbman.glade,OK,Yes,No
+Family Trees - Gramps,gramps/gui/glade/dbman.glade,Close Window:Load Family Tree:Help,No,No
+hidedialog,gramps/gui/glade/dialog.glade,Close,Yes,No
+infodialog,gramps/gui/glade/dialog.glade,Close,Yes,No
+missmediadialog,gramps/gui/glade/dialog.glade,Remove Object:Keep Reference:Select File,No,No
+multiselectdialog,gramps/gui/glade/dialog.glade,Cancel:No:Yes,No,No
+optiondialog,gramps/gui/glade/dialog.glade,No:Save,No,No
+questiondialog,gramps/gui/glade/dialog.glade,Cancel:Cancel:OK,No,No
+savedialog,gramps/gui/glade/dialog.glade,Close without saving:Cancel:Save,No,No
+Gramps Warnings,gramps/gui/glade/displaystate.glade,Close,Yes,No
+editaddress,gramps/gui/glade/editaddress.glade,Cancel:OK:Help,No,No
+editattribute,gramps/gui/glade/editattribute.glade,Cancel:OK:Help,No,No
+editchildref,gramps/gui/glade/editchildref.glade,Cancel:OK:Help,No,No
+editcitation,gramps/gui/glade/editcitation.glade,Help:Cancel:OK,No,No
+dateedit,gramps/gui/glade/editdate.glade,Help:Cancel:OK,No,No
+editdnamatch,gramps/gui/glade/editdnamatch.glade,Cancel:OK:Help,No,No
+editdnasegment,gramps/gui/glade/editdnasegment.glade,Cancel:OK,No,No
+editdnatest,gramps/gui/glade/editdnatest.glade,Cancel:OK:Help,No,No
+editevent,gramps/gui/glade/editevent.glade,Cancel:OK:Help,No,No
+editeventref,gramps/gui/glade/editeventref.glade,Help:Cancel:OK,No,No
+editfamily,gramps/gui/glade/editfamily.glade,Cancel:OK:Help,No,No
+editldsord,gramps/gui/glade/editldsord.glade,Cancel:OK:Help,No,No
+editurl,gramps/gui/glade/editlink.glade,Cancel:OK:Help,No,No
+editlocation,gramps/gui/glade/editlocation.glade,Cancel:OK:Help,No,No
+editmedia,gramps/gui/glade/editmedia.glade,Cancel:OK:Help,No,No
+editmediaref,gramps/gui/glade/editmediaref.glade,Cancel:OK:Help,No,No
+editname,gramps/gui/glade/editname.glade,Cancel:OK:Help,No,No
+editnote,gramps/gui/glade/editnote.glade,Cancel:OK:Help,No,No
+editperson,gramps/gui/glade/editperson.glade,Cancel:OK:Help,No,No
+pref_edit,gramps/gui/glade/editpersonref.glade,Cancel:OK:Help,No,No
+editplace,gramps/gui/glade/editplace.glade,Cancel:OK:Help,No,No
+editplaceformat,gramps/gui/glade/editplaceformat.glade,Close,Yes,No
+editplacename,gramps/gui/glade/editplacename.glade,Cancel:OK:Help,No,No
+editplaceref,gramps/gui/glade/editplaceref.glade,Help:Cancel:OK,No,No
+editpredictedrelationship,gramps/gui/glade/editpredictedrelationship.glade,Cancel:OK,No,No
+editreporef,gramps/gui/glade/editreporef.glade,Cancel:OK:Help,No,No
+editrepository,gramps/gui/glade/editrepository.glade,Cancel:OK:Help,No,No
+editsharedancestor,gramps/gui/glade/editsharedancestor.glade,Cancel:OK,No,No
+editsource,gramps/gui/glade/editsource.glade,Cancel:OK:Help,No,No
+editurl,gramps/gui/glade/editurl.glade,Cancel:OK:Help,No,No
+grampletview,gramps/gui/glade/grampletpane.glade,gvproperties:gvstate:gvclose:Gramplet,N/A,No
+mergecitation,gramps/gui/glade/mergecitation.glade,Cancel:OK:Help,No,No
+mergedata,gramps/gui/glade/mergedata.glade,Cancel:Merge and edit:Merge and close:Help,No,No
+mergeperson,gramps/gui/glade/mergedata.glade,Cancel:OK:Help,No,No
+mergeplace,gramps/gui/glade/mergedata.glade,Cancel:OK:Help,No,No
+mergesource,gramps/gui/glade/mergedata.glade,Cancel:OK:Help,No,No
+mergednamatch,gramps/gui/glade/mergednamatch.glade,Cancel:OK:Help,No,No
+mergednatest,gramps/gui/glade/mergednatest.glade,Cancel:OK:Help,No,No
+mergeevent,gramps/gui/glade/mergeevent.glade,Cancel:OK:Help,No,No
+mergefamily,gramps/gui/glade/mergefamily.glade,Cancel:OK:Help,No,No
+mergeobject,gramps/gui/glade/mergemedia.glade,Cancel:OK:Help,No,No
+mergenote,gramps/gui/glade/mergenote.glade,Cancel:OK:Help,No,No
+mergeperson,gramps/gui/glade/mergeperson.glade,Cancel:OK:Help,No,No
+mergeplace,gramps/gui/glade/mergeplace.glade,Cancel:OK:Help,No,No
+mergerepository,gramps/gui/glade/mergerepository.glade,Cancel:OK:Help,No,No
+mergesource,gramps/gui/glade/mergesource.glade,Cancel:OK:Help,No,No
+report,gramps/gui/glade/plugins.glade,Wiki:Close:Perform selected action,Yes,No
+reorder,gramps/gui/glade/reorder.glade,Cancel:OK:Help,No,No
+filter_list,gramps/gui/glade/rule.glade,Close:Help,Yes,No
+define_filter,gramps/gui/glade/rule.glade,Cancel:OK:Help,No,No
+rule_editor,gramps/gui/glade/rule.glade,Cancel:OK:Help,No,No
+test,gramps/gui/glade/rule.glade,Close,Yes,No
+editor,gramps/gui/glade/styleeditor.glade,Cancel:OK:Help,No,No
+styles,gramps/gui/glade/styleeditor.glade,Cancel:OK:Help,No,No
+TipOfDay,gramps/gui/glade/tipofday.glade,Forward:Close,Yes,No
+dialog1,gramps/gui/glade/updateaddons.glade,Close:Install Selected Addons,No,No
+Print Preview,gramps/plugins/docgen/gtkprint.glade,Quit:Print:First:Back:Forward:Last:zoomfitwidth:zoombestfit:zoomin:zoomout,No,No
+Gramps - GEDCOM Encoding,gramps/plugins/importer/importgedcom.glade,OK,Yes,No
+import Pro-Gen,gramps/plugins/importer/importprogen.glade,Cancel:Ok:Help,No,No
+changenames,gramps/plugins/tool/changenames.glade,Help:Cancel:Accept changes and close,Yes,No
+changetypes,gramps/plugins/tool/changetypes.glade,Cancel:OK,No,No
+check,gramps/plugins/tool/check.glade,Close,Yes,No
+eventcmp,gramps/plugins/tool/eventcmp.glade,Close:Save As:Help,No,No
+filters,gramps/plugins/tool/eventcmp.glade,Close:Apply:Help,No,No
+finddupes,gramps/plugins/tool/finddupes.glade,Cancel:OK:Help,No,No
+mergelist,gramps/plugins/tool/finddupes.glade,Close:Compare:Help,Yes,No
+findloop,gramps/plugins/tool/findloop.glade,Close:Help,Yes,No
+mergecitations,gramps/plugins/tool/mergecitations.glade,Cancel:OK:Help,No,No
+notrelated,gramps/plugins/tool/notrelated.glade,Close:Help,Yes,No
+ownereditor,gramps/plugins/tool/ownereditor.glade,Cancel:OK:Help,No,No
+patchnames,gramps/plugins/tool/patchnames.glade,Help:Cancel:Accept and close,Yes,No
+relcalc,gramps/plugins/tool/relcalc.glade,Close:Help,Yes,No
+removespaces,gramps/plugins/tool/removespaces.glade,Close:Help,Yes,No
+removeunused,gramps/plugins/tool/removeunused.glade,Delete:Close,Yes,No
+dialog,gramps/plugins/tool/reorderids.glade,No:Yes,No,No
+reorder-ids,gramps/plugins/tool/reorderids.glade,Cancel:OK:Help,No,No
+verify,gramps/plugins/tool/verify.glade,Help:Close:Run,No,No
+verify_result,gramps/plugins/tool/verify.glade,Close,Yes,No
+ErrorDialog,gramps/gui/dialog.py,Close,Yes,No
+RunDatabaseRepair,gramps/gui/dialog.py,Close,Yes,No
+DBErrorDialog,gramps/gui/dialog.py,Close,Yes,No
+WarningDialog,gramps/gui/dialog.py,Close,Yes,No
+OkDialog,gramps/gui/dialog.py,Close,Yes,No
+GenderDialog,gramps/gui/editors/editperson.py,Male:Female:Other:Unknown,N/A,No
+EditTagList,gramps/gui/editors/edittaglist.py,OK:Cancel:Help,Yes,Yes
+DisplayNameEditor,gramps/gui/configure.py,Close,Yes,No
+ConfigureDialog,gramps/gui/configure.py,Close,Yes,No
+Database Path Chooser,gramps/gui/configure.py,Apply:Cancel,Yes,Yes
+GrampsPreferences,gramps/gui/configure.py,Help:Cancel:OK,No,No
+GrampsLoginDialog,gramps/gui/dbloader.py,Login:Cancel,Yes,Yes
+GrampsImportFileDialog,gramps/gui/dbloader.py,Import:Cancel,Yes,Yes
+Information,gramps/gui/dbman.py,OK,Yes,No
+UndoHistory,gramps/gui/undohistory.py,Help:Undo:Redo:Clear:Close,Yes,No
+QuickBackup,gramps/gui/viewmanager.py,OK:Close,Yes,Yes
+Media Path Chooser,gramps/gui/viewmanager.py,Apply:Cancel,Yes,Yes
+FamilySearch Notification,gramps/gui/fs/actions.py,OK,Yes,No
+FamilySearch Error,gramps/gui/fs/actions.py,OK,Yes,No
+Link FamilySearch ID,gramps/gui/fs/actions.py,OK:Cancel,Yes,Yes
+Import FamilySearch Persons,gramps/gui/fs/actions.py,Import selected:Cancel,Yes,Yes
+Bulk Import Relatives,gramps/gui/fs/actions.py,Import:Cancel,Yes,Yes
+FamilySearch Match,gramps/gui/fs/actions.py,Continue:Cancel,Yes,Yes
+FamilySearch Tags,gramps/gui/fs/actions.py,Close:Retag all (Linked/NotLinked),Yes,No
+FamilySearch Source Image,gramps/gui/fs/fs_source_image.py,Close,Yes,No
+FamilySearch Session,gramps/gui/fs/session.py,Continue:Cancel,Yes,Yes
+Sync to FamilySearch,gramps/gui/fs/sync_directions.py,Apply Selected:Cancel,Yes,Yes
+Export to FamilySearch,gramps/gui/fs/sync_directions.py,Export:Cancel,Yes,Yes
+FamilySearch Sources,gramps/gui/fs/person/mixins/sources_dialog.py,Import selected:Cancel,Yes,Yes
+Manage Images,gramps/gui/fs/person/mixins/sources_dialog.py,Close,Yes,No
+FamilySearch Compare,gramps/gui/fs/person/mixins/compare_gtk.py,Merge selected:Refresh:Import sources...:Close,Yes,No
+FamilySearch Tools,gramps/gui/fs/tools_window.py,Link FamilySearch ID:Import Parents:Import Spouse:Import Children:Clear Cache:Bulk Import Relatives:Tags...:Compare:Sync from FamilySearch:Sync to FamilySearch...:Export to FamilySearch,Yes,No
+ErrorView,gramps/gui/logger/_errorview.py,Report:Cancel:Help,Yes,Yes
+ErrorReportAssistant,gramps/gui/logger/_errorreportassistant.py,Clear:Reset:File bug report:Copy to clipboard,No,Yes
+LastNameDialog,gramps/gui/plug/_guioptions.py,OK:Cancel,Yes,Yes
+Option File Chooser,gramps/gui/plug/_guioptions.py,Open:Cancel,Yes,Yes
+PluginStatus,gramps/gui/plug/_windows.py,Refresh:Close:Help,Yes,Yes
+Addon Project Dialog,gramps/gui/plug/_windows.py,OK:Cancel,Yes,Yes
+PluginTrace,gramps/gui/plug/_windows.py,Close,Yes,No
+Install Addon File Chooser,gramps/gui/plug/_windows.py,Open:Cancel,Yes,Yes
+Plugin Dialog,gramps/gui/plug/_windows.py,Close,Yes,No
+ToolManagedWindow,gramps/gui/plug/_windows.py,Execute:Close,Yes,Yes
+DisplayBuf,gramps/gui/plug/quick/_textbufdoc.py,Close,Yes,No
+Report File Chooser,gramps/gui/plug/report/_fileentry.py,Open:Cancel,Yes,Yes
+ReportDialog,gramps/gui/plug/report/_reportdialog.py,OK:Cancel:Help,Yes,Yes
+BookmarksDialog,gramps/gui/views/bookmarks.py,Close:Help,Yes,Yes
+Export View File Chooser,gramps/gui/views/listview.py,Save:Cancel,Yes,Yes
+Jump to Dialog,gramps/gui/views/navigationview.py,Jump to:Cancel,Yes,Yes
+OrganizeTagsDialog,gramps/gui/views/tags.py,Close:Help,Yes,Yes
+Edit Tag Dialog,gramps/gui/views/tags.py,OK:Cancel:Help,Yes,Yes
+Add Gramplet Dialog,gramps/gui/widgets/grampletbar.py,Close:Help,Yes,No
+Add Gramplet Pane Dialog,gramps/gui/widgets/grampletpane.py,Close:Help,Yes,No
+GtkProgressDialog,gramps/gui/widgets/progressdialog.py,Cancel,Yes,No
+KML Export File Chooser,gramps/plugins/lib/maps/geography.py,Apply:Cancel,Yes,Yes
+Geography Directory Chooser,gramps/plugins/lib/maps/geography.py,Apply:Cancel,Yes,Yes
+PlaceSelection,gramps/plugins/lib/maps/placeselection.py,Close,Yes,No
+FavoriteViews,gramps/plugins/sidebar/favoritessidebar.py,Help:Select All:Clear All:Close,Yes,No
+Check Image File Chooser,gramps/plugins/tool/check.py,OK:Cancel,Yes,Yes
+CitationFixDialog,gramps/plugins/tool/citationsfixdialog.py,Close,Yes,No
+DumpGenderStats,gramps/plugins/tool/dumpgenderstats.py,Close,Yes,No
+Event Comparison Save File Chooser,gramps/plugins/tool/eventcmp.py,Save:Cancel,Yes,Yes
+GWizardCitationFix Dialog,gramps/plugins/tool/gwizardcitationfix.py,Close,Yes,No
+MediaManager,gramps/plugins/tool/mediamanager.py,Help,N/A,No
+PatchNames Winprefix,gramps/plugins/tool/patchnames.py,OK,Yes,No
+PopulateSources Dialog,gramps/plugins/tool/populatesources.py,OK:Cancel,Yes,Yes
+RepoMergeDialog,gramps/plugins/tool/repomergedialog.py,Close,Yes,No
+SourceFixDialog,gramps/plugins/tool/sourcesfixdialog.py,Close,Yes,No
+TestCaseGenerator Dialog,gramps/plugins/tool/testcasegenerator.py,OK:Cancel:Help,Yes,Yes
+FanChart2WayView MessageDialog,gramps/plugins/view/fanchart2wayview.py,Close,Yes,No
+FanChartDescView MessageDialog,gramps/plugins/view/fanchartdescview.py,Close,Yes,No
+FanChartView MessageDialog,gramps/plugins/view/fanchartview.py,Close,Yes,No
