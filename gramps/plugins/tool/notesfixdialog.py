@@ -156,7 +156,6 @@ class NotesFixDialog(Gtk.Dialog):
         self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
 
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        self.connect("response", self.cb_response)
 
         content = self.get_content_area()
         content.set_border_width(12)
@@ -424,24 +423,8 @@ class NotesFixDialog(Gtk.Dialog):
             parent=self,
         )
 
-    def cb_response(self, dlg: Gtk.Dialog, resp: int) -> None:
-        """Only destroy dialog if user explicitly clicked Close or window close."""
-        if resp in (
-            Gtk.ResponseType.CLOSE,
-            Gtk.ResponseType.CANCEL,
-            Gtk.ResponseType.DELETE_EVENT,
-        ):
-            dlg.destroy()
-
     def show_dialog(self) -> None:
-        """Display the modal dialog until user explicitly closes it."""
+        """Display the modal dialog."""
         self.show_all()
-        while True:
-            resp = self.run()
-            if resp in (
-                Gtk.ResponseType.CLOSE,
-                Gtk.ResponseType.CANCEL,
-                Gtk.ResponseType.DELETE_EVENT,
-            ):
-                break
+        self.run()
         self.destroy()
