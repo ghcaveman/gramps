@@ -20,6 +20,9 @@
 
 """Build the standalone ``GWizardFileMerge.zip`` addon package.
 
+The GWizard plugin version is controlled by the ``--version`` command-line
+argument (default: 0.0.1).
+
 Collects the GWizard backend, GUI, and tool modules scattered across
 ``gramps/gen/gwizard``, ``gramps/gui/gwizard``, and ``gramps/plugins/tool``
 into a single flat ``GWizardFileMerge/`` addon directory inside a zip file,
@@ -86,7 +89,7 @@ if (5, 2, 0) <= VERSION_TUPLE <= (6, 2, 0):
             "(GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree "
             "and merge selected differences person by person."
         ),
-        version="0.0.1",
+        version="__GWIZARD_VERSION__",
         gramps_target_version=major_version,
         status=EXPERIMENTAL,
         audience=EXPERT,
@@ -229,9 +232,9 @@ def rewrite_imports_bytes(data: bytes) -> bytes:
     return ("\n".join(rewritten) + "\n").encode("utf-8")
 
 
-def build_gpr() -> bytes:
+def build_gpr(version: str = "0.0.1") -> bytes:
     """Render the standalone addon registration file."""
-    return GPR_TEMPLATE.encode("utf-8")
+    return GPR_TEMPLATE.replace("__GWIZARD_VERSION__", version).encode("utf-8")
 
 
 def build_test_data(repo_root: Path) -> dict[str, bytes]:
@@ -268,7 +271,7 @@ def build_test_data(repo_root: Path) -> dict[str, bytes]:
     return members
 
 
-def build_zip(repo_root: Path, output: Path) -> Path:
+def build_zip(repo_root: Path, output: Path, version: str = "0.0.1") -> Path:
     """Build the ``GWizardFileMerge.zip`` bundle next to this script."""
     members: dict[str, bytes] = {}
     for member, source in SOURCES.items():
@@ -293,7 +296,7 @@ def build_zip(repo_root: Path, output: Path) -> Path:
     output.unlink(missing_ok=True)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(PACKAGE + "/", b"")
-        archive.writestr(f"{PACKAGE}/{GPR_FILENAME}", build_gpr())
+        archive.writestr(f"{PACKAGE}/{GPR_FILENAME}", build_gpr(version))
         for member in sorted(members):
             archive.writestr(f"{PACKAGE}/{member}", members[member])
         if test_members:
@@ -318,8 +321,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "-o",
         "--output",
         type=Path,
-        default=Path(__file__).resolve().parent / "GWizardFileMerge.zip",
-        help="Destination zip file (default: GWizardFileMerge.zip next to the script).",
+        default=None,
+        help="Destination zip file (default: GWizardFileMerge_v<version>.zip next to the script, where <version> is the plugin version).",
     )
     parser.add_argument(
         "--gramps-target",
@@ -330,6 +333,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             f"so this value (default: {DEFAULT_GRAMPS_TARGET}) is ignored."
         ),
     )
+    parser.add_argument(
+        "--version",
+        dest="version_opt",
+        default="0.0.1",
+        help="GWizard plugin version for the registration file (default: 0.0.1).",
+    )
+    parser.add_argument(
+        "version_pos",
+        nargs="?",
+        default=None,
+        help="GWizard plugin version for the registration file (default: 0.0.1), "
+        "alternative to --version.",
+    )
     return parser.parse_args(argv)
 
 
@@ -338,11 +354,18 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = parse_args(argv)
     repo_root = Path(__file__).resolve().parent
-    output: Path = args.output
-    if not output.is_absolute():
-        output = repo_root / output
+    # Bare positional version takes precedence over --version; both default to
+    # "0.0.1" when neither is supplied.
+    version = args.version_pos if args.version_pos is not None else args.version_opt
+    # Default output name embeds the plugin version: GWizardFileMerge_v<version>.zip.
+    if args.output is None:
+        output = repo_root / f"GWizardFileMerge_v{version}.zip"
+    else:
+        output = args.output
+        if not output.is_absolute():
+            output = repo_root / output
     try:
-        built = build_zip(repo_root, output)
+        built = build_zip(repo_root, output, version=version)
     except FileNotFoundError as error:
         LOG.error("%s", error)
         return 1
