@@ -128,7 +128,7 @@ class UnpackCitationsDialogTest(unittest.TestCase):
         entries = [
             {
                 "citation_handle": "c1",
-                "display_source": "1900 Census (S0001)",
+                "citation_display": "Roll 123 (C0001)",
                 "suggested_page": "Roll 123",
                 "suggested_date": "1900",
                 "suggested_notes": "https://example.com",
@@ -151,7 +151,7 @@ class UnpackCitationsDialogTest(unittest.TestCase):
 
         self.assertEqual(len(dlg.row_targets), 1)
         target = dlg.row_targets[0]
-        target["cit_entry"].set_text.assert_called_with("")
+        target["cit_entry"].set_text.assert_called_with("Roll 123 (C0001)")
         target["page_entry"].set_text.assert_called_with("")
         target["date_entry"].set_text.assert_called_with("")
         target["notes_entry"].set_text.assert_called_with("")
