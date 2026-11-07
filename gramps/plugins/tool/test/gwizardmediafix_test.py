@@ -565,6 +565,117 @@ class GWizardMediaFixTest(unittest.TestCase):
             self.assertNotIn("__", formatted)
             self.assertLessEqual(len(formatted), 90)
 
+    def test_resolve_media_reference_context_person(self) -> None:
+        """Resolve context for media referenced by a Person."""
+        with DbTxn("Create person media", self.db) as trans:
+            m = Media()
+            m.set_description("Headstone")
+            m.set_path("photos/raw_scan.JPG")
+            m_handle = self.db.add_media(m, trans)
+
+            p = Person()
+            n = Name()
+            s = Surname()
+            s.set_surname("Doe")
+            n.add_surname(s)
+            n.set_first_name("Mary")
+            p.set_primary_name(n)
+
+            d = Date()
+            d.set_year(1985)
+            e = Event()
+            e.set_type(EventType.DEATH)
+            e.set_date_object(d)
+            e_h = db_add_e = self.db.add_event(e, trans)
+            eref = EventRef()
+            eref.set_reference_handle(e_h)
+            p.add_event_ref(eref)
+
+            mref = MediaRef()
+            mref.set_reference_handle(m_handle)
+            p.add_media_reference(mref)
+            p_handle = self.db.add_person(p, trans)
+
+        media = self.db.get_media_from_handle(m_handle)
+        ctx = resolve_media_reference_context(self.db, media)
+        self.assertEqual(ctx["surname"], "Doe")
+        self.assertEqual(ctx["given"], "Mary")
+        self.assertEqual(ctx["doc_type"], "Headstone")
+        self.assertEqual(ctx["year"], "1985")
+
+        std_path = sanitize_standard_filename(media.get_path(), db=self.db, media=media)
+        self.assertEqual(
+            std_path,
+            os.path.join("photos", f"{ctx['ref_id']}_Doe_Mary-Headstone-1985.jpg"),
+        )
+
+    def test_resolve_media_reference_context_event(self) -> None:
+        """Resolve context for media referenced by an Event with a Person participant."""
+        with DbTxn("Create event media", self.db) as trans:
+            m = Media()
+            m.set_description("Birth Certificate")
+            m.set_path("documents/cert_scan.PNG")
+            m_handle = self.db.add_media(m, trans)
+
+            d = Date()
+            d.set_year(1920)
+            e = Event()
+            e.set_type(EventType.BIRTH)
+            e.set_date_object(d)
+            mref = MediaRef()
+            mref.set_reference_handle(m_handle)
+            e.add_media_reference(mref)
+            e_handle = self.db.add_event(e, trans)
+
+            p = Person()
+            n = Name()
+            s = Surname()
+            s.set_surname("Smith")
+            n.add_surname(s)
+            n.set_first_name("John")
+            p.set_primary_name(n)
+            eref = EventRef()
+            eref.set_reference_handle(e_handle)
+            p.add_event_ref(eref)
+            p_handle = self.db.add_person(p, trans)
+
+        media = self.db.get_media_from_handle(m_handle)
+        ctx = resolve_media_reference_context(self.db, media)
+        self.assertEqual(ctx["surname"], "Smith")
+        self.assertEqual(ctx["given"], "John")
+        self.assertEqual(ctx["year"], "1920")
+
+        std_path = sanitize_standard_filename(media.get_path(), db=self.db, media=media)
+        self.assertEqual(
+            std_path,
+            os.path.join(
+                "documents",
+                f"{ctx['ref_id']}_Smith_John-Birth_Certificate-1920.png",
+            ),
+        )
+
+    def test_format_standard_filename_presets(self) -> None:
+        """All filename presets produce platform-safe filenames without invalid characters."""
+        context = {
+            "ref_id": "I0042",
+            "surname": "Smith",
+            "given": "John",
+            "doc_type": "Birth Certificate",
+            "year": "1920",
+            "id": "O0001",
+            "orig": "scan#1 (original)",
+            "ext": "JPEG",
+        }
+        for tmpl, _desc in FILENAME_PRESETS:
+            formatted = format_standard_filename(tmpl, context)
+            self.assertTrue(formatted.endswith(".jpeg"))
+            self.assertNotIn(" ", formatted)
+            self.assertNotIn(",", formatted)
+            self.assertNotIn("_-_", formatted)
+            self.assertNotIn("--", formatted)
+            self.assertNotIn("__", formatted)
+            self.assertLessEqual(len(formatted), 90)
+
     def test_gwizard_media_fix_window_buttons(self) -> None:
         """GWizardMediaFix controller initializes with the required buttons."""
         mock_user = MagicMock()
