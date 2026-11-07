@@ -26,7 +26,9 @@
 #
 # -------------------------------------------------------------------------
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -142,6 +144,7 @@ if "gi" not in sys.modules:
 # Gramps modules
 #
 # -------------------------------------------------------------------------
+from gramps.gen.const import USER_HOME
 from gramps.gen.db.utils import make_database
 from gramps.gen.db.generic import DbWriteBase
 from gramps.gen.db import DbTxn
@@ -163,6 +166,10 @@ from gramps.plugins.tool.gwizardmediafix import (
     FindMissingMediaDialog,
     ConsolidateMediaLocationDialog,
     ApplyFilenameStandardsDialog,
+    MediaFixReportDialog,
+    get_media_base_path,
+    is_in_default_path,
+    find_unreferenced_default_path_files,
     sanitize_standard_filename,
     generate_media_fix_report,
     resolve_media_reference_context,
@@ -588,6 +595,183 @@ class GWizardMediaFixTest(unittest.TestCase):
         report = generate_media_fix_report(self.db)
         self.assertIn("DUPLICATE FILE REFERENCES", report)
         self.assertIn("Referenced by 3 media records", report)
+
+    def test_get_media_base_path(self) -> None:
+        """get_media_base_path retrieves configured database media path or falls back to USER_HOME."""
+        # Unconfigured / None fallback to USER_HOME
+        self.db.set_mediapath(None)
+        self.assertEqual(
+            get_media_base_path(self.db), os.path.normpath(os.path.abspath(USER_HOME))
+        )
+
+        # Empty string fallback to USER_HOME
+        self.db.set_mediapath("   ")
+        self.assertEqual(
+            get_media_base_path(self.db), os.path.normpath(os.path.abspath(USER_HOME))
+        )
+
+        # None db fallback to USER_HOME
+        self.assertEqual(
+            get_media_base_path(None), os.path.normpath(os.path.abspath(USER_HOME))
+        )
+
+        # Configured path is returned normalized
+        custom_path = os.path.join(USER_HOME, "CustomFamilyMedia")
+        self.db.set_mediapath(custom_path)
+        self.assertEqual(
+            get_media_base_path(self.db), os.path.normpath(os.path.abspath(custom_path))
+        )
+
+    def test_media_fix_report_dialog_displays_base_path(self) -> None:
+        """MediaFixReportDialog displays the media base path near the top."""
+        custom_path = os.path.join(USER_HOME, "TestReportMediaPath")
+        self.db.set_mediapath(custom_path)
+        dlg = MediaFixReportDialog(
+            report_text="Sample report content",
+            dbstate=self.dbstate,
+        )
+        self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(custom_path)))
+        self.assertTrue(hasattr(dlg, "base_path_label"))
+        self.assertIn(
+            os.path.normpath(os.path.abspath(custom_path)),
+            dlg.base_path_label.markup or dlg.base_path_label.text,
+        )
+        self.assertEqual(dlg.report_text, "Sample report content")
+
+    def test_consolidate_media_location_base_path_display(self) -> None:
+        """ConsolidateMediaLocationDialog displays the media base path near the top and suggests relative paths."""
+        custom_path = os.path.join(USER_HOME, "ConsolidateTestMedia")
+        self.db.set_mediapath(custom_path)
+
+        with DbTxn("Create media in custom path", self.db) as trans:
+            m = Media()
+            m.set_description("Absolute inside base")
+            target_file = os.path.join(custom_path, "sub", "photo.jpg")
+            m.set_path(target_file)
+            self.db.add_media(m, trans)
+
+        dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+        self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(custom_path)))
+        self.assertTrue(hasattr(dlg, "base_path_label"))
+        self.assertIn(
+            os.path.normpath(os.path.abspath(custom_path)),
+            dlg.base_path_label.markup or dlg.base_path_label.text,
+        )
+        self.assertEqual(len(dlg.rows), 1)
+        # Relative path inside custom_path should be suggested
+        self.assertEqual(
+            os.path.normpath(dlg.rows[0]["suggested_path"]),
+            os.path.normpath("sub/photo.jpg"),
+        )
+
+    def test_generate_media_fix_report_includes_base_path(self) -> None:
+        """generate_media_fix_report includes Media Base Path in summary metrics."""
+        custom_path = os.path.join(USER_HOME, "ReportMetricsMedia")
+        self.db.set_mediapath(custom_path)
+        report = generate_media_fix_report(self.db)
+        self.assertIn("Media Base Path:", report)
+        self.assertIn(os.path.normpath(os.path.abspath(custom_path)), report)
+
+    def test_is_in_default_path(self) -> None:
+        """is_in_default_path detects relative and absolute paths within base_dir."""
+        base = os.path.join(USER_HOME, "MediaBase")
+        self.assertTrue(is_in_default_path("photos/family.jpg", base))
+        self.assertTrue(is_in_default_path("simple.png", base))
+        self.assertTrue(
+            is_in_default_path(os.path.join(base, "photos", "family.jpg"), base)
+        )
+        self.assertFalse(
+            is_in_default_path(os.path.join(USER_HOME, "OtherDir", "pic.jpg"), base)
+        )
+        self.assertFalse(is_in_default_path("", base))
+        self.assertFalse(is_in_default_path("photos/family.jpg", ""))
+
+    def test_find_unreferenced_default_path_files(self) -> None:
+        """find_unreferenced_default_path_files finds files on disk not connected to database media objects."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Create two files on disk
+            ref_file = os.path.join(temp_dir, "referenced.jpg")
+            with open(ref_file, "w") as f:
+                f.write("content")
+            unref_file = os.path.join(temp_dir, "unreferenced.png")
+            with open(unref_file, "w") as f:
+                f.write("content")
+
+            # Reference only ref_file in the database
+            with DbTxn("Add referenced media", self.db) as trans:
+                m = Media()
+                m.set_path(ref_file)
+                self.db.add_media(m, trans)
+
+            unref_list = find_unreferenced_default_path_files(self.db, temp_dir)
+            self.assertEqual(len(unref_list), 1)
+            self.assertEqual(unref_list[0], "unreferenced.png")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_media_multiple_and_zero_database_references(self) -> None:
+        """generate_media_fix_report detects media records with multiple links and zero links."""
+        with DbTxn("Create media with various references", self.db) as trans:
+            # Media 1: referenced by 2 people (multiple references)
+            m1 = Media()
+            m1.set_description("Shared Photo")
+            m1.set_path("shared.jpg")
+            m1_handle = self.db.add_media(m1, trans)
+
+            p1 = Person()
+            mr1 = MediaRef()
+            mr1.set_reference_handle(m1_handle)
+            p1.add_media_reference(mr1)
+            self.db.add_person(p1, trans)
+
+            p2 = Person()
+            mr2 = MediaRef()
+            mr2.set_reference_handle(m1_handle)
+            p2.add_media_reference(mr2)
+            self.db.add_person(p2, trans)
+
+            # Media 2: unreferenced (0 backlinks)
+            m2 = Media()
+            m2.set_description("Orphan Media")
+            m2.set_path("orphan.jpg")
+            self.db.add_media(m2, trans)
+
+        report = generate_media_fix_report(self.db)
+        self.assertIn("Multiple database links:   1", report)
+        self.assertIn("Unreferenced media records:1", report)
+        self.assertIn("MEDIA RECORDS WITH MULTIPLE DATABASE REFERENCES", report)
+        self.assertIn("Shared Photo", report)
+        self.assertIn("References: 2 (Person: 2)", report)
+        self.assertIn("UNREFERENCED MEDIA RECORDS IN DATABASE", report)
+        self.assertIn("Orphan Media", report)
+
+    def test_report_default_path_counts(self) -> None:
+        """generate_media_fix_report accurately reports default path and outside default path counts."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            self.db.set_mediapath(temp_dir)
+            with DbTxn("Add inside and outside media", self.db) as trans:
+                # Media inside default path (relative)
+                m_rel = Media()
+                m_rel.set_path("inside/photo.jpg")
+                self.db.add_media(m_rel, trans)
+
+                # Media outside default path (absolute to other folder)
+                other_dir = tempfile.mkdtemp()
+                try:
+                    m_outside = Media()
+                    m_outside.set_path(os.path.join(other_dir, "outside.jpg"))
+                    self.db.add_media(m_outside, trans)
+
+                    report = generate_media_fix_report(self.db)
+                    self.assertIn("Files in default path:     1", report)
+                    self.assertIn("Files outside default path:1", report)
+                    self.assertIn("FILES OUTSIDE DEFAULT PATH", report)
+                finally:
+                    shutil.rmtree(other_dir, ignore_errors=True)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
