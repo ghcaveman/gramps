@@ -1917,6 +1917,63 @@ class AcceptAllHintsReportDialog(Gtk.Dialog):
         self.destroy()
 
 
+# ------------------------------------------------------------
+#
+# MediaFixReportDialog
+#
+# ------------------------------------------------------------
+class MediaFixReportDialog(Gtk.Dialog):
+    """Viewer dialog for the GWizard Media Fix report."""
+
+    def __init__(
+        self,
+        report_text: str = "",
+        dbstate: Any = None,
+        title: str | None = None,
+        transient_for: Gtk.Window | None = None,
+    ) -> None:
+        """Initialize the report viewer dialog."""
+        dialog_title = title or str(_("GWizard Media Fix Report"))
+        super().__init__(
+            title=dialog_title,
+            transient_for=transient_for,
+            modal=True,
+            destroy_with_parent=True,
+        )
+        self.dbstate = dbstate
+        self.report_text = report_text
+        self.set_default_size(800, 500)
+        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
+        self.connect("response", lambda dlg, resp: dlg.destroy())
+
+        content = self.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+
+        self.base_dir = (
+            get_media_base_path(dbstate.db)
+            if dbstate and dbstate.db
+            else os.path.normpath(os.path.abspath(USER_HOME))
+        )
+        self.base_path_label = SelectableLabel(
+            label="<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir),
+            markup=True,
+        )
+        content.pack_start(self.base_path_label, False, False, 0)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+
+        self.textview = Gtk.TextView()
+        self.textview.set_editable(False)
+        self.textview.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.textview.get_buffer().set_text(self.report_text)
+        scrolled.add(self.textview)
+
+        content.pack_start(scrolled, True, True, 0)
+
+
 def generate_media_fix_report(db: Any) -> str:
     """Scan all media objects in database, check existence with os.path.exists(), and return formatted report."""
     base_dir = (
