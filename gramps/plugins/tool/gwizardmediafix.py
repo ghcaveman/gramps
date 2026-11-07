@@ -44,10 +44,15 @@ from gi.repository import Gtk, Pango
 #
 # -------------------------------------------------------------------------
 from gramps.gen.config import config
-from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.const import GRAMPS_LOCALE as glocale, USER_HOME
 from gramps.gui.dialog import OkDialog
 from gramps.gen.db import DbTxn
-from gramps.gen.utils.file import media_path_full, relative_path, media_path
+from gramps.gen.utils.file import (
+    media_path_full,
+    relative_path,
+    media_path,
+    expand_path,
+)
 from gramps.gen.utils.db import get_birth_or_fallback, get_death_or_fallback
 from gramps.gui.plug import tool
 from gramps.gui.managedwindow import ManagedWindow
@@ -109,6 +114,221 @@ FILENAME_PRESETS: list[tuple[str, str]] = [
 # Helper utilities for media analysis
 #
 # ------------------------------------------------------------
+def get_media_base_path(db: Any) -> str:
+    """Return the base path for relative media files.
+
+    Examines the database preference for media path ("Base path for relative media paths").
+    If configured, expands and normalizes the path. If empty or not set, returns the
+    user's primary OS user profile directory (USER_HOME).
+    """
+    mpath: str | None = None
+    if db and hasattr(db, "get_mediapath"):
+        try:
+            raw = db.get_mediapath()
+            if raw and str(raw).strip():
+                mpath = str(raw).strip()
+        except Exception:
+            mpath = None
+
+    if mpath:
+        mpath = os.path.expandvars(os.path.expanduser(mpath))
+        try:
+            mpath = expand_path(mpath, False)
+        except Exception:
+            pass
+        if not os.path.isabs(mpath):
+            basepath = None
+            if hasattr(db, "get_save_path"):
+                try:
+                    basepath = db.get_save_path()
+                except Exception:
+                    basepath = None
+            if not basepath:
+                basepath = USER_HOME
+            mpath = os.path.join(str(basepath), mpath)
+        return os.path.normpath(os.path.abspath(mpath))
+
+    return os.path.normpath(os.path.abspath(USER_HOME))
+
+
+def is_in_default_path(raw_path: str, base_dir: str) -> bool:
+    """Check if a raw path is located within the base/default media directory."""
+    if not raw_path or not base_dir:
+        return False
+    if not os.path.isabs(raw_path):
+        # In Gramps, relative paths are relative to base_dir
+        return True
+    try:
+        norm_raw = os.path.normcase(os.path.normpath(os.path.abspath(raw_path)))
+        norm_base = os.path.normcase(os.path.normpath(os.path.abspath(base_dir)))
+        if norm_raw == norm_base:
+            return True
+        common = os.path.commonpath([norm_raw, norm_base])
+        return common == norm_base
+    except Exception:
+        return False
+
+
+def find_unreferenced_default_path_files(
+    db: Any,
+    base_dir: str,
+    max_scan_files: int = 5000,
+) -> list[str]:
+    """Scan base_dir for multimedia files with no connection to database media objects.
+
+    Returns a sorted list of file paths relative to base_dir.
+    """
+    if not base_dir or not os.path.isdir(base_dir) or not db:
+        return []
+
+    # Collect all normalized file paths referenced in the database
+    db_media_paths: set[str] = set()
+    for media in db.iter_media():
+        raw_paths: list[str] = []
+        if hasattr(media, "get_file_list"):
+            raw_paths = media.get_file_list() or []
+        if not raw_paths:
+            raw_paths = [str(media.get_path() or "")]
+
+        for raw_path in raw_paths:
+            raw_path = raw_path.strip()
+            if not raw_path:
+                continue
+            try:
+                full_path = media_path_full(db, raw_path)
+                db_media_paths.add(
+                    os.path.normcase(os.path.normpath(os.path.abspath(full_path)))
+                )
+            except Exception:
+                pass
+            if not os.path.isabs(raw_path) and base_dir:
+                try:
+                    db_media_paths.add(
+                        os.path.normcase(
+                            os.path.normpath(
+                                os.path.abspath(os.path.join(base_dir, raw_path))
+                            )
+                        )
+                    )
+                except Exception:
+                    pass
+
+    multimedia_exts = {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tif",
+        ".tiff",
+        ".webp",
+        ".svg",
+        ".ico",
+        ".pdf",
+        ".mp3",
+        ".wav",
+        ".ogg",
+        ".flac",
+        ".m4a",
+        ".aac",
+        ".wma",
+        ".mp4",
+        ".avi",
+        ".mov",
+        ".wmv",
+        ".mkv",
+        ".webm",
+        ".mpg",
+        ".mpeg",
+        ".txt",
+        ".rtf",
+        ".doc",
+        ".docx",
+        ".odt",
+    }
+
+    skip_dirs = {
+        ".git",
+        ".svn",
+        ".hg",
+        ".cache",
+        "node_modules",
+        "venv",
+        ".venv",
+        "appdata",
+        "application data",
+        "local settings",
+        "windows",
+        "program files",
+        "program files (x86)",
+        "system volume information",
+        "$recycle.bin",
+        ".local",
+        ".config",
+        ".thumbnails",
+    }
+
+    norm_base = os.path.normcase(os.path.normpath(os.path.abspath(base_dir)))
+    norm_user_home = os.path.normcase(os.path.normpath(os.path.abspath(USER_HOME)))
+    is_user_home = norm_base == norm_user_home
+    if is_user_home:
+        skip_dirs.update(
+            {
+                "downloads",
+                "desktop",
+                "documents",
+                "music",
+                "videos",
+                "onedrive",
+                "contacts",
+                "searches",
+                "saved games",
+                "3d objects",
+            }
+        )
+
+    unreferenced: list[str] = []
+    scanned_count = 0
+
+    for root, dirs, files in os.walk(base_dir):
+        rel_to_base = os.path.relpath(root, base_dir)
+        depth = (
+            0 if rel_to_base == "." else len(rel_to_base.replace("\\", "/").split("/"))
+        )
+        if is_user_home and depth > 1:
+            dirs.clear()
+            continue
+
+        dirs[:] = [
+            d for d in dirs if not d.startswith(".") and d.lower() not in skip_dirs
+        ]
+
+        for fname in files:
+            if fname.startswith("."):
+                continue
+            _base, ext = os.path.splitext(fname)
+            if ext.lower() not in multimedia_exts:
+                continue
+
+            full_file = os.path.join(root, fname)
+            norm_file = os.path.normcase(os.path.normpath(os.path.abspath(full_file)))
+            if norm_file not in db_media_paths:
+                try:
+                    rel_path = os.path.relpath(full_file, base_dir).replace("\\", "/")
+                except Exception:
+                    rel_path = full_file
+                unreferenced.append(rel_path)
+
+            scanned_count += 1
+            if scanned_count >= max_scan_files:
+                break
+        if scanned_count >= max_scan_files:
+            break
+
+    unreferenced.sort()
+    return unreferenced
+
+
 def clean_token(val: Any) -> str:
     """Sanitize an individual token value to contain only alphanumeric characters, underscores, and hyphens."""
     if not val:
@@ -633,7 +853,11 @@ class FindMissingMediaDialog(Gtk.Dialog):
         self.set_default_size(1360, 520)
 
         # Scan database for missing media files
-        base_dir = media_path(dbstate.db) if dbstate and dbstate.db else ""
+        base_dir = (
+            get_media_base_path(dbstate.db)
+            if dbstate and dbstate.db
+            else os.path.normpath(os.path.abspath(USER_HOME))
+        )
         for media in dbstate.db.iter_media():
             m_handle = str(media.get_handle() or "")
             m_gid = str(media.get_gramps_id() or "")
@@ -875,7 +1099,12 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         self.row_targets: list[dict[str, Any]] = []
         self.set_default_size(1360, 520)
 
-        base_dir = media_path(dbstate.db) if dbstate and dbstate.db else ""
+        self.base_dir = (
+            get_media_base_path(dbstate.db)
+            if dbstate and dbstate.db
+            else os.path.normpath(os.path.abspath(USER_HOME))
+        )
+        base_dir = self.base_dir
         for media in dbstate.db.iter_media():
             m_handle = str(media.get_handle() or "")
             m_gid = str(media.get_gramps_id() or "")
@@ -889,9 +1118,19 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             if is_abs and base_dir:
                 try:
                     rel = relative_path(raw_path, base_dir)
+                    if os.path.isabs(rel) or rel == raw_path:
+                        try:
+                            candidate = os.path.relpath(raw_path, base_dir)
+                            if not os.path.isabs(
+                                candidate
+                            ) and not candidate.startswith(".."):
+                                rel = candidate
+                        except Exception:
+                            pass
                     if not os.path.isabs(rel) and not rel.startswith(".."):
-                        sug_path = rel
-                        hint = _("Absolute path: convert to relative '%s'") % rel
+                        rel_std = rel.replace("\\", "/")
+                        sug_path = rel_std
+                        hint = _("Absolute path: convert to relative '%s'") % rel_std
                     else:
                         hint = _("Absolute path outside base media directory")
                 except Exception:
@@ -943,6 +1182,12 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         info.set_line_wrap(True)
         info.set_halign(Gtk.Align.START)
         content.add(info)
+
+        self.base_path_label = SelectableLabel(
+            label="<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir),
+            markup=True,
+        )
+        content.add(self.base_path_label)
 
         if not self.rows:
             done = Gtk.Label(label=str(_("All media paths are already consolidated.")))
@@ -1442,19 +1687,83 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
         self.destroy()
 
 
+# ------------------------------------------------------------
+#
+# MediaFixReportDialog
+#
+# ------------------------------------------------------------
+class MediaFixReportDialog(Gtk.Dialog):
+    """Viewer dialog for the GWizard Media Fix report."""
+
+    def __init__(
+        self,
+        report_text: str = "",
+        dbstate: Any = None,
+        title: str | None = None,
+        transient_for: Gtk.Window | None = None,
+    ) -> None:
+        """Initialize the report viewer dialog."""
+        dialog_title = title or str(_("GWizard Media Fix Report"))
+        super().__init__(
+            title=dialog_title,
+            transient_for=transient_for,
+            modal=True,
+            destroy_with_parent=True,
+        )
+        self.dbstate = dbstate
+        self.report_text = report_text
+        self.set_default_size(800, 500)
+        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
+        self.connect("response", lambda dlg, resp: dlg.destroy())
+
+        content = self.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+
+        self.base_dir = (
+            get_media_base_path(dbstate.db)
+            if dbstate and dbstate.db
+            else os.path.normpath(os.path.abspath(USER_HOME))
+        )
+        self.base_path_label = SelectableLabel(
+            label="<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir),
+            markup=True,
+        )
+        content.pack_start(self.base_path_label, False, False, 0)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+
+        self.textview = Gtk.TextView()
+        self.textview.set_editable(False)
+        self.textview.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.textview.get_buffer().set_text(self.report_text)
+        scrolled.add(self.textview)
+
+        content.pack_start(scrolled, True, True, 0)
+
+
 def generate_media_fix_report(db: Any) -> str:
     """Scan all media objects in database, check existence with os.path.exists(), and return formatted report."""
-    base_dir = media_path(db) if db else ""
+    base_dir = (
+        get_media_base_path(db) if db else os.path.normpath(os.path.abspath(USER_HOME))
+    )
     curr_tmpl = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
     total = 0
     found = 0
     missing = 0
     absolute_paths = 0
     non_standard = 0
+    in_default_path = 0
+    outside_default_path = 0
 
     missing_list: list[tuple[str, str, str]] = []
     abs_list: list[tuple[str, str, str]] = []
     non_std_list: list[tuple[str, str, str, str, str]] = []
+    outside_default_list: list[tuple[str, str, str]] = []
+    multi_ref_media: list[tuple[str, str, str, int, list[tuple[str, str]]]] = []
+    zero_ref_media: list[tuple[str, str, str]] = []
 
     # Detect duplicate media records pointing to the same file
     dup_files = find_duplicate_media_references(db)
@@ -1465,8 +1774,17 @@ def generate_media_fix_report(db: Any) -> str:
 
     for media in db.iter_media():
         total += 1
+        m_handle = str(media.get_handle() or "")
         m_gid = str(media.get_gramps_id() or "")
         desc = str(media.get_description() or "")
+
+        # Inspect backlinks from database elements
+        backlinks: list[tuple[str, str]] = []
+        if db and hasattr(db, "find_backlink_handles") and m_handle:
+            try:
+                backlinks = list(db.find_backlink_handles(m_handle))
+            except Exception:
+                backlinks = []
 
         # Inspect file path(s) using media.get_path() or media.get_file_list() if available
         if hasattr(media, "get_file_list"):
@@ -1476,7 +1794,20 @@ def generate_media_fix_report(db: Any) -> str:
         else:
             raw_paths = [str(media.get_path() or "")]
 
+        first_raw = raw_paths[0] if raw_paths else ""
+        if len(backlinks) > 1:
+            multi_ref_media.append((m_gid, desc, first_raw, len(backlinks), backlinks))
+        elif len(backlinks) == 0:
+            zero_ref_media.append((m_gid, desc, first_raw))
+
         for raw_path in raw_paths:
+            # Check default path location
+            if is_in_default_path(raw_path, base_dir):
+                in_default_path += 1
+            else:
+                outside_default_path += 1
+                outside_default_list.append((m_gid, desc, raw_path))
+
             # Check existence on filesystem
             try:
                 full_path = media_path_full(db, raw_path)
@@ -1488,8 +1819,16 @@ def generate_media_fix_report(db: Any) -> str:
             if os.path.exists(full_path):
                 found += 1
             else:
-                missing += 1
-                missing_list.append((m_gid, desc, raw_path))
+                alt_path = (
+                    os.path.join(base_dir, raw_path)
+                    if base_dir and not os.path.isabs(raw_path)
+                    else None
+                )
+                if alt_path and os.path.exists(alt_path):
+                    found += 1
+                else:
+                    missing += 1
+                    missing_list.append((m_gid, desc, raw_path))
 
             # Check absolute path
             if os.path.isabs(raw_path):
@@ -1517,6 +1856,9 @@ def generate_media_fix_report(db: Any) -> str:
                     non_standard += 1
                     non_std_list.append((m_gid, desc, raw_path, std_path, assoc_str))
 
+    # Scan default path for unreferenced multimedia files
+    unref_disk_files = find_unreferenced_default_path_files(db, base_dir)
+
     lines: list[str] = [
         "=" * 72,
         "GWIZARD MEDIA FIX REPORT",
@@ -1524,13 +1866,19 @@ def generate_media_fix_report(db: Any) -> str:
         "",
         "SUMMARY METRICS:",
         f"  Total media records:       {total}",
+        f"  Files in default path:     {in_default_path}",
+        f"  Files outside default path:{outside_default_path}",
         f"  Files found on disk:       {found}",
         f"  Files missing on disk:     {missing}",
         f"  Absolute file paths:       {absolute_paths}",
         f"  Non-standard filenames:    {non_standard}",
+        f"  Unreferenced path files:   {len(unref_disk_files)}",
+        f"  Unreferenced media records:{len(zero_ref_media)}",
+        f"  Multiple database links:   {len(multi_ref_media)}",
         f"  Duplicate file references: {len(dup_files)} files ({dup_media_count} media records)",
         f"  Naming template:           {curr_tmpl}",
-        f"  Base media directory:      {base_dir if base_dir else '(none configured)'}",
+        f"  Media Base Path:           {base_dir}",
+        f"  Base media directory:      {base_dir}",
         "",
     ]
 
@@ -1546,6 +1894,54 @@ def generate_media_fix_report(db: Any) -> str:
             for gid, desc, _p, assoc_str in records:
                 assoc_part = f" ({assoc_str})" if assoc_str else ""
                 lines.append(f"      - [{gid}] {desc}{assoc_part}")
+        lines.append("")
+
+    if unref_disk_files:
+        lines.append("-" * 72)
+        lines.append(
+            f"UNREFERENCED FILES IN DEFAULT PATH ({len(unref_disk_files)} files with no database connection):"
+        )
+        lines.append("-" * 72)
+        for rel_f in unref_disk_files[:100]:
+            lines.append(f"  {rel_f}")
+        if len(unref_disk_files) > 100:
+            lines.append(f"  ... and {len(unref_disk_files) - 100} more files.")
+        lines.append("")
+
+    if multi_ref_media:
+        lines.append("-" * 72)
+        lines.append(
+            f"MEDIA RECORDS WITH MULTIPLE DATABASE REFERENCES ({len(multi_ref_media)} items):"
+        )
+        lines.append("-" * 72)
+        for gid, desc, path, r_count, blinks in multi_ref_media:
+            type_counts: dict[str, int] = {}
+            for cname, _h in blinks:
+                type_counts[cname] = type_counts.get(cname, 0) + 1
+            t_str = ", ".join(f"{k}: {v}" for k, v in sorted(type_counts.items()))
+            lines.append(f"  [{gid}] {desc}")
+            lines.append(f"    Path:       {path}")
+            lines.append(f"    References: {r_count} ({t_str})")
+        lines.append("")
+
+    if zero_ref_media:
+        lines.append("-" * 72)
+        lines.append(
+            f"UNREFERENCED MEDIA RECORDS IN DATABASE ({len(zero_ref_media)} items):"
+        )
+        lines.append("-" * 72)
+        for gid, desc, path in zero_ref_media:
+            lines.append(f"  [{gid}] {desc}")
+            lines.append(f"    Path: {path}")
+        lines.append("")
+
+    if outside_default_list:
+        lines.append("-" * 72)
+        lines.append(f"FILES OUTSIDE DEFAULT PATH ({len(outside_default_list)} items):")
+        lines.append("-" * 72)
+        for gid, desc, path in outside_default_list:
+            lines.append(f"  [{gid}] {desc}")
+            lines.append(f"    Path: {path}")
         lines.append("")
 
     if missing_list:
@@ -1680,7 +2076,9 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         chooser.set_current_name("GWizardMediaFixReport.txt")
 
         base_dir = (
-            media_path(self.dbstate.db) if self.dbstate and self.dbstate.db else ""
+            get_media_base_path(self.dbstate.db)
+            if self.dbstate and self.dbstate.db
+            else os.path.normpath(os.path.abspath(USER_HOME))
         )
         if base_dir and os.path.isdir(base_dir):
             chooser.set_current_folder(base_dir)
@@ -1717,31 +2115,11 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         except OSError:
             return
 
-        dialog = Gtk.Dialog(
-            title=str(_("GWizard Media Fix Report")),
+        dialog = MediaFixReportDialog(
+            report_text=text,
+            dbstate=self.dbstate,
             transient_for=self.window,
-            modal=True,
-            destroy_with_parent=True,
         )
-        dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        dialog.connect("response", lambda dlg, resp: dlg.destroy())
-        dialog.set_default_size(800, 500)
-
-        content = dialog.get_content_area()
-        content.set_border_width(12)
-        content.set_spacing(6)
-
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_hexpand(True)
-        scrolled.set_vexpand(True)
-
-        textview = Gtk.TextView()
-        textview.set_editable(False)
-        textview.set_wrap_mode(Gtk.WrapMode.WORD)
-        textview.get_buffer().set_text(text)
-        scrolled.add(textview)
-
-        content.pack_start(scrolled, True, True, 0)
         dialog.show_all()
         dialog.run()
         dialog.destroy()
