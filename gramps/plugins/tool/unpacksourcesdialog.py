@@ -26,7 +26,9 @@
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import html
 import logging
+import re
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -78,7 +80,102 @@ def _unpacked_abbreviation(
         rest = abbrev[len(repo) :].lstrip(" -:;,")
         if rest and rest != abbrev:
             return rest
+    # "New title (https://site)": the abbreviation is the title plus a URL
+    # or note in brackets, which belongs in the publication info instead.
+    if abbrev.casefold().startswith(new.casefold()):
+        tail = abbrev[len(new) :].strip()
+        if tail.startswith(("(", "[")) and tail != "":
+            return new
     return None
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_QUOTE_CHARS = "\"'\u201c\u201d\u2018\u2019\u201e\u00ab\u00bb"
+_BARE_DOMAIN_RE = re.compile(
+    r"^(?:https?://)?(?:www\.)?([\w-]+(?:\.[\w-]+)+)/?$", re.IGNORECASE
+)
+# Websites whose bare domain is used as a source title, mapped to the name
+# that should be the repository and the title.
+_KNOWN_SITES = {
+    "familysearch.org": "FamilySearch",
+    "legacy.com": "Legacy.com",
+    "ancestry.com": "Ancestry.com",
+    "newspapers.com": "Newspapers.com",
+    "findagrave.com": "Find a Grave",
+    "archives.gov": "National Archives and Records Administration (NARA)",
+}
+
+
+def clean_source_title(title: str) -> tuple[str, str, str, str]:
+    """Clean markup, quotes and website addresses out of a source title.
+
+    :returns: ``(new_title, moved_text, repo_name, reason)``. ``new_title``
+        is empty when the title needs no change. ``moved_text`` is detail
+        taken out of the title that should be kept in the publication info,
+        ``repo_name`` is a known website to use as the repository (or empty)
+        and ``reason`` is a short description of what was fixed.
+    """
+    original = title or ""
+    text = html.unescape(_TAG_RE.sub("", original))
+    text = " ".join(text.split())
+    reasons: list[str] = []
+    if text != " ".join(original.split()):
+        reasons.append("html markup")
+    moved = ""
+    quoted = re.match(
+        "^[\u201c\"]\\s*(.+?)[,.]?\\s*[\u201d\"]\\s*,?\\s*(.*)$", text
+    )
+    if quoted:
+        text = quoted.group(1).strip()
+        moved = quoted.group(2).strip(" ,;")
+        reasons.append("citation-style quotes")
+    else:
+        stripped = text.strip(_QUOTE_CHARS + " ,;")
+        if stripped != text:
+            reasons.append("stray quotes")
+            text = stripped
+    repo_name = ""
+    domain = _BARE_DOMAIN_RE.match(text)
+    if domain:
+        site = _KNOWN_SITES.get(domain.group(1).casefold())
+        if site:
+            moved = "; ".join(part for part in (moved, text) if part)
+            text = site
+            repo_name = site
+            reasons.append("website address used as title")
+    if text == original.strip() and not moved:
+        return "", "", "", ""
+    if text == original.strip():
+        text = ""
+    return text, moved, repo_name, ", ".join(reasons)
+
+
+def _plan_title_cleanups(db: Any, planned_handles: set[str]) -> list[dict[str, Any]]:
+    """Return plan rows for sources whose titles have markup or quotes.
+
+    Sources the engine already planned are skipped, so nothing appears twice.
+    """
+    extra: list[dict[str, Any]] = []
+    for source in db.iter_sources():
+        handle = source.get_handle()
+        if handle in planned_handles:
+            continue
+        old_title = str(source.get_title() or "")
+        new_title, moved, repo_name, reason = clean_source_title(old_title)
+        if not new_title and not moved and not repo_name:
+            continue
+        extra.append(
+            {
+                "handle": handle,
+                "gramps_id": source.get_gramps_id(),
+                "old_title": old_title,
+                "new_title": new_title or old_title.strip(),
+                "moved_text": moved,
+                "repo_name": repo_name,
+                "reason": reason,
+            }
+        )
+    return extra
 
 
 # ------------------------------------------------------------
@@ -105,7 +202,12 @@ class UnpackSourcesDialog(Gtk.Dialog):
         )
         self.dbstate = dbstate
         self.engine = GWizardCitationRepairEngine()
-        raw_plan = self.engine.plan_unpack_conflated_sources(dbstate.db)
+        raw_plan = list(self.engine.plan_unpack_conflated_sources(dbstate.db))
+        raw_plan.extend(
+            _plan_title_cleanups(
+                dbstate.db, {str(item.get("handle", "")) for item in raw_plan}
+            )
+        )
         self.plan: list[dict[str, Any]] = []
         for item in raw_plan:
             hint_parts = []
@@ -121,6 +223,9 @@ class UnpackSourcesDialog(Gtk.Dialog):
                 hint_parts.append(
                     _("Move citation detail '%s' to publication info") % moved
                 )
+            reason = item.get("reason", "")
+            if reason:
+                hint_parts.append(_("Cleans: %s") % reason)
             item["hint_text"] = "\n".join(hint_parts)
             self.plan.append(item)
 

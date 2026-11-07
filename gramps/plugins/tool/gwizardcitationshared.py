@@ -63,10 +63,17 @@ FIELD_CITATION_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-# Text fragments that identify automated import debris inside notes.
+# Text fragments that identify automated import debris inside notes. These
+# are pure import logs, so they are safe to scrub automatically.
 DEBRIS_INDICATORS = (
     "records not imported into repo",
     "tag recognized but not supported",
+)
+
+# Fragments that often mark an import artefact but can also hold real facts
+# (a birth date, a remark about a death). These should be shown for review and
+# never deleted automatically.
+REVIEW_NOTE_INDICATORS = (
     "birth type:",
     "passed away exactly on his",
 )
@@ -105,6 +112,12 @@ def is_debris_text(text: str) -> bool:
     """Return True when note text looks like automated import debris."""
     lowered = (text or "").lower()
     return any(indicator in lowered for indicator in DEBRIS_INDICATORS)
+
+
+def is_review_note_text(text: str) -> bool:
+    """Return True when a note may be an import artefact that holds real data."""
+    lowered = (text or "").lower()
+    return any(indicator in lowered for indicator in REVIEW_NOTE_INDICATORS)
 
 
 def is_tree_source_title(title: str) -> bool:
@@ -271,6 +284,29 @@ _ANCESTRY_ONLY = re.compile(
 _CENSUS_TITLE = re.compile(r"\b\d{4} united states federal census\b", re.IGNORECASE)
 
 
+def is_ancestry_style_title(title: str) -> bool:
+    """Return True for titles worded the way Ancestry names its databases."""
+    return bool(
+        re.search(r"\bU\.S\.", title or "")
+        or _CENSUS_TITLE.search(title or "")
+        or _ANCESTRY_ONLY.search(title or "")
+    )
+
+
+def build_family_titles(titles: list[str]) -> dict[str, list[str]]:
+    """Group source titles that normalise to the same text.
+
+    Titles that differ only by "U.S." (an older and a newer name for the same
+    collection) land in one group, whatever repository they are linked to.
+    """
+    families: dict[str, list[str]] = defaultdict(list)
+    for title in titles:
+        key = normalize_source_title(title or "")
+        if key:
+            families[key].append(title)
+    return dict(families)
+
+
 def build_title_repo_index(
     rows: list[dict[str, str]],
 ) -> dict[str, list[tuple[str, str]]]:
@@ -314,8 +350,13 @@ def suggest_repository(
     current_repo: str,
     index: dict[str, list[tuple[str, str]]],
     golden: list[str],
+    family_titles: dict[str, list[str]] | None = None,
 ) -> tuple[str, str] | None:
     """Suggest a golden repository for a source, with the reason.
+
+    ``family_titles`` (from ``build_family_titles``) lets a title without
+    "U.S." follow a same-collection title that is worded like Ancestry,
+    even before either source has a repository.
 
     A repository the source already has outranks everything else when its
     name is close to a golden name (it is simply misnamed). After that the
@@ -336,10 +377,14 @@ def suggest_repository(
 
     # 0. The source already has a repository whose name is close to a golden
     #    name: it is simply misnamed, and that outranks anything in the title.
+    already_golden = False
     if current_repo:
         near = closest_golden_name(current_repo, golden)
-        if near:
+        if near and normalize_repo_name(near) != current_key:
             return result(near, _("closest golden name to the current repository"))
+        # Already on a golden repository: only a same-collection source may
+        # suggest a change, never the title wording.
+        already_golden = bool(near)
 
     # 1. Another source with the same title already has a repository.
     votes: Counter = Counter()
@@ -347,17 +392,18 @@ def suggest_repository(
         golden_name = lookup.get(normalize_repo_name(repo_name))
         if other_handle != source_handle and golden_name:
             votes[golden_name] += 1
-    if votes:
+    # A title worded like Ancestry's is the newer name of its collection, so
+    # an existing choice for it is not overridden by an older-named sibling
+    # (otherwise two sources would each suggest moving to the other).
+    if votes and not (already_golden and is_ancestry_style_title(title)):
         name = votes.most_common(1)[0][0]
         return result(name, _("same title already linked to %s") % name)
+    if already_golden:
+        return None
 
     # 2. Ancestry-only naming (checked before a site named inside the title,
     #    because "U.S., Find A Grave Index" is an Ancestry database).
-    if "Ancestry.com" in golden and (
-        re.search(r"\bU\.S\.", title or "")
-        or _CENSUS_TITLE.search(title or "")
-        or _ANCESTRY_ONLY.search(title or "")
-    ):
+    if "Ancestry.com" in golden and is_ancestry_style_title(title):
         return result("Ancestry.com", _("Ancestry-style database title"))
 
     # 3. A golden repository named in the title.
@@ -370,6 +416,15 @@ def suggest_repository(
         r"patent\s+(?:and\s+trademark\s+)?office|\buspto\b", title or "", re.IGNORECASE
     ):
         return result(uspto, _("title names the patent office"))
+
+    # 3b. A same-collection title worded like Ancestry's (for example the
+    #     "U.S." version of this title) means this source is on Ancestry too.
+    if "Ancestry.com" in golden and family_titles:
+        siblings = family_titles.get(normalize_source_title(title or ""), [])
+        if any(
+            other != title and is_ancestry_style_title(other) for other in siblings
+        ):
+            return result("Ancestry.com", _("same collection as an Ancestry-style title"))
 
     # 4. State-style collection title without "U.S." is FamilySearch naming.
     if "FamilySearch" in golden and _YEAR_RANGE.search(title or ""):

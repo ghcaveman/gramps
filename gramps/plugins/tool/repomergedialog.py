@@ -50,6 +50,7 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import ErrorDialog, OkDialog
 from gramps.plugins.tool.goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationshared import (
+    build_family_titles,
     build_title_repo_index,
     suggest_repository,
 )
@@ -75,7 +76,10 @@ LOG = logging.getLogger(__name__)
 #
 # ------------------------------------------------------------
 class RepoMergeDialog(Gtk.Dialog):
-    """Grid dialog: repository names (with merge target dropdowns) beside\n    their associated sources. The header shares the grid columns with the\n    rows below so they align vertically, and cell text wraps to stay inside\n    its column."""
+    """Grid dialog: repository names (with merge target dropdowns) beside
+    their associated sources. The header shares the grid columns with the
+    rows below so they align vertically, and cell text wraps to stay inside
+    its column."""
 
     def __init__(
         self,
@@ -104,8 +108,13 @@ class RepoMergeDialog(Gtk.Dialog):
 
         # Collect repository rows and associated sources.
         self.sources_by_repo = self.collect_sources_by_repo()
-        self.hint_index = build_title_repo_index(
-            [row for row in self.collect_source_rows() if row["repo_handle"]]
+        self.source_rows = self.collect_source_rows()
+        linked_rows = [row for row in self.source_rows if row["repo_handle"]]
+        self.hint_index = build_title_repo_index(linked_rows)
+        # Titles of every source, linked or not, grouped by collection so a
+        # title without "U.S." can follow its "U.S." twin.
+        self.family_titles = build_family_titles(
+            [row["title"] for row in self.source_rows]
         )
         rows = build_repo_merge_rows(self.collect_repo_names())
         visible = [row for row in rows if not row["skip"]]
@@ -151,33 +160,7 @@ class RepoMergeDialog(Gtk.Dialog):
         header_grid.set_hexpand(True)
         header_grid.set_vexpand(False)
         header_grid.get_style_context().add_class("merge-grid")
-
-        # Column 0: Sources (moved from position 2)
-        sources_head = Gtk.Label()
-        sources_head.set_markup("<b>%s</b>" % str(_("Sources")))
-        sources_head.set_halign(Gtk.Align.START)
-        sources_head.set_hexpand(True)
-        # Column 1: Repository (moved from position 0)
-        left_head = Gtk.Label()
-        left_head.set_markup("<b>%s</b>" % str(_("Repository")))
-        left_head.set_halign(Gtk.Align.START)
-        left_head.set_hexpand(True)
-        # Column 2: Merge into (golden) (moved from position 1)
-        mid_head = Gtk.Label()
-        mid_head.set_markup("<b>%s</b>" % str(_("Merge into (golden)")))
-        mid_head.set_halign(Gtk.Align.START)
-        mid_head.set_hexpand(True)
-        # Column 3: Hint (kept at position 3)
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
-        hint_head.set_halign(Gtk.Align.START)
-        hint_head.set_hexpand(True)
-        for head in (sources_head, left_head, mid_head, hint_head):
-            head.get_style_context().add_class("merge-cell")
-        header_grid.attach(sources_head, 0, 0, 1, 1)
-        header_grid.attach(left_head, 1, 0, 1, 1)
-        header_grid.attach(mid_head, 2, 0, 1, 1)
-        header_grid.attach(hint_head, 3, 0, 1, 1)
+        self.build_header(header_grid)
         content.add(header_grid)
 
         content.pack_start(
@@ -296,10 +279,13 @@ class RepoMergeDialog(Gtk.Dialog):
             padding: 2px;
         }
         """
+        screen = Gdk.Screen.get_default()
+        if screen is None:
+            return
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
+            screen,
             provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
@@ -363,6 +349,7 @@ class RepoMergeDialog(Gtk.Dialog):
             current,
             self.hint_index,
             golden,
+            self.family_titles,
         )
 
     def attach_hint(
@@ -405,7 +392,7 @@ class RepoMergeDialog(Gtk.Dialog):
         # Each repo with sources gets one row per source; repos without sources
         # get a single row with the "(no sources)" placeholder.
         rows_by_repo: dict[str, list[dict[str, str]]] = defaultdict(list)
-        for info in self.collect_source_rows():
+        for info in getattr(self, "source_rows", None) or self.collect_source_rows():
             rows_by_repo[info["repo_name"]].append(info)
         for infos in rows_by_repo.values():
             infos.sort(key=lambda item: item["title"].lower())
@@ -636,15 +623,19 @@ class RepoMergeDialog(Gtk.Dialog):
                 parent=owner,
             )
             return
-        merged, renamed = self.apply_merges(plan)
-        OkDialog(
-            str(_("Auto fix: repositories")),
-            str(
-                _("Merged %d repositories, renamed %d to golden names.")
-                % (merged, renamed)
-            ),
-            parent=owner,
+        merged, renamed, errors = self.apply_merges(plan)
+        message = str(
+            _("Merged %d repositories, renamed %d to golden names.")
+            % (merged, renamed)
         )
+        if errors:
+            ErrorDialog(
+                str(_("Auto fix: repositories")),
+                message + "\n\n" + "\n".join(errors),
+                parent=owner,
+            )
+            return
+        OkDialog(str(_("Auto fix: repositories")), message, parent=owner)
 
     def show_dialog(self) -> None:
         """Show the dialog modally and destroy it afterwards."""
