@@ -41,6 +41,7 @@ from gramps.gen.db import DbTxn
 from gramps.gen.lib import Repository, RepositoryType, RepoRef, Url, UrlType
 from gramps.plugins.tool.goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationshared import (
+    clean_source_title,
     detect_title_elements,
     is_debris_text,
     is_tree_source_title,
@@ -48,6 +49,7 @@ from gramps.plugins.tool.gwizardcitationshared import (
     normalize_source_title,
     note_text,
     split_conflated_title,
+    unpacked_abbreviation,
 )
 
 _ = glocale.translation.sgettext
@@ -99,6 +101,29 @@ class GWizardCitationRepairEngine:
                     "apply": True,
                 }
             )
+        # Titles with markup, citation-style quotes or a bare website address
+        # are cleaned too, for sources the split above did not already plan.
+        planned = {str(item["handle"]) for item in plan}
+        for source in db.iter_sources():
+            handle = str(source.get_handle())
+            if handle in planned:
+                continue
+            old_title = str(source.get_title() or "")
+            new_title, moved, repo_name, reason = clean_source_title(old_title)
+            if not new_title and not moved and not repo_name:
+                continue
+            plan.append(
+                {
+                    "handle": handle,
+                    "gramps_id": str(source.get_gramps_id() or ""),
+                    "old_title": old_title,
+                    "repo_name": repo_name,
+                    "new_title": new_title or old_title.strip(),
+                    "moved_text": moved,
+                    "reason": reason,
+                    "apply": True,
+                }
+            )
         return plan
 
     def apply_unpack_plan(self, db: Any, plan: list[dict[str, Any]]) -> int:
@@ -116,26 +141,38 @@ class GWizardCitationRepairEngine:
                     continue
                 repo_name = str(entry.get("repo_name") or "").strip()
                 new_title = str(entry.get("new_title") or "").strip()
-                if not repo_name or not new_title:
+                if not new_title:
                     continue
                 try:
                     source = db.get_source_from_handle(entry["handle"])
                     if source is None:
                         continue
-                    key = normalize_repo_name(repo_name)
-                    repo_handle = repo_map.get(key)
-                    if not repo_handle:
-                        repo_handle = self._create_repository(db, repo_name, trans)
-                        repo_map[key] = repo_handle
-                    linked = any(
-                        ref.get_reference_handle() == repo_handle
-                        for ref in source.get_reporef_list()
+                    # A title-only entry (markup or quotes) has no repository.
+                    if repo_name:
+                        key = normalize_repo_name(repo_name)
+                        repo_handle = repo_map.get(key)
+                        if not repo_handle:
+                            repo_handle = self._create_repository(
+                                db, repo_name, trans
+                            )
+                            repo_map[key] = repo_handle
+                        linked = any(
+                            ref.get_reference_handle() == repo_handle
+                            for ref in source.get_reporef_list()
+                        )
+                        if not linked:
+                            repo_ref = RepoRef()
+                            repo_ref.set_reference_handle(repo_handle)
+                            source.add_repo_reference(repo_ref)
+                    new_abbrev = unpacked_abbreviation(
+                        str(source.get_abbreviation() or ""),
+                        str(source.get_title() or ""),
+                        new_title,
+                        repo_name,
                     )
-                    if not linked:
-                        repo_ref = RepoRef()
-                        repo_ref.set_reference_handle(repo_handle)
-                        source.add_repo_reference(repo_ref)
                     source.set_title(new_title)
+                    if new_abbrev is not None:
+                        source.set_abbreviation(new_abbrev)
                     moved = str(entry.get("moved_text") or "").strip()
                     if moved:
                         pubinfo = str(source.get_publication_info() or "").strip()
@@ -362,6 +399,24 @@ class GWizardCitationRepairEngine:
                 citation.set_reference_handle(keeper_handle)
                 db.commit_citation(citation, trans)
         keeper.merge(discard)
+        # Source.merge keeps notes, media, tags and repositories but not the
+        # text fields, so fill any the keeper lacks from the discarded source.
+        if not str(keeper.get_author() or "").strip() and discard.get_author():
+            keeper.set_author(discard.get_author())
+        if (
+            not str(keeper.get_publication_info() or "").strip()
+            and discard.get_publication_info()
+        ):
+            keeper.set_publication_info(discard.get_publication_info())
+        if not str(keeper.get_abbreviation() or "").strip() and discard.get_abbreviation():
+            keeper.set_abbreviation(discard.get_abbreviation())
+        LOG.info(
+            "Merged source %s '%s' into %s '%s'",
+            discard.get_gramps_id(),
+            discard.get_title(),
+            keeper.get_gramps_id(),
+            keeper.get_title(),
+        )
         db.commit_source(keeper, trans)
         db.remove_source(discard_handle, trans)
         return True
@@ -380,6 +435,7 @@ class GWizardCitationRepairEngine:
             )
             return (
                 -len(list(source.get_reporef_list())),
+                -int(bool(re.search(r"\bU\.S\.", str(source.get_title() or "")))),
                 -cites,
                 str(source.get_gramps_id() or ""),
             )

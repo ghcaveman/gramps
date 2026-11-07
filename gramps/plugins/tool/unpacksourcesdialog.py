@@ -26,9 +26,7 @@
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
-import html
 import logging
-import re
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -50,104 +48,14 @@ from gramps.gen.lib import RepoRef
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
-from gramps.plugins.tool.gwizardcitationshared import normalize_repo_name
+from gramps.plugins.tool.gwizardcitationshared import (
+    clean_source_title,
+    normalize_repo_name,
+    unpacked_abbreviation,
+)
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
-
-
-def _unpacked_abbreviation(
-    current_abbrev: str, old_title: str, new_title: str, repo_name: str
-) -> str | None:
-    """Return a replacement abbreviation after a source title was unpacked.
-
-    The abbreviation usually starts out as a copy of the conflated title
-    (e.g. "Newspapers.com Obituary Index"), so it keeps the repository text
-    that was just moved out. Return the new abbreviation, or None when the
-    existing value should be left alone (a deliberate custom abbreviation).
-    """
-    abbrev = (current_abbrev or "").strip()
-    old = (old_title or "").strip()
-    new = (new_title or "").strip()
-    repo = (repo_name or "").strip()
-    if not new:
-        return None
-    if not abbrev:
-        return None
-    if abbrev.casefold() == old.casefold():
-        return new if abbrev != new else None
-    if repo and abbrev.casefold().startswith(repo.casefold()):
-        rest = abbrev[len(repo) :].lstrip(" -:;,")
-        if rest and rest != abbrev:
-            return rest
-    # "New title (https://site)": the abbreviation is the title plus a URL
-    # or note in brackets, which belongs in the publication info instead.
-    if abbrev.casefold().startswith(new.casefold()):
-        tail = abbrev[len(new) :].strip()
-        if tail.startswith(("(", "[")) and tail != "":
-            return new
-    return None
-
-
-_TAG_RE = re.compile(r"<[^>]+>")
-_QUOTE_CHARS = "\"'\u201c\u201d\u2018\u2019\u201e\u00ab\u00bb"
-_BARE_DOMAIN_RE = re.compile(
-    r"^(?:https?://)?(?:www\.)?([\w-]+(?:\.[\w-]+)+)/?$", re.IGNORECASE
-)
-# Websites whose bare domain is used as a source title, mapped to the name
-# that should be the repository and the title.
-_KNOWN_SITES = {
-    "familysearch.org": "FamilySearch",
-    "legacy.com": "Legacy.com",
-    "ancestry.com": "Ancestry.com",
-    "newspapers.com": "Newspapers.com",
-    "findagrave.com": "Find a Grave",
-    "archives.gov": "National Archives and Records Administration (NARA)",
-}
-
-
-def clean_source_title(title: str) -> tuple[str, str, str, str]:
-    """Clean markup, quotes and website addresses out of a source title.
-
-    :returns: ``(new_title, moved_text, repo_name, reason)``. ``new_title``
-        is empty when the title needs no change. ``moved_text`` is detail
-        taken out of the title that should be kept in the publication info,
-        ``repo_name`` is a known website to use as the repository (or empty)
-        and ``reason`` is a short description of what was fixed.
-    """
-    original = title or ""
-    text = html.unescape(_TAG_RE.sub("", original))
-    text = " ".join(text.split())
-    reasons: list[str] = []
-    if text != " ".join(original.split()):
-        reasons.append("html markup")
-    moved = ""
-    quoted = re.match(
-        "^[\u201c\"]\\s*(.+?)[,.]?\\s*[\u201d\"]\\s*,?\\s*(.*)$", text
-    )
-    if quoted:
-        text = quoted.group(1).strip()
-        moved = quoted.group(2).strip(" ,;")
-        reasons.append("citation-style quotes")
-    else:
-        stripped = text.strip(_QUOTE_CHARS + " ,;")
-        if stripped != text:
-            reasons.append("stray quotes")
-            text = stripped
-    repo_name = ""
-    domain = _BARE_DOMAIN_RE.match(text)
-    if domain:
-        site = _KNOWN_SITES.get(domain.group(1).casefold())
-        if site:
-            moved = "; ".join(part for part in (moved, text) if part)
-            text = site
-            repo_name = site
-            reasons.append("website address used as title")
-    if text == original.strip() and not moved:
-        return "", "", "", ""
-    if text == original.strip():
-        text = ""
-    return text, moved, repo_name, ", ".join(reasons)
 
 
 def _plan_title_cleanups(db: Any, planned_handles: set[str]) -> list[dict[str, Any]]:
@@ -521,7 +429,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
                 # 2. Source Title (and the abbreviation that copied it)
                 if new_title:
                     old_title = str(source.get_title() or "")
-                    new_abbrev = _unpacked_abbreviation(
+                    new_abbrev = unpacked_abbreviation(
                         str(source.get_abbreviation() or ""),
                         old_title,
                         new_title,

@@ -28,6 +28,7 @@
 from __future__ import annotations
 from collections import defaultdict
 import logging
+import re
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -506,11 +507,24 @@ def _dedupe_handles(handles: list[str]) -> list[str]:
     return out
 
 
+def _title_rank(title: Any) -> int:
+    """Return 1 for a title containing "U.S.", the newer database naming."""
+    return 1 if re.search(r"\bU\.S\.", str(title or "")) else 0
+
+
 def _pick_keeper(group: list[dict[str, Any]]) -> dict[str, Any]:
-    """Pick the preferred keeper for a duplicate group."""
+    """Pick the preferred keeper for a duplicate group.
+
+    A source with a repository wins, then the title with the newer "U.S."
+    wording, then the one with more citations.
+    """
     return sorted(
         group,
-        key=lambda r: (r.get("repo_count", 0), r.get("citations", 0)),
+        key=lambda r: (
+            r.get("repo_count", 0),
+            _title_rank(r.get("title")),
+            r.get("citations", 0),
+        ),
         reverse=True,
     )[0]
 
@@ -682,10 +696,12 @@ def build_source_fix_rows(
             # Between handle and target_handle, determine the preferred keeper
             src_score = (
                 len(list(src_obj.get_reporef_list() or [])),
+                _title_rank(src_obj.get_title()),
                 cites_by_source.get(handle, 0),
             )
             target_score = (
                 len(list(target_src.get_reporef_list() or [])),
+                _title_rank(target_src.get_title()),
                 cites_by_source.get(target_handle, 0),
             )
             if src_score >= target_score:
@@ -993,7 +1009,11 @@ def apply_source_fixes(dbstate: Any, plan: dict[str, Any]) -> tuple[int, int, in
     trimmed = 0
 
     already_merged_or_deleted: set[str] = set()
-    quarantine_handle = _get_or_create_quarantine_repo(db)
+    # Create the Quarantine repository only when a source needs it, so an
+    # unused empty repository is not left behind.
+    quarantine_handle = (
+        _get_or_create_quarantine_repo(db) if plan.get("quarantine") else ""
+    )
 
     for entry in plan.get("trim", []):
         src_handle = entry["source_handle"]

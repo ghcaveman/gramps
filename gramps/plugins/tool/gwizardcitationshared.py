@@ -27,6 +27,7 @@
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import difflib
+import html
 import re
 from collections import Counter, defaultdict
 from typing import Any
@@ -118,6 +119,100 @@ def is_review_note_text(text: str) -> bool:
     """Return True when a note may be an import artefact that holds real data."""
     lowered = (text or "").lower()
     return any(indicator in lowered for indicator in REVIEW_NOTE_INDICATORS)
+
+
+def unpacked_abbreviation(
+    current_abbrev: str, old_title: str, new_title: str, repo_name: str
+) -> str | None:
+    """Return a replacement abbreviation after a source title was unpacked.
+
+    The abbreviation usually starts out as a copy of the conflated title
+    (e.g. "Newspapers.com Obituary Index"), so it keeps the repository text
+    that was just moved out. Return the new abbreviation, or None when the
+    existing value should be left alone (a deliberate custom abbreviation).
+    """
+    abbrev = (current_abbrev or "").strip()
+    old = (old_title or "").strip()
+    new = (new_title or "").strip()
+    repo = (repo_name or "").strip()
+    if not new:
+        return None
+    if not abbrev:
+        return None
+    if abbrev.casefold() == old.casefold():
+        return new if abbrev != new else None
+    if repo and abbrev.casefold().startswith(repo.casefold()):
+        rest = abbrev[len(repo) :].lstrip(" -:;,")
+        if rest and rest != abbrev:
+            return rest
+    # "New title (https://site)": the abbreviation is the title plus a URL
+    # or note in brackets, which belongs in the publication info instead.
+    if abbrev.casefold().startswith(new.casefold()):
+        tail = abbrev[len(new) :].strip()
+        if tail.startswith(("(", "[")) and tail != "":
+            return new
+    return None
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_QUOTE_CHARS = "\"'\u201c\u201d\u2018\u2019\u201e\u00ab\u00bb"
+_BARE_DOMAIN_RE = re.compile(
+    r"^(?:https?://)?(?:www\.)?([\w-]+(?:\.[\w-]+)+)/?$", re.IGNORECASE
+)
+# Websites whose bare domain is used as a source title, mapped to the name
+# that should be the repository and the title.
+_KNOWN_SITES = {
+    "familysearch.org": "FamilySearch",
+    "legacy.com": "Legacy.com",
+    "ancestry.com": "Ancestry.com",
+    "newspapers.com": "Newspapers.com",
+    "findagrave.com": "Find a Grave",
+    "archives.gov": "National Archives and Records Administration (NARA)",
+}
+
+
+def clean_source_title(title: str) -> tuple[str, str, str, str]:
+    """Clean markup, quotes and website addresses out of a source title.
+
+    :returns: ``(new_title, moved_text, repo_name, reason)``. ``new_title``
+        is empty when the title needs no change. ``moved_text`` is detail
+        taken out of the title that should be kept in the publication info,
+        ``repo_name`` is a known website to use as the repository (or empty)
+        and ``reason`` is a short description of what was fixed.
+    """
+    original = title or ""
+    text = html.unescape(_TAG_RE.sub("", original))
+    text = " ".join(text.split())
+    reasons: list[str] = []
+    if text != " ".join(original.split()):
+        reasons.append("html markup")
+    moved = ""
+    quoted = re.match(
+        "^[\u201c\"]\\s*(.+?)[,.]?\\s*[\u201d\"]\\s*,?\\s*(.*)$", text
+    )
+    if quoted:
+        text = quoted.group(1).strip()
+        moved = quoted.group(2).strip(" ,;")
+        reasons.append("citation-style quotes")
+    else:
+        stripped = text.strip(_QUOTE_CHARS + " ,;")
+        if stripped != text:
+            reasons.append("stray quotes")
+            text = stripped
+    repo_name = ""
+    domain = _BARE_DOMAIN_RE.match(text)
+    if domain:
+        site = _KNOWN_SITES.get(domain.group(1).casefold())
+        if site:
+            moved = "; ".join(part for part in (moved, text) if part)
+            text = site
+            repo_name = site
+            reasons.append("website address used as title")
+    if text == original.strip() and not moved:
+        return "", "", "", ""
+    if text == original.strip():
+        text = ""
+    return text, moved, repo_name, ", ".join(reasons)
 
 
 def is_tree_source_title(title: str) -> bool:
@@ -433,6 +528,45 @@ def suggest_repository(
     return None
 
 
+_YEAR_TOKEN = re.compile(r"^(?:1[5-9]\d\d|20\d\d|\d{3,4}s|current|present)$")
+_LOOSE_WORDS = {"records", "record", "database", "and", "the", "of", "in", "a"}
+
+
+def same_collection_titles(title_a: str, title_b: str) -> bool:
+    """Return True only when two source titles name the same collection.
+
+    A fuzzy title match is not enough to merge sources: "California Birth
+    Index" and "Maine, Marriage Index", or the 1900 and 1940 census, are very
+    similar as text but are different collections. Titles count as the same
+    collection when:
+
+    * they have the same words once years, filler such as "records" and
+      "U.S." are ignored (so "Volume 1" and "Volume 2", or an "Index" and a
+      "Collection", stay different) (so "Pennsylvania, Marriages, 1852-1968" and
+      "Pennsylvania, U.S., Marriages, 1852-1968" match, and "Philadelphia,
+      Pennsylvania, Death Certificates" and "Pennsylvania, Death
+      Certificates" do not), and
+    * they do not start with different years (the census of 1900 and 1940).
+    """
+    key_a = normalize_source_title(title_a or "")
+    key_b = normalize_source_title(title_b or "")
+    if not key_a or not key_b:
+        return False
+    lead_a = re.match(r"^(1[5-9]\d\d|20\d\d)\b", key_a)
+    lead_b = re.match(r"^(1[5-9]\d\d|20\d\d)\b", key_b)
+    if lead_a and lead_b and lead_a.group(1) != lead_b.group(1):
+        return False
+
+    def words(key: str) -> set[str]:
+        return {
+            word
+            for word in key.split()
+            if word not in _LOOSE_WORDS and not _YEAR_TOKEN.match(word)
+        }
+
+    return words(key_a) == words(key_b)
+
+
 def suggest_source_merge_target(
     selected_handle: str,
     candidate_handles: list[str],
@@ -505,6 +639,9 @@ def suggest_source_merge_target(
                 )
                 % {"target_cites": target_cites, "src_cites": src_cites}
             )
+        elif not same_collection_titles(title, target_title):
+            # Similar wording is not enough: different collections stay apart.
+            continue
         else:
             ratio = (
                 difflib.SequenceMatcher(None, norm_title, target_norm).ratio()
