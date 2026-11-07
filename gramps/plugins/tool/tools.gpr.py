@@ -533,32 +533,6 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# Citation Attributes
-#
-# ------------------------------------------------------------------------
-
-register(
-    TOOL,
-    id="citationattributes",
-    name=_("GWizard Citation Attributes"),
-    description=_(
-        "Assign Genealogical Proof Standard (GPS) quality attributes and confidence ratings to citations."
-    ),
-    version="1.0",
-    gramps_target_version=MODULE_VERSION,
-    status=STABLE,
-    fname="citationattributesdialog.py",
-    authors=["Kevin White"],
-    authors_email=["gocaveman@gmail.com"],
-    category=TOOL_DBPROC,
-    toolclass="CitationAttributesTool",
-    optionclass="CitationAttributesOptions",
-    tool_modes=[TOOL_MODE_GUI],
-    help_url=TOOLS_HELP,
-)
-
-# ------------------------------------------------------------------------
-#
 # Find database Loop
 #
 # ------------------------------------------------------------------------

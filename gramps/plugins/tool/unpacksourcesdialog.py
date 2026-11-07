@@ -54,6 +54,33 @@ _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
 
 
+def _unpacked_abbreviation(
+    current_abbrev: str, old_title: str, new_title: str, repo_name: str
+) -> str | None:
+    """Return a replacement abbreviation after a source title was unpacked.
+
+    The abbreviation usually starts out as a copy of the conflated title
+    (e.g. "Newspapers.com Obituary Index"), so it keeps the repository text
+    that was just moved out. Return the new abbreviation, or None when the
+    existing value should be left alone (a deliberate custom abbreviation).
+    """
+    abbrev = (current_abbrev or "").strip()
+    old = (old_title or "").strip()
+    new = (new_title or "").strip()
+    repo = (repo_name or "").strip()
+    if not new:
+        return None
+    if not abbrev:
+        return None
+    if abbrev.casefold() == old.casefold():
+        return new if abbrev != new else None
+    if repo and abbrev.casefold().startswith(repo.casefold()):
+        rest = abbrev[len(repo) :].lstrip(" -:;,")
+        if rest and rest != abbrev:
+            return rest
+    return None
+
+
 # ------------------------------------------------------------
 #
 # UnpackSourcesDialog
@@ -88,6 +115,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
             new_title = item.get("new_title", "")
             if new_title:
                 hint_parts.append(_("Source title to '%s'") % new_title)
+                hint_parts.append(_("Abbreviation updated to match, if it copied the old title"))
             moved = item.get("moved_text", "")
             if moved:
                 hint_parts.append(
@@ -348,6 +376,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
                 repo_map.setdefault(key, repo.get_handle())
 
         applied_count = 0
+        abbrev_count = 0
         with DbTxn(_("Unpack Conflated Source"), self.dbstate.db) as trans:
             for target in self.row_targets:
                 item = target["entry"]
@@ -384,9 +413,19 @@ class UnpackSourcesDialog(Gtk.Dialog):
                         repo_ref.set_reference_handle(repo_handle)
                         source.add_repo_reference(repo_ref)
 
-                # 2. Source Title
+                # 2. Source Title (and the abbreviation that copied it)
                 if new_title:
+                    old_title = str(source.get_title() or "")
+                    new_abbrev = _unpacked_abbreviation(
+                        str(source.get_abbreviation() or ""),
+                        old_title,
+                        new_title,
+                        repo_name,
+                    )
                     source.set_title(new_title)
+                    if new_abbrev is not None:
+                        source.set_abbreviation(new_abbrev)
+                        abbrev_count += 1
 
                 # 3. Moved publication info
                 if moved_text:
@@ -413,7 +452,8 @@ class UnpackSourcesDialog(Gtk.Dialog):
 
         OkDialog(
             str(_("Field Unpacking Complete")),
-            str(_("Unpacked %d conflated sources.")) % applied_count,
+            str(_("Unpacked %d conflated sources (%d abbreviations updated)."))
+            % (applied_count, abbrev_count),
             parent=self,
         )
 
