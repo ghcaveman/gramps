@@ -36,7 +36,9 @@ from pathlib import Path
 
 LOG = logging.getLogger(__name__)
 
-MSYS_ROOT = Path(r"C:\Program Files\Msys64")
+# Default MSYS2 location – can be overridden via a command‑line argument.
+DEFAULT_MSYS_ROOT = Path(r"C:\Program Files\Msys64")
+MSYS_ROOT = DEFAULT_MSYS_ROOT
 MSYS_PYTHON = MSYS_ROOT / "mingw64" / "bin" / "python3.exe"
 MSYS_PATHS = [
     str(MSYS_ROOT / "mingw64" / "bin"),
@@ -44,25 +46,33 @@ MSYS_PATHS = [
     str(MSYS_ROOT / "usr" / "bin"),
 ]
 
-LAUNCH_JSON = {
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Debug Gramps outside MSYS2",
-            "type": "debugpy",
-            "request": "launch",
-            "python": str(MSYS_PYTHON),
-            "program": "${workspaceFolder}/Gramps.py",
-            "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal",
-            "env": {
-                "GIO_USE_VFS": "local",
-                "GRAMPS_RESOURCES": "${workspaceFolder}/build/share",
-                "PATH": ";".join(MSYS_PATHS + ["${env:PATH}"]),
-            },
-        }
-    ],
-}
+def _build_launch_json() -> dict:
+    """Create the VS Code launch configuration using the current MSYS settings.
+
+    This function is called after argument parsing so that a user‑supplied
+    ``--work`` flag can change ``MSYS_ROOT`` before the JSON is built.
+    """
+    return {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "Debug Gramps outside MSYS2",
+                "type": "debugpy",
+                "request": "launch",
+                "python": str(MSYS_PYTHON),
+                "program": "${workspaceFolder}/Gramps.py",
+                "cwd": "${workspaceFolder}",
+                "console": "integratedTerminal",
+                "env": {
+                    "GIO_USE_VFS": "local",
+                    "GRAMPS_RESOURCES": "${workspaceFolder}/build/share",
+                    "PATH": ";".join(MSYS_PATHS + ["${env:PATH}"]),
+                },
+            }
+        ],
+    }
+
+LAUNCH_JSON = _build_launch_json()
 
 SETTINGS_JSON = {
     "python.testing.unittestArgs": ["-v", "-s", ".", "-p", "*test*.py"],
@@ -131,9 +141,36 @@ def create_environment(target: Path, no_build: bool = False) -> None:
 def main(argv: list[str] | None = None) -> int:
     """Parse args and create the debug environment."""
     parser = argparse.ArgumentParser(description="Set up Gramps F5 debug env.")
-    parser.add_argument("--target", default=".", help="Gramps checkout dir.")
-    parser.add_argument("--no-build", action="store_true", help="Only write .vscode.")
+    parser.add_argument(
+        "--target",
+        default=".",
+        help="Gramps checkout dir.",
+    )
+    parser.add_argument(
+        "--no-build",
+        action="store_true",
+        help="Only write .vscode.",
+    )
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        choices=["w", "work"],
+        help="If supplied (w or work), use the alternate MSYS2 root C:\\msys64.",
+    )
     args = parser.parse_args(argv)
+
+    # Adjust MSYS_ROOT if the user requested the work location.
+    global MSYS_ROOT, MSYS_PYTHON, MSYS_PATHS, LAUNCH_JSON
+    if args.mode:
+        MSYS_ROOT = Path(r"C:\msys64")
+        MSYS_PYTHON = MSYS_ROOT / "mingw64" / "bin" / "python3.exe"
+        MSYS_PATHS = [
+            str(MSYS_ROOT / "mingw64" / "bin"),
+            str(MSYS_ROOT / "ucrt64" / "bin"),
+            str(MSYS_ROOT / "usr" / "bin"),
+        ]
+        # Re‑build the launch configuration with the new paths.
+        LAUNCH_JSON = _build_launch_json()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     try:
         create_environment(Path(args.target), no_build=args.no_build)
