@@ -16,6 +16,7 @@ git rm --cached -r .
 git reset --hard HEAD
 git fetch origin
 git merge origin/attributefix
+git push origin functionality_base
 
 To add attributefix changes to functionality_base:
 git checkout functionality_base
