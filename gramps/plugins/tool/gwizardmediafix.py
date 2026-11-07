@@ -59,12 +59,21 @@ from gramps.gen.utils.file import (
 from gramps.gen.utils.db import get_birth_or_fallback, get_death_or_fallback
 from gramps.gui.plug import tool
 from gramps.gui.managedwindow import ManagedWindow
-from .gwizard_common import (
-    SelectableLabel,
-    TableLabel,
-    HeaderLabel,
-    create_table_grid,
-)
+
+try:
+    from .gwizard_common import (
+        SelectableLabel,
+        TableLabel,
+        HeaderLabel,
+        create_table_grid,
+    )
+except (ImportError, ValueError):
+    from gwizard_common import (  # type: ignore[import-not-found,no-redef]
+        SelectableLabel,
+        TableLabel,
+        HeaderLabel,
+        create_table_grid,
+    )
 
 try:
     from .gwizard_common import (
