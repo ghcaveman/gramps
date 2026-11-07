@@ -73,7 +73,17 @@ if "gi" not in sys.modules:
 from gramps.gen.db.utils import make_database
 from gramps.gen.db.generic import DbWriteBase
 from gramps.gen.db import DbTxn
-from gramps.gen.lib import Media
+from gramps.gen.lib import (
+    Media,
+    Person,
+    Name,
+    Surname,
+    Event,
+    EventType,
+    EventRef,
+    MediaRef,
+    Date,
+)
 from gramps.plugins.tool.gwizardmediafix import (
     GWizardMediaFix,
     FindMissingMediaDialog,
@@ -81,6 +91,10 @@ from gramps.plugins.tool.gwizardmediafix import (
     ApplyFilenameStandardsDialog,
     sanitize_standard_filename,
     generate_media_fix_report,
+    resolve_media_reference_context,
+    format_standard_filename,
+    DEFAULT_FILENAME_TEMPLATE,
+    FILENAME_PRESETS,
 )
 
 
@@ -96,8 +110,22 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.db: DbWriteBase = make_database("sqlite")
         self.db.load(":memory:")
         self.dbstate = FakeDbState(self.db)
+        from gramps.gen.config import config
+        from gramps.plugins.tool.gwizardmediafix import (
+            CONFIG_TEMPLATE_KEY,
+            DEFAULT_FILENAME_TEMPLATE,
+        )
+
+        config.set(CONFIG_TEMPLATE_KEY, DEFAULT_FILENAME_TEMPLATE)
 
     def tearDown(self) -> None:
+        from gramps.gen.config import config
+        from gramps.plugins.tool.gwizardmediafix import (
+            CONFIG_TEMPLATE_KEY,
+            DEFAULT_FILENAME_TEMPLATE,
+        )
+
+        config.set(CONFIG_TEMPLATE_KEY, DEFAULT_FILENAME_TEMPLATE)
         self.db.close()
 
     def test_sanitize_standard_filename(self) -> None:
@@ -109,6 +137,16 @@ class GWizardMediaFixTest(unittest.TestCase):
             os.path.join("documents", "My Census Record#1.PNG")
         )
         self.assertEqual(res2, os.path.join("documents", "My_Census_Record_1.png"))
+
+        # Separator with hyphen should not turn into '_-_'
+        res3 = sanitize_standard_filename("Smith - John - 1920.jpg")
+        self.assertEqual(res3, "Smith-John-1920.jpg")
+
+        res4 = sanitize_standard_filename("1920 Census - Smith, John.jpg")
+        self.assertEqual(res4, "1920_Census-Smith_John.jpg")
+
+        res5 = sanitize_standard_filename("Photo_-_John.JPG")
+        self.assertEqual(res5, "Photo-John.jpg")
 
     def test_find_missing_media_detection_and_apply(self) -> None:
         """FindMissingMediaDialog detects missing files and applies updated paths."""
@@ -175,17 +213,136 @@ class GWizardMediaFixTest(unittest.TestCase):
         dlg = ApplyFilenameStandardsDialog(dbstate=self.dbstate)
         self.assertEqual(len(dlg.rows), 1)
         row = dlg.rows[0]
-        self.assertEqual(row["suggested_path"], "My_File_2020.jpg")
+        # Default template is {ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}
+        # Without references, it falls back cleanly to {id}-{doc_type}.ext
+        self.assertEqual(
+            row["suggested_path"], f"{m.get_gramps_id()}-Irregular_filename.jpg"
+        )
+
+        # Switch to {orig}.{ext} preset
+        dlg.apply_template("{orig}.{ext}")
+        self.assertEqual(dlg.rows[0]["suggested_path"], "My_File_2020.jpg")
 
         mock_entry = MagicMock()
         mock_entry.get_text.return_value = "My_File_2020.jpg"
-        dlg.row_targets = [{"entry": row, "std_entry": mock_entry}]
+        dlg.row_targets = [{"entry": dlg.rows[0], "std_entry": mock_entry}]
 
         with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
             dlg.cb_apply(MagicMock())
 
         updated = self.db.get_media_from_handle(m_handle)
         self.assertEqual(updated.get_path(), "My_File_2020.jpg")
+
+    def test_resolve_media_reference_context_person(self) -> None:
+        """Resolve context for media referenced by a Person."""
+        with DbTxn("Create person media", self.db) as trans:
+            m = Media()
+            m.set_description("Headstone")
+            m.set_path("photos/raw_scan.JPG")
+            m_handle = self.db.add_media(m, trans)
+
+            p = Person()
+            n = Name()
+            s = Surname()
+            s.set_surname("Doe")
+            n.add_surname(s)
+            n.set_first_name("Mary")
+            p.set_primary_name(n)
+
+            d = Date()
+            d.set_year(1985)
+            e = Event()
+            e.set_type(EventType.DEATH)
+            e.set_date_object(d)
+            e_h = db_add_e = self.db.add_event(e, trans)
+            eref = EventRef()
+            eref.set_reference_handle(e_h)
+            p.add_event_ref(eref)
+
+            mref = MediaRef()
+            mref.set_reference_handle(m_handle)
+            p.add_media_reference(mref)
+            p_handle = self.db.add_person(p, trans)
+
+        media = self.db.get_media_from_handle(m_handle)
+        ctx = resolve_media_reference_context(self.db, media)
+        self.assertEqual(ctx["surname"], "Doe")
+        self.assertEqual(ctx["given"], "Mary")
+        self.assertEqual(ctx["doc_type"], "Headstone")
+        self.assertEqual(ctx["year"], "1985")
+
+        std_path = sanitize_standard_filename(media.get_path(), db=self.db, media=media)
+        self.assertEqual(
+            std_path,
+            os.path.join("photos", f"{ctx['ref_id']}_Doe_Mary-Headstone-1985.jpg"),
+        )
+
+    def test_resolve_media_reference_context_event(self) -> None:
+        """Resolve context for media referenced by an Event with a Person participant."""
+        with DbTxn("Create event media", self.db) as trans:
+            m = Media()
+            m.set_description("Birth Certificate")
+            m.set_path("documents/cert_scan.PNG")
+            m_handle = self.db.add_media(m, trans)
+
+            d = Date()
+            d.set_year(1920)
+            e = Event()
+            e.set_type(EventType.BIRTH)
+            e.set_date_object(d)
+            mref = MediaRef()
+            mref.set_reference_handle(m_handle)
+            e.add_media_reference(mref)
+            e_handle = self.db.add_event(e, trans)
+
+            p = Person()
+            n = Name()
+            s = Surname()
+            s.set_surname("Smith")
+            n.add_surname(s)
+            n.set_first_name("John")
+            p.set_primary_name(n)
+            eref = EventRef()
+            eref.set_reference_handle(e_handle)
+            p.add_event_ref(eref)
+            p_handle = self.db.add_person(p, trans)
+
+        media = self.db.get_media_from_handle(m_handle)
+        ctx = resolve_media_reference_context(self.db, media)
+        self.assertEqual(ctx["surname"], "Smith")
+        self.assertEqual(ctx["given"], "John")
+        self.assertEqual(ctx["year"], "1920")
+
+        std_path = sanitize_standard_filename(media.get_path(), db=self.db, media=media)
+        self.assertEqual(
+            std_path,
+            os.path.join(
+                "documents",
+                f"{ctx['ref_id']}_Smith_John-Birth_Certificate-1920.png",
+            ),
+        )
+
+    def test_format_standard_filename_presets(self) -> None:
+        """All filename presets produce platform-safe filenames without invalid characters."""
+        context = {
+            "ref_id": "I0042",
+            "surname": "Smith",
+            "given": "John",
+            "doc_type": "Birth Certificate",
+            "year": "1920",
+            "id": "O0001",
+            "orig": "scan#1 (original)",
+            "ext": "JPEG",
+        }
+        for tmpl, _desc in FILENAME_PRESETS:
+            formatted = format_standard_filename(tmpl, context)
+            self.assertTrue(formatted.endswith(".jpeg"))
+            self.assertNotIn(" ", formatted)
+            self.assertNotIn(",", formatted)
+            self.assertNotIn("_-_", formatted)
+            self.assertNotIn("--", formatted)
+            self.assertNotIn("__", formatted)
+            self.assertLessEqual(len(formatted), 90)
 
     def test_gwizard_media_fix_window_buttons(self) -> None:
         """GWizardMediaFix controller initializes with the required buttons."""
@@ -195,9 +352,9 @@ class GWizardMediaFixTest(unittest.TestCase):
         tool_instance = GWizardMediaFix.__new__(GWizardMediaFix)
         tool_instance.dbstate = self.dbstate
         tool_instance.buttons = {}
-        tool_instance.close = MagicMock()
-        tool_instance.set_window = MagicMock()
-        tool_instance.setup_configs = MagicMock()
+        setattr(tool_instance, "close", MagicMock())
+        setattr(tool_instance, "set_window", MagicMock())
+        setattr(tool_instance, "setup_configs", MagicMock())
 
         tool_instance._build_window(mock_user.uistate)
 

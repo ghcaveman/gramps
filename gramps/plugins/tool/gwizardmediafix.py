@@ -43,15 +43,50 @@ from gi.repository import Gtk, Pango
 # Gramps modules
 #
 # -------------------------------------------------------------------------
+from gramps.gen.config import config
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
 from gramps.gen.db import DbTxn
 from gramps.gen.utils.file import media_path_full, relative_path, media_path
+from gramps.gen.utils.db import get_birth_or_fallback, get_death_or_fallback
 from gramps.gui.plug import tool
 from gramps.gui.managedwindow import ManagedWindow
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
+
+CONFIG_TEMPLATE_KEY = "preferences.gwizardmediafix-filename-template"
+DEFAULT_FILENAME_TEMPLATE = "{ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}"
+config.register(CONFIG_TEMPLATE_KEY, DEFAULT_FILENAME_TEMPLATE)
+
+FILENAME_PRESETS: list[tuple[str, str]] = [
+    (
+        "{ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}",
+        _(
+            "Reference ID + Community Standard ({ref_id}_{surname}_{given}-{doc_type}-{year})"
+        ),
+    ),
+    (
+        "{surname}_{given}-{doc_type}-{year}.{ext}",
+        _("Community Standard ({surname}_{given}-{doc_type}-{year})"),
+    ),
+    (
+        "{ref_id}_{doc_type}-{year}.{ext}",
+        _("Reference ID + Document Type ({ref_id}_{doc_type}-{year})"),
+    ),
+    (
+        "{id}_{doc_type}-{year}.{ext}",
+        _("Media ID + Document Type ({id}_{doc_type}-{year})"),
+    ),
+    (
+        "{id}_{orig}.{ext}",
+        _("Media ID + Original Name ({id}_{orig})"),
+    ),
+    (
+        "{orig}.{ext}",
+        _("Sanitized Original Name ({orig})"),
+    ),
+]
 
 
 # ------------------------------------------------------------
@@ -59,15 +94,262 @@ LOG = logging.getLogger(__name__)
 # Helper utilities for media analysis
 #
 # ------------------------------------------------------------
-def sanitize_standard_filename(path: str) -> str:
-    """Return a sanitized standard filename (lowercase extension, clean spaces/chars)."""
+def clean_token(val: Any) -> str:
+    """Sanitize an individual token value to contain only alphanumeric characters, underscores, and hyphens."""
+    if not val:
+        return ""
+    s = re.sub(r"[\s_]*-+[\s_]*", "-", str(val))
+    clean = re.sub(r"[^\w\-]+", "_", s)
+    clean = re.sub(r"_+", "_", clean)
+    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
+    clean = re.sub(r"-+", "-", clean)
+    return clean.strip("_-")
+
+
+def get_person_year(db: Any, person: Any) -> str:
+    """Extract a representative year for a person (birth, death, or first dated event)."""
+    if not person or not db:
+        return ""
+    try:
+        birth = get_birth_or_fallback(db, person)
+        if birth and birth.get_date_object() and birth.get_date_object().get_year() > 0:
+            return str(birth.get_date_object().get_year())
+        death = get_death_or_fallback(db, person)
+        if death and death.get_date_object() and death.get_date_object().get_year() > 0:
+            return str(death.get_date_object().get_year())
+    except Exception:
+        pass
+    if hasattr(person, "get_event_ref_list"):
+        for eref in person.get_event_ref_list():
+            if hasattr(eref, "ref") and eref.ref:
+                try:
+                    evt = db.get_event_from_handle(eref.ref)
+                    if (
+                        evt
+                        and evt.get_date_object()
+                        and evt.get_date_object().get_year() > 0
+                    ):
+                        return str(evt.get_date_object().get_year())
+                except Exception:
+                    continue
+    return ""
+
+
+def resolve_media_reference_context(db: Any, media: Any) -> dict[str, str]:
+    """Resolve context tokens (surname, given, doc_type, year, ref_id) for a media object."""
+    context: dict[str, str] = {
+        "id": str(media.get_gramps_id() or "") if media else "",
+        "desc": str(media.get_description() or "") if media else "",
+        "orig": "",
+        "ext": "",
+        "ref_id": str(media.get_gramps_id() or "") if media else "",
+        "surname": "",
+        "given": "",
+        "doc_type": "",
+        "year": "",
+    }
+
+    if media:
+        raw_path = str(media.get_path() or "")
+        if raw_path:
+            _, basename = os.path.split(raw_path)
+            name, ext = os.path.splitext(basename)
+            context["orig"] = name
+            context["ext"] = ext.lstrip(".").lower()
+
+        if hasattr(media, "get_date_object"):
+            d_obj = media.get_date_object()
+            if d_obj and hasattr(d_obj, "get_year") and d_obj.get_year() > 0:
+                context["year"] = str(d_obj.get_year())
+
+    if not db or not media or not hasattr(db, "find_backlink_handles"):
+        context["doc_type"] = context["desc"] or "media"
+        return context
+
+    media_handle = media.get_handle()
+    if not media_handle:
+        context["doc_type"] = context["desc"] or "media"
+        return context
+
+    backlinks = list(db.find_backlink_handles(media_handle))
+
+    # Priority 1: Person backlink
+    for cname, handle in backlinks:
+        if cname == "Person":
+            person = db.get_person_from_handle(handle)
+            if person:
+                context["ref_id"] = str(person.get_gramps_id() or context["ref_id"])
+                pname = person.get_primary_name()
+                if pname:
+                    context["surname"] = str(pname.get_surname() or "")
+                    context["given"] = str(pname.get_first_name() or "")
+                context["doc_type"] = context["desc"] or "Photo"
+                if not context["year"]:
+                    context["year"] = get_person_year(db, person)
+                return context
+
+    # Priority 2: Event backlink
+    for cname, handle in backlinks:
+        if cname == "Event":
+            event = db.get_event_from_handle(handle)
+            if event:
+                event_gid = str(event.get_gramps_id() or "")
+                context["doc_type"] = context["desc"] or str(
+                    event.get_type() or "Event"
+                )
+                e_date = event.get_date_object()
+                if e_date and hasattr(e_date, "get_year") and e_date.get_year() > 0:
+                    context["year"] = str(e_date.get_year())
+
+                # Find participant in event
+                e_backlinks = list(
+                    db.find_backlink_handles(
+                        handle, include_classes=["Person", "Family"]
+                    )
+                )
+                for ecname, ehandle in e_backlinks:
+                    if ecname == "Person":
+                        person = db.get_person_from_handle(ehandle)
+                        if person:
+                            context["ref_id"] = str(person.get_gramps_id() or event_gid)
+                            pname = person.get_primary_name()
+                            if pname:
+                                context["surname"] = str(pname.get_surname() or "")
+                                context["given"] = str(pname.get_first_name() or "")
+                            break
+                    elif ecname == "Family" and not context["surname"]:
+                        family = db.get_family_from_handle(ehandle)
+                        if family:
+                            context["ref_id"] = str(family.get_gramps_id() or event_gid)
+                            f_handle = (
+                                family.get_father_handle()
+                                if hasattr(family, "get_father_handle")
+                                else None
+                            )
+                            father = (
+                                db.get_person_from_handle(f_handle)
+                                if f_handle
+                                else None
+                            )
+                            if father and father.get_primary_name():
+                                context["surname"] = str(
+                                    father.get_primary_name().get_surname() or ""
+                                )
+                if not context["ref_id"] or context["ref_id"] == context["id"]:
+                    context["ref_id"] = event_gid
+                return context
+
+    # Priority 3: Family backlink
+    for cname, handle in backlinks:
+        if cname == "Family":
+            family = db.get_family_from_handle(handle)
+            if family:
+                context["ref_id"] = str(family.get_gramps_id() or context["ref_id"])
+                context["doc_type"] = context["desc"] or "Family"
+                f_handle = (
+                    family.get_father_handle()
+                    if hasattr(family, "get_father_handle")
+                    else None
+                )
+                father = db.get_person_from_handle(f_handle) if f_handle else None
+                if father and father.get_primary_name():
+                    context["surname"] = str(
+                        father.get_primary_name().get_surname() or ""
+                    )
+                return context
+
+    # Priority 4: Citation / Source backlink
+    for cname, handle in backlinks:
+        if cname == "Citation":
+            cit = db.get_citation_from_handle(handle)
+            if cit:
+                context["ref_id"] = str(cit.get_gramps_id() or context["ref_id"])
+                context["doc_type"] = context["desc"] or str(
+                    cit.get_page() or "Citation"
+                )
+                s_handle = (
+                    cit.get_reference_handle()
+                    if hasattr(cit, "get_reference_handle")
+                    else None
+                )
+                src = db.get_source_from_handle(s_handle) if s_handle else None
+                if src and src.get_title():
+                    context["doc_type"] = str(src.get_title())
+                return context
+        elif cname == "Source":
+            src = db.get_source_from_handle(handle)
+            if src:
+                context["ref_id"] = str(src.get_gramps_id() or context["ref_id"])
+                context["doc_type"] = context["desc"] or str(
+                    src.get_title() or "Source"
+                )
+                return context
+
+    if not context["doc_type"]:
+        context["doc_type"] = context["desc"] or "media"
+    return context
+
+
+def format_standard_filename(
+    template: str, context: dict[str, str], max_stem_len: int = 85
+) -> str:
+    """Format and sanitize a filename using template tokens and context."""
+    ext = clean_token(context.get("ext", "jpg")).lower()
+    if not ext:
+        ext = "jpg"
+
+    safe_context = {k: clean_token(v) for k, v in context.items() if k != "ext"}
+    safe_context["ext"] = ext
+
+    try:
+        rendered = template.format(**safe_context)
+    except (KeyError, ValueError, IndexError):
+        rendered = f"{safe_context.get('ref_id', '')}_{safe_context.get('orig', 'media')}.{ext}"
+
+    if "." in rendered:
+        base, _ = rendered.rsplit(".", 1)
+    else:
+        base = rendered
+
+    base = re.sub(r"[\s_]*-+[\s_]*", "-", base)
+    base = re.sub(r"[^\w\-]+", "_", base)
+    base = re.sub(r"_+", "_", base)
+    base = re.sub(r"[-_]*-[_\s-]*", "-", base)
+    base = re.sub(r"-+", "-", base)
+    base = base.strip("_-")
+
+    if not base:
+        base = safe_context.get("orig") or safe_context.get("id") or "media"
+        base = clean_token(base) or "media"
+
+    if len(base) > max_stem_len:
+        base = base[:max_stem_len].rstrip("_-")
+
+    return f"{base}.{ext}"
+
+
+def sanitize_standard_filename(
+    path: str,
+    db: Any = None,
+    media: Any = None,
+    template: str | None = None,
+) -> str:
+    """Return a sanitized standard filename adhering to platform-safe naming templates."""
     dirname, basename = os.path.split(path)
     name, ext = os.path.splitext(basename)
-    # Lowercase standard extension
-    ext = ext.lower()
-    # Replace spaces with underscores and remove problematic filesystem characters
-    clean_name = re.sub(r"[^\w\-\.]+", "_", name).strip("_")
-    standard_basename = f"{clean_name}{ext}" if clean_name else f"media{ext}"
+    ext_clean = ext.lstrip(".").lower()
+
+    if db is not None and media is not None:
+        tmpl = template or config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
+        ctx = resolve_media_reference_context(db, media)
+        ctx["orig"] = name
+        ctx["ext"] = ext_clean
+        standard_basename = format_standard_filename(tmpl, ctx)
+    else:
+        tmpl = template or "{orig}.{ext}"
+        ctx = {"orig": name, "ext": ext_clean, "id": "media", "ref_id": "media"}
+        standard_basename = format_standard_filename(tmpl, ctx)
+
     return os.path.join(dirname, standard_basename) if dirname else standard_basename
 
 
@@ -646,39 +928,15 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.rows: list[dict[str, Any]] = []
         self.row_targets: list[dict[str, Any]] = []
-        self.set_default_size(1200, 480)
+        self.set_default_size(1200, 520)
 
-        for media in dbstate.db.iter_media():
-            m_handle = str(media.get_handle() or "")
-            m_gid = str(media.get_gramps_id() or "")
-            desc = str(media.get_description() or "")
-            raw_path = str(media.get_path() or "")
-
-            if not raw_path:
-                continue
-
-            std_path = sanitize_standard_filename(raw_path)
-            if std_path != raw_path:
-                self.rows.append(
-                    {
-                        "handle": m_handle,
-                        "gramps_id": m_gid,
-                        "desc": desc,
-                        "raw_path": raw_path,
-                        "suggested_path": std_path,
-                        "hint_text": _("Standardize filename to '%s'")
-                        % os.path.basename(std_path),
-                    }
-                )
-
-        n_hints = len(self.rows)
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
-        self.accept_button.set_sensitive(n_hints > 0)
+        self.accept_button = Gtk.Button(label=str(_("Accept hints (0)")))
+        self.accept_button.set_sensitive(False)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
 
         self.apply_button = Gtk.Button(label=str(_("Apply")))
-        self.apply_button.set_sensitive(n_hints > 0)
+        self.apply_button.set_sensitive(False)
         self.apply_button.connect("clicked", self.cb_apply)
         self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
 
@@ -692,7 +950,7 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
             label=str(
                 _(
                     "Review media filenames with irregular characters, spaces, or uppercase extensions. "
-                    "Press 'Accept hints' to format standard filenames, then press 'Apply'."
+                    "Select a standard naming template, press 'Accept hints', then press 'Apply'."
                 )
             )
         )
@@ -700,58 +958,153 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
         info.set_halign(Gtk.Align.START)
         content.add(info)
 
+        # Template selection row
+        tmpl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        tmpl_box.set_hexpand(True)
+
+        tmpl_label = Gtk.Label(label=str(_("Naming Template:")))
+        tmpl_label.set_halign(Gtk.Align.START)
+        tmpl_box.pack_start(tmpl_label, False, False, 0)
+
+        self.tmpl_combo = Gtk.ComboBoxText.new_with_entry()
+        self.tmpl_combo.set_hexpand(True)
+        for tmpl_str, tmpl_desc in FILENAME_PRESETS:
+            self.tmpl_combo.append_text(tmpl_desc)
+
+        curr_tmpl = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
+        entry = self.tmpl_combo.get_child()
+        if hasattr(entry, "set_text"):
+            entry.set_text(curr_tmpl)
+            if hasattr(entry, "connect"):
+                entry.connect("activate", self.cb_template_entry_activated)
+
+        self.tmpl_combo.connect("changed", self.cb_template_changed)
+        tmpl_box.pack_start(self.tmpl_combo, True, True, 0)
+        content.add(tmpl_box)
+
+        self.count_label = Gtk.Label(label="")
+        self.count_label.set_halign(Gtk.Align.START)
+        content.add(self.count_label)
+
+        self.rows_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.rows_container.set_hexpand(True)
+        self.rows_container.set_vexpand(True)
+        content.pack_start(self.rows_container, True, True, 0)
+
+        self.refresh_rows(curr_tmpl)
+
+    def cb_template_changed(self, combo: Gtk.ComboBoxText) -> None:
+        idx = combo.get_active()
+        if 0 <= idx < len(FILENAME_PRESETS):
+            tmpl_str = FILENAME_PRESETS[idx][0]
+            entry = combo.get_child()
+            if hasattr(entry, "set_text"):
+                entry.set_text(tmpl_str)
+            self.apply_template(tmpl_str)
+        else:
+            entry = combo.get_child()
+            if hasattr(entry, "get_text"):
+                tmpl_str = entry.get_text().strip()
+                if tmpl_str:
+                    self.apply_template(tmpl_str)
+
+    def cb_template_entry_activated(self, entry: Gtk.Entry) -> None:
+        tmpl_str = entry.get_text().strip()
+        if tmpl_str:
+            self.apply_template(tmpl_str)
+
+    def apply_template(self, tmpl_str: str) -> None:
+        config.set(CONFIG_TEMPLATE_KEY, tmpl_str)
+        self.refresh_rows(tmpl_str)
+
+    def refresh_rows(self, template: str) -> None:
+        self.rows.clear()
+        self.row_targets.clear()
+
+        if self.dbstate and self.dbstate.db:
+            for media in self.dbstate.db.iter_media():
+                m_handle = str(media.get_handle() or "")
+                m_gid = str(media.get_gramps_id() or "")
+                desc = str(media.get_description() or "")
+                raw_path = str(media.get_path() or "")
+
+                if not raw_path:
+                    continue
+
+                std_path = sanitize_standard_filename(
+                    raw_path, db=self.dbstate.db, media=media, template=template
+                )
+                if std_path != raw_path:
+                    self.rows.append(
+                        {
+                            "handle": m_handle,
+                            "gramps_id": m_gid,
+                            "desc": desc,
+                            "raw_path": raw_path,
+                            "suggested_path": std_path,
+                            "hint_text": _("Standardize filename to '%s'")
+                            % os.path.basename(std_path),
+                        }
+                    )
+
+        n_hints = len(self.rows)
+        self.accept_button.set_label(str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button.set_sensitive(n_hints > 0)
+        self.apply_button.set_sensitive(n_hints > 0)
+        self.count_label.set_text(
+            str(_("Total non-standard media filenames: %d") % n_hints)
+        )
+
+        for child in self.rows_container.get_children():
+            self.rows_container.remove(child)
+
         if not self.rows:
             done = Gtk.Label(
-                label=str(_("All media filenames already meet standards."))
+                label=str(_("All media filenames already meet the selected standards."))
             )
             done.set_halign(Gtk.Align.START)
-            content.add(done)
-            return
+            self.rows_container.pack_start(done, False, False, 0)
+        else:
+            header_grid = Gtk.Grid()
+            header_grid.set_column_spacing(6)
+            header_grid.set_row_spacing(0)
+            header_grid.set_hexpand(True)
+            header_grid.set_vexpand(False)
 
-        count_label = Gtk.Label(
-            label=str(_("Total non-standard media filenames: %d") % len(self.rows))
-        )
-        count_label.set_halign(Gtk.Align.START)
-        content.add(count_label)
+            media_head = Gtk.Label()
+            media_head.set_markup("<b>%s</b>" % str(_("Media")))
+            media_head.set_halign(Gtk.Align.START)
 
-        header_grid = Gtk.Grid()
-        header_grid.set_column_spacing(6)
-        header_grid.set_row_spacing(0)
-        header_grid.set_hexpand(True)
-        header_grid.set_vexpand(False)
+            curr_head = Gtk.Label()
+            curr_head.set_markup("<b>%s</b>" % str(_("Current Filename")))
+            curr_head.set_halign(Gtk.Align.START)
 
-        media_head = Gtk.Label()
-        media_head.set_markup("<b>%s</b>" % str(_("Media")))
-        media_head.set_halign(Gtk.Align.START)
+            std_head = Gtk.Label()
+            std_head.set_markup("<b>%s</b>" % str(_("Standard Filename")))
+            std_head.set_halign(Gtk.Align.START)
 
-        curr_head = Gtk.Label()
-        curr_head.set_markup("<b>%s</b>" % str(_("Current Filename")))
-        curr_head.set_halign(Gtk.Align.START)
+            hint_head = Gtk.Label()
+            hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+            hint_head.set_halign(Gtk.Align.START)
+            hint_head.set_hexpand(True)
 
-        std_head = Gtk.Label()
-        std_head.set_markup("<b>%s</b>" % str(_("Standard Filename")))
-        std_head.set_halign(Gtk.Align.START)
+            header_grid.attach(media_head, 0, 0, 1, 1)
+            header_grid.attach(curr_head, 1, 0, 1, 1)
+            header_grid.attach(std_head, 2, 0, 1, 1)
+            header_grid.attach(hint_head, 3, 0, 1, 1)
+            self.rows_container.pack_start(header_grid, False, False, 0)
 
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
-        hint_head.set_halign(Gtk.Align.START)
-        hint_head.set_hexpand(True)
+            self.column_sizegroups = [
+                Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL) for _ in range(4)
+            ]
+            self.column_sizegroups[0].add_widget(media_head)
+            self.column_sizegroups[1].add_widget(curr_head)
+            self.column_sizegroups[2].add_widget(std_head)
+            self.column_sizegroups[3].add_widget(hint_head)
 
-        header_grid.attach(media_head, 0, 0, 1, 1)
-        header_grid.attach(curr_head, 1, 0, 1, 1)
-        header_grid.attach(std_head, 2, 0, 1, 1)
-        header_grid.attach(hint_head, 3, 0, 1, 1)
-        content.add(header_grid)
+            self.rows_container.pack_start(self.build_rows(self.rows), True, True, 0)
 
-        self.column_sizegroups = [
-            Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL) for _ in range(4)
-        ]
-        self.column_sizegroups[0].add_widget(media_head)
-        self.column_sizegroups[1].add_widget(curr_head)
-        self.column_sizegroups[2].add_widget(std_head)
-        self.column_sizegroups[3].add_widget(hint_head)
-
-        content.pack_start(self.build_rows(self.rows), True, True, 0)
+        self.rows_container.show_all()
 
     def build_rows(self, entries: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
         grid = Gtk.Grid()
@@ -891,6 +1244,7 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
 def generate_media_fix_report(db: Any) -> str:
     """Scan all media objects in database, check existence with os.path.exists(), and return formatted report."""
     base_dir = media_path(db) if db else ""
+    curr_tmpl = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
     total = 0
     found = 0
     missing = 0
@@ -899,7 +1253,7 @@ def generate_media_fix_report(db: Any) -> str:
 
     missing_list: list[tuple[str, str, str]] = []
     abs_list: list[tuple[str, str, str]] = []
-    non_std_list: list[tuple[str, str, str]] = []
+    non_std_list: list[tuple[str, str, str, str]] = []
 
     for media in db.iter_media():
         total += 1
@@ -933,9 +1287,13 @@ def generate_media_fix_report(db: Any) -> str:
                 abs_list.append((m_gid, desc, raw_path))
 
             # Check filename standards
-            if raw_path and sanitize_standard_filename(raw_path) != raw_path:
-                non_standard += 1
-                non_std_list.append((m_gid, desc, raw_path))
+            if raw_path:
+                std_path = sanitize_standard_filename(
+                    raw_path, db=db, media=media, template=curr_tmpl
+                )
+                if std_path != raw_path:
+                    non_standard += 1
+                    non_std_list.append((m_gid, desc, raw_path, std_path))
 
     lines: list[str] = [
         "=" * 72,
@@ -948,6 +1306,7 @@ def generate_media_fix_report(db: Any) -> str:
         f"  Files missing on disk:     {missing}",
         f"  Absolute file paths:       {absolute_paths}",
         f"  Non-standard filenames:    {non_standard}",
+        f"  Naming template:           {curr_tmpl}",
         f"  Base media directory:      {base_dir if base_dir else '(none configured)'}",
         "",
     ]
@@ -974,10 +1333,10 @@ def generate_media_fix_report(db: Any) -> str:
         lines.append("-" * 72)
         lines.append(f"NON-STANDARD FILENAMES ({len(non_std_list)} items):")
         lines.append("-" * 72)
-        for gid, desc, path in non_std_list:
+        for gid, desc, path, std_p in non_std_list:
             lines.append(f"  [{gid}] {desc}")
             lines.append(f"    Current:  {path}")
-            lines.append(f"    Standard: {sanitize_standard_filename(path)}")
+            lines.append(f"    Standard: {std_p}")
         lines.append("")
 
     return "\n".join(lines)
