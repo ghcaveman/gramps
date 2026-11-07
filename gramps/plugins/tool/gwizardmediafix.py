@@ -106,6 +106,92 @@ def clean_token(val: Any) -> str:
     return clean.strip("_-")
 
 
+def parse_name_from_text(text: str) -> tuple[str, str, str]:
+    """Parse 'Surname, Given - Rest' or 'Surname, Given_Rest' from text."""
+    if not text:
+        return "", "", ""
+    m = re.match(
+        r"^\s*([A-Za-z\s\'\-]+?)\s*,\s*([A-Za-z\s\'\-]+?)\s*[-_:]+\s*(.+)$", text
+    )
+    if m:
+        return m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
+    return "", "", text
+
+
+def extract_year_and_clean_doctype(
+    doc_type: str, surname: str = "", given: str = ""
+) -> tuple[str, str]:
+    """Extract 4-digit document year and strip redundant person names from doc_type."""
+    if not doc_type:
+        return "", ""
+
+    year = ""
+    y_match = re.search(r"(?:^|[^\d])(1[5-9]\d{2}|20\d{2})(?:[^\d]|$)", doc_type)
+    if y_match:
+        year = y_match.group(1)
+        doc_type = doc_type[: y_match.start(1)] + " " + doc_type[y_match.end(1) :]
+
+    # Strip any leading 'Surname, Given -' pattern from doc_type
+    sur_giv_m = re.match(
+        r"^\s*[A-Za-z\s\'\-]+?,\s*[A-Za-z\s\'\-]+?\s*[-_:]+\s*(.+)$", doc_type
+    )
+    if sur_giv_m:
+        doc_type = sur_giv_m.group(1)
+
+    if surname:
+        pats = (
+            [
+                rf"(?i)^\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*[-_:]*\s*",
+                rf"(?i)^\s*{re.escape(given)}\s+{re.escape(surname)}\s*[-_:]*\s*",
+                rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*",
+                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*$",
+                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*$",
+            ]
+            if given
+            else [rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*"]
+        )
+        for pat in pats:
+            doc_type = re.sub(pat, "", doc_type)
+
+    clean = re.sub(r"[^\w\-]+", "_", doc_type)
+    clean = re.sub(r"[\s_]*-+[\s_]*", "-", clean)
+    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
+    clean = re.sub(r"_+", "_", clean).strip("_-")
+    return clean, year
+
+
+def find_duplicate_media_references(
+    db: Any,
+) -> dict[str, list[tuple[str, str, str, str]]]:
+    """Find media records pointing to the same file path on disk.
+
+    Returns a dict mapping normalized path to list of (gramps_id, description, raw_path, assoc).
+    """
+    if not db:
+        return {}
+    path_map: dict[str, list[tuple[str, str, str, str]]] = {}
+    for media in db.iter_media():
+        m_gid = str(media.get_gramps_id() or "")
+        desc = str(media.get_description() or "")
+        raw_path = str(media.get_path() or "").strip()
+        if not raw_path:
+            continue
+        try:
+            full_path = media_path_full(db, raw_path)
+            key = os.path.normcase(os.path.normpath(full_path))
+        except Exception:
+            key = os.path.normcase(os.path.normpath(raw_path))
+
+        ctx = resolve_media_reference_context(db, media)
+        assoc_str = ctx.get("assoc", "")
+
+        if key not in path_map:
+            path_map[key] = []
+        path_map[key].append((m_gid, desc, raw_path, assoc_str))
+
+    return {k: v for k, v in path_map.items() if len(v) > 1}
+
+
 def get_person_year(db: Any, person: Any) -> str:
     """Extract a representative year for a person (birth, death, or first dated event)."""
     if not person or not db:
@@ -136,7 +222,7 @@ def get_person_year(db: Any, person: Any) -> str:
 
 
 def resolve_media_reference_context(db: Any, media: Any) -> dict[str, str]:
-    """Resolve context tokens (surname, given, doc_type, year, ref_id) for a media object."""
+    """Resolve context tokens (surname, given, doc_type, year, ref_id, assoc) for a media object."""
     context: dict[str, str] = {
         "id": str(media.get_gramps_id() or "") if media else "",
         "desc": str(media.get_description() or "") if media else "",
@@ -147,12 +233,13 @@ def resolve_media_reference_context(db: Any, media: Any) -> dict[str, str]:
         "given": "",
         "doc_type": "",
         "year": "",
+        "assoc": "",
     }
 
     if media:
         raw_path = str(media.get_path() or "")
         if raw_path:
-            _, basename = os.path.split(raw_path)
+            _dir, basename = os.path.split(raw_path)
             name, ext = os.path.splitext(basename)
             context["orig"] = name
             context["ext"] = ext.lstrip(".").lower()
@@ -163,12 +250,29 @@ def resolve_media_reference_context(db: Any, media: Any) -> dict[str, str]:
                 context["year"] = str(d_obj.get_year())
 
     if not db or not media or not hasattr(db, "find_backlink_handles"):
-        context["doc_type"] = context["desc"] or "media"
+        sur, giv, rest = parse_name_from_text(context["desc"] or context["orig"])
+        if sur:
+            context["surname"] = sur
+            context["given"] = giv
+            context["doc_type"] = rest
+        clean_dt, extracted_year = extract_year_and_clean_doctype(
+            context["doc_type"] or context["desc"] or "Photo",
+            context["surname"],
+            context["given"],
+        )
+        if extracted_year:
+            context["year"] = extracted_year
+        if clean_dt:
+            context["doc_type"] = clean_dt
+        if not context["doc_type"]:
+            context["doc_type"] = "Photo" if context["surname"] else "Media"
+        context["assoc"] = _("Top-Level / Global (Unreferenced)")
         return context
 
     media_handle = media.get_handle()
     if not media_handle:
         context["doc_type"] = context["desc"] or "media"
+        context["assoc"] = _("Top-Level / Global (Unreferenced)")
         return context
 
     backlinks = list(db.find_backlink_handles(media_handle))
@@ -186,107 +290,241 @@ def resolve_media_reference_context(db: Any, media: Any) -> dict[str, str]:
                 context["doc_type"] = context["desc"] or "Photo"
                 if not context["year"]:
                     context["year"] = get_person_year(db, person)
-                return context
+                context["assoc"] = (
+                    f"Person: {context['surname']}, {context['given']} [{context['ref_id']}]"
+                )
+                break
 
     # Priority 2: Event backlink
-    for cname, handle in backlinks:
-        if cname == "Event":
-            event = db.get_event_from_handle(handle)
-            if event:
-                event_gid = str(event.get_gramps_id() or "")
-                context["doc_type"] = context["desc"] or str(
-                    event.get_type() or "Event"
-                )
-                e_date = event.get_date_object()
-                if e_date and hasattr(e_date, "get_year") and e_date.get_year() > 0:
-                    context["year"] = str(e_date.get_year())
+    if not context["assoc"]:
+        for cname, handle in backlinks:
+            if cname == "Event":
+                event = db.get_event_from_handle(handle)
+                if event:
+                    event_gid = str(event.get_gramps_id() or "")
+                    e_type = str(event.get_type() or "Event")
+                    context["doc_type"] = context["desc"] or e_type
+                    e_date = event.get_date_object()
+                    if e_date and hasattr(e_date, "get_year") and e_date.get_year() > 0:
+                        context["year"] = str(e_date.get_year())
 
-                # Find participant in event
-                e_backlinks = list(
-                    db.find_backlink_handles(
-                        handle, include_classes=["Person", "Family"]
+                    # Find participant in event
+                    e_backlinks = list(
+                        db.find_backlink_handles(
+                            handle, include_classes=["Person", "Family"]
+                        )
                     )
-                )
-                for ecname, ehandle in e_backlinks:
-                    if ecname == "Person":
-                        person = db.get_person_from_handle(ehandle)
-                        if person:
-                            context["ref_id"] = str(person.get_gramps_id() or event_gid)
-                            pname = person.get_primary_name()
-                            if pname:
-                                context["surname"] = str(pname.get_surname() or "")
-                                context["given"] = str(pname.get_first_name() or "")
-                            break
-                    elif ecname == "Family" and not context["surname"]:
-                        family = db.get_family_from_handle(ehandle)
-                        if family:
-                            context["ref_id"] = str(family.get_gramps_id() or event_gid)
-                            f_handle = (
-                                family.get_father_handle()
-                                if hasattr(family, "get_father_handle")
-                                else None
-                            )
-                            father = (
-                                db.get_person_from_handle(f_handle)
-                                if f_handle
-                                else None
-                            )
-                            if father and father.get_primary_name():
-                                context["surname"] = str(
-                                    father.get_primary_name().get_surname() or ""
+                    p_name_str = ""
+                    for ecname, ehandle in e_backlinks:
+                        if ecname == "Person":
+                            person = db.get_person_from_handle(ehandle)
+                            if person:
+                                context["ref_id"] = str(
+                                    person.get_gramps_id() or event_gid
                                 )
-                if not context["ref_id"] or context["ref_id"] == context["id"]:
-                    context["ref_id"] = event_gid
-                return context
+                                pname = person.get_primary_name()
+                                if pname:
+                                    context["surname"] = str(pname.get_surname() or "")
+                                    context["given"] = str(pname.get_first_name() or "")
+                                    p_name_str = f"{context['surname']}, {context['given']} [{context['ref_id']}]"
+                                break
+                        elif ecname == "Family" and not context["surname"]:
+                            family = db.get_family_from_handle(ehandle)
+                            if family:
+                                context["ref_id"] = str(
+                                    family.get_gramps_id() or event_gid
+                                )
+                                f_handle = (
+                                    family.get_father_handle()
+                                    if hasattr(family, "get_father_handle")
+                                    else None
+                                )
+                                father = (
+                                    db.get_person_from_handle(f_handle)
+                                    if f_handle
+                                    else None
+                                )
+                                if father and father.get_primary_name():
+                                    context["surname"] = str(
+                                        father.get_primary_name().get_surname() or ""
+                                    )
+                                    p_name_str = f"Family: {context['surname']} [{context['ref_id']}]"
+                    if not context["ref_id"] or context["ref_id"] == context["id"]:
+                        context["ref_id"] = event_gid
+                    context["assoc"] = (
+                        f"Event: {e_type}"
+                        + (f" {context['year']}" if context["year"] else "")
+                        + (f" [{p_name_str}]" if p_name_str else "")
+                    )
+                    break
 
     # Priority 3: Family backlink
-    for cname, handle in backlinks:
-        if cname == "Family":
-            family = db.get_family_from_handle(handle)
-            if family:
-                context["ref_id"] = str(family.get_gramps_id() or context["ref_id"])
-                context["doc_type"] = context["desc"] or "Family"
-                f_handle = (
-                    family.get_father_handle()
-                    if hasattr(family, "get_father_handle")
-                    else None
-                )
-                father = db.get_person_from_handle(f_handle) if f_handle else None
-                if father and father.get_primary_name():
-                    context["surname"] = str(
-                        father.get_primary_name().get_surname() or ""
+    if not context["assoc"]:
+        for cname, handle in backlinks:
+            if cname == "Family":
+                family = db.get_family_from_handle(handle)
+                if family:
+                    context["ref_id"] = str(family.get_gramps_id() or context["ref_id"])
+                    context["doc_type"] = context["desc"] or "Family"
+                    f_handle = (
+                        family.get_father_handle()
+                        if hasattr(family, "get_father_handle")
+                        else None
                     )
-                return context
+                    father = db.get_person_from_handle(f_handle) if f_handle else None
+                    if father and father.get_primary_name():
+                        context["surname"] = str(
+                            father.get_primary_name().get_surname() or ""
+                        )
+                    context["assoc"] = (
+                        f"Family: {context['surname']} [{context['ref_id']}]"
+                    )
+                    break
 
-    # Priority 4: Citation / Source backlink
-    for cname, handle in backlinks:
-        if cname == "Citation":
-            cit = db.get_citation_from_handle(handle)
-            if cit:
-                context["ref_id"] = str(cit.get_gramps_id() or context["ref_id"])
-                context["doc_type"] = context["desc"] or str(
-                    cit.get_page() or "Citation"
-                )
-                s_handle = (
-                    cit.get_reference_handle()
-                    if hasattr(cit, "get_reference_handle")
-                    else None
-                )
-                src = db.get_source_from_handle(s_handle) if s_handle else None
-                if src and src.get_title():
-                    context["doc_type"] = str(src.get_title())
-                return context
-        elif cname == "Source":
-            src = db.get_source_from_handle(handle)
-            if src:
-                context["ref_id"] = str(src.get_gramps_id() or context["ref_id"])
-                context["doc_type"] = context["desc"] or str(
-                    src.get_title() or "Source"
-                )
-                return context
+    # Priority 4: Citation backlink (with deep traversal to Event, Person, Family)
+    if not context["assoc"]:
+        for cname, handle in backlinks:
+            if cname == "Citation":
+                cit = db.get_citation_from_handle(handle)
+                if cit:
+                    cit_gid = str(cit.get_gramps_id() or "")
+                    s_handle = (
+                        cit.get_reference_handle()
+                        if hasattr(cit, "get_reference_handle")
+                        else None
+                    )
+                    src = db.get_source_from_handle(s_handle) if s_handle else None
+                    src_title = str(src.get_title() or "") if src else ""
+                    page = str(cit.get_page() or "")
+
+                    # Deep traverse: check what references this Citation
+                    c_backlinks = list(db.find_backlink_handles(handle))
+                    found_event = None
+                    for ecname, ehandle in c_backlinks:
+                        if ecname == "Event":
+                            found_event = db.get_event_from_handle(ehandle)
+                            if found_event:
+                                break
+
+                    if found_event:
+                        event_gid = str(found_event.get_gramps_id() or "")
+                        e_type = str(found_event.get_type() or "Event")
+                        e_date = found_event.get_date_object()
+                        if (
+                            e_date
+                            and hasattr(e_date, "get_year")
+                            and e_date.get_year() > 0
+                        ):
+                            context["year"] = str(e_date.get_year())
+                        context["doc_type"] = context["desc"] or e_type
+
+                        e_backlinks = list(
+                            db.find_backlink_handles(
+                                found_event.get_handle(),
+                                include_classes=["Person", "Family"],
+                            )
+                        )
+                        p_name_str = ""
+                        for pcname, phandle in e_backlinks:
+                            if pcname == "Person":
+                                p = db.get_person_from_handle(phandle)
+                                if p:
+                                    context["ref_id"] = str(
+                                        p.get_gramps_id() or event_gid
+                                    )
+                                    pname = p.get_primary_name()
+                                    if pname:
+                                        context["surname"] = str(
+                                            pname.get_surname() or ""
+                                        )
+                                        context["given"] = str(
+                                            pname.get_first_name() or ""
+                                        )
+                                        p_name_str = f"{context['surname']}, {context['given']} [{context['ref_id']}]"
+                                    break
+                        context["ref_id"] = context["ref_id"] or event_gid or cit_gid
+                        context["assoc"] = (
+                            f"Citation: {cit_gid} ({src_title or 'Source'}) -> Event: {e_type}"
+                            + (f" {context['year']}" if context["year"] else "")
+                            + (f" [{p_name_str}]" if p_name_str else "")
+                        )
+                        break
+
+                    found_person = None
+                    for pcname, phandle in c_backlinks:
+                        if pcname == "Person":
+                            found_person = db.get_person_from_handle(phandle)
+                            if found_person:
+                                break
+
+                    if found_person:
+                        context["ref_id"] = str(found_person.get_gramps_id() or cit_gid)
+                        pname = found_person.get_primary_name()
+                        if pname:
+                            context["surname"] = str(pname.get_surname() or "")
+                            context["given"] = str(pname.get_first_name() or "")
+                        context["doc_type"] = (
+                            context["desc"] or page or src_title or "Citation"
+                        )
+                        if not context["year"]:
+                            context["year"] = get_person_year(db, found_person)
+                        context["assoc"] = (
+                            f"Citation: {cit_gid} ({src_title or 'Source'}) -> Person: {context['surname']}, {context['given']} [{context['ref_id']}]"
+                        )
+                        break
+
+                    context["ref_id"] = cit_gid
+                    context["doc_type"] = (
+                        context["desc"] or page or src_title or "Citation"
+                    )
+                    context["assoc"] = f"Citation: {cit_gid} ({src_title or 'Source'})"
+                    break
+
+    # Priority 5: Source backlink
+    if not context["assoc"]:
+        for cname, handle in backlinks:
+            if cname == "Source":
+                src = db.get_source_from_handle(handle)
+                if src:
+                    context["ref_id"] = str(src.get_gramps_id() or context["ref_id"])
+                    context["doc_type"] = context["desc"] or str(
+                        src.get_title() or "Source"
+                    )
+                    context["assoc"] = (
+                        f"Source: {src.get_title()} [{context['ref_id']}]"
+                    )
+                    break
+
+    # Fallback to text parsing if surname is missing
+    if not context["surname"]:
+        text_to_parse = context["desc"] or context["orig"]
+        sur, giv, rest = parse_name_from_text(text_to_parse)
+        if sur:
+            context["surname"] = sur
+            context["given"] = giv
+            if rest and (
+                not context["doc_type"]
+                or context["doc_type"] in ("media", "Photo", "Citation")
+            ):
+                context["doc_type"] = rest
+
+    # Clean doc_type and extract document year
+    clean_dt, extracted_year = extract_year_and_clean_doctype(
+        context["doc_type"] or context["desc"] or context["orig"] or "Photo",
+        context["surname"],
+        context["given"],
+    )
+    if extracted_year:
+        context["year"] = extracted_year
+    if clean_dt:
+        context["doc_type"] = clean_dt
+
+    if not context["assoc"]:
+        context["assoc"] = _("Top-Level / Global (Unreferenced)")
 
     if not context["doc_type"]:
-        context["doc_type"] = context["desc"] or "media"
+        context["doc_type"] = "Photo" if context["surname"] else "Media"
+
     return context
 
 
@@ -307,7 +545,7 @@ def format_standard_filename(
         rendered = f"{safe_context.get('ref_id', '')}_{safe_context.get('orig', 'media')}.{ext}"
 
     if "." in rendered:
-        base, _ = rendered.rsplit(".", 1)
+        base, _ext = rendered.rsplit(".", 1)
     else:
         base = rendered
 
@@ -1021,19 +1259,43 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
         self.rows.clear()
         self.row_targets.clear()
 
+        # Track shared files to synchronize suggested standard names across duplicate media records
+        file_to_std_basename: dict[str, str] = {}
+
         if self.dbstate and self.dbstate.db:
             for media in self.dbstate.db.iter_media():
                 m_handle = str(media.get_handle() or "")
                 m_gid = str(media.get_gramps_id() or "")
                 desc = str(media.get_description() or "")
-                raw_path = str(media.get_path() or "")
+                raw_path = str(media.get_path() or "").strip()
 
                 if not raw_path:
                     continue
 
-                std_path = sanitize_standard_filename(
-                    raw_path, db=self.dbstate.db, media=media, template=template
-                )
+                try:
+                    full_path = media_path_full(self.dbstate.db, raw_path)
+                    norm_key = os.path.normcase(os.path.normpath(full_path))
+                except Exception:
+                    norm_key = os.path.normcase(os.path.normpath(raw_path))
+
+                ctx = resolve_media_reference_context(self.dbstate.db, media)
+                assoc_str = ctx.get("assoc", "")
+
+                dirname, _base = os.path.split(raw_path)
+                if norm_key in file_to_std_basename:
+                    std_basename = file_to_std_basename[norm_key]
+                    std_path = (
+                        os.path.join(dirname, std_basename) if dirname else std_basename
+                    )
+                    hint = _("Shared file: synchronized to '%s'") % std_basename
+                else:
+                    std_path = sanitize_standard_filename(
+                        raw_path, db=self.dbstate.db, media=media, template=template
+                    )
+                    std_basename = os.path.basename(std_path)
+                    file_to_std_basename[norm_key] = std_basename
+                    hint = _("Standardize filename to '%s'") % std_basename
+
                 if std_path != raw_path:
                     self.rows.append(
                         {
@@ -1042,8 +1304,8 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
                             "desc": desc,
                             "raw_path": raw_path,
                             "suggested_path": std_path,
-                            "hint_text": _("Standardize filename to '%s'")
-                            % os.path.basename(std_path),
+                            "hint_text": hint,
+                            "assoc": assoc_str,
                         }
                     )
 
@@ -1075,6 +1337,10 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
             media_head.set_markup("<b>%s</b>" % str(_("Media")))
             media_head.set_halign(Gtk.Align.START)
 
+            assoc_head = Gtk.Label()
+            assoc_head.set_markup("<b>%s</b>" % str(_("Associated With")))
+            assoc_head.set_halign(Gtk.Align.START)
+
             curr_head = Gtk.Label()
             curr_head.set_markup("<b>%s</b>" % str(_("Current Filename")))
             curr_head.set_halign(Gtk.Align.START)
@@ -1089,18 +1355,20 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
             hint_head.set_hexpand(True)
 
             header_grid.attach(media_head, 0, 0, 1, 1)
-            header_grid.attach(curr_head, 1, 0, 1, 1)
-            header_grid.attach(std_head, 2, 0, 1, 1)
-            header_grid.attach(hint_head, 3, 0, 1, 1)
+            header_grid.attach(assoc_head, 1, 0, 1, 1)
+            header_grid.attach(curr_head, 2, 0, 1, 1)
+            header_grid.attach(std_head, 3, 0, 1, 1)
+            header_grid.attach(hint_head, 4, 0, 1, 1)
             self.rows_container.pack_start(header_grid, False, False, 0)
 
             self.column_sizegroups = [
-                Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL) for _ in range(4)
+                Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL) for _ in range(5)
             ]
             self.column_sizegroups[0].add_widget(media_head)
-            self.column_sizegroups[1].add_widget(curr_head)
-            self.column_sizegroups[2].add_widget(std_head)
-            self.column_sizegroups[3].add_widget(hint_head)
+            self.column_sizegroups[1].add_widget(assoc_head)
+            self.column_sizegroups[2].add_widget(curr_head)
+            self.column_sizegroups[3].add_widget(std_head)
+            self.column_sizegroups[4].add_widget(hint_head)
 
             self.rows_container.pack_start(self.build_rows(self.rows), True, True, 0)
 
@@ -1115,6 +1383,7 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
 
         row_index = 0
         for entry in entries:
+            # Column 0: Media description & ID
             m_text = "%s (%s)" % (
                 entry.get("desc") or _("(unnamed)"),
                 entry.get("gramps_id", ""),
@@ -1124,38 +1393,52 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
             media_label.set_xalign(0.0)
             media_label.set_line_wrap(True)
             media_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            media_label.set_size_request(200, -1)
-            media_label.set_max_width_chars(26)
+            media_label.set_size_request(160, -1)
+            media_label.set_max_width_chars(22)
             grid.attach(media_label, 0, row_index, 1, 1)
 
+            # Column 1: Associated With
+            assoc_label = Gtk.Label(label=entry.get("assoc", ""))
+            assoc_label.set_halign(Gtk.Align.START)
+            assoc_label.set_xalign(0.0)
+            assoc_label.set_line_wrap(True)
+            assoc_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            assoc_label.set_size_request(240, -1)
+            assoc_label.set_max_width_chars(30)
+            grid.attach(assoc_label, 1, row_index, 1, 1)
+
+            # Column 2: Current Path
             curr_label = Gtk.Label(label=entry.get("raw_path", ""))
             curr_label.set_halign(Gtk.Align.START)
             curr_label.set_xalign(0.0)
             curr_label.set_line_wrap(True)
             curr_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            curr_label.set_size_request(240, -1)
-            curr_label.set_max_width_chars(32)
-            grid.attach(curr_label, 1, row_index, 1, 1)
+            curr_label.set_size_request(220, -1)
+            curr_label.set_max_width_chars(28)
+            grid.attach(curr_label, 2, row_index, 1, 1)
 
+            # Column 3: Standard Path Entry
             std_entry = Gtk.Entry()
-            std_entry.set_width_chars(28)
+            std_entry.set_width_chars(26)
             std_entry.set_text("")
-            grid.attach(std_entry, 2, row_index, 1, 1)
+            grid.attach(std_entry, 3, row_index, 1, 1)
 
+            # Column 4: Hint label
             hint_label = Gtk.Label(label=entry.get("hint_text", ""))
             hint_label.set_halign(Gtk.Align.START)
             hint_label.set_xalign(0.0)
             hint_label.set_line_wrap(True)
             hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            hint_label.set_size_request(220, -1)
-            hint_label.set_max_width_chars(28)
-            grid.attach(hint_label, 3, row_index, 1, 1)
+            hint_label.set_size_request(200, -1)
+            hint_label.set_max_width_chars(26)
+            grid.attach(hint_label, 4, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):
                 self.column_sizegroups[0].add_widget(media_label)
-                self.column_sizegroups[1].add_widget(curr_label)
-                self.column_sizegroups[2].add_widget(std_entry)
-                self.column_sizegroups[3].add_widget(hint_label)
+                self.column_sizegroups[1].add_widget(assoc_label)
+                self.column_sizegroups[2].add_widget(curr_label)
+                self.column_sizegroups[3].add_widget(std_entry)
+                self.column_sizegroups[4].add_widget(hint_label)
 
             self.row_targets.append(
                 {
@@ -1253,7 +1536,14 @@ def generate_media_fix_report(db: Any) -> str:
 
     missing_list: list[tuple[str, str, str]] = []
     abs_list: list[tuple[str, str, str]] = []
-    non_std_list: list[tuple[str, str, str, str]] = []
+    non_std_list: list[tuple[str, str, str, str, str]] = []
+
+    # Detect duplicate media records pointing to the same file
+    dup_files = find_duplicate_media_references(db)
+    dup_media_count = sum(len(records) for records in dup_files.values())
+
+    # Keep suggested names synchronized for duplicate file paths
+    file_to_std_basename: dict[str, str] = {}
 
     for media in db.iter_media():
         total += 1
@@ -1272,8 +1562,10 @@ def generate_media_fix_report(db: Any) -> str:
             # Check existence on filesystem
             try:
                 full_path = media_path_full(db, raw_path)
+                norm_key = os.path.normcase(os.path.normpath(full_path))
             except Exception:
                 full_path = raw_path
+                norm_key = os.path.normcase(os.path.normpath(raw_path))
 
             if os.path.exists(full_path):
                 found += 1
@@ -1288,12 +1580,24 @@ def generate_media_fix_report(db: Any) -> str:
 
             # Check filename standards
             if raw_path:
-                std_path = sanitize_standard_filename(
-                    raw_path, db=db, media=media, template=curr_tmpl
-                )
+                ctx = resolve_media_reference_context(db, media)
+                assoc_str = ctx.get("assoc", "")
+                dirname, _base = os.path.split(raw_path)
+
+                if norm_key in file_to_std_basename:
+                    std_basename = file_to_std_basename[norm_key]
+                    std_path = (
+                        os.path.join(dirname, std_basename) if dirname else std_basename
+                    )
+                else:
+                    std_path = sanitize_standard_filename(
+                        raw_path, db=db, media=media, template=curr_tmpl
+                    )
+                    file_to_std_basename[norm_key] = os.path.basename(std_path)
+
                 if std_path != raw_path:
                     non_standard += 1
-                    non_std_list.append((m_gid, desc, raw_path, std_path))
+                    non_std_list.append((m_gid, desc, raw_path, std_path, assoc_str))
 
     lines: list[str] = [
         "=" * 72,
@@ -1306,10 +1610,25 @@ def generate_media_fix_report(db: Any) -> str:
         f"  Files missing on disk:     {missing}",
         f"  Absolute file paths:       {absolute_paths}",
         f"  Non-standard filenames:    {non_standard}",
+        f"  Duplicate file references: {len(dup_files)} files ({dup_media_count} media records)",
         f"  Naming template:           {curr_tmpl}",
         f"  Base media directory:      {base_dir if base_dir else '(none configured)'}",
         "",
     ]
+
+    if dup_files:
+        lines.append("-" * 72)
+        lines.append(
+            f"DUPLICATE FILE REFERENCES ({len(dup_files)} files shared by multiple records):"
+        )
+        lines.append("-" * 72)
+        for p_key, records in dup_files.items():
+            lines.append(f"  File: {records[0][2]}")
+            lines.append(f"    Referenced by {len(records)} media records:")
+            for gid, desc, _p, assoc_str in records:
+                assoc_part = f" ({assoc_str})" if assoc_str else ""
+                lines.append(f"      - [{gid}] {desc}{assoc_part}")
+        lines.append("")
 
     if missing_list:
         lines.append("-" * 72)
@@ -1333,10 +1652,12 @@ def generate_media_fix_report(db: Any) -> str:
         lines.append("-" * 72)
         lines.append(f"NON-STANDARD FILENAMES ({len(non_std_list)} items):")
         lines.append("-" * 72)
-        for gid, desc, path, std_p in non_std_list:
+        for gid, desc, path, std_p, assoc_str in non_std_list:
             lines.append(f"  [{gid}] {desc}")
-            lines.append(f"    Current:  {path}")
-            lines.append(f"    Standard: {std_p}")
+            if assoc_str:
+                lines.append(f"    Association: {assoc_str}")
+            lines.append(f"    Current:     {path}")
+            lines.append(f"    Standard:    {std_p}")
         lines.append("")
 
     return "\n".join(lines)
