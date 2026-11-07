@@ -125,7 +125,7 @@ class WikiTreeInterface:
                 "SSL_CERT_FILE"
             )
             if ca_env and os.path.isfile(ca_env):
-                self.verify_ssl: bool | str = ca_env
+                self.verify_ssl = ca_env
             else:
                 user_combined = os.path.expanduser(r"~\certs\COMBINED_PEM.pem")
                 if os.path.isfile(user_combined):
@@ -236,7 +236,9 @@ class WikiTreeInterface:
         self,
         first_name: str = "",
         last_name: str = "",
-        limit: int = 10,
+        birth_date: str = "",
+        death_date: str = "",
+        limit: int = 25,
         timeout: int = 30,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
@@ -245,6 +247,8 @@ class WikiTreeInterface:
 
         :param first_name: First/given name.
         :param last_name: Last/surname.
+        :param birth_date: Birth year or full date.
+        :param death_date: Death year or full date.
         :param limit: Maximum records to return.
         :param timeout: HTTP request timeout.
         :returns: List of matching profile dictionaries.
@@ -260,6 +264,10 @@ class WikiTreeInterface:
             params["FirstName"] = first_name
         if last_name:
             params["LastName"] = last_name
+        if birth_date:
+            params["BirthDate"] = birth_date
+        if death_date:
+            params["DeathDate"] = death_date
 
         for key, val in kwargs.items():
             if val is not None:

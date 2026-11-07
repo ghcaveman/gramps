@@ -187,9 +187,22 @@ class TestWikiTreeInterface(unittest.TestCase):
         mock_get.return_value = mock_resp
 
         client = WikiTreeInterface()
-        matches = client.search_person(first_name="Ben", last_name="Franklin", limit=5)
+        matches = client.search_person(
+            first_name="Ben",
+            last_name="Franklin",
+            birth_date="1706",
+            death_date="1790",
+            limit=50,
+        )
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]["Name"], "Franklin-101")
+        _, kwargs = mock_get.call_args
+        sent_params = kwargs.get("params", {})
+        self.assertEqual(sent_params.get("FirstName"), "Ben")
+        self.assertEqual(sent_params.get("LastName"), "Franklin")
+        self.assertEqual(sent_params.get("BirthDate"), "1706")
+        self.assertEqual(sent_params.get("DeathDate"), "1790")
+        self.assertEqual(sent_params.get("limit"), 50)
 
     @patch("requests.get")
     def test_get_bio_success(self, mock_get: Mock) -> None:
