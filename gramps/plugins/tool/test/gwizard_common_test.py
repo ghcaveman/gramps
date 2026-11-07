@@ -38,6 +38,28 @@ from unittest.mock import MagicMock
 if "gi" not in sys.modules:
     gi_mock = MagicMock()
 
+    class _FakeDialog:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def get_content_area(self) -> MagicMock:
+            return MagicMock()
+
+        def add_button(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def add_action_widget(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def connect(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def set_default_size(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def show_all(self) -> None:
+            pass
+
     class _FakeLabel:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             self.selectable = False
@@ -105,6 +127,10 @@ if "gi" not in sys.modules:
         def set_vexpand(self, val: bool) -> None:
             self.vexpand = val
 
+        def attach(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+    gi_mock.repository.Gtk.Dialog = _FakeDialog
     gi_mock.repository.Gtk.Label = _FakeLabel
     gi_mock.repository.Gtk.Grid = _FakeGrid
     sys.modules["gi"] = gi_mock
