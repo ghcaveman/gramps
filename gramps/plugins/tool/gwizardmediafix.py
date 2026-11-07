@@ -51,6 +51,12 @@ from gramps.gen.utils.file import media_path_full, relative_path, media_path
 from gramps.gen.utils.db import get_birth_or_fallback, get_death_or_fallback
 from gramps.gui.plug import tool
 from gramps.gui.managedwindow import ManagedWindow
+from .gwizard_common import (
+    SelectableLabel,
+    TableLabel,
+    HeaderLabel,
+    create_table_grid,
+)
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -693,27 +699,13 @@ class FindMissingMediaDialog(Gtk.Dialog):
         content.add(count_label)
 
         # Header grid
-        header_grid = Gtk.Grid()
-        header_grid.set_column_spacing(6)
-        header_grid.set_row_spacing(0)
-        header_grid.set_hexpand(True)
+        header_grid = create_table_grid(col_spacing=6, row_spacing=0)
         header_grid.set_vexpand(False)
 
-        media_head = Gtk.Label()
-        media_head.set_markup("<b>%s</b>" % str(_("Media")))
-        media_head.set_halign(Gtk.Align.START)
-
-        path_head = Gtk.Label()
-        path_head.set_markup("<b>%s</b>" % str(_("Current Path")))
-        path_head.set_halign(Gtk.Align.START)
-
-        new_path_head = Gtk.Label()
-        new_path_head.set_markup("<b>%s</b>" % str(_("New Path")))
-        new_path_head.set_halign(Gtk.Align.START)
-
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
-        hint_head.set_halign(Gtk.Align.START)
+        media_head = HeaderLabel(str(_("Media")))
+        path_head = HeaderLabel(str(_("Current Path")))
+        new_path_head = HeaderLabel(str(_("New Path")))
+        hint_head = HeaderLabel(str(_("Hint")))
         hint_head.set_hexpand(True)
 
         header_grid.attach(media_head, 0, 0, 1, 1)
@@ -733,11 +725,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
         content.pack_start(self.build_rows(self.rows), True, True, 0)
 
     def build_rows(self, entries: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        grid = Gtk.Grid()
-        grid.set_column_spacing(6)
-        grid.set_row_spacing(6)
-        grid.set_hexpand(True)
-        grid.set_vexpand(True)
+        grid = create_table_grid()
 
         row_index = 0
         for entry in entries:
@@ -746,23 +734,13 @@ class FindMissingMediaDialog(Gtk.Dialog):
                 entry.get("desc") or _("(unnamed)"),
                 entry.get("gramps_id", ""),
             )
-            media_label = Gtk.Label(label=m_text)
-            media_label.set_halign(Gtk.Align.START)
-            media_label.set_xalign(0.0)
-            media_label.set_line_wrap(True)
-            media_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            media_label.set_size_request(200, -1)
-            media_label.set_max_width_chars(26)
+            media_label = TableLabel(m_text, width_chars=26, width_request=200)
             grid.attach(media_label, 0, row_index, 1, 1)
 
             # Column 1: Current Path
-            curr_label = Gtk.Label(label=entry.get("raw_path", ""))
-            curr_label.set_halign(Gtk.Align.START)
-            curr_label.set_xalign(0.0)
-            curr_label.set_line_wrap(True)
-            curr_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            curr_label.set_size_request(240, -1)
-            curr_label.set_max_width_chars(32)
+            curr_label = TableLabel(
+                entry.get("raw_path", ""), width_chars=32, width_request=240
+            )
             grid.attach(curr_label, 1, row_index, 1, 1)
 
             # Column 2: New Path entry
@@ -772,13 +750,9 @@ class FindMissingMediaDialog(Gtk.Dialog):
             grid.attach(path_entry, 2, row_index, 1, 1)
 
             # Column 3: Hint label
-            hint_label = Gtk.Label(label=entry.get("hint_text", ""))
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_xalign(0.0)
-            hint_label.set_line_wrap(True)
-            hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            hint_label.set_size_request(220, -1)
-            hint_label.set_max_width_chars(28)
+            hint_label = TableLabel(
+                entry.get("hint_text", ""), width_chars=28, width_request=220
+            )
             grid.attach(hint_label, 3, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):
@@ -972,27 +946,13 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         count_label.set_halign(Gtk.Align.START)
         content.add(count_label)
 
-        header_grid = Gtk.Grid()
-        header_grid.set_column_spacing(6)
-        header_grid.set_row_spacing(0)
-        header_grid.set_hexpand(True)
+        header_grid = create_table_grid(col_spacing=6, row_spacing=0)
         header_grid.set_vexpand(False)
 
-        media_head = Gtk.Label()
-        media_head.set_markup("<b>%s</b>" % str(_("Media")))
-        media_head.set_halign(Gtk.Align.START)
-
-        path_head = Gtk.Label()
-        path_head.set_markup("<b>%s</b>" % str(_("Current Path")))
-        path_head.set_halign(Gtk.Align.START)
-
-        new_path_head = Gtk.Label()
-        new_path_head.set_markup("<b>%s</b>" % str(_("Consolidated Path")))
-        new_path_head.set_halign(Gtk.Align.START)
-
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
-        hint_head.set_halign(Gtk.Align.START)
+        media_head = HeaderLabel(str(_("Media")))
+        path_head = HeaderLabel(str(_("Current Path")))
+        new_path_head = HeaderLabel(str(_("Consolidated Path")))
+        hint_head = HeaderLabel(str(_("Hint")))
         hint_head.set_hexpand(True)
 
         header_grid.attach(media_head, 0, 0, 1, 1)
@@ -1012,11 +972,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         content.pack_start(self.build_rows(self.rows), True, True, 0)
 
     def build_rows(self, entries: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        grid = Gtk.Grid()
-        grid.set_column_spacing(6)
-        grid.set_row_spacing(6)
-        grid.set_hexpand(True)
-        grid.set_vexpand(True)
+        grid = create_table_grid()
 
         row_index = 0
         for entry in entries:
@@ -1024,22 +980,12 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                 entry.get("desc") or _("(unnamed)"),
                 entry.get("gramps_id", ""),
             )
-            media_label = Gtk.Label(label=m_text)
-            media_label.set_halign(Gtk.Align.START)
-            media_label.set_xalign(0.0)
-            media_label.set_line_wrap(True)
-            media_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            media_label.set_size_request(200, -1)
-            media_label.set_max_width_chars(26)
+            media_label = TableLabel(m_text, width_chars=26, width_request=200)
             grid.attach(media_label, 0, row_index, 1, 1)
 
-            curr_label = Gtk.Label(label=entry.get("raw_path", ""))
-            curr_label.set_halign(Gtk.Align.START)
-            curr_label.set_xalign(0.0)
-            curr_label.set_line_wrap(True)
-            curr_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            curr_label.set_size_request(240, -1)
-            curr_label.set_max_width_chars(32)
+            curr_label = TableLabel(
+                entry.get("raw_path", ""), width_chars=32, width_request=240
+            )
             grid.attach(curr_label, 1, row_index, 1, 1)
 
             path_entry = Gtk.Entry()
@@ -1047,13 +993,9 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             path_entry.set_text("")
             grid.attach(path_entry, 2, row_index, 1, 1)
 
-            hint_label = Gtk.Label(label=entry.get("hint_text", ""))
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_xalign(0.0)
-            hint_label.set_line_wrap(True)
-            hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            hint_label.set_size_request(220, -1)
-            hint_label.set_max_width_chars(28)
+            hint_label = TableLabel(
+                entry.get("hint_text", ""), width_chars=28, width_request=220
+            )
             grid.attach(hint_label, 3, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):
@@ -1327,31 +1269,14 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
             done.set_halign(Gtk.Align.START)
             self.rows_container.pack_start(done, False, False, 0)
         else:
-            header_grid = Gtk.Grid()
-            header_grid.set_column_spacing(6)
-            header_grid.set_row_spacing(0)
-            header_grid.set_hexpand(True)
+            header_grid = create_table_grid(col_spacing=6, row_spacing=0)
             header_grid.set_vexpand(False)
 
-            media_head = Gtk.Label()
-            media_head.set_markup("<b>%s</b>" % str(_("Media")))
-            media_head.set_halign(Gtk.Align.START)
-
-            assoc_head = Gtk.Label()
-            assoc_head.set_markup("<b>%s</b>" % str(_("Associated With")))
-            assoc_head.set_halign(Gtk.Align.START)
-
-            curr_head = Gtk.Label()
-            curr_head.set_markup("<b>%s</b>" % str(_("Current Filename")))
-            curr_head.set_halign(Gtk.Align.START)
-
-            std_head = Gtk.Label()
-            std_head.set_markup("<b>%s</b>" % str(_("Standard Filename")))
-            std_head.set_halign(Gtk.Align.START)
-
-            hint_head = Gtk.Label()
-            hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
-            hint_head.set_halign(Gtk.Align.START)
+            media_head = HeaderLabel(str(_("Media")))
+            assoc_head = HeaderLabel(str(_("Associated With")))
+            curr_head = HeaderLabel(str(_("Current Filename")))
+            std_head = HeaderLabel(str(_("Standard Filename")))
+            hint_head = HeaderLabel(str(_("Hint")))
             hint_head.set_hexpand(True)
 
             header_grid.attach(media_head, 0, 0, 1, 1)
@@ -1375,11 +1300,7 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
         self.rows_container.show_all()
 
     def build_rows(self, entries: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        grid = Gtk.Grid()
-        grid.set_column_spacing(6)
-        grid.set_row_spacing(6)
-        grid.set_hexpand(True)
-        grid.set_vexpand(True)
+        grid = create_table_grid()
 
         row_index = 0
         for entry in entries:
@@ -1388,33 +1309,19 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
                 entry.get("desc") or _("(unnamed)"),
                 entry.get("gramps_id", ""),
             )
-            media_label = Gtk.Label(label=m_text)
-            media_label.set_halign(Gtk.Align.START)
-            media_label.set_xalign(0.0)
-            media_label.set_line_wrap(True)
-            media_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            media_label.set_size_request(160, -1)
-            media_label.set_max_width_chars(22)
+            media_label = TableLabel(m_text, width_chars=22, width_request=160)
             grid.attach(media_label, 0, row_index, 1, 1)
 
             # Column 1: Associated With
-            assoc_label = Gtk.Label(label=entry.get("assoc", ""))
-            assoc_label.set_halign(Gtk.Align.START)
-            assoc_label.set_xalign(0.0)
-            assoc_label.set_line_wrap(True)
-            assoc_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            assoc_label.set_size_request(240, -1)
-            assoc_label.set_max_width_chars(30)
+            assoc_label = TableLabel(
+                entry.get("assoc", ""), width_chars=30, width_request=240
+            )
             grid.attach(assoc_label, 1, row_index, 1, 1)
 
             # Column 2: Current Path
-            curr_label = Gtk.Label(label=entry.get("raw_path", ""))
-            curr_label.set_halign(Gtk.Align.START)
-            curr_label.set_xalign(0.0)
-            curr_label.set_line_wrap(True)
-            curr_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            curr_label.set_size_request(220, -1)
-            curr_label.set_max_width_chars(28)
+            curr_label = TableLabel(
+                entry.get("raw_path", ""), width_chars=28, width_request=220
+            )
             grid.attach(curr_label, 2, row_index, 1, 1)
 
             # Column 3: Standard Path Entry
@@ -1424,13 +1331,9 @@ class ApplyFilenameStandardsDialog(Gtk.Dialog):
             grid.attach(std_entry, 3, row_index, 1, 1)
 
             # Column 4: Hint label
-            hint_label = Gtk.Label(label=entry.get("hint_text", ""))
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_xalign(0.0)
-            hint_label.set_line_wrap(True)
-            hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            hint_label.set_size_request(200, -1)
-            hint_label.set_max_width_chars(26)
+            hint_label = TableLabel(
+                entry.get("hint_text", ""), width_chars=26, width_request=200
+            )
             grid.attach(hint_label, 4, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):

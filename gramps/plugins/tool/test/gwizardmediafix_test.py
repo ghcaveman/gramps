@@ -61,7 +61,79 @@ if "gi" not in sys.modules:
         def show_all(self) -> None:
             pass
 
+    class _FakeLabel:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.selectable = False
+            self.can_focus = True
+            self.line_wrap = False
+            self.text = ""
+            self.markup = ""
+            self.max_width_chars: int | None = None
+            self.size_request: tuple[int, int] | None = None
+            self.xalign = 0.5
+            self.halign: Any = None
+
+        def set_text(self, val: str) -> None:
+            self.text = val
+
+        def set_markup(self, val: str) -> None:
+            self.markup = val
+
+        def set_selectable(self, val: bool) -> None:
+            self.selectable = val
+
+        def set_can_focus(self, val: bool) -> None:
+            self.can_focus = val
+
+        def set_line_wrap(self, val: bool) -> None:
+            self.line_wrap = val
+
+        def set_line_wrap_mode(self, val: Any) -> None:
+            pass
+
+        def set_halign(self, val: Any) -> None:
+            self.halign = val
+
+        def set_xalign(self, val: float) -> None:
+            self.xalign = val
+
+        def set_max_width_chars(self, val: int) -> None:
+            self.max_width_chars = val
+
+        def set_size_request(self, w: int, h: int) -> None:
+            self.size_request = (w, h)
+
+        def set_hexpand(self, val: bool) -> None:
+            self.hexpand = val
+
+        def set_vexpand(self, val: bool) -> None:
+            self.vexpand = val
+
+    class _FakeGrid:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.col_spacing = 0
+            self.row_spacing = 0
+            self.hexpand = False
+            self.vexpand = False
+
+        def set_column_spacing(self, val: int) -> None:
+            self.col_spacing = val
+
+        def set_row_spacing(self, val: int) -> None:
+            self.row_spacing = val
+
+        def set_hexpand(self, val: bool) -> None:
+            self.hexpand = val
+
+        def set_vexpand(self, val: bool) -> None:
+            self.vexpand = val
+
+        def attach(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
     gi_mock.repository.Gtk.Dialog = _FakeDialog
+    gi_mock.repository.Gtk.Label = _FakeLabel
+    gi_mock.repository.Gtk.Grid = _FakeGrid
     sys.modules["gi"] = gi_mock
     sys.modules["gi.repository"] = gi_mock.repository
 
