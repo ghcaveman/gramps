@@ -2859,6 +2859,12 @@ def generate_media_fix_report(db: Any, progress_parent: Any = None) -> str:
         elif len(backlinks) == 0:
             zero_ref_media.append((m_gid, desc, first_raw))
 
+        first_raw = raw_paths[0] if raw_paths else ""
+        if len(backlinks) > 1:
+            multi_ref_media.append((m_gid, desc, first_raw, len(backlinks), backlinks))
+        elif len(backlinks) == 0:
+            zero_ref_media.append((m_gid, desc, first_raw))
+
         for raw_path in raw_paths:
             clean_raw = clean_path(raw_path)
             # Check default path location
