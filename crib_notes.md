@@ -23,8 +23,8 @@ git checkout functionality_base
 git merge attributefix
 git push origin functionality_base
 
-To change the starting point of the mediafix branch to be functionality_base:
+To change the starting point of the <feature-branch-name> branch to be functionality_base:
 git fetch origin
 git checkout <feature-branch-name>
 git rebase functionality_base
-git push origin <your-feature-branch-name> --force-with-lease
+git push origin <feature-branch-name> --force-with-lease
