@@ -630,7 +630,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.rows: list[dict[str, Any]] = []
         self.row_targets: list[dict[str, Any]] = []
-        self.set_default_size(1200, 480)
+        self.set_default_size(1360, 520)
 
         # Scan database for missing media files
         base_dir = media_path(dbstate.db) if dbstate and dbstate.db else ""
@@ -714,8 +714,8 @@ class FindMissingMediaDialog(Gtk.Dialog):
         media_head = HeaderLabel(str(_("Media")))
         path_head = HeaderLabel(str(_("Current Path")))
         new_path_head = HeaderLabel(str(_("New Path")))
+        new_path_head.set_hexpand(True)
         hint_head = HeaderLabel(str(_("Hint")))
-        hint_head.set_hexpand(True)
 
         header_grid.attach(media_head, 0, 0, 1, 1)
         header_grid.attach(path_head, 1, 0, 1, 1)
@@ -738,23 +738,24 @@ class FindMissingMediaDialog(Gtk.Dialog):
 
         row_index = 0
         for entry in entries:
-            # Column 0: Media description & ID
+            # Column 0: Media description & ID (20% wider)
             m_text = "%s (%s)" % (
                 entry.get("desc") or _("(unnamed)"),
                 entry.get("gramps_id", ""),
             )
-            media_label = TableLabel(m_text, width_chars=26, width_request=200)
+            media_label = TableLabel(m_text, width_chars=31, width_request=240)
             grid.attach(media_label, 0, row_index, 1, 1)
 
-            # Column 1: Current Path
+            # Column 1: Current Path (50% wider)
             curr_label = TableLabel(
-                entry.get("raw_path", ""), width_chars=32, width_request=240
+                entry.get("raw_path", ""), width_chars=48, width_request=360
             )
             grid.attach(curr_label, 1, row_index, 1, 1)
 
-            # Column 2: New Path entry
+            # Column 2: New Path entry (2.5x wider)
             path_entry = Gtk.Entry()
-            path_entry.set_width_chars(28)
+            path_entry.set_width_chars(70)
+            path_entry.set_hexpand(True)
             path_entry.set_text("")
             grid.attach(path_entry, 2, row_index, 1, 1)
 
@@ -781,7 +782,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_min_content_height(280)
-        scrolled.set_min_content_width(960)
+        scrolled.set_min_content_width(1320)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
@@ -872,7 +873,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.rows: list[dict[str, Any]] = []
         self.row_targets: list[dict[str, Any]] = []
-        self.set_default_size(1200, 480)
+        self.set_default_size(1360, 520)
 
         base_dir = media_path(dbstate.db) if dbstate and dbstate.db else ""
         for media in dbstate.db.iter_media():
@@ -961,8 +962,8 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         media_head = HeaderLabel(str(_("Media")))
         path_head = HeaderLabel(str(_("Current Path")))
         new_path_head = HeaderLabel(str(_("Consolidated Path")))
+        new_path_head.set_hexpand(True)
         hint_head = HeaderLabel(str(_("Hint")))
-        hint_head.set_hexpand(True)
 
         header_grid.attach(media_head, 0, 0, 1, 1)
         header_grid.attach(path_head, 1, 0, 1, 1)
@@ -985,23 +986,28 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
 
         row_index = 0
         for entry in entries:
+            # Column 0: Media description & ID (25% wider)
             m_text = "%s (%s)" % (
                 entry.get("desc") or _("(unnamed)"),
                 entry.get("gramps_id", ""),
             )
-            media_label = TableLabel(m_text, width_chars=26, width_request=200)
+            media_label = TableLabel(m_text, width_chars=33, width_request=250)
             grid.attach(media_label, 0, row_index, 1, 1)
 
+            # Column 1: Current Path (50% wider)
             curr_label = TableLabel(
-                entry.get("raw_path", ""), width_chars=32, width_request=240
+                entry.get("raw_path", ""), width_chars=48, width_request=360
             )
             grid.attach(curr_label, 1, row_index, 1, 1)
 
+            # Column 2: Consolidated Path entry
             path_entry = Gtk.Entry()
-            path_entry.set_width_chars(28)
+            path_entry.set_width_chars(50)
+            path_entry.set_hexpand(True)
             path_entry.set_text("")
             grid.attach(path_entry, 2, row_index, 1, 1)
 
+            # Column 3: Hint label
             hint_label = TableLabel(
                 entry.get("hint_text", ""), width_chars=28, width_request=220
             )
@@ -1024,7 +1030,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_min_content_height(280)
-        scrolled.set_min_content_width(960)
+        scrolled.set_min_content_width(1280)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
@@ -1664,6 +1670,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             transient_for=self.window,
             action=Gtk.FileChooserAction.SAVE,
         )
+        chooser.set_default_size(600, 400)
         chooser.add_buttons(
             str(_("_Cancel")),
             Gtk.ResponseType.CANCEL,
