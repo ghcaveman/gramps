@@ -83,6 +83,8 @@ from gramps.gen.lib import (
     EventRef,
     MediaRef,
     Date,
+    Citation,
+    Source,
 )
 from gramps.plugins.tool.gwizardmediafix import (
     GWizardMediaFix,
@@ -93,6 +95,7 @@ from gramps.plugins.tool.gwizardmediafix import (
     generate_media_fix_report,
     resolve_media_reference_context,
     format_standard_filename,
+    find_duplicate_media_references,
     DEFAULT_FILENAME_TEMPLATE,
     FILENAME_PRESETS,
 )
@@ -377,6 +380,142 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertIn("Total media records:       1", report)
         self.assertIn("Files missing on disk:     1", report)
         self.assertIn("Test Missing", report)
+        self.assertIn("Duplicate file references:", report)
+
+    def test_citation_backlink_deep_traversal(self) -> None:
+        """Citation backlinks traverse through Event to Person to extract surname and event type."""
+        with DbTxn("Create citation hierarchy", self.db) as trans:
+            s = Source()
+            s.set_title("FamilySearch")
+            s_h = self.db.add_source(s, trans)
+
+            c = Citation()
+            c.set_page("p. 42")
+            c.set_reference_handle(s_h)
+            c_h = self.db.add_citation(c, trans)
+
+            m = Media()
+            m.set_path("C:/gramps_dev/Fuller, Harry Jay - 1910Census.jpg")
+            m.set_description("1910 Census scan")
+            m_h = self.db.add_media(m, trans)
+
+            mref = MediaRef()
+            mref.set_reference_handle(m_h)
+            c.add_media_reference(mref)
+            self.db.commit_citation(c, trans)
+
+            e = Event()
+            e.set_type(EventType.CENSUS)
+            e.set_description("1910 Census")
+            d = Date()
+            d.set_year(1910)
+            e.set_date_object(d)
+            e.add_citation(c_h)
+            e_h = self.db.add_event(e, trans)
+
+            p = Person()
+            n = Name()
+            sur = Surname()
+            sur.set_surname("Fuller")
+            n.add_surname(sur)
+            n.set_first_name("Harry Jay")
+            p.set_primary_name(n)
+            eref = EventRef()
+            eref.set_reference_handle(e_h)
+            p.add_event_ref(eref)
+            p_h = self.db.add_person(p, trans)
+
+        media = self.db.get_media_from_handle(m_h)
+        ctx = resolve_media_reference_context(self.db, media)
+        self.assertEqual(ctx["surname"], "Fuller")
+        self.assertEqual(ctx["given"], "Harry Jay")
+        self.assertEqual(ctx["doc_type"], "Census_scan")
+        self.assertEqual(ctx["year"], "1910")
+        self.assertIn("Citation:", ctx["assoc"])
+        self.assertIn("Event: Census 1910", ctx["assoc"])
+        self.assertIn("Fuller, Harry Jay", ctx["assoc"])
+
+        std = sanitize_standard_filename(media.get_path(), db=self.db, media=media)
+        self.assertEqual(
+            std,
+            os.path.join(
+                "C:/gramps_dev",
+                f"{ctx['ref_id']}_Fuller_Harry_Jay-Census_scan-1910.jpg",
+            ),
+        )
+
+    def test_deduplicate_name_and_document_year(self) -> None:
+        """Redundant names in descriptions are stripped and document year takes precedence over birth year."""
+        with DbTxn("Create Duvault media", self.db) as trans:
+            m = Media()
+            m.set_description("Duvault, Nettie - 1900Census")
+            m.set_path("Media/Duvault, Nettie - 1900Census.jpg")
+            m_h = self.db.add_media(m, trans)
+
+            p = Person()
+            n = Name()
+            s = Surname()
+            s.set_surname("Devault")
+            n.add_surname(s)
+            n.set_first_name("Nettie")
+            p.set_primary_name(n)
+
+            # Person's birth event is 1885
+            d = Date()
+            d.set_year(1885)
+            e = Event()
+            e.set_type(EventType.BIRTH)
+            e.set_date_object(d)
+            e_h = self.db.add_event(e, trans)
+            eref = EventRef()
+            eref.set_reference_handle(e_h)
+            p.add_event_ref(eref)
+
+            mref = MediaRef()
+            mref.set_reference_handle(m_h)
+            p.add_media_reference(mref)
+            p_h = self.db.add_person(p, trans)
+
+        media = self.db.get_media_from_handle(m_h)
+        ctx = resolve_media_reference_context(self.db, media)
+        self.assertEqual(ctx["surname"], "Devault")
+        self.assertEqual(ctx["given"], "Nettie")
+        # Document year 1900 from description overrides birth year 1885
+        self.assertEqual(ctx["year"], "1900")
+        self.assertEqual(ctx["doc_type"], "Census")
+
+        std = sanitize_standard_filename(media.get_path(), db=self.db, media=media)
+        self.assertEqual(
+            std,
+            os.path.join(
+                "Media",
+                f"{ctx['ref_id']}_Devault_Nettie-Census-1900.jpg",
+            ),
+        )
+
+    def test_duplicate_media_references_detection_and_sync(self) -> None:
+        """Duplicate media records pointing to the same file are detected and synchronized."""
+        with DbTxn("Create duplicate media", self.db) as trans:
+            for i in range(3):
+                m = Media()
+                m.set_description("Fuller 1910 Census")
+                m.set_path("C:/gramps_dev/Fuller, Harry Jay - 1910Census.jpg")
+                self.db.add_media(m, trans)
+
+        dups = find_duplicate_media_references(self.db)
+        self.assertEqual(len(dups), 1)
+        records = list(dups.values())[0]
+        self.assertEqual(len(records), 3)
+
+        dlg = ApplyFilenameStandardsDialog(dbstate=self.dbstate)
+        # All 3 records should have the identical suggested path
+        suggested_paths = [r["suggested_path"] for r in dlg.rows]
+        self.assertEqual(len(set(suggested_paths)), 1)
+        self.assertIn("Shared file: synchronized to", dlg.rows[1]["hint_text"])
+
+        report = generate_media_fix_report(self.db)
+        self.assertIn("DUPLICATE FILE REFERENCES", report)
+        self.assertIn("Referenced by 3 media records", report)
 
 
 if __name__ == "__main__":
