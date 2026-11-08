@@ -46,7 +46,7 @@ from gi.repository import Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.config import config
 from gramps.gen.const import GRAMPS_LOCALE as glocale, USER_HOME
-from gramps.gui.dialog import OkDialog
+from gramps.gui.dialog import OkDialog, QuestionDialog2
 from gramps.gen.db import DbTxn
 from gramps.gen.utils.file import (
     media_path_full,
@@ -2185,6 +2185,12 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             vbox.pack_start(button, False, False, 0)
             self.buttons[key] = button
 
+        # Action area buttons (Accept all hints placed to the left of Close)
+        auto_all_btn = Gtk.Button(label=str(_("Accept all hints")))
+        auto_all_btn.connect("clicked", self.cb_button, "auto_all")
+        dialog.add_action_widget(auto_all_btn, Gtk.ResponseType.NONE)
+        self.buttons["auto_all"] = auto_all_btn
+
         dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         dialog.connect("response", self.cb_close)
 
@@ -2307,3 +2313,294 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 transient_for=self.window,
             )
             dlg.show_dialog()
+        elif key == "auto_all":
+            self.cb_auto_all()
+
+    def _auto_find_missing(
+        self, db: Any
+    ) -> tuple[int, list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
+        """Auto find missing media files in the default media base path.
+
+        Returns:
+            (resolved_count, unresolved_missing_list, perm_denied_list)
+        """
+        base_dir = get_media_base_path(db) if db else ""
+        resolved_count = 0
+        unresolved: list[tuple[str, str, str]] = []
+        perm_denied: list[tuple[str, str, str, str]] = []
+
+        with DbTxn(_("Auto Find Missing Media"), db) as trans:
+            for media in db.iter_media():
+                m_gid = str(media.get_gramps_id() or "")
+                desc = str(media.get_description() or "")
+                raw_path = str(media.get_path() or "")
+                clean_raw = clean_path(raw_path)
+                if not clean_raw:
+                    continue
+
+                try:
+                    full_path = media_path_full(db, clean_raw)
+                except Exception:
+                    full_path = clean_raw
+
+                exists = os.path.exists(full_path) or (
+                    os.path.isabs(clean_raw) and os.path.exists(clean_raw)
+                )
+
+                if not exists:
+                    basename = os.path.basename(clean_raw)
+                    candidate = os.path.join(base_dir, basename) if base_dir else ""
+                    if candidate and os.path.exists(candidate):
+                        media.set_path(basename)
+                        db.commit_media(media, trans)
+                        resolved_count += 1
+                    else:
+                        perm_issue, inaccess_dir = check_path_permission(full_path)
+                        if not perm_issue and os.path.isabs(clean_raw):
+                            perm_issue, inaccess_dir = check_path_permission(clean_raw)
+                        if perm_issue and inaccess_dir:
+                            perm_denied.append((m_gid, desc, raw_path, inaccess_dir))
+                        else:
+                            unresolved.append((m_gid, desc, raw_path))
+
+        return resolved_count, unresolved, perm_denied
+
+    def _auto_fix_references(self, db: Any) -> tuple[int, int, list[str]]:
+        """Auto resolve duplicate media references and purge unreferenced image tags.
+
+        Returns:
+            (merged_count, deleted_count, errors)
+        """
+        groups = find_duplicate_media_groups(db)
+        merged_count = 0
+        deleted_count = 0
+        errors: list[str] = []
+
+        from gramps.gen.merge.mergemediaquery import MergeMediaQuery
+
+        for group in groups:
+            g_type = group.get("type", "duplicate")
+            if g_type == "unreferenced":
+                h = group["keeper"]["handle"]
+                try:
+                    with DbTxn(_("Remove Unreferenced Media"), db) as trans:
+                        db.remove_media(h, trans)
+                        deleted_count += 1
+                except Exception as err:
+                    LOG.exception("Auto remove unreferenced media failed: %s", err)
+                    errors.append(str(err))
+            elif g_type == "duplicate":
+                keeper = group["keeper"]
+                keeper_media = db.get_media_from_handle(keeper["handle"])
+                if not keeper_media:
+                    continue
+                for other in group["records"]:
+                    if other["handle"] == keeper["handle"]:
+                        continue
+                    try:
+                        other_media = db.get_media_from_handle(other["handle"])
+                        if other_media:
+                            query = MergeMediaQuery(
+                                self.dbstate, keeper_media, other_media
+                            )
+                            query.execute()
+                            merged_count += 1
+                    except Exception as err:
+                        LOG.exception("Auto merge media record failed: %s", err)
+                        errors.append(str(err))
+
+        return merged_count, deleted_count, errors
+
+    def _auto_consolidate_location(
+        self, db: Any
+    ) -> tuple[int, list[tuple[str, str, str]]]:
+        """Auto consolidate media file locations and apply standard filenames.
+
+        Returns:
+            (consolidated_count, unconsolidated_missing_on_disk)
+        """
+        base_dir = get_media_base_path(db) if db else ""
+        if not base_dir:
+            return 0, []
+
+        curr_tmpl = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
+        consolidated_count = 0
+        unconsolidated: list[tuple[str, str, str]] = []
+
+        # Sanity check: Ensure no duplicate file references exist
+        dup_groups = find_duplicate_media_groups(db)
+        dup_files = [g for g in dup_groups if g.get("type", "duplicate") == "duplicate"]
+        if dup_files:
+            return 0, [
+                (
+                    g["keeper"]["gramps_id"],
+                    g["keeper"]["desc"],
+                    g["raw_path"] + " (halted: resolve duplicate references first)",
+                )
+                for g in dup_files
+            ]
+
+        with DbTxn(_("Auto Consolidate Media Locations"), db) as trans:
+            for media in db.iter_media():
+                m_gid = str(media.get_gramps_id() or "")
+                desc = str(media.get_description() or "")
+                raw_path = str(media.get_path() or "")
+                clean_raw = clean_path(raw_path)
+                if not clean_raw:
+                    continue
+
+                std = sanitize_standard_filename(
+                    clean_raw, db=db, media=media, template=curr_tmpl
+                )
+                fname = os.path.basename(std)
+                hint_val = os.path.join(base_dir, fname).replace("\\", "/")
+
+                norm_raw = clean_raw.replace("\\", "/")
+                if norm_raw != hint_val or os.path.isabs(clean_raw):
+                    src_full = clean_path(media_path_full(db, clean_raw))
+                    dest_full = hint_val
+
+                    if os.path.exists(src_full):
+                        if os.path.normpath(src_full) != os.path.normpath(dest_full):
+                            os.makedirs(os.path.dirname(dest_full), exist_ok=True)
+                            shutil.move(src_full, dest_full)
+                        media.set_path(hint_val)
+                        db.commit_media(media, trans)
+                        consolidated_count += 1
+                    else:
+                        unconsolidated.append((m_gid, desc, raw_path))
+
+        return consolidated_count, unconsolidated
+
+    def cb_auto_all(self) -> None:
+        """Run default auto fixes across all media fix layers in order."""
+        confirm = QuestionDialog2(
+            str(_("Accept all hints")),
+            str(
+                _(
+                    "This accepts all default hints and applies them without review:\n\n"
+                    "1. Find missing media: updates paths for files found in the media directory.\n"
+                    "2. Fix media references: merges duplicate media records into the primary keeper and removes unreferenced image tags.\n"
+                    "3. Consolidate media location: moves media files into the base media directory with standardized filenames.\n\n"
+                    "Each database step can be undone with Edit > Undo."
+                )
+            ),
+            str(_("_Accept all")),
+            str(_("_Cancel")),
+            parent=self.window,
+        )
+        if not confirm.run():
+            return
+
+        db = self.dbstate.db
+        base_dir = get_media_base_path(db) if db else ""
+
+        # Step 1: Find missing media
+        missing_count, unresolved_missing, perm_denied = self._auto_find_missing(db)
+
+        # Step 2: Fix media references (must run before consolidation)
+        merged_count, deleted_count, ref_errors = self._auto_fix_references(db)
+
+        # Step 3: Consolidate media locations
+        consolidated_count, unconsolidated = self._auto_consolidate_location(db)
+
+        lines = [
+            str(_("AUTOMATED CHANGES PERFORMED:")),
+            str(
+                _(
+                    "  • Find missing media: %d missing path(s) found in media directory and updated."
+                )
+            )
+            % missing_count,
+            str(
+                _(
+                    "  • Fix media references: %d duplicate record(s) merged, %d unreferenced image tag(s) deleted."
+                )
+            )
+            % (merged_count, deleted_count),
+            str(_("  • Consolidate media location: %d file(s) consolidated into '%s'."))
+            % (consolidated_count, base_dir),
+            "",
+        ]
+
+        manual_items: list[str] = []
+        if unresolved_missing:
+            manual_items.append(
+                str(
+                    _(
+                        "  • Missing files on disk (%d): could not be found automatically in '%s'. Please locate them using 'Find missing media':"
+                    )
+                )
+                % (len(unresolved_missing), base_dir)
+            )
+            for gid, desc, path in unresolved_missing[:5]:
+                manual_items.append(f"      - [{gid}] {desc or _('(unnamed)')}: {path}")
+            if len(unresolved_missing) > 5:
+                manual_items.append(
+                    str(_("      - ... and %d more missing file(s)"))
+                    % (len(unresolved_missing) - 5)
+                )
+
+        if perm_denied:
+            manual_items.append(
+                str(
+                    _(
+                        "  • Permission denied files (%d): access denied by directory permissions. Please grant read permissions in the filesystem:"
+                    )
+                )
+                % len(perm_denied)
+            )
+            for gid, desc, path, inaccess in perm_denied[:5]:
+                manual_items.append(
+                    f"      - [{gid}] {path} (inaccessible at: {inaccess})"
+                )
+            if len(perm_denied) > 5:
+                manual_items.append(
+                    str(_("      - ... and %d more inaccessible file(s)"))
+                    % (len(perm_denied) - 5)
+                )
+
+        if ref_errors:
+            manual_items.append(
+                str(
+                    _("  • Reference conflicts (%d): failed to merge automatically:")
+                    % len(ref_errors)
+                )
+            )
+            for err in ref_errors[:5]:
+                manual_items.append(f"      - {err}")
+
+        if unconsolidated:
+            manual_items.append(
+                str(
+                    _(
+                        "  • Unconsolidated paths (%d): source files not found on disk to relocate:"
+                    )
+                )
+                % len(unconsolidated)
+            )
+            for gid, desc, path in unconsolidated[:5]:
+                manual_items.append(f"      - [{gid}] {path}")
+            if len(unconsolidated) > 5:
+                manual_items.append(
+                    str(_("      - ... and %d more unconsolidated path(s)"))
+                    % (len(unconsolidated) - 5)
+                )
+
+        if manual_items:
+            lines.append(str(_("CHANGES REQUIRING HUMAN INTERVENTION:")))
+            lines.extend(manual_items)
+        else:
+            lines.append(
+                str(
+                    _(
+                        "No human intervention required. All media files and references are fully resolved."
+                    )
+                )
+            )
+
+        OkDialog(
+            str(_("Accept All Hints Complete")),
+            "\n".join(lines),
+            parent=self.window,
+        )
