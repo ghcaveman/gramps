@@ -320,6 +320,9 @@ from gramps.plugins.tool.gwizardmediafix import (
 from gramps.plugins.tool.fixmediareferencesdialog import (
     find_duplicate_media_groups,
 )
+from gramps.plugins.tool.fixmediareferencesdialog import (
+    find_duplicate_media_groups,
+)
 
 
 class FakeDbState:
