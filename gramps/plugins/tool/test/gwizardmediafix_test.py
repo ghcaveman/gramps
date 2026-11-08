@@ -64,6 +64,9 @@ if "gi" not in sys.modules:
         def show_all(self) -> None:
             pass
 
+        def destroy(self) -> None:
+            pass
+
     class _FakeLabel:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             self.selectable = False
@@ -218,6 +221,7 @@ from gramps.gen.const import USER_HOME
 from gramps.gen.db.utils import make_database
 from gramps.gen.db.generic import DbWriteBase
 from gramps.gen.db import DbTxn
+from gramps.gen.errors import HandleError
 from gramps.gen.lib import (
     Media,
     Person,
@@ -235,6 +239,7 @@ from gramps.plugins.tool.gwizardmediafix import (
     GWizardMediaFix,
     FindMissingMediaDialog,
     ConsolidateMediaLocationDialog,
+    FixMediaReferencesDialog,
     ApplyFilenameStandardsDialog,
     MediaFixReportDialog,
     get_media_base_path,
@@ -247,6 +252,9 @@ from gramps.plugins.tool.gwizardmediafix import (
     find_duplicate_media_references,
     DEFAULT_FILENAME_TEMPLATE,
     FILENAME_PRESETS,
+)
+from gramps.plugins.tool.fixmediareferencesdialog import (
+    find_duplicate_media_groups,
 )
 
 
@@ -358,35 +366,29 @@ class GWizardMediaFixTest(unittest.TestCase):
         )
 
     def test_apply_filename_standards(self) -> None:
-        """ApplyFilenameStandardsDialog sanitizes names and applies updates."""
-        with DbTxn("Create media", self.db) as trans:
-            m = Media()
-            m.set_description("Irregular filename")
-            m.set_path("My File (2020).JPG")
-            m_handle = self.db.add_media(m, trans)
+        """FixMediaReferencesDialog resolves duplicate references where a single media file is used for multiple references."""
+        with DbTxn("Create duplicate media", self.db) as trans:
+            m1 = Media()
+            m1.set_description("Photo 1")
+            m1.set_path("shared/file.jpg")
+            m1_h = self.db.add_media(m1, trans)
 
-        dlg = ApplyFilenameStandardsDialog(dbstate=self.dbstate)
-        self.assertEqual(len(dlg.rows), 1)
-        row = dlg.rows[0]
-        # Default template is {ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}
-        # Without references, it falls back cleanly to {id}-{doc_type}.ext
-        self.assertEqual(
-            row["suggested_path"], f"{m.get_gramps_id()}-Irregular_filename.jpg"
-        )
+            m2 = Media()
+            m2.set_description("Photo 2")
+            m2.set_path("shared/file.jpg")
+            m2_h = self.db.add_media(m2, trans)
 
-        # Switch to {orig}.{ext} preset
-        dlg.apply_template("{orig}.{ext}")
-        self.assertEqual(dlg.rows[0]["suggested_path"], "My_File_2020.jpg")
+            p1 = Person()
+            mr1 = MediaRef()
+            mr1.set_reference_handle(m1_h)
+            p1.add_media_reference(mr1)
+            self.db.add_person(p1, trans)
 
-        mock_entry = MagicMock()
-        mock_entry.get_text.return_value = "My_File_2020.jpg"
-        dlg.row_targets = [{"entry": dlg.rows[0], "std_entry": mock_entry}]
-
-        with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
-            dlg.cb_apply(MagicMock())
-
-        updated = self.db.get_media_from_handle(m_handle)
-        self.assertEqual(updated.get_path(), "My_File_2020.jpg")
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        self.assertEqual(len(dlg.groups), 1)
+        group = dlg.groups[0]
+        self.assertEqual(group["keeper"]["handle"], m1_h)
+        self.assertEqual(len(group["records"]), 2)
 
     def test_resolve_media_reference_context_person(self) -> None:
         """Resolve context for media referenced by a Person."""
@@ -516,7 +518,8 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertIn("generate", tool_instance.buttons)
         self.assertIn("find_missing", tool_instance.buttons)
         self.assertIn("consolidate_location", tool_instance.buttons)
-        self.assertIn("apply_standards", tool_instance.buttons)
+        self.assertIn("fix_references", tool_instance.buttons)
+        self.assertNotIn("apply_standards", tool_instance.buttons)
         self.assertNotIn("view", tool_instance.buttons)
 
     def test_generate_media_fix_report(self) -> None:
@@ -659,11 +662,9 @@ class GWizardMediaFixTest(unittest.TestCase):
         records = list(dups.values())[0]
         self.assertEqual(len(records), 3)
 
-        dlg = ApplyFilenameStandardsDialog(dbstate=self.dbstate)
-        # All 3 records should have the identical suggested path
-        suggested_paths = [r["suggested_path"] for r in dlg.rows]
-        self.assertEqual(len(set(suggested_paths)), 1)
-        self.assertIn("Shared file: synchronized to", dlg.rows[1]["hint_text"])
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        self.assertEqual(len(dlg.groups), 1)
+        self.assertEqual(len(dlg.groups[0]["records"]), 3)
 
         report = generate_media_fix_report(self.db)
         self.assertIn("DUPLICATE FILE REFERENCES", report)
@@ -953,6 +954,125 @@ class GWizardMediaFixTest(unittest.TestCase):
                     shutil.rmtree(other_dir, ignore_errors=True)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_find_duplicate_media_groups(self) -> None:
+        """find_duplicate_media_groups detects duplicate media records pointing to the same file."""
+        with DbTxn("Create duplicate media records", self.db) as trans:
+            m1 = Media()
+            m1.set_description("Photo 1")
+            m1.set_path("shared/sample.jpg")
+            m1_h = self.db.add_media(m1, trans)
+
+            m2 = Media()
+            m2.set_description("Photo 2")
+            m2.set_path("shared/sample.jpg")
+            m2_h = self.db.add_media(m2, trans)
+
+            # Person links to m1
+            p = Person()
+            mref = MediaRef()
+            mref.set_reference_handle(m1_h)
+            p.add_media_reference(mref)
+            self.db.add_person(p, trans)
+
+        groups = find_duplicate_media_groups(self.db)
+        self.assertEqual(len(groups), 1)
+        g = groups[0]
+        self.assertEqual(len(g["records"]), 2)
+        # Keeper should be m1 because it has a backlink from Person
+        self.assertEqual(g["keeper"]["handle"], m1_h)
+
+    def test_fix_media_references_dialog_merge(self) -> None:
+        """FixMediaReferencesDialog merges duplicate records into keeper."""
+        with DbTxn("Create duplicate media for merge", self.db) as trans:
+            m1 = Media()
+            m1.set_description("Primary Photo")
+            m1.set_path("shared/test.jpg")
+            m1_h = self.db.add_media(m1, trans)
+
+            p1 = Person()
+            mr1 = MediaRef()
+            mr1.set_reference_handle(m1_h)
+            p1.add_media_reference(mr1)
+            self.db.add_person(p1, trans)
+
+            m2 = Media()
+            m2.set_description("Duplicate Photo")
+            m2.set_path("shared/test.jpg")
+            m2_h = self.db.add_media(m2, trans)
+
+            p2 = Person()
+            mref = MediaRef()
+            mref.set_reference_handle(m2_h)
+            p2.add_media_reference(mref)
+            p2_h = self.db.add_person(p2, trans)
+
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        self.assertEqual(len(dlg.groups), 1)
+
+        # Select option 1: merge into keeper
+        mock_combo = MagicMock()
+        mock_combo.get_active.return_value = 1
+        dlg.row_targets = [
+            {
+                "group": dlg.groups[0],
+                "action_combo": mock_combo,
+            }
+        ]
+
+        with patch("gramps.plugins.tool.fixmediareferencesdialog.OkDialog"):
+            dlg.cb_apply(MagicMock())
+
+        # m2 should be merged into m1 and removed
+        self.assertIsNotNone(self.db.get_media_from_handle(m1_h))
+        with self.assertRaises(HandleError):
+            self.db.get_media_from_handle(m2_h)
+
+        # Person p2's media reference should now point to m1
+        person = self.db.get_person_from_handle(p2_h)
+        self.assertEqual(person.get_media_list()[0].get_reference_handle(), m1_h)
+
+    def test_fix_media_references_dialog_copy(self) -> None:
+        """FixMediaReferencesDialog creates separate copies of files for duplicate records."""
+        with DbTxn("Create duplicate media for copy", self.db) as trans:
+            m1 = Media()
+            m1.set_description("Photo A")
+            m1.set_path("shared/picture.jpg")
+            m1_h = self.db.add_media(m1, trans)
+
+            m2 = Media()
+            m2.set_description("Photo B")
+            m2.set_path("shared/picture.jpg")
+            m2_h = self.db.add_media(m2, trans)
+
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        mock_combo = MagicMock()
+        mock_combo.get_active.return_value = 2  # Create copies
+        dlg.row_targets = [
+            {
+                "group": dlg.groups[0],
+                "action_combo": mock_combo,
+            }
+        ]
+
+        with (
+            patch(
+                "gramps.plugins.tool.fixmediareferencesdialog.os.path.exists",
+                return_value=True,
+            ),
+            patch("gramps.plugins.tool.fixmediareferencesdialog.os.makedirs"),
+            patch(
+                "gramps.plugins.tool.fixmediareferencesdialog.shutil.copy2"
+            ) as mock_copy,
+            patch("gramps.plugins.tool.fixmediareferencesdialog.OkDialog"),
+        ):
+            dlg.cb_apply(MagicMock())
+            mock_copy.assert_called_once()
+
+        # m2 path should now be updated to a distinct file path
+        updated_m2 = self.db.get_media_from_handle(m2_h)
+        self.assertNotEqual(updated_m2.get_path(), "shared/picture.jpg")
+        self.assertIn("picture", updated_m2.get_path())
 
 
 if __name__ == "__main__":

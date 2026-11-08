@@ -73,6 +73,13 @@ except (ImportError, ValueError):
         create_table_grid,
     )
 
+try:
+    from .fixmediareferencesdialog import FixMediaReferencesDialog
+except (ImportError, ValueError):
+    from fixmediareferencesdialog import (  # type: ignore[import-not-found,no-redef]
+        FixMediaReferencesDialog,
+    )
+
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
 
@@ -1581,345 +1588,10 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
 
 # ------------------------------------------------------------
 #
-# ApplyFilenameStandardsDialog
+# Backward compatibility alias
 #
 # ------------------------------------------------------------
-class ApplyFilenameStandardsDialog(Gtk.Dialog):
-    """Review and apply standard naming conventions to media filenames."""
-
-    def __init__(
-        self,
-        title: str | None = None,
-        dbstate: Any = None,
-        transient_for: Gtk.Window | None = None,
-    ) -> None:
-        dialog_title = title or str(_("Apply Filename Standards"))
-        super().__init__(
-            title=dialog_title,
-            transient_for=transient_for,
-            modal=True,
-            destroy_with_parent=True,
-        )
-        self.dbstate = dbstate
-        self.rows: list[dict[str, Any]] = []
-        self.row_targets: list[dict[str, Any]] = []
-        self.set_default_size(1200, 520)
-
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (0)")))
-        self.accept_button.set_sensitive(False)
-        self.accept_button.connect("clicked", self.cb_accept_hints)
-        self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
-
-        self.apply_button = Gtk.Button(label=str(_("Apply")))
-        self.apply_button.set_sensitive(False)
-        self.apply_button.connect("clicked", self.cb_apply)
-        self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
-
-        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-
-        content = self.get_content_area()
-        content.set_border_width(12)
-        content.set_spacing(6)
-
-        info = Gtk.Label(
-            label=str(
-                _(
-                    "Review media filenames with irregular characters, spaces, or uppercase extensions. "
-                    "Select a standard naming template, press 'Accept hints', then press 'Apply'."
-                )
-            )
-        )
-        info.set_line_wrap(True)
-        info.set_halign(Gtk.Align.START)
-        content.add(info)
-
-        # Template selection row
-        tmpl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        tmpl_box.set_hexpand(True)
-
-        tmpl_label = Gtk.Label(label=str(_("Naming Template:")))
-        tmpl_label.set_halign(Gtk.Align.START)
-        tmpl_box.pack_start(tmpl_label, False, False, 0)
-
-        self.tmpl_combo = Gtk.ComboBoxText.new_with_entry()
-        self.tmpl_combo.set_hexpand(True)
-        for tmpl_str, tmpl_desc in FILENAME_PRESETS:
-            self.tmpl_combo.append_text(tmpl_desc)
-
-        curr_tmpl = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
-        entry = self.tmpl_combo.get_child()
-        if hasattr(entry, "set_text"):
-            entry.set_text(curr_tmpl)
-            if hasattr(entry, "connect"):
-                entry.connect("activate", self.cb_template_entry_activated)
-
-        self.tmpl_combo.connect("changed", self.cb_template_changed)
-        tmpl_box.pack_start(self.tmpl_combo, True, True, 0)
-        content.add(tmpl_box)
-
-        self.count_label = Gtk.Label(label="")
-        self.count_label.set_halign(Gtk.Align.START)
-        content.add(self.count_label)
-
-        self.rows_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.rows_container.set_hexpand(True)
-        self.rows_container.set_vexpand(True)
-        content.pack_start(self.rows_container, True, True, 0)
-
-        self.refresh_rows(curr_tmpl)
-
-    def cb_template_changed(self, combo: Gtk.ComboBoxText) -> None:
-        idx = combo.get_active()
-        if 0 <= idx < len(FILENAME_PRESETS):
-            tmpl_str = FILENAME_PRESETS[idx][0]
-            entry = combo.get_child()
-            if hasattr(entry, "set_text"):
-                entry.set_text(tmpl_str)
-            self.apply_template(tmpl_str)
-        else:
-            entry = combo.get_child()
-            if hasattr(entry, "get_text"):
-                tmpl_str = entry.get_text().strip()
-                if tmpl_str:
-                    self.apply_template(tmpl_str)
-
-    def cb_template_entry_activated(self, entry: Gtk.Entry) -> None:
-        tmpl_str = entry.get_text().strip()
-        if tmpl_str:
-            self.apply_template(tmpl_str)
-
-    def apply_template(self, tmpl_str: str) -> None:
-        config.set(CONFIG_TEMPLATE_KEY, tmpl_str)
-        self.refresh_rows(tmpl_str)
-
-    def refresh_rows(self, template: str) -> None:
-        self.rows.clear()
-        self.row_targets.clear()
-
-        # Track shared files to synchronize suggested standard names across duplicate media records
-        file_to_std_basename: dict[str, str] = {}
-
-        if self.dbstate and self.dbstate.db:
-            for media in self.dbstate.db.iter_media():
-                m_handle = str(media.get_handle() or "")
-                m_gid = str(media.get_gramps_id() or "")
-                desc = str(media.get_description() or "")
-                raw_path = str(media.get_path() or "").strip()
-
-                if not raw_path:
-                    continue
-
-                try:
-                    full_path = media_path_full(self.dbstate.db, raw_path)
-                    norm_key = os.path.normcase(os.path.normpath(full_path))
-                except Exception:
-                    norm_key = os.path.normcase(os.path.normpath(raw_path))
-
-                ctx = resolve_media_reference_context(self.dbstate.db, media)
-                assoc_str = ctx.get("assoc", "")
-
-                dirname, _base = os.path.split(raw_path)
-                if norm_key in file_to_std_basename:
-                    std_basename = file_to_std_basename[norm_key]
-                    std_path = (
-                        os.path.join(dirname, std_basename) if dirname else std_basename
-                    )
-                    hint = _("Shared file: synchronized to '%s'") % std_basename
-                else:
-                    std_path = sanitize_standard_filename(
-                        raw_path, db=self.dbstate.db, media=media, template=template
-                    )
-                    std_basename = os.path.basename(std_path)
-                    file_to_std_basename[norm_key] = std_basename
-                    hint = _("Standardize filename to '%s'") % std_basename
-
-                if std_path != raw_path:
-                    self.rows.append(
-                        {
-                            "handle": m_handle,
-                            "gramps_id": m_gid,
-                            "desc": desc,
-                            "raw_path": raw_path,
-                            "suggested_path": std_path,
-                            "hint_text": hint,
-                            "assoc": assoc_str,
-                        }
-                    )
-
-        n_hints = len(self.rows)
-        self.accept_button.set_label(str(_("Accept hints (%d)")) % n_hints)
-        self.accept_button.set_sensitive(n_hints > 0)
-        self.apply_button.set_sensitive(n_hints > 0)
-        self.count_label.set_text(
-            str(_("Total non-standard media filenames: %d") % n_hints)
-        )
-
-        for child in self.rows_container.get_children():
-            self.rows_container.remove(child)
-
-        if not self.rows:
-            done = Gtk.Label(
-                label=str(_("All media filenames already meet the selected standards."))
-            )
-            done.set_halign(Gtk.Align.START)
-            self.rows_container.pack_start(done, False, False, 0)
-        else:
-            header_grid = create_table_grid(col_spacing=6, row_spacing=0)
-            header_grid.set_vexpand(False)
-
-            media_head = HeaderLabel(str(_("Media")))
-            assoc_head = HeaderLabel(str(_("Associated With")))
-            curr_head = HeaderLabel(str(_("Current Filename")))
-            std_head = HeaderLabel(str(_("Standard Filename")))
-            hint_head = HeaderLabel(str(_("Hint")))
-            hint_head.set_hexpand(True)
-
-            header_grid.attach(media_head, 0, 0, 1, 1)
-            header_grid.attach(assoc_head, 1, 0, 1, 1)
-            header_grid.attach(curr_head, 2, 0, 1, 1)
-            header_grid.attach(std_head, 3, 0, 1, 1)
-            header_grid.attach(hint_head, 4, 0, 1, 1)
-            self.rows_container.pack_start(header_grid, False, False, 0)
-
-            self.column_sizegroups = [
-                Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL) for _ in range(5)
-            ]
-            self.column_sizegroups[0].add_widget(media_head)
-            self.column_sizegroups[1].add_widget(assoc_head)
-            self.column_sizegroups[2].add_widget(curr_head)
-            self.column_sizegroups[3].add_widget(std_head)
-            self.column_sizegroups[4].add_widget(hint_head)
-
-            self.rows_container.pack_start(self.build_rows(self.rows), True, True, 0)
-
-        self.rows_container.show_all()
-
-    def build_rows(self, entries: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        grid = create_table_grid()
-
-        row_index = 0
-        for entry in entries:
-            # Column 0: Media description & ID
-            m_text = "%s (%s)" % (
-                entry.get("desc") or _("(unnamed)"),
-                entry.get("gramps_id", ""),
-            )
-            media_label = TableLabel(m_text, width_chars=22, width_request=160)
-            grid.attach(media_label, 0, row_index, 1, 1)
-
-            # Column 1: Associated With
-            assoc_label = TableLabel(
-                entry.get("assoc", ""), width_chars=30, width_request=240
-            )
-            grid.attach(assoc_label, 1, row_index, 1, 1)
-
-            # Column 2: Current Path
-            curr_label = TableLabel(
-                entry.get("raw_path", ""), width_chars=28, width_request=220
-            )
-            grid.attach(curr_label, 2, row_index, 1, 1)
-
-            # Column 3: Standard Path Entry
-            std_entry = Gtk.Entry()
-            std_entry.set_width_chars(26)
-            std_entry.set_text("")
-            grid.attach(std_entry, 3, row_index, 1, 1)
-
-            # Column 4: Hint label
-            hint_label = TableLabel(
-                entry.get("hint_text", ""), width_chars=26, width_request=200
-            )
-            grid.attach(hint_label, 4, row_index, 1, 1)
-
-            if row_index == 0 and hasattr(self, "column_sizegroups"):
-                self.column_sizegroups[0].add_widget(media_label)
-                self.column_sizegroups[1].add_widget(assoc_label)
-                self.column_sizegroups[2].add_widget(curr_label)
-                self.column_sizegroups[3].add_widget(std_entry)
-                self.column_sizegroups[4].add_widget(hint_label)
-
-            self.row_targets.append(
-                {
-                    "entry": entry,
-                    "std_entry": std_entry,
-                    "hint_label": hint_label,
-                }
-            )
-            row_index += 1
-
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_min_content_height(280)
-        scrolled.set_min_content_width(960)
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_hexpand(True)
-        scrolled.set_vexpand(True)
-        scrolled.add(grid)
-        return scrolled
-
-    def cb_accept_hints(self, _button: Gtk.Button) -> None:
-        count = 0
-        for target in self.row_targets:
-            sug = target["entry"].get("suggested_path", "")
-            if sug and not target["std_entry"].get_text():
-                target["std_entry"].set_text(sug)
-                count += 1
-        OkDialog(
-            str(_("Hints accepted")),
-            str(
-                _(
-                    "Populated standard filenames for %d media records. Review and press Apply."
-                )
-                % count
-            ),
-            parent=self,
-        )
-
-    def cb_apply(self, _button: Gtk.Button) -> None:
-        applied = 0
-        with DbTxn(_("Apply Filename Standards"), self.dbstate.db) as trans:
-            for target in self.row_targets:
-                new_path = target["std_entry"].get_text().strip()
-                if not new_path:
-                    continue
-                h = target["entry"].get("handle")
-                try:
-                    media = self.dbstate.db.get_media_from_handle(h)
-                except Exception:
-                    media = None
-                if media is not None:
-                    media.set_path(new_path)
-                    self.dbstate.db.commit_media(media, trans)
-                    applied += 1
-
-        if applied == 0:
-            OkDialog(
-                str(_("Nothing to apply")),
-                str(
-                    _(
-                        "No filenames entered. Press 'Accept hints' or enter filenames first."
-                    )
-                ),
-                parent=self,
-            )
-            return
-
-        OkDialog(
-            str(_("Filename Standards Applied")),
-            str(_("Updated %d media filenames in the database.") % applied),
-            parent=self,
-        )
-
-    def show_dialog(self) -> None:
-        self.show_all()
-        while True:
-            resp = self.run()
-            if resp in (
-                Gtk.ResponseType.CLOSE,
-                Gtk.ResponseType.CANCEL,
-                Gtk.ResponseType.DELETE_EVENT,
-            ):
-                break
-        self.destroy()
+ApplyFilenameStandardsDialog = FixMediaReferencesDialog
 
 
 # ------------------------------------------------------------
@@ -2273,7 +1945,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             ("generate", str(_("Generate report"))),
             ("find_missing", str(_("Find missing media"))),
             ("consolidate_location", str(_("Consolidate media location"))),
-            ("apply_standards", str(_("Apply filename standards"))),
+            ("fix_references", str(_("Fix media references"))),
         ]
 
         self.buttons: dict[str, Gtk.Button] = {}
@@ -2376,9 +2048,9 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 transient_for=self.window,
             )
             dlg.show_dialog()
-        elif key == "apply_standards":
-            dlg = ApplyFilenameStandardsDialog(
-                title=str(_("Apply Filename Standards")),
+        elif key == "fix_references":
+            dlg = FixMediaReferencesDialog(
+                title=str(_("Fix Media References")),
                 dbstate=self.dbstate,
                 transient_for=self.window,
             )
