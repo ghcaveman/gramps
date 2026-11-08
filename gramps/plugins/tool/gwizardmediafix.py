@@ -74,10 +74,14 @@ except (ImportError, ValueError):
     )
 
 try:
-    from .fixmediareferencesdialog import FixMediaReferencesDialog
+    from .fixmediareferencesdialog import (
+        FixMediaReferencesDialog,
+        find_duplicate_media_groups,
+    )
 except (ImportError, ValueError):
     from fixmediareferencesdialog import (  # type: ignore[import-not-found,no-redef]
         FixMediaReferencesDialog,
+        find_duplicate_media_groups,
     )
 
 _ = glocale.translation.sgettext
@@ -1350,14 +1354,40 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                     }
                 )
 
+        self.dup_files: list[dict[str, Any]] = []
+        if dbstate and dbstate.db:
+            all_groups = find_duplicate_media_groups(dbstate.db)
+            self.dup_files = [
+                g for g in all_groups if g.get("type", "duplicate") == "duplicate"
+            ]
+
+        if self.dup_files:
+            warning_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            warn_label = SelectableLabel(
+                label="<b><span foreground='red'>%s</span></b> %s"
+                % (
+                    _("⚠ Warning:"),
+                    _(
+                        "Found %d file(s) shared by multiple duplicate media records. "
+                        "You must resolve shared references using 'Fix media references' before consolidating or moving files."
+                    )
+                    % len(self.dup_files),
+                ),
+                markup=True,
+            )
+            warn_label.set_line_wrap(True)
+            warn_label.set_halign(Gtk.Align.START)
+            warning_box.pack_start(warn_label, True, True, 0)
+            content.add(warning_box)
+
         n_hints = sum(1 for r in self.rows if r.get("suggested_path"))
         self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
-        self.accept_button.set_sensitive(n_hints > 0)
+        self.accept_button.set_sensitive(n_hints > 0 and not bool(self.dup_files))
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
 
         self.apply_button = Gtk.Button(label=str(_("Apply")))
-        self.apply_button.set_sensitive(len(self.rows) > 0)
+        self.apply_button.set_sensitive(len(self.rows) > 0 and not bool(self.dup_files))
         self.apply_button.connect("clicked", self.cb_apply)
         self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
 
@@ -1622,6 +1652,54 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         )
 
     def cb_apply(self, _button: Gtk.Button) -> None:
+        if self.dup_files or (
+            self.dbstate
+            and self.dbstate.db
+            and [
+                g
+                for g in find_duplicate_media_groups(self.dbstate.db)
+                if g.get("type", "duplicate") == "duplicate"
+            ]
+        ):
+            OkDialog(
+                str(_("Cannot Consolidate Files")),
+                str(
+                    _(
+                        "Multiple media records share the same file on disk.\n\n"
+                        "Moving or renaming files while duplicate references exist will cause file moves to fail and create dangling references.\n\n"
+                        "Please use 'Fix media references' to resolve duplicate references first."
+                    )
+                ),
+                parent=self,
+            )
+            return
+
+        # Sanity check: ensure no two rows in the current batch share the same source file
+        seen_srcs: dict[str, str] = {}
+        for target in self.row_targets:
+            new_p = clean_path(target["path_entry"].get_text())
+            if not new_p:
+                continue
+            raw_p = clean_path(target["entry"].get("raw_path", ""))
+            src_f = os.path.normcase(
+                clean_path(media_path_full(self.dbstate.db, raw_p))
+            )
+            if src_f in seen_srcs:
+                OkDialog(
+                    str(_("Duplicate Source Files Detected")),
+                    str(
+                        _(
+                            "Multiple records in this consolidation list share the source file:\n'%s'\n\n"
+                            "Moving this file would cause subsequent moves to fail and leave dangling references.\n\n"
+                            "Please use 'Fix media references' first."
+                        )
+                        % target["entry"].get("raw_path", "")
+                    ),
+                    parent=self,
+                )
+                return
+            seen_srcs[src_f] = target["entry"].get("gramps_id", "")
+
         applied = 0
         files_moved = 0
         files_copied = 0
@@ -2095,8 +2173,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         specs = [
             ("generate", str(_("Generate report"))),
             ("find_missing", str(_("Find missing media"))),
-            ("consolidate_location", str(_("Consolidate media location"))),
             ("fix_references", str(_("Fix media references"))),
+            ("consolidate_location", str(_("Consolidate media location"))),
         ]
 
         self.buttons: dict[str, Gtk.Button] = {}
@@ -2192,16 +2270,39 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 transient_for=self.window,
             )
             dlg.show_dialog()
-        elif key == "consolidate_location":
-            dlg = ConsolidateMediaLocationDialog(
-                title=str(_("Consolidate Media Location")),
+        elif key == "fix_references":
+            dlg = FixMediaReferencesDialog(
+                title=str(_("Fix Media References")),
                 dbstate=self.dbstate,
                 transient_for=self.window,
             )
             dlg.show_dialog()
-        elif key == "fix_references":
-            dlg = FixMediaReferencesDialog(
-                title=str(_("Fix Media References")),
+        elif key == "consolidate_location":
+            dup_groups = (
+                find_duplicate_media_groups(self.dbstate.db)
+                if self.dbstate and self.dbstate.db
+                else []
+            )
+            dup_files = [
+                g for g in dup_groups if g.get("type", "duplicate") == "duplicate"
+            ]
+            if dup_files:
+                OkDialog(
+                    str(_("Resolve Duplicate References First")),
+                    str(
+                        _(
+                            "Found %d file(s) shared by multiple duplicate media records.\n\n"
+                            "Relocating or renaming files while duplicate references exist will cause file moves to fail and create dangling references.\n\n"
+                            "Please use 'Fix media references' to resolve shared references before consolidating media locations."
+                        )
+                        % len(dup_files)
+                    ),
+                    parent=self.window,
+                )
+                return
+
+            dlg = ConsolidateMediaLocationDialog(
+                title=str(_("Consolidate Media Location")),
                 dbstate=self.dbstate,
                 transient_for=self.window,
             )
