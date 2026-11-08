@@ -2861,12 +2861,15 @@ class GWizardMediaFixTest(unittest.TestCase):
                     "gramps.plugins.tool.gwizardmediafix.QuestionDialog2",
                     return_value=mock_confirm,
                 ),
-                patch("gramps.plugins.tool.gwizardmediafix.OkDialog") as mock_ok,
+                patch(
+                    "gramps.plugins.tool.gwizardmediafix.AcceptAllHintsReportDialog"
+                ) as mock_report_cls,
             ):
                 tool_instance.cb_auto_all()
-                mock_ok.assert_called_once()
-                report_title = mock_ok.call_args[0][0]
-                report_body = mock_ok.call_args[0][1]
+                mock_report_cls.assert_called_once()
+                kwargs = mock_report_cls.call_args[1]
+                report_title = kwargs.get("title", "")
+                report_body = kwargs.get("report_text", "")
 
                 self.assertIn("Accept All Hints Complete", report_title)
                 self.assertIn("AUTOMATED CHANGES PERFORMED:", report_body)
@@ -2891,6 +2894,19 @@ class GWizardMediaFixTest(unittest.TestCase):
                 self.assertIsNotNone(self.db.get_media_from_handle(h_dup1))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_accept_all_hints_report_dialog_selectable_label(self) -> None:
+        """AcceptAllHintsReportDialog uses SelectableLabel so text can be highlighted and copied."""
+        from gramps.plugins.tool.gwizard_common import SelectableLabel
+
+        sample_report = (
+            "AUTOMATED CHANGES PERFORMED:\n  • Find missing media: 1 path updated."
+        )
+        dlg = AcceptAllHintsReportDialog(report_text=sample_report)
+        self.assertTrue(hasattr(dlg, "report_label"))
+        self.assertIsInstance(dlg.report_label, SelectableLabel)
+        self.assertTrue(dlg.report_label.selectable)
+        self.assertEqual(dlg.report_label.text, sample_report)
 
 
 if __name__ == "__main__":
