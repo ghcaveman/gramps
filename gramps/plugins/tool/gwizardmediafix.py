@@ -1846,6 +1846,62 @@ class MediaFixReportDialog(Gtk.Dialog):
         content.pack_start(scrolled, True, True, 0)
 
 
+# ------------------------------------------------------------
+#
+# AcceptAllHintsReportDialog
+#
+# ------------------------------------------------------------
+class AcceptAllHintsReportDialog(Gtk.Dialog):
+    """Report dialog for Accept all hints using SelectableLabel for copyable text."""
+
+    def __init__(
+        self,
+        report_text: str = "",
+        title: str | None = None,
+        transient_for: Gtk.Window | None = None,
+    ) -> None:
+        dialog_title = title or str(_("Accept All Hints Complete"))
+        super().__init__(
+            title=dialog_title,
+            transient_for=transient_for,
+            modal=True,
+            destroy_with_parent=True,
+        )
+        self.report_text = report_text
+        self.set_default_size(720, 480)
+        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
+
+        content = self.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+
+        self.report_label = SelectableLabel(
+            label=report_text,
+            selectable=True,
+            wrap=True,
+            can_focus=True,
+        )
+        scrolled.add(self.report_label)
+        content.pack_start(scrolled, True, True, 0)
+
+    def show_dialog(self) -> None:
+        self.show_all()
+        while True:
+            resp = self.run()
+            if resp in (
+                Gtk.ResponseType.CLOSE,
+                Gtk.ResponseType.CANCEL,
+                Gtk.ResponseType.DELETE_EVENT,
+            ):
+                break
+        self.destroy()
+
+
 def generate_media_fix_report(db: Any) -> str:
     """Scan all media objects in database, check existence with os.path.exists(), and return formatted report."""
     base_dir = (
@@ -2599,8 +2655,9 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 )
             )
 
-        OkDialog(
-            str(_("Accept All Hints Complete")),
-            "\n".join(lines),
-            parent=self.window,
+        dlg = AcceptAllHintsReportDialog(
+            report_text="\n".join(lines),
+            title=str(_("Accept All Hints Complete")),
+            transient_for=self.window,
         )
+        dlg.show_dialog()
