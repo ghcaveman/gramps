@@ -85,6 +85,9 @@ if "gi" not in sys.modules:
         def set_markup(self, val: str) -> None:
             self.markup = val
 
+        def set_use_markup(self, val: bool) -> None:
+            pass
+
         def set_selectable(self, val: bool) -> None:
             self.selectable = val
 
@@ -230,12 +233,41 @@ if "gi" not in sys.modules:
         def connect(self, *args: Any, **kwargs: Any) -> None:
             pass
 
+    class _FakeButton:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._label = kwargs.get("label", "")
+            if args and isinstance(args[0], str):
+                self._label = args[0]
+            self._sensitive = True
+
+        def set_label(self, val: str) -> None:
+            self._label = val
+
+        def get_label(self) -> str:
+            return self._label
+
+        def set_sensitive(self, val: bool) -> None:
+            self._sensitive = val
+
+        def get_sensitive(self) -> bool:
+            return self._sensitive
+
+        def set_hexpand(self, val: bool) -> None:
+            pass
+
+        def connect(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def add(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
     gi_mock.repository.Gtk.Dialog = _FakeDialog
     gi_mock.repository.Gtk.Label = _FakeLabel
     gi_mock.repository.Gtk.Grid = _FakeGrid
     gi_mock.repository.Gtk.Entry = _FakeEntry
     gi_mock.repository.Gtk.RadioButton = _FakeRadioButton
     gi_mock.repository.Gtk.ComboBoxText = _FakeComboBoxText
+    gi_mock.repository.Gtk.Button = _FakeButton
     sys.modules["gi"] = gi_mock
     sys.modules["gi.repository"] = gi_mock.repository
 
@@ -548,10 +580,16 @@ class GWizardMediaFixTest(unittest.TestCase):
 
         self.assertIn("generate", tool_instance.buttons)
         self.assertIn("find_missing", tool_instance.buttons)
-        self.assertIn("consolidate_location", tool_instance.buttons)
         self.assertIn("fix_references", tool_instance.buttons)
+        self.assertIn("consolidate_location", tool_instance.buttons)
         self.assertNotIn("apply_standards", tool_instance.buttons)
         self.assertNotIn("view", tool_instance.buttons)
+
+        button_keys = list(tool_instance.buttons.keys())
+        self.assertLess(
+            button_keys.index("fix_references"),
+            button_keys.index("consolidate_location"),
+        )
 
     def test_generate_media_fix_report(self) -> None:
         """Report generation counts missing, found, absolute, and non-standard files."""
@@ -1306,6 +1344,88 @@ class GWizardMediaFixTest(unittest.TestCase):
                 self.assertIn("NoAccessFolder", dlg.rows[0]["hint_text"])
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_consolidate_location_blocked_by_duplicate_references(self) -> None:
+        """Consolidate media location requires resolving duplicate references first."""
+        with DbTxn("Create duplicate media references", self.db) as trans:
+            m1 = Media()
+            m1.set_description("Census 1")
+            m1.set_path(r"C:\photos\shared_census.jpg")
+            self.db.add_media(m1, trans)
+
+            m2 = Media()
+            m2.set_description("Census 2")
+            m2.set_path(r"C:\photos\shared_census.jpg")
+            self.db.add_media(m2, trans)
+
+        # 1. Main window button callback blocks consolidation when dups exist
+        tool_instance = GWizardMediaFix.__new__(GWizardMediaFix)
+        tool_instance.dbstate = self.dbstate
+        tool_instance.window = MagicMock()
+
+        with (
+            patch("gramps.plugins.tool.gwizardmediafix.OkDialog") as mock_dialog,
+            patch(
+                "gramps.plugins.tool.gwizardmediafix.ConsolidateMediaLocationDialog"
+            ) as mock_dlg_class,
+        ):
+            tool_instance.cb_button(MagicMock(), "consolidate_location")
+            mock_dialog.assert_called_once()
+            self.assertIn(
+                "Resolve Duplicate References First",
+                mock_dialog.call_args[0][0],
+            )
+            mock_dlg_class.assert_not_called()
+
+        # 2. ConsolidateMediaLocationDialog disables action buttons when duplicate files exist
+        dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+        self.assertTrue(len(dlg.dup_files) > 0)
+        self.assertFalse(dlg.apply_button.get_sensitive())
+        self.assertFalse(dlg.accept_button.get_sensitive())
+
+        with patch("gramps.plugins.tool.gwizardmediafix.OkDialog") as mock_dialog:
+            dlg.cb_apply(MagicMock())
+            mock_dialog.assert_called_once()
+            self.assertIn("Cannot Consolidate Files", mock_dialog.call_args[0][0])
+
+        # 3. Sanity check in cb_apply: duplicate source files in row_targets blocks move
+        dlg.dup_files = []  # Bypass initial check to test batch conflict detection
+        mock_entry1 = MagicMock()
+        mock_entry1.get_text.return_value = "C:/dest/new1.jpg"
+        mock_entry2 = MagicMock()
+        mock_entry2.get_text.return_value = "C:/dest/new2.jpg"
+        dlg.row_targets = [
+            {
+                "entry": {
+                    "handle": "h1",
+                    "raw_path": r"C:\photos\shared_census.jpg",
+                    "gramps_id": "O1",
+                },
+                "path_entry": mock_entry1,
+            },
+            {
+                "entry": {
+                    "handle": "h2",
+                    "raw_path": r"C:\photos\shared_census.jpg",
+                    "gramps_id": "O2",
+                },
+                "path_entry": mock_entry2,
+            },
+        ]
+
+        with (
+            patch(
+                "gramps.plugins.tool.gwizardmediafix.find_duplicate_media_groups",
+                return_value=[],
+            ),
+            patch("gramps.plugins.tool.gwizardmediafix.OkDialog") as mock_dialog,
+        ):
+            dlg.cb_apply(MagicMock())
+            mock_dialog.assert_called_once()
+            self.assertIn(
+                "Duplicate Source Files Detected",
+                mock_dialog.call_args[0][0],
+            )
 
 
 if __name__ == "__main__":
