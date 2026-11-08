@@ -1814,7 +1814,7 @@ def generate_media_fix_report(db: Any) -> str:
         f"  Absolute file paths:       {absolute_paths}",
         f"  Non-standard filenames:    {non_standard}",
         f"  Unreferenced path files:   {len(unref_disk_files)}",
-        f"  Unreferenced media records:{len(zero_ref_media)}",
+        f"  Unreferenced image tags:   {len(zero_ref_media)}",
         f"  Multiple database links:   {len(multi_ref_media)}",
         f"  Duplicate file references: {len(dup_files)} files ({dup_media_count} media records)",
         f"  Naming template:           {curr_tmpl}",
@@ -1864,16 +1864,20 @@ def generate_media_fix_report(db: Any) -> str:
             lines.append(f"    References: {r_count} ({t_str})")
         lines.append("")
 
+    lines.append("-" * 72)
+    lines.append(
+        f"UNREFERENCED IMAGE TAGS / MEDIA RECORDS ({len(zero_ref_media)} items with no data references):"
+    )
+    lines.append("-" * 72)
     if zero_ref_media:
-        lines.append("-" * 72)
-        lines.append(
-            f"UNREFERENCED MEDIA RECORDS IN DATABASE ({len(zero_ref_media)} items):"
-        )
-        lines.append("-" * 72)
         for gid, desc, path in zero_ref_media:
-            lines.append(f"  [{gid}] {desc}")
+            lines.append(f"  [{gid}] {desc or '(unnamed)'}")
             lines.append(f"    Path: {path}")
-        lines.append("")
+    else:
+        lines.append(
+            "  0 unreferenced image tags found. All media records have data references."
+        )
+    lines.append("")
 
     if outside_default_list:
         lines.append("-" * 72)
