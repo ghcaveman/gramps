@@ -25,6 +25,7 @@
 # Standard Python modules
 #
 # -------------------------------------------------------------------------
+from __future__ import annotations
 import os
 import shutil
 import sys
@@ -133,11 +134,62 @@ if "gi" not in sys.modules:
         def attach(self, *args: Any, **kwargs: Any) -> None:
             pass
 
+    class _FakeEntry:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._text = ""
+            self._callbacks: list[Any] = []
+
+        def set_text(self, val: str) -> None:
+            self._text = val
+            for cb in self._callbacks:
+                try:
+                    cb()
+                except Exception:
+                    pass
+
+        def get_text(self) -> str:
+            return self._text
+
+        def set_width_chars(self, val: int) -> None:
+            pass
+
+        def set_hexpand(self, val: bool) -> None:
+            pass
+
+        def connect(self, signal: str, callback: Any, *args: Any) -> None:
+            if signal == "changed":
+                self._callbacks.append(callback)
+
+    class _FakeRadioButton:
+        def __init__(self, group: Any = None, label: str = "") -> None:
+            self._active = False
+            self.group = group
+            self.label = label
+
+        @classmethod
+        def new_with_label_from_widget(
+            cls, group: Any = None, label: str = ""
+        ) -> _FakeRadioButton:
+            btn = cls(group, label)
+            if group is None:
+                btn._active = True
+            return btn
+
+        def set_active(self, val: bool) -> None:
+            self._active = val
+
+        def get_active(self) -> bool:
+            return self._active
+
     gi_mock.repository.Gtk.Dialog = _FakeDialog
     gi_mock.repository.Gtk.Label = _FakeLabel
     gi_mock.repository.Gtk.Grid = _FakeGrid
+    gi_mock.repository.Gtk.Entry = _FakeEntry
+    gi_mock.repository.Gtk.RadioButton = _FakeRadioButton
     sys.modules["gi"] = gi_mock
     sys.modules["gi.repository"] = gi_mock.repository
+
+from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
 #
@@ -663,6 +715,87 @@ class GWizardMediaFixTest(unittest.TestCase):
             os.path.normpath(dlg.rows[0]["suggested_path"]),
             os.path.normpath("sub/photo.jpg"),
         )
+
+    def test_consolidate_media_location_path_selector_widget(self) -> None:
+        """ConsolidateMediaLocationDialog provides a path selector widget that sets database media path."""
+        custom_path = os.path.join(USER_HOME, "SelectorTestMedia")
+        self.db.set_mediapath(custom_path)
+
+        dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+        self.assertTrue(hasattr(dlg, "path_entry"))
+        self.assertTrue(hasattr(dlg, "path_button"))
+        self.assertEqual(dlg.path_entry.get_text(), custom_path)
+
+        # Changing path_entry directly updates db mediapath and recomputes base_dir
+        new_path = os.path.join(USER_HOME, "NewMediaFolder")
+        dlg.path_entry.set_text(new_path)
+        dlg.cb_set_mediapath()
+        self.assertEqual(self.db.get_mediapath(), new_path)
+        self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(new_path)))
+
+        # Selecting folder from chooser dialog sets path on entry and database
+        chosen_folder = os.path.join(USER_HOME, "ChosenFolder")
+        mock_chooser = MagicMock()
+        mock_chooser.run.return_value = Gtk.ResponseType.OK
+        mock_chooser.get_filename.return_value = chosen_folder
+
+        with patch(
+            "gramps.plugins.tool.gwizardmediafix.Gtk.FileChooserDialog",
+            return_value=mock_chooser,
+        ):
+            dlg.cb_select_mediapath()
+            self.assertEqual(self.db.get_mediapath(), chosen_folder)
+            self.assertEqual(dlg.path_entry.get_text(), chosen_folder)
+
+    def test_consolidate_media_location_radio_buttons_move_vs_copy(self) -> None:
+        """ConsolidateMediaLocationDialog provides radio buttons for move files vs make a copy."""
+        dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+        self.assertTrue(hasattr(dlg, "radio_move"))
+        self.assertTrue(hasattr(dlg, "radio_copy"))
+        self.assertTrue(dlg.radio_move.get_active())
+        self.assertFalse(dlg.radio_copy.get_active())
+
+        with DbTxn("Create media for move", self.db) as trans:
+            m = Media()
+            m.set_description("Test Move")
+            m.set_path("/path/to/test.jpg")
+            m_h = self.db.add_media(m, trans)
+
+        mock_entry = MagicMock()
+        mock_entry.get_text.return_value = "new_folder/test.jpg"
+        dlg.row_targets = [
+            {
+                "entry": {"handle": m_h, "raw_path": "/path/to/test.jpg"},
+                "path_entry": mock_entry,
+            }
+        ]
+
+        with (
+            patch(
+                "gramps.plugins.tool.gwizardmediafix.os.path.exists", return_value=True
+            ),
+            patch("gramps.plugins.tool.gwizardmediafix.os.makedirs"),
+            patch("gramps.plugins.tool.gwizardmediafix.shutil.move") as mock_move,
+            patch("gramps.plugins.tool.gwizardmediafix.shutil.copy2") as mock_copy,
+            patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
+        ):
+            dlg.cb_apply(MagicMock())
+            mock_move.assert_called_once()
+            mock_copy.assert_not_called()
+
+        dlg.radio_copy.set_active(True)
+        with (
+            patch(
+                "gramps.plugins.tool.gwizardmediafix.os.path.exists", return_value=True
+            ),
+            patch("gramps.plugins.tool.gwizardmediafix.os.makedirs"),
+            patch("gramps.plugins.tool.gwizardmediafix.shutil.move") as mock_move,
+            patch("gramps.plugins.tool.gwizardmediafix.shutil.copy2") as mock_copy,
+            patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
+        ):
+            dlg.cb_apply(MagicMock())
+            mock_copy.assert_called_once()
+            mock_move.assert_not_called()
 
     def test_generate_media_fix_report_includes_base_path(self) -> None:
         """generate_media_fix_report includes Media Base Path in summary metrics."""
