@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -1183,11 +1184,56 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         info.set_halign(Gtk.Align.START)
         content.add(info)
 
+        # Media Base Path selector widget matching Preferences Family Tree tab
+        path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        path_label = HeaderLabel(str(_("Base media path:")))
+        path_box.pack_start(path_label, False, False, 0)
+
+        self.path_entry = Gtk.Entry()
+        curr_mpath = (
+            self.dbstate.db.get_mediapath()
+            if self.dbstate
+            and self.dbstate.db
+            and hasattr(self.dbstate.db, "get_mediapath")
+            else ""
+        )
+        if curr_mpath:
+            self.path_entry.set_text(curr_mpath)
+        self.path_entry.connect("changed", self.cb_set_mediapath)
+        self.path_entry.set_hexpand(True)
+        path_box.pack_start(self.path_entry, True, True, 0)
+
+        path_btn = Gtk.Button()
+        path_btn.connect("clicked", self.cb_select_mediapath)
+        image = Gtk.Image()
+        image.set_from_icon_name("document-open", Gtk.IconSize.BUTTON)
+        image.show()
+        path_btn.add(image)
+        self.path_button = path_btn
+        path_box.pack_start(path_btn, False, False, 0)
+
+        content.add(path_box)
+
         self.base_path_label = SelectableLabel(
             label="<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir),
             markup=True,
         )
         content.add(self.base_path_label)
+
+        # File operation: Move files vs Make a copy
+        op_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        op_label = HeaderLabel(str(_("File operation:")))
+        op_box.pack_start(op_label, False, False, 0)
+        self.radio_move = Gtk.RadioButton.new_with_label_from_widget(
+            None, str(_("Move files"))
+        )
+        self.radio_copy = Gtk.RadioButton.new_with_label_from_widget(
+            self.radio_move, str(_("Make a copy"))
+        )
+        self.radio_move.set_active(True)
+        op_box.pack_start(self.radio_move, False, False, 0)
+        op_box.pack_start(self.radio_copy, False, False, 0)
+        content.add(op_box)
 
         if not self.rows:
             done = Gtk.Label(label=str(_("All media paths are already consolidated.")))
@@ -1282,6 +1328,113 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         scrolled.add(grid)
         return scrolled
 
+    def cb_set_mediapath(self, *obj: Any) -> None:
+        """Set media path on database when entry text changes."""
+        if not self.dbstate or not self.dbstate.db:
+            return
+        text = self.path_entry.get_text().strip()
+        if text:
+            self.dbstate.db.set_mediapath(text)
+        else:
+            self.dbstate.db.set_mediapath(None)
+        self.base_dir = (
+            get_media_base_path(self.dbstate.db)
+            if self.dbstate and self.dbstate.db
+            else os.path.normpath(os.path.abspath(USER_HOME))
+        )
+        if hasattr(self, "base_path_label"):
+            if hasattr(self.base_path_label, "set_markup"):
+                self.base_path_label.set_markup(
+                    "<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir)
+                )
+            elif hasattr(self.base_path_label, "set_text"):
+                self.base_path_label.set_text(
+                    "<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir)
+                )
+        self._recompute_hints()
+
+    def cb_select_mediapath(self, *obj: Any) -> None:
+        """Show dialog to choose media directory, matching Preferences Family Tree tab."""
+        f = Gtk.FileChooserDialog(
+            title=str(_("Select media directory")),
+            transient_for=self,
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+            buttons=(
+                str(_("_Cancel")),
+                Gtk.ResponseType.CANCEL,
+                str(_("_Apply")),
+                Gtk.ResponseType.OK,
+            ),
+        )
+        if hasattr(f, "set_default_size"):
+            f.set_default_size(600, 400)
+        mpath = media_path(self.dbstate.db) if self.dbstate and self.dbstate.db else ""
+        if mpath and os.path.exists(mpath):
+            f.set_current_folder(
+                mpath if os.path.isdir(mpath) else os.path.dirname(mpath)
+            )
+        elif self.base_dir and os.path.exists(self.base_dir):
+            f.set_current_folder(
+                self.base_dir
+                if os.path.isdir(self.base_dir)
+                else os.path.dirname(self.base_dir)
+            )
+
+        status = f.run()
+        if status == Gtk.ResponseType.OK:
+            val = f.get_filename()
+            if val:
+                self.path_entry.set_text(val)
+                self.cb_set_mediapath()
+        f.destroy()
+
+    def _recompute_hints(self) -> None:
+        """Recompute suggested paths when base directory changes."""
+        base_dir = self.base_dir
+        for target in self.row_targets:
+            entry = target["entry"]
+            raw_path = entry.get("raw_path", "")
+            is_abs = os.path.isabs(raw_path)
+            sug_path = ""
+            hint = ""
+            if is_abs and base_dir:
+                try:
+                    rel = relative_path(raw_path, base_dir)
+                    if os.path.isabs(rel) or rel == raw_path:
+                        try:
+                            candidate = os.path.relpath(raw_path, base_dir)
+                            if not os.path.isabs(
+                                candidate
+                            ) and not candidate.startswith(".."):
+                                rel = candidate
+                        except Exception:
+                            pass
+                    if not os.path.isabs(rel) and not rel.startswith(".."):
+                        rel_std = rel.replace("\\", "/")
+                        sug_path = rel_std
+                        hint = _("Absolute path: convert to relative '%s'") % rel_std
+                    else:
+                        hint = _("Absolute path outside base media directory")
+                except Exception:
+                    hint = _("Absolute path")
+            elif not is_abs and ("\\" in raw_path or "/" in raw_path):
+                std = raw_path.replace("\\", "/")
+                if std != raw_path:
+                    sug_path = std
+                    hint = _("Standardize path separators")
+
+            entry["suggested_path"] = sug_path
+            entry["hint_text"] = hint
+            if "hint_label" in target:
+                target["hint_label"].set_text(hint)
+
+        n_hints = sum(
+            1 for target in self.row_targets if target["entry"].get("suggested_path")
+        )
+        if hasattr(self, "accept_button"):
+            self.accept_button.set_label(str(_("Accept hints (%d)")) % n_hints)
+            self.accept_button.set_sensitive(n_hints > 0)
+
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
         count = 0
         for target in self.row_targets:
@@ -1302,17 +1455,43 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
 
     def cb_apply(self, _button: Gtk.Button) -> None:
         applied = 0
+        files_moved = 0
+        files_copied = 0
+        is_copy = hasattr(self, "radio_copy") and bool(self.radio_copy.get_active())
+
         with DbTxn(_("Consolidate Media Locations"), self.dbstate.db) as trans:
             for target in self.row_targets:
                 new_path = target["path_entry"].get_text().strip()
                 if not new_path:
                     continue
                 h = target["entry"].get("handle")
+                raw_path = target["entry"].get("raw_path", "")
                 try:
                     media = self.dbstate.db.get_media_from_handle(h)
                 except Exception:
                     media = None
                 if media is not None:
+                    try:
+                        src_full = media_path_full(self.dbstate.db, raw_path)
+                        dest_full = media_path_full(self.dbstate.db, new_path)
+                        if os.path.exists(src_full) and os.path.normpath(
+                            src_full
+                        ) != os.path.normpath(dest_full):
+                            os.makedirs(os.path.dirname(dest_full), exist_ok=True)
+                            if is_copy:
+                                shutil.copy2(src_full, dest_full)
+                                files_copied += 1
+                            else:
+                                shutil.move(src_full, dest_full)
+                                files_moved += 1
+                    except Exception as err:
+                        LOG.warning(
+                            "Failed to %s media file '%s': %s",
+                            "copy" if is_copy else "move",
+                            raw_path,
+                            err,
+                        )
+
                     media.set_path(new_path)
                     self.dbstate.db.commit_media(media, trans)
                     applied += 1
@@ -1325,9 +1504,15 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             )
             return
 
+        summary = str(_("Consolidated %d media file paths in the database.")) % applied
+        if is_copy and files_copied > 0:
+            summary += " " + str(_("Copied %d files to new locations.") % files_copied)
+        elif not is_copy and files_moved > 0:
+            summary += " " + str(_("Moved %d files to new locations.") % files_moved)
+
         OkDialog(
             str(_("Media Locations Consolidated")),
-            str(_("Consolidated %d media file paths in the database.") % applied),
+            summary,
             parent=self,
         )
 
