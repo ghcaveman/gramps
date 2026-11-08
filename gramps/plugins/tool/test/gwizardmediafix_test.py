@@ -1297,6 +1297,76 @@ class GWizardMediaFixTest(unittest.TestCase):
             mock_copy.assert_called_once()
             mock_move.assert_not_called()
 
+    def test_find_and_consolidate_quotes_and_spaces(self) -> None:
+        """Find Media and Consolidate operations handle paths enclosed in quotes and containing spaces."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # File with spaces on disk
+            real_file = os.path.join(temp_dir, "My Photo File 1920.jpg")
+            with open(real_file, "w") as f:
+                f.write("content")
+
+            with DbTxn("Create media with missing path", self.db) as trans:
+                m = Media()
+                m.set_description("Photo with spaces")
+                m.set_path("missing/old photo.jpg")
+                m_h = self.db.add_media(m, trans)
+
+            dlg_find = FindMissingMediaDialog(dbstate=self.dbstate)
+            self.assertEqual(len(dlg_find.rows), 1)
+
+            # User enters/pastes path enclosed in quotes (e.g. copied from Windows Explorer)
+            quoted_input = f'"{real_file}"'
+            mock_entry = MagicMock()
+            mock_entry.get_text.return_value = quoted_input
+            dlg_find.row_targets = [
+                {"entry": dlg_find.rows[0], "path_entry": mock_entry}
+            ]
+
+            with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
+                dlg_find.cb_apply(MagicMock())
+
+            # Path stored in database must be stripped of quotes
+            updated = self.db.get_media_from_handle(m_h)
+            self.assertEqual(updated.get_path(), real_file)
+            self.assertFalse(updated.get_path().startswith('"'))
+
+            # Report should now find the file on disk instead of reporting it missing
+            report = generate_media_fix_report(self.db)
+            self.assertIn("Files found on disk:       1", report)
+            self.assertIn("Files missing on disk:     0", report)
+
+            # Consolidate media location with spaces and quotes in base path
+            base_dir = os.path.join(temp_dir, "Consolidated Media Base")
+            os.makedirs(base_dir, exist_ok=True)
+            self.db.set_mediapath(f'"{base_dir}"')
+
+            dlg_cons = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+            self.assertEqual(
+                dlg_cons.base_dir, os.path.normpath(os.path.abspath(base_dir))
+            )
+
+            # User accepts hints or inputs path
+            hint_sug = dlg_cons.rows[0]["suggested_path"]
+            self.assertIn("Photo_with_spaces.jpg", hint_sug)
+            self.assertIn("Consolidated Media Base", hint_sug)
+
+            mock_cons_entry = MagicMock()
+            mock_cons_entry.get_text.return_value = f'"{hint_sug}"'
+            dlg_cons.row_targets[0]["path_entry"] = mock_cons_entry
+
+            with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
+                dlg_cons.cb_apply(MagicMock())
+
+            # File should be moved to destination and updated in DB without quotes
+            updated_cons = self.db.get_media_from_handle(m_h)
+            self.assertEqual(
+                os.path.normpath(updated_cons.get_path()), os.path.normpath(hint_sug)
+            )
+            self.assertTrue(os.path.exists(hint_sug))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_generate_media_fix_report_includes_base_path(self) -> None:
         """generate_media_fix_report includes Media Base Path in summary metrics."""
         custom_path = os.path.join(USER_HOME, "ReportMetricsMedia")
