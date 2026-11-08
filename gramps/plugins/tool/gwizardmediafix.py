@@ -1819,7 +1819,6 @@ def generate_media_fix_report(db: Any) -> str:
         f"  Duplicate file references: {len(dup_files)} files ({dup_media_count} media records)",
         f"  Naming template:           {curr_tmpl}",
         f"  Media Base Path:           {base_dir}",
-        f"  Base media directory:      {base_dir}",
         "",
     ]
 
