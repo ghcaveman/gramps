@@ -1098,75 +1098,13 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.rows: list[dict[str, Any]] = []
         self.row_targets: list[dict[str, Any]] = []
-        self.set_default_size(1360, 520)
+        self.set_default_size(1360, 560)
 
         self.base_dir = (
             get_media_base_path(dbstate.db)
             if dbstate and dbstate.db
             else os.path.normpath(os.path.abspath(USER_HOME))
         )
-        base_dir = self.base_dir
-        for media in dbstate.db.iter_media():
-            m_handle = str(media.get_handle() or "")
-            m_gid = str(media.get_gramps_id() or "")
-            desc = str(media.get_description() or "")
-            raw_path = str(media.get_path() or "")
-
-            is_abs = os.path.isabs(raw_path)
-            sug_path = ""
-            hint = ""
-
-            if is_abs and base_dir:
-                try:
-                    rel = relative_path(raw_path, base_dir)
-                    if os.path.isabs(rel) or rel == raw_path:
-                        try:
-                            candidate = os.path.relpath(raw_path, base_dir)
-                            if not os.path.isabs(
-                                candidate
-                            ) and not candidate.startswith(".."):
-                                rel = candidate
-                        except Exception:
-                            pass
-                    if not os.path.isabs(rel) and not rel.startswith(".."):
-                        rel_std = rel.replace("\\", "/")
-                        sug_path = rel_std
-                        hint = _("Absolute path: convert to relative '%s'") % rel_std
-                    else:
-                        hint = _("Absolute path outside base media directory")
-                except Exception:
-                    hint = _("Absolute path")
-            elif not is_abs and ("\\" in raw_path or "/" in raw_path):
-                # Standardize path separators
-                std = raw_path.replace("\\", "/")
-                if std != raw_path:
-                    sug_path = std
-                    hint = _("Standardize path separators")
-
-            if sug_path or hint:
-                self.rows.append(
-                    {
-                        "handle": m_handle,
-                        "gramps_id": m_gid,
-                        "desc": desc,
-                        "raw_path": raw_path,
-                        "suggested_path": sug_path,
-                        "hint_text": hint,
-                    }
-                )
-
-        n_hints = sum(1 for r in self.rows if r.get("suggested_path"))
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
-        self.accept_button.set_sensitive(n_hints > 0)
-        self.accept_button.connect("clicked", self.cb_accept_hints)
-        self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
-
-        self.apply_button = Gtk.Button(label=str(_("Apply")))
-        self.apply_button.set_sensitive(len(self.rows) > 0)
-        self.apply_button.connect("clicked", self.cb_apply)
-        self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
-
-        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
 
         content = self.get_content_area()
         content.set_border_width(12)
@@ -1220,6 +1158,44 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         )
         content.add(self.base_path_label)
 
+        # Naming Template selection row
+        tmpl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        tmpl_label = HeaderLabel(str(_("Naming Template:")))
+        tmpl_box.pack_start(tmpl_label, False, False, 0)
+
+        self.tmpl_combo = Gtk.ComboBoxText.new_with_entry()
+        self.tmpl_combo.set_hexpand(True)
+        for tmpl_str, tmpl_desc in FILENAME_PRESETS:
+            self.tmpl_combo.append_text(tmpl_desc)
+
+        curr_tmpl = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
+        entry = self.tmpl_combo.get_child()
+        if hasattr(entry, "set_text"):
+            entry.set_text(curr_tmpl)
+            if hasattr(entry, "connect"):
+                entry.connect("activate", self.cb_template_entry_activated)
+
+        self.tmpl_combo.connect("changed", self.cb_template_changed)
+        tmpl_box.pack_start(self.tmpl_combo, True, True, 0)
+        content.add(tmpl_box)
+
+        # Naming style: Use naming standard vs Keep original filename
+        naming_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        naming_label = HeaderLabel(str(_("Naming style:")))
+        naming_box.pack_start(naming_label, False, False, 0)
+        self.radio_use_standard = Gtk.RadioButton.new_with_label_from_widget(
+            None, str(_("Use naming standard"))
+        )
+        self.radio_keep_original = Gtk.RadioButton.new_with_label_from_widget(
+            self.radio_use_standard, str(_("Keep original filename"))
+        )
+        self.radio_use_standard.set_active(True)
+        self.radio_use_standard.connect("toggled", self.cb_naming_style_toggled)
+        self.radio_keep_original.connect("toggled", self.cb_naming_style_toggled)
+        naming_box.pack_start(self.radio_use_standard, False, False, 0)
+        naming_box.pack_start(self.radio_keep_original, False, False, 0)
+        content.add(naming_box)
+
         # File operation: Move files vs Make a copy
         op_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         op_label = HeaderLabel(str(_("File operation:")))
@@ -1234,6 +1210,40 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         op_box.pack_start(self.radio_move, False, False, 0)
         op_box.pack_start(self.radio_copy, False, False, 0)
         content.add(op_box)
+
+        for media in dbstate.db.iter_media():
+            m_handle = str(media.get_handle() or "")
+            m_gid = str(media.get_gramps_id() or "")
+            desc = str(media.get_description() or "")
+            raw_path = str(media.get_path() or "")
+
+            hint_val = self._compute_hint(raw_path, media)
+            norm_raw = raw_path.replace("\\", "/")
+            if norm_raw != hint_val or os.path.isabs(raw_path):
+                self.rows.append(
+                    {
+                        "handle": m_handle,
+                        "gramps_id": m_gid,
+                        "desc": desc,
+                        "raw_path": raw_path,
+                        "suggested_path": hint_val,
+                        "hint_text": hint_val,
+                        "media": media,
+                    }
+                )
+
+        n_hints = sum(1 for r in self.rows if r.get("suggested_path"))
+        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button.set_sensitive(n_hints > 0)
+        self.accept_button.connect("clicked", self.cb_accept_hints)
+        self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
+
+        self.apply_button = Gtk.Button(label=str(_("Apply")))
+        self.apply_button.set_sensitive(len(self.rows) > 0)
+        self.apply_button.connect("clicked", self.cb_apply)
+        self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
+
+        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
 
         if not self.rows:
             done = Gtk.Label(label=str(_("All media paths are already consolidated.")))
@@ -1300,8 +1310,9 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
 
             # Column 3: Hint label
             hint_label = TableLabel(
-                entry.get("hint_text", ""), width_chars=28, width_request=220
+                entry.get("hint_text", ""), width_chars=48, width_request=360
             )
+            hint_label.set_hexpand(True)
             grid.attach(hint_label, 3, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):
@@ -1388,45 +1399,84 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                 self.cb_set_mediapath()
         f.destroy()
 
+    def _get_current_template(self) -> str:
+        if hasattr(self, "tmpl_combo"):
+            idx = self.tmpl_combo.get_active()
+            if isinstance(idx, int) and 0 <= idx < len(FILENAME_PRESETS):
+                return FILENAME_PRESETS[idx][0]
+            entry = self.tmpl_combo.get_child()
+            if hasattr(entry, "get_text"):
+                val = entry.get_text()
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+        return config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
+
+    def _compute_hint(self, raw_path: str, media: Any = None) -> str:
+        """Compute hint path: base media path plus filename (using naming standard or original filename)."""
+        if hasattr(self, "radio_keep_original") and bool(
+            self.radio_keep_original.get_active()
+        ):
+            use_std = False
+        elif hasattr(self, "radio_use_standard") and bool(
+            self.radio_use_standard.get_active()
+        ):
+            use_std = True
+        else:
+            use_std = True
+        curr_tmpl = self._get_current_template()
+        if use_std:
+            std = sanitize_standard_filename(
+                raw_path,
+                db=self.dbstate.db if self.dbstate else None,
+                media=media,
+                template=curr_tmpl,
+            )
+            fname = os.path.basename(std)
+        else:
+            fname = os.path.basename(raw_path)
+
+        if self.base_dir:
+            return os.path.join(self.base_dir, fname).replace("\\", "/")
+        return fname
+
+    def cb_template_changed(self, combo: Gtk.ComboBoxText) -> None:
+        idx = combo.get_active()
+        if isinstance(idx, int) and 0 <= idx < len(FILENAME_PRESETS):
+            tmpl_str = FILENAME_PRESETS[idx][0]
+            entry = combo.get_child()
+            if hasattr(entry, "set_text"):
+                entry.set_text(tmpl_str)
+            self.apply_template(tmpl_str)
+        else:
+            entry = combo.get_child()
+            if hasattr(entry, "get_text"):
+                val = entry.get_text()
+                if isinstance(val, str) and val.strip():
+                    self.apply_template(val.strip())
+
+    def cb_template_entry_activated(self, entry: Gtk.Entry) -> None:
+        tmpl_str = entry.get_text().strip()
+        if tmpl_str:
+            self.apply_template(tmpl_str)
+
+    def apply_template(self, tmpl_str: str) -> None:
+        config.set(CONFIG_TEMPLATE_KEY, tmpl_str)
+        self._recompute_hints()
+
+    def cb_naming_style_toggled(self, _button: Gtk.RadioButton) -> None:
+        self._recompute_hints()
+
     def _recompute_hints(self) -> None:
-        """Recompute suggested paths when base directory changes."""
-        base_dir = self.base_dir
+        """Recompute suggested paths when base directory, template, or naming style changes."""
         for target in self.row_targets:
             entry = target["entry"]
             raw_path = entry.get("raw_path", "")
-            is_abs = os.path.isabs(raw_path)
-            sug_path = ""
-            hint = ""
-            if is_abs and base_dir:
-                try:
-                    rel = relative_path(raw_path, base_dir)
-                    if os.path.isabs(rel) or rel == raw_path:
-                        try:
-                            candidate = os.path.relpath(raw_path, base_dir)
-                            if not os.path.isabs(
-                                candidate
-                            ) and not candidate.startswith(".."):
-                                rel = candidate
-                        except Exception:
-                            pass
-                    if not os.path.isabs(rel) and not rel.startswith(".."):
-                        rel_std = rel.replace("\\", "/")
-                        sug_path = rel_std
-                        hint = _("Absolute path: convert to relative '%s'") % rel_std
-                    else:
-                        hint = _("Absolute path outside base media directory")
-                except Exception:
-                    hint = _("Absolute path")
-            elif not is_abs and ("\\" in raw_path or "/" in raw_path):
-                std = raw_path.replace("\\", "/")
-                if std != raw_path:
-                    sug_path = std
-                    hint = _("Standardize path separators")
-
-            entry["suggested_path"] = sug_path
-            entry["hint_text"] = hint
+            media = entry.get("media")
+            hint_val = self._compute_hint(raw_path, media)
+            entry["suggested_path"] = hint_val
+            entry["hint_text"] = hint_val
             if "hint_label" in target:
-                target["hint_label"].set_text(hint)
+                target["hint_label"].set_text(hint_val)
 
         n_hints = sum(
             1 for target in self.row_targets if target["entry"].get("suggested_path")
@@ -1439,7 +1489,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         count = 0
         for target in self.row_targets:
             sug = target["entry"].get("suggested_path", "")
-            if sug and not target["path_entry"].get_text():
+            if sug:
                 target["path_entry"].set_text(sug)
                 count += 1
         OkDialog(

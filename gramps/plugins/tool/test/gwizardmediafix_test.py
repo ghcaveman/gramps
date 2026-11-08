@@ -163,8 +163,13 @@ if "gi" not in sys.modules:
     class _FakeRadioButton:
         def __init__(self, group: Any = None, label: str = "") -> None:
             self._active = False
-            self.group = group
+            self.group = group if group is not None else self
+            self._peers = [self]
+            if group is not None and hasattr(group, "_peers"):
+                group._peers.append(self)
+                self._peers = group._peers
             self.label = label
+            self._callbacks: list[Any] = []
 
         @classmethod
         def new_with_label_from_widget(
@@ -177,9 +182,22 @@ if "gi" not in sys.modules:
 
         def set_active(self, val: bool) -> None:
             self._active = val
+            if val:
+                for peer in self._peers:
+                    if peer is not self:
+                        peer._active = False
+            for cb in self._callbacks:
+                try:
+                    cb(self)
+                except Exception:
+                    pass
 
         def get_active(self) -> bool:
             return self._active
+
+        def connect(self, signal: str, callback: Any, *args: Any) -> None:
+            if signal == "toggled":
+                self._callbacks.append(callback)
 
     gi_mock.repository.Gtk.Dialog = _FakeDialog
     gi_mock.repository.Gtk.Label = _FakeLabel
@@ -321,7 +339,10 @@ class GWizardMediaFixTest(unittest.TestCase):
         dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
         self.assertEqual(len(dlg.rows), 1)
         row = dlg.rows[0]
-        self.assertEqual(row["suggested_path"], "subfolder/backslashes.jpg")
+        expected_sug = os.path.normpath(
+            os.path.join(dlg.base_dir, f"{m.get_gramps_id()}-Scattered_photo.jpg")
+        )
+        self.assertEqual(os.path.normpath(row["suggested_path"]), expected_sug)
 
         mock_entry = MagicMock()
         mock_entry.get_text.return_value = "subfolder/backslashes.jpg"
@@ -710,10 +731,37 @@ class GWizardMediaFixTest(unittest.TestCase):
             dlg.base_path_label.markup or dlg.base_path_label.text,
         )
         self.assertEqual(len(dlg.rows), 1)
-        # Relative path inside custom_path should be suggested
+        # Value in Hint should be base media path plus filename with naming standard
+        std_fname = f"{m.get_gramps_id()}-Absolute_inside_base.jpg"
+        expected_std = os.path.normpath(os.path.join(custom_path, std_fname))
         self.assertEqual(
             os.path.normpath(dlg.rows[0]["suggested_path"]),
-            os.path.normpath("sub/photo.jpg"),
+            expected_std,
+        )
+        self.assertEqual(
+            os.path.normpath(dlg.rows[0]["hint_text"]),
+            expected_std,
+        )
+
+        # Switch to Keep original filename radio button
+        dlg.radio_keep_original.set_active(True)
+        dlg._recompute_hints()
+        expected_orig = os.path.normpath(os.path.join(custom_path, "photo.jpg"))
+        self.assertEqual(
+            os.path.normpath(dlg.rows[0]["suggested_path"]),
+            expected_orig,
+        )
+        self.assertEqual(
+            os.path.normpath(dlg.rows[0]["hint_text"]),
+            expected_orig,
+        )
+
+        # Accept hints copies to Consolidated Path textbox
+        with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
+            dlg.cb_accept_hints(MagicMock())
+        self.assertEqual(
+            os.path.normpath(dlg.row_targets[0]["path_entry"].get_text()),
+            expected_orig,
         )
 
     def test_consolidate_media_location_path_selector_widget(self) -> None:
