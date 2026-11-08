@@ -122,6 +122,23 @@ FILENAME_PRESETS: list[tuple[str, str]] = [
 # Helper utilities for media analysis
 #
 # ------------------------------------------------------------
+def clean_path(path: str | None) -> str:
+    """Clean a path string by stripping surrounding whitespace and quotes."""
+    if not path:
+        return ""
+    p = str(path).strip()
+    while len(p) >= 2 and (
+        (p.startswith('"') and p.endswith('"'))
+        or (p.startswith("'") and p.endswith("'"))
+    ):
+        p = p[1:-1].strip()
+    if p.startswith('"') or p.startswith("'"):
+        p = p[1:].strip()
+    if p.endswith('"') or p.endswith("'"):
+        p = p[:-1].strip()
+    return p
+
+
 def get_media_base_path(db: Any) -> str:
     """Return the base path for relative media files.
 
@@ -134,7 +151,7 @@ def get_media_base_path(db: Any) -> str:
         try:
             raw = db.get_mediapath()
             if raw and str(raw).strip():
-                mpath = str(raw).strip()
+                mpath = clean_path(raw)
         except Exception:
             mpath = None
 
@@ -161,14 +178,16 @@ def get_media_base_path(db: Any) -> str:
 
 def is_in_default_path(raw_path: str, base_dir: str) -> bool:
     """Check if a raw path is located within the base/default media directory."""
-    if not raw_path or not base_dir:
+    clean_raw = clean_path(raw_path)
+    clean_base = clean_path(base_dir)
+    if not clean_raw or not clean_base:
         return False
-    if not os.path.isabs(raw_path):
+    if not os.path.isabs(clean_raw):
         # In Gramps, relative paths are relative to base_dir
         return True
     try:
-        norm_raw = os.path.normcase(os.path.normpath(os.path.abspath(raw_path)))
-        norm_base = os.path.normcase(os.path.normpath(os.path.abspath(base_dir)))
+        norm_raw = os.path.normcase(os.path.normpath(os.path.abspath(clean_raw)))
+        norm_base = os.path.normcase(os.path.normpath(os.path.abspath(clean_base)))
         if norm_raw == norm_base:
             return True
         common = os.path.commonpath([norm_raw, norm_base])
@@ -871,15 +890,20 @@ class FindMissingMediaDialog(Gtk.Dialog):
             m_gid = str(media.get_gramps_id() or "")
             desc = str(media.get_description() or "")
             raw_path = str(media.get_path() or "")
+            clean_raw = clean_path(raw_path)
 
             try:
-                full_path = media_path_full(dbstate.db, raw_path)
+                full_path = media_path_full(dbstate.db, clean_raw)
             except Exception:
-                full_path = raw_path
+                full_path = clean_raw
 
-            if not os.path.exists(full_path):
+            exists = os.path.exists(full_path) or (
+                os.path.isabs(clean_raw) and os.path.exists(clean_raw)
+            )
+
+            if not exists:
                 # Check if file exists in base media directory
-                basename = os.path.basename(raw_path)
+                basename = os.path.basename(clean_raw)
                 sug_path = ""
                 hint = _("File not found on disk")
                 if base_dir and os.path.exists(os.path.join(base_dir, basename)):
@@ -1041,7 +1065,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
         applied = 0
         with DbTxn(_("Update Missing Media Paths"), self.dbstate.db) as trans:
             for target in self.row_targets:
-                new_path = target["path_entry"].get_text().strip()
+                new_path = clean_path(target["path_entry"].get_text())
                 if not new_path:
                     continue
                 h = target["entry"].get("handle")
@@ -1518,19 +1542,25 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
 
         with DbTxn(_("Consolidate Media Locations"), self.dbstate.db) as trans:
             for target in self.row_targets:
-                new_path = target["path_entry"].get_text().strip()
+                new_path = clean_path(target["path_entry"].get_text())
                 if not new_path:
                     continue
                 h = target["entry"].get("handle")
-                raw_path = target["entry"].get("raw_path", "")
+                raw_path = clean_path(target["entry"].get("raw_path", ""))
                 try:
                     media = self.dbstate.db.get_media_from_handle(h)
                 except Exception:
                     media = None
                 if media is not None:
                     try:
-                        src_full = media_path_full(self.dbstate.db, raw_path)
-                        dest_full = media_path_full(self.dbstate.db, new_path)
+                        src_full = clean_path(
+                            media_path_full(self.dbstate.db, raw_path)
+                        )
+                        dest_full = (
+                            new_path
+                            if os.path.isabs(new_path)
+                            else clean_path(media_path_full(self.dbstate.db, new_path))
+                        )
                         if os.path.exists(src_full) and os.path.normpath(
                             src_full
                         ) != os.path.normpath(dest_full):
@@ -1708,8 +1738,9 @@ def generate_media_fix_report(db: Any) -> str:
             zero_ref_media.append((m_gid, desc, first_raw))
 
         for raw_path in raw_paths:
+            clean_raw = clean_path(raw_path)
             # Check default path location
-            if is_in_default_path(raw_path, base_dir):
+            if is_in_default_path(clean_raw, base_dir):
                 in_default_path += 1
             else:
                 outside_default_path += 1
@@ -1717,18 +1748,21 @@ def generate_media_fix_report(db: Any) -> str:
 
             # Check existence on filesystem
             try:
-                full_path = media_path_full(db, raw_path)
+                full_path = media_path_full(db, clean_raw)
                 norm_key = os.path.normcase(os.path.normpath(full_path))
             except Exception:
-                full_path = raw_path
-                norm_key = os.path.normcase(os.path.normpath(raw_path))
+                full_path = clean_raw
+                norm_key = os.path.normcase(os.path.normpath(clean_raw))
 
-            if os.path.exists(full_path):
+            exists = os.path.exists(full_path) or (
+                os.path.isabs(clean_raw) and os.path.exists(clean_raw)
+            )
+            if exists:
                 found += 1
             else:
                 alt_path = (
-                    os.path.join(base_dir, raw_path)
-                    if base_dir and not os.path.isabs(raw_path)
+                    os.path.join(base_dir, clean_raw)
+                    if base_dir and not os.path.isabs(clean_raw)
                     else None
                 )
                 if alt_path and os.path.exists(alt_path):
@@ -1738,7 +1772,7 @@ def generate_media_fix_report(db: Any) -> str:
                     missing_list.append((m_gid, desc, raw_path))
 
             # Check absolute path
-            if os.path.isabs(raw_path):
+            if os.path.isabs(clean_raw):
                 absolute_paths += 1
                 abs_list.append((m_gid, desc, raw_path))
 
