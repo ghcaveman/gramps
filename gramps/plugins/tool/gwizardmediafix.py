@@ -2203,10 +2203,15 @@ class FindMissingMediaDialog(Gtk.Dialog):
         self.show_all()
         while True:
             resp = self.run()
-            if resp in (
-                Gtk.ResponseType.CLOSE,
-                Gtk.ResponseType.CANCEL,
-                Gtk.ResponseType.DELETE_EVENT,
+            if (
+                resp
+                in (
+                    Gtk.ResponseType.CLOSE,
+                    Gtk.ResponseType.CANCEL,
+                    Gtk.ResponseType.DELETE_EVENT,
+                    Gtk.ResponseType.NONE,
+                )
+                or resp <= 0
             ):
                 break
         self.destroy()
@@ -2800,10 +2805,15 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         self.show_all()
         while True:
             resp = self.run()
-            if resp in (
-                Gtk.ResponseType.CLOSE,
-                Gtk.ResponseType.CANCEL,
-                Gtk.ResponseType.DELETE_EVENT,
+            if (
+                resp
+                in (
+                    Gtk.ResponseType.CLOSE,
+                    Gtk.ResponseType.CANCEL,
+                    Gtk.ResponseType.DELETE_EVENT,
+                    Gtk.ResponseType.NONE,
+                )
+                or resp <= 0
             ):
                 break
         self.destroy()
