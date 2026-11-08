@@ -209,6 +209,8 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
                     "records": [r],
                     "keeper": r,
                     "raw_path": r["raw_path"],
+                    "perm_issue": r.get("perm_issue", False),
+                    "inaccess_dir": r.get("inaccess_dir"),
                 }
             )
 
