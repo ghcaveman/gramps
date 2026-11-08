@@ -66,6 +66,23 @@ _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
 
 
+def clean_path(path: str | None) -> str:
+    """Clean a path string by stripping surrounding whitespace and quotes."""
+    if not path:
+        return ""
+    p = str(path).strip()
+    while len(p) >= 2 and (
+        (p.startswith('"') and p.endswith('"'))
+        or (p.startswith("'") and p.endswith("'"))
+    ):
+        p = p[1:-1].strip()
+    if p.startswith('"') or p.startswith("'"):
+        p = p[1:].strip()
+    if p.endswith('"') or p.endswith("'"):
+        p = p[:-1].strip()
+    return p
+
+
 def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
     """Scan database for media files referenced by multiple media records.
 
@@ -87,7 +104,7 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
             continue
         m_gid = str(media.get_gramps_id() or "")
         desc = str(media.get_description() or "")
-        raw_path = str(media.get_path() or "").strip()
+        raw_path = clean_path(str(media.get_path() or ""))
         if not raw_path:
             continue
 
@@ -401,9 +418,9 @@ class FixMediaReferencesDialog(Gtk.Dialog):
 
             elif choice == 2:
                 # Create separate file copies for each duplicate record
-                src_path = group["raw_path"]
+                src_path = clean_path(group["raw_path"])
                 try:
-                    src_full = media_path_full(self.dbstate.db, src_path)
+                    src_full = clean_path(media_path_full(self.dbstate.db, src_path))
                 except Exception:
                     src_full = src_path
 
