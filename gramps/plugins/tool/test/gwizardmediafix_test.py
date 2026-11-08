@@ -2162,6 +2162,129 @@ class GWizardMediaFixTest(unittest.TestCase):
                 mock_dialog.call_args[0][0],
             )
 
+    def test_auto_all_accept_all_hints(self) -> None:
+        """Accept all hints executes automated fixes and reports items requiring human intervention."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            base_dir = os.path.join(temp_dir, "MediaBase")
+            os.makedirs(base_dir, exist_ok=True)
+            self.db.set_mediapath(base_dir)
+
+            # 1. Missing file that exists in base_dir
+            found_file = os.path.join(base_dir, "found.jpg")
+            with open(found_file, "w") as f:
+                f.write("content")
+
+            # 2. Source file for consolidation on disk
+            consol_src = os.path.join(temp_dir, "scattered.png")
+            with open(consol_src, "w") as f:
+                f.write("content")
+
+            with DbTxn("Create media records for auto_all", self.db) as trans:
+                # Missing media that can be resolved
+                m_found = Media()
+                m_found.set_description("Found Media")
+                m_found.set_path("lost/found.jpg")
+                h_found = self.db.add_media(m_found, trans)
+
+                p_found = Person()
+                mref_f = MediaRef()
+                mref_f.set_reference_handle(h_found)
+                p_found.add_media_reference(mref_f)
+                self.db.add_person(p_found, trans)
+
+                # Trully missing media that requires human intervention
+                m_unresolved = Media()
+                m_unresolved.set_description("Unresolved Media")
+                m_unresolved.set_path("truly/missing_forever.jpg")
+                h_unres = self.db.add_media(m_unresolved, trans)
+
+                p_unres = Person()
+                mref_u = MediaRef()
+                mref_u.set_reference_handle(h_unres)
+                p_unres.add_media_reference(mref_u)
+                self.db.add_person(p_unres, trans)
+
+                # Unreferenced image tag (file exists on disk, but 0 data references)
+                orphan_file = os.path.join(temp_dir, "orphan.jpg")
+                with open(orphan_file, "w") as f:
+                    f.write("content")
+                m_orphan = Media()
+                m_orphan.set_description("Orphan Media")
+                m_orphan.set_path(orphan_file)
+                h_orphan = self.db.add_media(m_orphan, trans)
+
+                # Duplicate references to consol_src
+                m_dup1 = Media()
+                m_dup1.set_description("Shared Photo 1")
+                m_dup1.set_path(consol_src)
+                h_dup1 = self.db.add_media(m_dup1, trans)
+
+                m_dup2 = Media()
+                m_dup2.set_description("Shared Photo 2")
+                m_dup2.set_path(consol_src)
+                h_dup2 = self.db.add_media(m_dup2, trans)
+
+                # Link person to dup1 so dup1 is chosen as keeper
+                p = Person()
+                mref = MediaRef()
+                mref.set_reference_handle(h_dup1)
+                p.add_media_reference(mref)
+                self.db.add_person(p, trans)
+
+            tool_instance = GWizardMediaFix.__new__(GWizardMediaFix)
+            tool_instance.dbstate = self.dbstate
+            tool_instance.window = MagicMock()
+
+            # Test cancellation: QuestionDialog2 returns False
+            mock_confirm = MagicMock()
+            mock_confirm.run.return_value = False
+            with patch(
+                "gramps.plugins.tool.gwizardmediafix.QuestionDialog2",
+                return_value=mock_confirm,
+            ):
+                tool_instance.cb_auto_all()
+                # Should do nothing
+                self.assertIsNotNone(self.db.get_media_from_handle(h_orphan))
+
+            # Test acceptance: QuestionDialog2 returns True
+            mock_confirm.run.return_value = True
+            with (
+                patch(
+                    "gramps.plugins.tool.gwizardmediafix.QuestionDialog2",
+                    return_value=mock_confirm,
+                ),
+                patch("gramps.plugins.tool.gwizardmediafix.OkDialog") as mock_ok,
+            ):
+                tool_instance.cb_auto_all()
+                mock_ok.assert_called_once()
+                report_title = mock_ok.call_args[0][0]
+                report_body = mock_ok.call_args[0][1]
+
+                self.assertIn("Accept All Hints Complete", report_title)
+                self.assertIn("AUTOMATED CHANGES PERFORMED:", report_body)
+                self.assertIn(
+                    "Find missing media: 1 missing path(s) found", report_body
+                )
+                self.assertIn(
+                    "Fix media references: 1 duplicate record(s) merged, 1 unreferenced image tag(s) deleted.",
+                    report_body,
+                )
+                self.assertIn("CHANGES REQUIRING HUMAN INTERVENTION:", report_body)
+                self.assertIn("Missing files on disk (1)", report_body)
+                self.assertIn("missing_forever.jpg", report_body)
+
+                # Orphan was deleted
+                with self.assertRaises(HandleError):
+                    self.db.get_media_from_handle(h_orphan)
+
+                # Duplicate was merged into keeper
+                with self.assertRaises(HandleError):
+                    self.db.get_media_from_handle(h_dup2)
+                self.assertIsNotNone(self.db.get_media_from_handle(h_dup1))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()
