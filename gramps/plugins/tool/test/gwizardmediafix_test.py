@@ -281,6 +281,8 @@ from gramps.plugins.tool.gwizardmediafix import (
     find_duplicate_media_references,
     DEFAULT_FILENAME_TEMPLATE,
     FILENAME_PRESETS,
+    check_path_permission,
+    get_path_ancestors,
 )
 from gramps.plugins.tool.fixmediareferencesdialog import (
     find_duplicate_media_groups,
@@ -1210,6 +1212,100 @@ class GWizardMediaFixTest(unittest.TestCase):
         # Media record should now be deleted from database
         with self.assertRaises(HandleError):
             self.db.get_media_from_handle(m_h)
+
+    def test_check_path_permission_ancestors(self) -> None:
+        """check_path_permission identifies the highest-level directory that cannot be read."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            restricted_dir = os.path.join(temp_dir, "RestrictedDir")
+            os.makedirs(restricted_dir)
+            test_file = os.path.join(restricted_dir, "nested", "photo.jpg")
+
+            orig_scandir = os.scandir
+
+            def mock_scandir(p: Any) -> Any:
+                if os.path.normcase(str(p)) == os.path.normcase(restricted_dir):
+                    raise PermissionError(13, "Access is denied", restricted_dir)
+                return orig_scandir(p)
+
+            with patch(
+                "gramps.plugins.tool.gwizardmediafix.os.scandir",
+                side_effect=mock_scandir,
+            ):
+                has_issue, inaccess = check_path_permission(test_file)
+                self.assertTrue(has_issue)
+                self.assertEqual(
+                    os.path.normcase(inaccess or ""),
+                    os.path.normcase(restricted_dir),
+                )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_report_permission_denied_file(self) -> None:
+        """generate_media_fix_report lists permission-denied files with the highest inaccessible directory."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            restricted_dir = os.path.join(temp_dir, "RestrictedVault")
+            os.makedirs(restricted_dir)
+            test_file = os.path.join(restricted_dir, "secret_photo.jpg")
+
+            with DbTxn("Create media in restricted folder", self.db) as trans:
+                m = Media()
+                m.set_description("Vault Photo")
+                m.set_path(test_file)
+                self.db.add_media(m, trans)
+
+            orig_scandir = os.scandir
+
+            def mock_scandir(p: Any) -> Any:
+                if os.path.normcase(str(p)) == os.path.normcase(restricted_dir):
+                    raise PermissionError(13, "Access is denied", restricted_dir)
+                return orig_scandir(p)
+
+            with patch(
+                "gramps.plugins.tool.gwizardmediafix.os.scandir",
+                side_effect=mock_scandir,
+            ):
+                report = generate_media_fix_report(self.db)
+                self.assertIn("Permission denied files:   1", report)
+                self.assertIn("PERMISSION DENIED FILES (1 files inaccessible", report)
+                self.assertIn("Inaccessible at:", report)
+                self.assertIn("RestrictedVault", report)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_find_missing_media_hint_permission_denied(self) -> None:
+        """FindMissingMediaDialog displays permission denial in Hint column."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            no_access_dir = os.path.join(temp_dir, "NoAccessFolder")
+            os.makedirs(no_access_dir)
+            test_file = os.path.join(no_access_dir, "pic.jpg")
+
+            with DbTxn("Create media in no-access folder", self.db) as trans:
+                m = Media()
+                m.set_description("No Access Pic")
+                m.set_path(test_file)
+                self.db.add_media(m, trans)
+
+            orig_scandir = os.scandir
+
+            def mock_scandir(p: Any) -> Any:
+                if os.path.normcase(str(p)) == os.path.normcase(no_access_dir):
+                    raise PermissionError(13, "Access is denied", no_access_dir)
+                return orig_scandir(p)
+
+            with patch(
+                "gramps.plugins.tool.gwizardmediafix.os.scandir",
+                side_effect=mock_scandir,
+            ):
+                dlg = FindMissingMediaDialog(dbstate=self.dbstate)
+                self.assertEqual(len(dlg.rows), 1)
+                self.assertTrue(dlg.rows[0]["perm_denied"])
+                self.assertIn("Permission denied", dlg.rows[0]["hint_text"])
+                self.assertIn("NoAccessFolder", dlg.rows[0]["hint_text"])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

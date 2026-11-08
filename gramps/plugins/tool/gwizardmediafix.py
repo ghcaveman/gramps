@@ -139,6 +139,83 @@ def clean_path(path: str | None) -> str:
     return p
 
 
+def get_path_ancestors(path: str) -> list[str]:
+    """Return all ancestors of a path from root down to the target path."""
+    clean_p = clean_path(path)
+    if not clean_p:
+        return []
+    norm = os.path.normpath(os.path.abspath(clean_p))
+    parts: list[str] = []
+    curr = norm
+    while True:
+        parts.append(curr)
+        parent = os.path.dirname(curr)
+        if parent == curr:
+            break
+        curr = parent
+    parts.reverse()
+    return parts
+
+
+def check_path_permission(path: str) -> tuple[bool, str | None]:
+    """Check if a path or any of its parent directories has permission denied.
+
+    Walks from the root directory downwards to identify the highest-level directory
+    which cannot be read.
+
+    Returns:
+        (has_permission_issue: bool, highest_inaccessible_dir_or_file: str | None)
+    """
+    clean_p = clean_path(path)
+    if not clean_p:
+        return False, None
+
+    ancestors = get_path_ancestors(clean_p)
+    for comp in ancestors:
+        try:
+            try:
+                st = os.stat(comp)
+            except PermissionError:
+                return True, comp
+            except FileNotFoundError:
+                continue
+            except OSError as err:
+                if getattr(err, "winerror", None) == 5 or err.errno in (13, 1):
+                    return True, comp
+                continue
+
+            # Stat succeeded, so comp exists on disk. Now verify read access:
+            if not os.access(comp, os.R_OK):
+                return True, comp
+
+            import stat as _stat
+
+            if _stat.S_ISDIR(st.st_mode):
+                try:
+                    with os.scandir(comp):
+                        pass
+                except PermissionError:
+                    return True, comp
+                except OSError as err:
+                    if getattr(err, "winerror", None) == 5 or err.errno in (13, 1):
+                        return True, comp
+            else:
+                try:
+                    with open(comp, "rb") as f:
+                        f.read(1)
+                except PermissionError:
+                    return True, comp
+                except OSError as err:
+                    if getattr(err, "winerror", None) == 5 or err.errno in (13, 1):
+                        return True, comp
+        except PermissionError:
+            return True, comp
+        except (OSError, ValueError):
+            pass
+
+    return False, None
+
+
 def get_media_base_path(db: Any) -> str:
     """Return the base path for relative media files.
 
@@ -906,7 +983,15 @@ class FindMissingMediaDialog(Gtk.Dialog):
                 basename = os.path.basename(clean_raw)
                 sug_path = ""
                 hint = _("File not found on disk")
-                if base_dir and os.path.exists(os.path.join(base_dir, basename)):
+
+                # Check for permission denied along the directory path
+                perm_issue, inaccess_dir = check_path_permission(full_path)
+                if not perm_issue and os.path.isabs(clean_raw):
+                    perm_issue, inaccess_dir = check_path_permission(clean_raw)
+
+                if perm_issue and inaccess_dir:
+                    hint = _("Permission denied: cannot read '%s'") % inaccess_dir
+                elif base_dir and os.path.exists(os.path.join(base_dir, basename)):
                     sug_path = basename
                     hint = _("Found in media directory: suggest '%s'") % basename
 
@@ -919,6 +1004,8 @@ class FindMissingMediaDialog(Gtk.Dialog):
                         "full_path": full_path,
                         "suggested_path": sug_path,
                         "hint_text": hint,
+                        "perm_denied": perm_issue,
+                        "inaccess_dir": inaccess_dir,
                     }
                 )
 
@@ -1690,12 +1777,14 @@ def generate_media_fix_report(db: Any) -> str:
     total = 0
     found = 0
     missing = 0
+    permission_denied = 0
     absolute_paths = 0
     non_standard = 0
     in_default_path = 0
     outside_default_path = 0
 
     missing_list: list[tuple[str, str, str]] = []
+    perm_denied_list: list[tuple[str, str, str, str]] = []
     abs_list: list[tuple[str, str, str]] = []
     non_std_list: list[tuple[str, str, str, str, str]] = []
     outside_default_list: list[tuple[str, str, str]] = []
@@ -1768,8 +1857,16 @@ def generate_media_fix_report(db: Any) -> str:
                 if alt_path and os.path.exists(alt_path):
                     found += 1
                 else:
-                    missing += 1
-                    missing_list.append((m_gid, desc, raw_path))
+                    perm_issue, inaccess_dir = check_path_permission(full_path)
+                    if not perm_issue and alt_path:
+                        perm_issue, inaccess_dir = check_path_permission(alt_path)
+
+                    if perm_issue and inaccess_dir:
+                        permission_denied += 1
+                        perm_denied_list.append((m_gid, desc, raw_path, inaccess_dir))
+                    else:
+                        missing += 1
+                        missing_list.append((m_gid, desc, raw_path))
 
             # Check absolute path
             if os.path.isabs(clean_raw):
@@ -1811,6 +1908,7 @@ def generate_media_fix_report(db: Any) -> str:
         f"  Files outside default path:{outside_default_path}",
         f"  Files found on disk:       {found}",
         f"  Files missing on disk:     {missing}",
+        f"  Permission denied files:   {permission_denied}",
         f"  Absolute file paths:       {absolute_paths}",
         f"  Non-standard filenames:    {non_standard}",
         f"  Unreferenced path files:   {len(unref_disk_files)}",
@@ -1887,6 +1985,22 @@ def generate_media_fix_report(db: Any) -> str:
             lines.append(f"  [{gid}] {desc}")
             lines.append(f"    Path: {path}")
         lines.append("")
+
+    lines.append("-" * 72)
+    lines.append(
+        f"PERMISSION DENIED FILES ({len(perm_denied_list)} files inaccessible due to directory permissions):"
+    )
+    lines.append("-" * 72)
+    if perm_denied_list:
+        for gid, desc, path, inaccess in perm_denied_list:
+            lines.append(f"  [{gid}] {desc or '(unnamed)'}")
+            lines.append(f"    Path:            {path}")
+            lines.append(f"    Inaccessible at: {inaccess}")
+    else:
+        lines.append(
+            "  0 permission errors encountered. All inspected directories are readable."
+        )
+    lines.append("")
 
     if missing_list:
         lines.append("-" * 72)
