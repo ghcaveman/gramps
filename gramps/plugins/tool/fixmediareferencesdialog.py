@@ -198,6 +198,20 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
                 }
             )
 
+    # 2. Unreferenced media records (image tags with 0 data references)
+    for records in path_map.values():
+        if len(records) == 1 and records[0]["backlink_count"] == 0:
+            r = records[0]
+            groups.append(
+                {
+                    "type": "unreferenced",
+                    "file_key": r["full_path"],
+                    "records": [r],
+                    "keeper": r,
+                    "raw_path": r["raw_path"],
+                }
+            )
+
     return groups
 
 
