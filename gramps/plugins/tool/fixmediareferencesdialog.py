@@ -145,6 +145,7 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
         )
 
     groups: list[dict[str, Any]] = []
+    # 1. Duplicate file references (multiple media records sharing the same file)
     for file_key, records in path_map.items():
         if len(records) > 1:
             records.sort(
@@ -158,10 +159,25 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
             keeper = records[0]
             groups.append(
                 {
+                    "type": "duplicate",
                     "file_key": file_key,
                     "records": records,
                     "keeper": keeper,
                     "raw_path": records[0]["raw_path"],
+                }
+            )
+
+    # 2. Unreferenced media records (image tags with 0 data references)
+    for records in path_map.values():
+        if len(records) == 1 and records[0]["backlink_count"] == 0:
+            r = records[0]
+            groups.append(
+                {
+                    "type": "unreferenced",
+                    "file_key": r["full_path"],
+                    "records": [r],
+                    "keeper": r,
+                    "raw_path": r["raw_path"],
                 }
             )
 
@@ -174,7 +190,7 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
 #
 # ------------------------------------------------------------
 class FixMediaReferencesDialog(Gtk.Dialog):
-    """Review and resolve duplicate references where a single media file is used for multiple references."""
+    """Review and resolve duplicate references where a single media file is used for multiple references, or unreferenced image tags."""
 
     def __init__(
         self,
@@ -219,8 +235,10 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         info = Gtk.Label(
             label=str(
                 _(
-                    "Review duplicate references where a single media file is shared by multiple records. "
-                    "You can merge duplicate media records into a single keeper or create separate file copies for each record."
+                    "Review duplicate references where a single media file is shared by multiple records, "
+                    "or image tags with no data references in the database. "
+                    "You can merge duplicate media records into a single keeper, create separate file copies, "
+                    "or delete unreferenced records."
                 )
             )
         )
@@ -230,19 +248,20 @@ class FixMediaReferencesDialog(Gtk.Dialog):
 
         if not self.groups:
             done = Gtk.Label(
-                label=str(_("No duplicate or shared media file references found."))
+                label=str(_("No duplicate or unreferenced media records found."))
             )
             done.set_halign(Gtk.Align.START)
             content.add(done)
             return
 
+        dup_count = sum(1 for g in self.groups if g.get("type") == "duplicate")
+        unref_count = sum(1 for g in self.groups if g.get("type") == "unreferenced")
         count_label = Gtk.Label(
             label=str(
-                _("Total duplicate media file groups: %d (affecting %d media records)")
-                % (
-                    len(self.groups),
-                    sum(len(g["records"]) for g in self.groups),
+                _(
+                    "Total items to fix: %d (%d duplicate file groups, %d unreferenced image tags)"
                 )
+                % (len(self.groups), dup_count, unref_count)
             )
         )
         count_label.set_halign(Gtk.Align.START)
@@ -281,45 +300,86 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         for group in groups:
             records = group["records"]
             keeper = group["keeper"]
+            g_type = group.get("type", "duplicate")
 
-            # Column 0: File path and records summary
-            desc_lines = [group["raw_path"]]
-            for r in records:
-                d = r["desc"] or _("(unnamed)")
-                desc_lines.append(f"  • [{r['gramps_id']}] {d}")
-            file_label = TableLabel(
-                "\n".join(desc_lines), width_chars=40, width_request=320
-            )
-            grid.attach(file_label, 0, row_index, 1, 1)
+            if g_type == "unreferenced":
+                # Column 0: File path and records summary
+                desc_lines = [
+                    group["raw_path"],
+                    f"  • [{keeper['gramps_id']}] {keeper['desc'] or _('(unnamed)')} ("
+                    + str(_("Unreferenced"))
+                    + ")",
+                ]
+                file_label = TableLabel(
+                    "\n".join(desc_lines), width_chars=40, width_request=320
+                )
+                grid.attach(file_label, 0, row_index, 1, 1)
 
-            # Column 1: References summary
-            ref_parts = []
-            for r in records:
-                assoc = r.get("assoc") or r.get("desc") or _("(unnamed)")
-                ref_parts.append(f"[{r['gramps_id']}]: {assoc}")
-            ref_label = TableLabel(
-                "\n".join(ref_parts), width_chars=40, width_request=300
-            )
-            grid.attach(ref_label, 1, row_index, 1, 1)
+                # Column 1: References summary
+                ref_label = TableLabel(
+                    f"[{keeper['gramps_id']}]: "
+                    + str(_("0 data references (unreferenced image tag)")),
+                    width_chars=40,
+                    width_request=300,
+                )
+                grid.attach(ref_label, 1, row_index, 1, 1)
 
-            # Column 2: Action ComboBox
-            action_combo = Gtk.ComboBoxText()
-            action_combo.append_text(
-                str(_("Merge into keeper [%s]")) % keeper["gramps_id"]
-            )
-            action_combo.append_text(str(_("Create separate file copies")))
-            action_combo.append_text(str(_("Keep shared (no change)")))
-            action_combo.set_active(0)
-            action_combo.set_hexpand(True)
-            grid.attach(action_combo, 2, row_index, 1, 1)
+                # Column 2: Action ComboBox
+                action_combo = Gtk.ComboBoxText()
+                action_combo.append_text(str(_("Delete unreferenced record")))
+                action_combo.append_text(str(_("Keep unreferenced (no change)")))
+                action_combo.set_active(0)
+                action_combo.set_hexpand(True)
+                grid.attach(action_combo, 2, row_index, 1, 1)
 
-            # Column 3: Hint label
-            hint_str = str(_("Merge duplicate records into keeper [%(gid)s]")) % {
-                "gid": keeper["gramps_id"],
-            }
-            hint_label = TableLabel(hint_str, width_chars=36, width_request=280)
-            hint_label.set_hexpand(True)
-            grid.attach(hint_label, 3, row_index, 1, 1)
+                # Column 3: Hint label
+                hint_label = TableLabel(
+                    str(_("Unreferenced image tag: safe to remove from database")),
+                    width_chars=36,
+                    width_request=280,
+                )
+                hint_label.set_hexpand(True)
+                grid.attach(hint_label, 3, row_index, 1, 1)
+
+            else:
+                # Column 0: File path and records summary
+                desc_lines = [group["raw_path"]]
+                for r in records:
+                    d = r["desc"] or _("(unnamed)")
+                    desc_lines.append(f"  • [{r['gramps_id']}] {d}")
+                file_label = TableLabel(
+                    "\n".join(desc_lines), width_chars=40, width_request=320
+                )
+                grid.attach(file_label, 0, row_index, 1, 1)
+
+                # Column 1: References summary
+                ref_parts = []
+                for r in records:
+                    assoc = r.get("assoc") or r.get("desc") or _("(unnamed)")
+                    ref_parts.append(f"[{r['gramps_id']}]: {assoc}")
+                ref_label = TableLabel(
+                    "\n".join(ref_parts), width_chars=40, width_request=300
+                )
+                grid.attach(ref_label, 1, row_index, 1, 1)
+
+                # Column 2: Action ComboBox
+                action_combo = Gtk.ComboBoxText()
+                action_combo.append_text(
+                    str(_("Merge into keeper [%s]")) % keeper["gramps_id"]
+                )
+                action_combo.append_text(str(_("Create separate file copies")))
+                action_combo.append_text(str(_("Keep shared (no change)")))
+                action_combo.set_active(0)
+                action_combo.set_hexpand(True)
+                grid.attach(action_combo, 2, row_index, 1, 1)
+
+                # Column 3: Hint label
+                hint_str = str(_("Merge duplicate records into keeper [%(gid)s]")) % {
+                    "gid": keeper["gramps_id"],
+                }
+                hint_label = TableLabel(hint_str, width_chars=36, width_request=280)
+                hint_label.set_hexpand(True)
+                grid.attach(hint_label, 3, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):
                 self.column_sizegroups[0].add_widget(file_label)
@@ -367,15 +427,38 @@ class FixMediaReferencesDialog(Gtk.Dialog):
     def cb_apply(self, _button: Gtk.Button) -> None:
         merged_count = 0
         copied_count = 0
+        deleted_count = 0
         errors: list[str] = []
 
         for target in self.row_targets:
             combo = target["action_combo"]
-            choice = combo.get_active() if hasattr(combo, "get_active") else 0
+            choice = 0
+            if hasattr(combo, "get_active"):
+                raw_choice = combo.get_active()
+                try:
+                    choice = int(raw_choice)
+                except (TypeError, ValueError):
+                    choice = 0
+            group = target["group"]
+            g_type = group.get("type", "duplicate")
+
+            if g_type == "unreferenced":
+                if choice == 0:
+                    h = group["keeper"]["handle"]
+                    try:
+                        with DbTxn(
+                            _("Remove Unreferenced Media"), self.dbstate.db
+                        ) as trans:
+                            self.dbstate.db.remove_media(h, trans)
+                            deleted_count += 1
+                    except Exception as err:
+                        LOG.exception("Failed to remove unreferenced media: %s", err)
+                        errors.append(str(err))
+                continue
+
             if choice == 2:  # Keep shared (no change)
                 continue
 
-            group = target["group"]
             records = group["records"]
             keeper = group["keeper"]
 
@@ -433,12 +516,12 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                             other_media.set_path(new_rel)
                             self.dbstate.db.commit_media(other_media, trans)
 
-        if merged_count == 0 and copied_count == 0:
+        if merged_count == 0 and copied_count == 0 and deleted_count == 0:
             OkDialog(
                 str(_("Nothing to apply")),
                 str(
                     _(
-                        "No actions selected. Choose 'Merge' or 'Create copies' for one or more files first."
+                        "No actions selected. Choose 'Merge', 'Create copies', or 'Delete' for one or more records first."
                     )
                 ),
                 parent=self,
@@ -447,9 +530,13 @@ class FixMediaReferencesDialog(Gtk.Dialog):
 
         summary = []
         if merged_count > 0:
-            summary.append(str(_("Merged %d duplicate media records.") % merged_count))
+            summary.append(str(_("Merged %d duplicate media records.")) % merged_count)
         if copied_count > 0:
-            summary.append(str(_("Created %d separate media files.") % copied_count))
+            summary.append(str(_("Created %d separate media files.")) % copied_count)
+        if deleted_count > 0:
+            summary.append(
+                str(_("Deleted %d unreferenced media records.")) % deleted_count
+            )
 
         msg = " ".join(summary)
         if errors:

@@ -202,11 +202,40 @@ if "gi" not in sys.modules:
             if signal == "toggled":
                 self._callbacks.append(callback)
 
+    class _FakeComboBoxText:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._active = 0
+            self._items: list[str] = []
+            self._child = _FakeEntry()
+
+        @classmethod
+        def new_with_entry(cls) -> _FakeComboBoxText:
+            return cls()
+
+        def get_child(self) -> _FakeEntry:
+            return self._child
+
+        def append_text(self, text: str) -> None:
+            self._items.append(text)
+
+        def set_active(self, val: int) -> None:
+            self._active = val
+
+        def get_active(self) -> int:
+            return self._active
+
+        def set_hexpand(self, val: bool) -> None:
+            pass
+
+        def connect(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
     gi_mock.repository.Gtk.Dialog = _FakeDialog
     gi_mock.repository.Gtk.Label = _FakeLabel
     gi_mock.repository.Gtk.Grid = _FakeGrid
     gi_mock.repository.Gtk.Entry = _FakeEntry
     gi_mock.repository.Gtk.RadioButton = _FakeRadioButton
+    gi_mock.repository.Gtk.ComboBoxText = _FakeComboBoxText
     sys.modules["gi"] = gi_mock
     sys.modules["gi.repository"] = gi_mock.repository
 
@@ -991,11 +1020,11 @@ class GWizardMediaFixTest(unittest.TestCase):
 
         report = generate_media_fix_report(self.db)
         self.assertIn("Multiple database links:   1", report)
-        self.assertIn("Unreferenced media records:1", report)
+        self.assertIn("Unreferenced image tags:   1", report)
         self.assertIn("MEDIA RECORDS WITH MULTIPLE DATABASE REFERENCES", report)
         self.assertIn("Shared Photo", report)
         self.assertIn("References: 2 (Person: 2)", report)
-        self.assertIn("UNREFERENCED MEDIA RECORDS IN DATABASE", report)
+        self.assertIn("UNREFERENCED IMAGE TAGS / MEDIA RECORDS", report)
         self.assertIn("Orphan Media", report)
 
     def test_report_default_path_counts(self) -> None:
@@ -1143,6 +1172,44 @@ class GWizardMediaFixTest(unittest.TestCase):
         updated_m2 = self.db.get_media_from_handle(m2_h)
         self.assertNotEqual(updated_m2.get_path(), "shared/picture.jpg")
         self.assertIn("picture", updated_m2.get_path())
+
+    def test_report_zero_unreferenced_image_tags(self) -> None:
+        """Report explicitly notes when zero unreferenced image tags are found."""
+        with DbTxn("Create referenced media", self.db) as trans:
+            m = Media()
+            m.set_path("referenced/photo.jpg")
+            m_h = self.db.add_media(m, trans)
+
+            p = Person()
+            mref = MediaRef()
+            mref.set_reference_handle(m_h)
+            p.add_media_reference(mref)
+            self.db.add_person(p, trans)
+
+        report = generate_media_fix_report(self.db)
+        self.assertIn("Unreferenced image tags:   0", report)
+        self.assertIn("0 unreferenced image tags found", report)
+
+    def test_fix_media_references_dialog_delete_unreferenced(self) -> None:
+        """FixMediaReferencesDialog detects and deletes unreferenced image tags."""
+        with DbTxn("Create unreferenced media", self.db) as trans:
+            m = Media()
+            m.set_description("Orphan Image Tag")
+            m.set_path("orphan/image.jpg")
+            m_h = self.db.add_media(m, trans)
+
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        unref_groups = [g for g in dlg.groups if g.get("type") == "unreferenced"]
+        self.assertEqual(len(unref_groups), 1)
+        self.assertEqual(unref_groups[0]["keeper"]["handle"], m_h)
+
+        # Apply deletion (choice 0)
+        with patch("gramps.plugins.tool.fixmediareferencesdialog.OkDialog"):
+            dlg.cb_apply(MagicMock())
+
+        # Media record should now be deleted from database
+        with self.assertRaises(HandleError):
+            self.db.get_media_from_handle(m_h)
 
 
 if __name__ == "__main__":
