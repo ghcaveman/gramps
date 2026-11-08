@@ -1948,6 +1948,44 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertTrue(dlg.report_label.selectable)
         self.assertEqual(dlg.report_label.text, sample_report)
 
+    def test_report_zero_unreferenced_image_tags(self) -> None:
+        """Report explicitly notes when zero unreferenced image tags are found."""
+        with DbTxn("Create referenced media", self.db) as trans:
+            m = Media()
+            m.set_path("referenced/photo.jpg")
+            m_h = self.db.add_media(m, trans)
+
+            p = Person()
+            mref = MediaRef()
+            mref.set_reference_handle(m_h)
+            p.add_media_reference(mref)
+            self.db.add_person(p, trans)
+
+        report = generate_media_fix_report(self.db)
+        self.assertIn("Unreferenced image tags:   0", report)
+        self.assertIn("0 unreferenced image tags found", report)
+
+    def test_fix_media_references_dialog_delete_unreferenced(self) -> None:
+        """FixMediaReferencesDialog detects and deletes unreferenced image tags."""
+        with DbTxn("Create unreferenced media", self.db) as trans:
+            m = Media()
+            m.set_description("Orphan Image Tag")
+            m.set_path("orphan/image.jpg")
+            m_h = self.db.add_media(m, trans)
+
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        unref_groups = [g for g in dlg.groups if g.get("type") == "unreferenced"]
+        self.assertEqual(len(unref_groups), 1)
+        self.assertEqual(unref_groups[0]["keeper"]["handle"], m_h)
+
+        # Apply deletion (choice 0)
+        with patch("gramps.plugins.tool.fixmediareferencesdialog.OkDialog"):
+            dlg.cb_apply(MagicMock())
+
+        # Media record should now be deleted from database
+        with self.assertRaises(HandleError):
+            self.db.get_media_from_handle(m_h)
+
 
 if __name__ == "__main__":
     unittest.main()
