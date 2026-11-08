@@ -92,10 +92,14 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
         return []
 
     try:
-        from .gwizardmediafix import resolve_media_reference_context
+        from .gwizardmediafix import (
+            resolve_media_reference_context,
+            check_path_permission,
+        )
     except (ImportError, ValueError):
         from gwizardmediafix import (  # type: ignore[import-not-found,no-redef]
             resolve_media_reference_context,
+            check_path_permission,
         )
 
     path_map: dict[str, list[dict[str, Any]]] = {}
@@ -121,6 +125,10 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
         except Exception:
             pass
 
+        perm_issue, inaccess_dir = check_path_permission(full_path)
+        if not perm_issue and os.path.isabs(raw_path):
+            perm_issue, inaccess_dir = check_path_permission(raw_path)
+
         backlinks = []
         if hasattr(db, "find_backlink_handles") and m_handle:
             try:
@@ -140,6 +148,8 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
                 "full_path": key,
                 "backlink_count": len(backlinks),
                 "assoc": assoc_str,
+                "perm_issue": perm_issue,
+                "inaccess_dir": inaccess_dir,
                 "media": media,
             }
         )
@@ -164,6 +174,11 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
                     "records": records,
                     "keeper": keeper,
                     "raw_path": records[0]["raw_path"],
+                    "perm_issue": any(r.get("perm_issue") for r in records),
+                    "inaccess_dir": next(
+                        (r["inaccess_dir"] for r in records if r.get("inaccess_dir")),
+                        None,
+                    ),
                 }
             )
 
@@ -178,6 +193,8 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
                     "records": [r],
                     "keeper": r,
                     "raw_path": r["raw_path"],
+                    "perm_issue": r.get("perm_issue", False),
+                    "inaccess_dir": r.get("inaccess_dir"),
                 }
             )
 
@@ -333,8 +350,15 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                 grid.attach(action_combo, 2, row_index, 1, 1)
 
                 # Column 3: Hint label
+                hint_str = str(
+                    _("Unreferenced image tag: safe to remove from database")
+                )
+                if group.get("perm_issue") and group.get("inaccess_dir"):
+                    hint_str = (
+                        str(_("Permission denied at '%s'")) % group["inaccess_dir"]
+                    )
                 hint_label = TableLabel(
-                    str(_("Unreferenced image tag: safe to remove from database")),
+                    hint_str,
                     width_chars=36,
                     width_request=280,
                 )
@@ -344,6 +368,11 @@ class FixMediaReferencesDialog(Gtk.Dialog):
             else:
                 # Column 0: File path and records summary
                 desc_lines = [group["raw_path"]]
+                if group.get("perm_issue") and group.get("inaccess_dir"):
+                    desc_lines.append(
+                        f"  ⚠ "
+                        + str(_("Permission denied at: %s")) % group["inaccess_dir"]
+                    )
                 for r in records:
                     d = r["desc"] or _("(unnamed)")
                     desc_lines.append(f"  • [{r['gramps_id']}] {d}")
