@@ -571,16 +571,28 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         if errors:
             msg += "\n\n" + "\n".join(errors)
         OkDialog(str(_("Media References Resolved")), msg, parent=self)
-        self.destroy()
+
+        # Update button sensitivities and group records after applying
+        self.groups = []
+        self.row_targets = []
+        if hasattr(self, "apply_button"):
+            self.apply_button.set_sensitive(False)
+        if hasattr(self, "accept_button"):
+            self.accept_button.set_sensitive(False)
 
     def show_dialog(self) -> None:
         self.show_all()
         while True:
             resp = self.run()
-            if resp in (
-                Gtk.ResponseType.CLOSE,
-                Gtk.ResponseType.CANCEL,
-                Gtk.ResponseType.DELETE_EVENT,
+            if (
+                resp
+                in (
+                    Gtk.ResponseType.CLOSE,
+                    Gtk.ResponseType.CANCEL,
+                    Gtk.ResponseType.DELETE_EVENT,
+                    Gtk.ResponseType.NONE,
+                )
+                or resp <= 0
             ):
                 break
         self.destroy()
