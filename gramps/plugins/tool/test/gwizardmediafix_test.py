@@ -1080,9 +1080,9 @@ class GWizardMediaFixTest(unittest.TestCase):
         dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
         self.assertEqual(len(dlg.groups), 1)
 
-        # Select option 1: merge into keeper
+        # Select option 0: merge into keeper
         mock_combo = MagicMock()
-        mock_combo.get_active.return_value = 1
+        mock_combo.get_active.return_value = 0
         dlg.row_targets = [
             {
                 "group": dlg.groups[0],
@@ -1117,7 +1117,7 @@ class GWizardMediaFixTest(unittest.TestCase):
 
         dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
         mock_combo = MagicMock()
-        mock_combo.get_active.return_value = 2  # Create copies
+        mock_combo.get_active.return_value = 1  # Create copies
         dlg.row_targets = [
             {
                 "group": dlg.groups[0],

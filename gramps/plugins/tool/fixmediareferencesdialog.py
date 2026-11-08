@@ -91,17 +91,17 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
     if not db:
         return []
 
-    path_map: dict[str, list[dict[str, Any]]] = {}
-    handle_list = (
-        list(db.iter_media_handles())
-        if hasattr(db, "iter_media_handles")
-        else list(db.get_media_handles())
-    )
+    try:
+        from .gwizardmediafix import resolve_media_reference_context
+    except (ImportError, ValueError):
+        from gwizardmediafix import (  # type: ignore[import-not-found,no-redef]
+            resolve_media_reference_context,
+        )
 
-    for h in handle_list:
-        media = db.get_media_from_handle(h)
-        if media is None:
-            continue
+    path_map: dict[str, list[dict[str, Any]]] = {}
+
+    for media in db.iter_media():
+        m_handle = str(media.get_handle() or "")
         m_gid = str(media.get_gramps_id() or "")
         desc = str(media.get_description() or "")
         raw_path = clean_path(str(media.get_path() or ""))
@@ -114,44 +114,32 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
         except Exception:
             key = os.path.normcase(os.path.normpath(raw_path))
 
+        assoc_str = ""
+        try:
+            ctx = resolve_media_reference_context(db, media)
+            assoc_str = ctx.get("assoc", "")
+        except Exception:
+            pass
+
         backlinks = []
-        if hasattr(db, "find_backlink_handles"):
+        if hasattr(db, "find_backlink_handles") and m_handle:
             try:
-                backlinks = list(db.find_backlink_handles(h))
+                backlinks = list(db.find_backlink_handles(m_handle))
             except Exception:
                 backlinks = []
-
-        ref_names = []
-        for class_name, ref_handle in backlinks:
-            try:
-                getter = getattr(db, f"get_{class_name.lower()}_from_handle", None)
-                if getter:
-                    obj = getter(ref_handle)
-                    if obj and hasattr(obj, "get_primary_name"):
-                        ref_names.append(str(obj.get_primary_name()))
-                    elif obj and hasattr(obj, "get_description"):
-                        ref_names.append(str(obj.get_description() or class_name))
-                    elif obj and hasattr(obj, "get_title"):
-                        ref_names.append(str(obj.get_title() or class_name))
-                    else:
-                        ref_names.append(class_name)
-                else:
-                    ref_names.append(class_name)
-            except Exception:
-                ref_names.append(class_name)
 
         if key not in path_map:
             path_map[key] = []
 
         path_map[key].append(
             {
-                "handle": h,
+                "handle": m_handle,
                 "gramps_id": m_gid,
                 "desc": desc,
                 "raw_path": raw_path,
                 "full_path": key,
                 "backlink_count": len(backlinks),
-                "ref_names": ref_names,
+                "assoc": assoc_str,
                 "media": media,
             }
         )
@@ -162,6 +150,7 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
             records.sort(
                 key=lambda r: (
                     -r["backlink_count"],
+                    bool(r["assoc"]),
                     bool(r["desc"]),
                     r["gramps_id"],
                 )
@@ -306,33 +295,29 @@ class FixMediaReferencesDialog(Gtk.Dialog):
             # Column 1: References summary
             ref_parts = []
             for r in records:
-                names = ", ".join(r["ref_names"][:2])
-                more = (
-                    f" (+{len(r['ref_names']) - 2})" if len(r["ref_names"]) > 2 else ""
-                )
-                ref_parts.append(f"[{r['gramps_id']}]: {names or _('(none)')}{more}")
+                assoc = r.get("assoc") or r.get("desc") or _("(unnamed)")
+                ref_parts.append(f"[{r['gramps_id']}]: {assoc}")
             ref_label = TableLabel(
-                "\n".join(ref_parts), width_chars=34, width_request=260
+                "\n".join(ref_parts), width_chars=40, width_request=300
             )
             grid.attach(ref_label, 1, row_index, 1, 1)
 
             # Column 2: Action ComboBox
             action_combo = Gtk.ComboBoxText()
-            action_combo.append_text(str(_("Keep shared (no change)")))
             action_combo.append_text(
                 str(_("Merge into keeper [%s]")) % keeper["gramps_id"]
             )
             action_combo.append_text(str(_("Create separate file copies")))
+            action_combo.append_text(str(_("Keep shared (no change)")))
             action_combo.set_active(0)
             action_combo.set_hexpand(True)
             grid.attach(action_combo, 2, row_index, 1, 1)
 
             # Column 3: Hint label
-            hint_str = str(_("Merge into [%(gid)s] (has %(count)d references)")) % {
+            hint_str = str(_("Merge duplicate records into keeper [%(gid)s]")) % {
                 "gid": keeper["gramps_id"],
-                "count": keeper["backlink_count"],
             }
-            hint_label = TableLabel(hint_str, width_chars=40, width_request=300)
+            hint_label = TableLabel(hint_str, width_chars=36, width_request=280)
             hint_label.set_hexpand(True)
             grid.attach(hint_label, 3, row_index, 1, 1)
 
@@ -347,7 +332,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                     "group": group,
                     "action_combo": action_combo,
                     "hint_label": hint_label,
-                    "suggested_action": 1,
+                    "suggested_action": 0,
                 }
             )
             row_index += 1
@@ -387,14 +372,14 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         for target in self.row_targets:
             combo = target["action_combo"]
             choice = combo.get_active() if hasattr(combo, "get_active") else 0
-            if choice <= 0:
+            if choice == 2:  # Keep shared (no change)
                 continue
 
             group = target["group"]
             records = group["records"]
             keeper = group["keeper"]
 
-            if choice == 1:
+            if choice == 0:
                 # Merge duplicate records into keeper
                 keeper_media = self.dbstate.db.get_media_from_handle(keeper["handle"])
                 if not keeper_media:
@@ -416,7 +401,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                         LOG.exception("Failed to merge media record: %s", err)
                         errors.append(str(err))
 
-            elif choice == 2:
+            elif choice == 1:
                 # Create separate file copies for each duplicate record
                 src_path = clean_path(group["raw_path"])
                 try:
