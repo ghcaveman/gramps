@@ -69,6 +69,7 @@ from gramps.gen.gwizard.gwizard_base import (
     surname_prefix_text,
     surname_text,
     SourceMatcher,
+    get_wikitree_id,
 )
 from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
 
@@ -583,9 +584,12 @@ class GWizardMergeDialog(Gtk.Dialog):
             lab.set_markup("<b>%s</b>" % GLib.markup_escape_text(text))
             return lab
 
+        source_title = self.gwizard.context.get("source_title")
         source_path = self.gwizard.context.get("gedcom_path")
-        incoming_title = _("Incoming GEDCOM")
-        if source_path:
+        incoming_title = _("Incoming Data")
+        if source_title:
+            incoming_title = _("Incoming: %s") % source_title
+        elif source_path:
             filename = truncate_display_name(
                 os.path.basename(source_path),
                 max_length=30,
@@ -802,6 +806,16 @@ class GWizardMergeDialog(Gtk.Dialog):
             get_fsftid(right),
             is_nullable_identity=True,
         )
+        wt_left = get_wikitree_id(left)
+        wt_right = get_wikitree_id(right)
+        if wt_left or wt_right:
+            add_row(
+                "wtid",
+                _("WikiTree ID"),
+                wt_left,
+                wt_right,
+                is_nullable_identity=True,
+            )
 
         add_row(
             "person_sources" if left.get_citation_list() else None,
@@ -1016,7 +1030,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         """
         birth_year = self._event_year(db, person, "birth")
         death_year = self._event_year(db, person, "death")
-        birth_place = ""
+        birth_place: str | None = ""
         try:
             _d, birth_place, _h = self._event_for(db, person, "birth")
         except Exception:
@@ -1118,7 +1132,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         Scan selected resolutions to find referenced objects (Notes, Media,
         Citations, Sources, Repositories) that do not exist in target DB.
         """
-        missing = {
+        missing: dict[str, set[str]] = {
             "note": set(),
             "media": set(),
             "source": set(),

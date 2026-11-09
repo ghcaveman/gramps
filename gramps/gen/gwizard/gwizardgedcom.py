@@ -54,8 +54,11 @@ from gramps.gen.lib import (
     Family,
     ChildRef,
     Attribute,
+    AttributeType,
     EventRoleType,
     EventType,
+    Url,
+    UrlType,
 )
 from gramps.gen.soundex import soundex
 from gramps.gen.const import GRAMPS_LOCALE as glocale
@@ -81,6 +84,7 @@ from .gwizard_base import (
     SourceMatcher,
     normalize_source_text,
     source_signature,
+    get_wikitree_id,
 )
 
 # -------------------------------------------------------------------------
@@ -1311,6 +1315,42 @@ class GedGWizard(GWizardBase):
                             attr.set_type("_FSFTID")
                             attr.set_value(fs_id)
                             t_person.add_attribute(attr)
+                        continue
+
+                    # 7b. WikiTree ID
+                    if key == "wtid":
+                        wt_id = get_wikitree_id(s_person)
+                        if wt_id:
+                            has_attr = False
+                            for attr in t_person.get_attribute_list():
+                                attr_type = str(attr.get_type() or "").lower()
+                                if "wikitree" in attr_type or attr_type == "_wtid":
+                                    attr.set_value(wt_id)
+                                    has_attr = True
+                                    break
+                            if not has_attr:
+                                attr = Attribute()
+                                attr.set_type(AttributeType("WikiTree ID"))
+                                attr.set_value(wt_id)
+                                t_person.add_attribute(attr)
+
+                            target_url = f"https://www.wikitree.com/wiki/{wt_id}"
+                            has_url = False
+                            for u in t_person.get_url_list():
+                                u_path = (
+                                    u.get_path()
+                                    if hasattr(u, "get_path")
+                                    else getattr(u, "path", "")
+                                )
+                                if wt_id.lower() in (u_path or "").lower():
+                                    has_url = True
+                                    break
+                            if not has_url:
+                                wt_url = Url()
+                                wt_url.set_path(target_url)
+                                wt_url.set_type(UrlType(UrlType.WEB_HOME))
+                                wt_url.set_description(_("WikiTree Profile"))
+                                t_person.add_url(wt_url)
                         continue
 
                     # 8. Family relations: father/mother, keys are

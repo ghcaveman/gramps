@@ -433,3 +433,122 @@ class CandidateMatcher:
                 continue
         results.sort(key=lambda item: item[1], reverse=True)
         return results
+
+
+# ------------------------------------------------------------
+#
+# WikiTree ID utilities
+#
+# ------------------------------------------------------------
+_WT_ID_REGEX = re.compile(r"^[A-Za-z]+(?:[_-][A-Za-z]+)*-\d+$")
+
+
+def is_wikitree_id(value: str | None) -> bool:
+    """
+    Check if a string matches the standard WikiTree ID pattern.
+
+    :param value: String to test (e.g. 'Franklin-1').
+    :returns: True if value matches '<Surname>-<Number>'.
+    :rtype: bool
+    """
+    if not value:
+        return False
+    return bool(_WT_ID_REGEX.match(str(value).strip()))
+
+
+def extract_wikitree_id(text: str | None) -> str:
+    """
+    Extract a WikiTree ID from text, URL, or identifier string.
+
+    :param text: Text, URL, or identifier string.
+    :returns: Extracted WikiTree ID or empty string if not found.
+    :rtype: str
+    """
+    if not text:
+        return ""
+    clean = str(text).strip()
+    if is_wikitree_id(clean):
+        return clean
+
+    # Match URL pattern (e.g. https://www.wikitree.com/wiki/Franklin-1)
+    m = re.search(
+        r"wikitree\.com/(?:wiki/|index\.php\?title=)([^/#?&\s]+)",
+        clean,
+        re.IGNORECASE,
+    )
+    if m:
+        candidate = m.group(1).strip()
+        if is_wikitree_id(candidate):
+            return candidate
+
+    # Match prefix pattern (e.g. WikiTree: Franklin-1 or WikiTree ID: Franklin-1)
+    m = re.search(
+        r"wikitree(?:\s*id)?[:\s]+([A-Za-z]+(?:[_-][A-Za-z]+)*-\d+)",
+        clean,
+        re.IGNORECASE,
+    )
+    if m:
+        candidate = m.group(1).strip()
+        if is_wikitree_id(candidate):
+            return candidate
+
+    return ""
+
+
+def get_wikitree_id(gr_obj: Any) -> str:
+    """
+    Return the WikiTree ID of a Gramps object (e.g. Person), or empty string.
+    Checks custom attributes and Internet URLs.
+
+    :param gr_obj: Gramps object (Person, etc.).
+    :returns: WikiTree ID string or empty string.
+    :rtype: str
+    """
+    if not gr_obj:
+        return ""
+
+    # 1. Check custom attributes
+    try:
+        attrs = (
+            gr_obj.get_attribute_list()
+            if hasattr(gr_obj, "get_attribute_list")
+            else getattr(gr_obj, "attribute_list", []) or []
+        )
+    except Exception:
+        attrs = []
+
+    for attr in attrs or []:
+        try:
+            attr_type = str(attr.get_type() or "").lower()
+            val = str(attr.get_value() or "").strip()
+            if "wikitree" in attr_type or attr_type == "_wtid":
+                wt_id = extract_wikitree_id(val)
+                if wt_id:
+                    return wt_id
+                if val and is_wikitree_id(val):
+                    return val
+        except Exception:
+            continue
+
+    # 2. Check Internet / URL list (Web Home)
+    try:
+        urls = (
+            gr_obj.get_url_list()
+            if hasattr(gr_obj, "get_url_list")
+            else getattr(gr_obj, "urls", []) or []
+        )
+    except Exception:
+        urls = []
+
+    for url in urls or []:
+        try:
+            path = (
+                url.get_path() if hasattr(url, "get_path") else getattr(url, "path", "")
+            )
+            wt_id = extract_wikitree_id(path)
+            if wt_id:
+                return wt_id
+        except Exception:
+            continue
+
+    return ""

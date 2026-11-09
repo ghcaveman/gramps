@@ -380,6 +380,7 @@ gramps/gen/fs/utils/attributes.py
 gramps/gen/fs/utils/linking.py
 gramps/gen/gwizard/gwizard.py
 gramps/gen/gwizard/gwizardgedcom.py
+gramps/gen/gwizard/gwizardwikitree.py
 gramps/gen/lib/address.py
 gramps/gen/lib/attribute.py
 gramps/gen/lib/attrtype.py
@@ -655,6 +656,7 @@ gramps/gui/grampsgui.py
 gramps/gui/gwizard/gwizardcompare.py
 gramps/gui/gwizard/gwizardlauncher.py
 gramps/gui/gwizard/gwizardmergedialog.py
+gramps/gui/gwizard/gwizardwikitreelauncher.py
 gramps/gui/logger/_errorreportassistant.py
 gramps/gui/logger/_errorview.py
 gramps/gui/makefilter.py
@@ -886,6 +888,7 @@ gramps/plugins/tool/finddupes.glade
 gramps/plugins/tool/finddupes.py
 gramps/plugins/tool/findloop.py
 gramps/plugins/tool/gwizardmerge.py
+gramps/plugins/tool/gwizardwikitree.py
 gramps/plugins/tool/mediamanager.py
 gramps/plugins/tool/mergecitations.glade
 gramps/plugins/tool/mergecitations.py

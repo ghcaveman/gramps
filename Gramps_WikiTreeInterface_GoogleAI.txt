@@ -1,0 +1,100 @@
+INTERFACING WITH WIKITREE USING PYTHON
+
+Interfacing with WikiTree using Python is entirely possible and highly effective, as the platform offers a lightweight, read-only HTTP REST API. The API uses traditional query parameters via GET or POST requests and returns all profile records natively as JSON arrays.
+
+You can interact with WikiTree either directly via Python's standard requests library or by utilizing modern open-source community wrappers.
+
+Method 1: Direct Integration with requests
+Because the WikiTree API acts as a standard endpoint, you can perform quick lookups without installing external tools.
+
+Important Note: The WikiTree Team requests that developers include an appId string parameter in all automated requests to prevent aggressive rate-limiting.
+
+```python
+import requests
+
+# Set up the core parameters
+api_url = "https://api.wikitree.com/api.php"
+payload = {
+    "action": "getAncestors",
+    "key": "Ashley-1966",      # The WikiTree User ID
+    "depth": 2,                 # Number of generations to fetch
+    "appId": "MyPythonApp_1.0"  # Keeps your app from hitting strict rate limits
+}
+
+# Make the request
+response = requests.get(api_url, params=payload)
+
+if response.status_code == 200:
+    data = response.json()
+    # The API returns a list containing the requested blocks
+    print(data)
+else:
+    print(f"Error fetching data: {response.status_code}")
+```
+
+Method 2: Using the wikitree-api Python Client
+If you prefer a clean object-oriented approach instead of constructing HTTP endpoints manually, you can use the community-maintained wikitree-api wrapper. It handles session caching and provides clean method parameters for public and authenticated requests.
+
+Installation:
+pip install --pre wikitree-api
+
+Implementation Example:
+```python
+from wikitree_api import WikiTreeSession
+
+# Initialize and authenticate if accessing non-public profiles
+wt = WikiTreeSession()
+# wt.authenticate(email="your_email@example.com", password="your_password") 
+
+# Fetch a profile directly using its key identifier
+data = wt.getProfile(key="Clemens-1", fields="Id,Name,FirstName,BirthDate,DeathDate")
+print(data)
+```
+
+Key API Actions to Explore
+The backend endpoint supports a variety of data exploration targets. Some of the most helpful core actions (action=) include:
+
+* getProfile / getPerson: Fetches standard profile details (names, dates, locations) for a single ID.
+* getAncestors / getDescendants: Recursively crawls up or down lineage trees. The API supports massive line depth tracking (up to 25 generations deep in a single request).
+* getRelatives: Pulls specific immediate family bonds (siblings, spouses, children, parents).
+* searchPerson: Allows fuzzy searching across specific data points (birth parameters, surnames) when the explicit WikiTree ID isn't known.
+
+Crucial Developer Constraints
+1. Read-Only Environment: The standard API is read-only. If your goal is to programmatically write modifications or merge tree elements back into the main tree, you must explore WikiTree's specialized MergeEdit guidelines.
+2. Privacy Layers: Public profiles return unrestricted data. Private profiles return restricted blocks unless your script initiates a clientLogin authentication flow, and your user account resides on that specific individual's "Trusted List".
+3. Alternative Large Data Options: If your goal is broad statistical data science, macro history research, or parsing thousands of profiles, you should request a raw XML/SQL database snapshot via the WikiTree Database Dumps Program instead of bombarding the HTTP server with individual network requests.
+
+--------------------------------------------------
+
+MORE DETAILS REGARDING THE WIKITREE-API INTERFACE WITH PYTHON
+
+The open-source wikitree-api Python Client simplifies interaction with the core WikiTree API by acting as a modern wrapper. It manages boilerplate code like handling HTTP queries, maintaining cookie-based sessions, and validating error boundaries automatically.
+
+The primary client wrapper is hosted on the harrislineage/wikitree-api-python GitHub repository.
+
+Core Structure: The WikiTreeSession
+Everything revolves around the WikiTreeSession object. It preserves session states so that once you authenticate, subsequent calls to private family branches or restricted profiles are handled seamlessly behind the scenes.
+
+Method Coverage Table:
+- wt.getProfile(key, fields): Fetches a deep profile or free-space page by its ID. (Equivalent to getProfile)
+- wt.getPerson(key): Returns a minimal payload for a single individual. (Equivalent to getPerson)
+- wt.getPeople(keys): Queries multiple IDs or relationship sets simultaneously. (Equivalent to getPeople)
+- wt.getAncestors(key, depth): Recursively crawls ancestors upward through maternal/paternal lines. (Equivalent to getAncestors)
+- wt.getDescendants(key, depth): Recursively crawls downward through children. (Equivalent to getDescendants)
+- wt.getRelatives(key): Grabs immediate family (parents, siblings, spouses, children). (Equivalent to getRelatives)
+- wt.getBio(key): Returns raw biography markdown text without metadata. (Equivalent to getBio)
+- wt.searchPerson(**filters): Searches by names, dates, or fuzzy matching. (Equivalent to searchPerson)
+- wt.getWatchlist(): Retrieves profiles on the active user's Trusted List. (Equivalent to getWatchlist)
+
+Basic vs. Authenticated Examples:
+
+1. Public Read-Only (No Authentication Needed)
+If you only need to explore globally public historical figures, you do not need to supply a username or password. You can query public profiles by initializing WikiTreeSession without credentials and calling methods like wt.getProfile() with a specific key (e.g., "Clemens-1" for Mark Twain).
+
+2. Authenticated Session (For Private/Family Profiles)
+To access private profiles or your watchlist, call .authenticate() with your credentials before executing queries like wt.getWatchlist().
+
+Handling the JSON Response
+The wrapper returns parsed Python dictionaries or lists. Every response contains a status field at its root:
+* status: 0 indicates a successful query.
+* A string error message (such as "Illegal WikiTree ID" or "Privacy Restriction") indicates a failure or permission block.
