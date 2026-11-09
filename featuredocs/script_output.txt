@@ -1,0 +1,15 @@
+python featuredocs/build_feature_docs.py gwizard_filemerge --build
+[BUILD] Generated MediaWiki file: C:\workspace\gramps\featuredocs\gwizard_filemerge.mediawiki
+[AUDIT] Running missing-image check...
+
+Image Audit for: C:\workspace\gramps\featuredocs\gwizard_filemerge.mediawiki
+Checking folder: C:\workspace\gramps\featuredocs\images
+--------------------------------------------------------------------
+  [MISSING] <PluginName>-main.png
+             Capture: <Plugin Display Name> main interface
+  [MISSING] gwizard_filemerge-main.png
+             Capture: gwizard_filemerge main dialog
+--------------------------------------------------------------------
+Summary: 0/2 present, 2 missing.
+
+[BUILD] Failed with exit code 1
