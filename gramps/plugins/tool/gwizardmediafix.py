@@ -2636,7 +2636,7 @@ class MediaFixReportDialog(Gtk.Dialog):
         content.pack_start(scrolled, True, True, 0)
 
 
-def generate_media_fix_report(db: Any) -> str:
+def generate_media_fix_report(db: Any, progress_parent: Any = None) -> str:
     """Scan all media objects in database, check existence with os.path.exists(), and return formatted report."""
     base_dir = (
         get_media_base_path(db) if db else os.path.normpath(os.path.abspath(USER_HOME))
