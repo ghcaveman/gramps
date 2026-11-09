@@ -126,9 +126,9 @@ DEFAULT_GRAMPS_TARGET = "6.0"
 # Map of archive member name -> source file relative to the repo root.
 SOURCES: dict[str, str] = {
     "gwizardgedcom.py": "gramps/gen/gwizard/gwizardgedcom.py",
-    "gwizard_base.py": "gramps/gen/gwizard/gwizard_base.py",
-    "gwizard_base.py": "gramps/gen/gwizard/gwizard_base.py",
-    "gwizard_base.py": "gramps/gen/gwizard/gwizard_base.py",
+    "gwizard.py": "gramps/gen/gwizard/gwizard.py",
+    "gwizardcompare.py": "gramps/gui/gwizard/gwizardcompare.py",
+    "gwizardlauncher.py": "gramps/gui/gwizard/gwizardlauncher.py",
     "gwizardmerge.py": "gramps/plugins/tool/gwizardmerge.py",
     "gwizardmergedialog.py": "gramps/gui/gwizard/gwizardmergedialog.py",
 }
@@ -294,7 +294,7 @@ def build_translations(repo_root: Path) -> bytes:
     # Files that go into the bundle (not the test files).
     source_files = [
         "gramps/gen/gwizard/gwizardgedcom.py",
-        "gramps/gen/gwizard/gwizard_base.py",
+        "gramps/gen/gwizard/gwizard.py",
         "gramps/gui/gwizard/gwizardcompare.py",
         "gramps/gui/gwizard/gwizardlauncher.py",
         "gramps/plugins/tool/gwizardmerge.py",

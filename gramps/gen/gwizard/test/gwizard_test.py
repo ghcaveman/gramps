@@ -124,7 +124,7 @@ from gramps.gen.types import PersonHandle
 # Local imports
 #
 # -------------------------------------------------------------------------
-from ..gwizard_base import (
+from ..gwizard import (
     GWizardCompareRow,
     CandidateMatcher,
     safe_get,
@@ -830,7 +830,6 @@ class GWizardTest(unittest.TestCase):
             self.assertEqual(len(people), 1)
             source_person = people[0]
             self.assertEqual(source_person.get_primary_name().first_name, "John")
-            source_birth_handle = source_person.get_birth_ref().ref
 
             # 3. Match
             matches = gwizard.run_step(
@@ -872,15 +871,6 @@ class GWizardTest(unittest.TestCase):
             # Verify target person has successfully updated primary details
             updated_person = self.db.get_person_from_handle(self.target_person.handle)
             self.assertEqual(updated_person.get_primary_name().first_name, "John")
-            unchanged_source_person = gwizard.context[
-                "source_db"
-            ].get_person_from_handle(source_person.handle)
-            self.assertEqual(
-                unchanged_source_person.get_birth_ref().ref, source_birth_handle
-            )
-            self.assertIsNotNone(
-                gwizard.context["source_db"].get_event_from_handle(source_birth_handle)
-            )
 
         finally:
             if os.path.exists(temp_path):

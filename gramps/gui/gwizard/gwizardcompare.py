@@ -51,7 +51,7 @@ from gi.repository import Gdk
 from gramps.gen.lib import Person
 from gramps.gen.errors import HandleError
 from gramps.gen.gwizard.gwizardgedcom import GedGWizard
-from gramps.gen.gwizard.gwizard_base import (
+from gramps.gen.gwizard.gwizard import (
     CandidateMatcher,
     safe_get_event,
     safe_get_family,
@@ -632,11 +632,6 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         for handle in source_db.iter_person_handles():
             if handle not in self._pair_map:
                 self._pair_map[handle] = None
-        # Share the pairing with the apply step so relatives (father,
-        # mother, spouse, child) link to the people shown as paired here.
-        # It is the same dict object, so later "Not a Match" updates
-        # (see _reject_pair) are seen too.
-        self.gwizard.context["pair_map"] = self._pair_map
         for handle in source_db.iter_person_handles():
             person = safe_get_person(source_db, handle)
             if not person:

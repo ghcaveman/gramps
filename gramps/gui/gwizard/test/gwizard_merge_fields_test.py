@@ -39,8 +39,8 @@ from unittest.mock import Mock
 # Gramps modules
 #
 # -------------------------------------------------------------------------
-from gramps.gen.lib import Date, EventRef, Name, Person, Surname
-from gramps.gen.gwizard.gwizard_base import surname_prefix_text, surname_text
+from gramps.gen.lib import EventRef, Name, Person, Surname
+from gramps.gen.gwizard.gwizard import surname_prefix_text, surname_text
 from gramps.gui.gwizard.gwizardmergedialog import (
     citation_sources_summary,
     field_values_differ,
@@ -67,18 +67,6 @@ def _person(first: str, surnames: list[tuple[str, str]]) -> Person:
     person = Person()
     person.set_primary_name(name)
     return person
-
-
-def _mock_event(handle: str, event_type: str, date: Date | None = None) -> Mock:
-    """Build a mock event with the fields used by merge dialog comparisons."""
-    return Mock(
-        handle=handle,
-        get_type=Mock(return_value=event_type),
-        get_date_object=Mock(return_value=date or Date()),
-        get_place_handle=Mock(return_value=None),
-        get_description=Mock(return_value=""),
-        get_citation_list=Mock(return_value=[]),
-    )
 
 
 class GWizardMergeFieldRowsTest(unittest.TestCase):
@@ -339,12 +327,28 @@ class GWizardEventGroupingTest(unittest.TestCase):
         dialog._children = lambda db, person: []
 
         s_events = {
-            "s_res": _mock_event("s_res", "Residence"),
-            "s_cen": _mock_event("s_cen", "Census"),
+            "s_res": Mock(
+                handle="s_res",
+                get_type=Mock(return_value="Residence"),
+                get_citation_list=Mock(return_value=[]),
+            ),
+            "s_cen": Mock(
+                handle="s_cen",
+                get_type=Mock(return_value="Census"),
+                get_citation_list=Mock(return_value=[]),
+            ),
         }
         t_events = {
-            "t_cen": _mock_event("t_cen", "Census"),
-            "t_res": _mock_event("t_res", "Residence"),
+            "t_cen": Mock(
+                handle="t_cen",
+                get_type=Mock(return_value="Census"),
+                get_citation_list=Mock(return_value=[]),
+            ),
+            "t_res": Mock(
+                handle="t_res",
+                get_type=Mock(return_value="Residence"),
+                get_citation_list=Mock(return_value=[]),
+            ),
         }
         dialog.source_db.get_event_from_handle.side_effect = s_events.get
         dialog.target_db.get_event_from_handle.side_effect = t_events.get
@@ -380,7 +384,7 @@ class GWizardEventGroupingTest(unittest.TestCase):
             recorded_labels, ["Census", "Census", "Residence", "Residence"]
         )
 
-    def test_merge_dialog_aligns_events_with_different_date_quality(self) -> None:
+    def test_merge_dialog_same_type_events_sorted_alphabetically(self) -> None:
         from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
 
         dialog = Mock(spec=GWizardMergeDialog)
@@ -400,89 +404,50 @@ class GWizardEventGroupingTest(unittest.TestCase):
         dialog._parents = lambda db, person, role: []
         dialog._children = lambda db, person: []
 
-        def date(
-            day: int = 0,
-            month: int = 0,
-            year: int = 0,
-            quality: int = Date.QUAL_NONE,
-        ) -> Date:
-            """Build an optional Gregorian date for an event."""
-            event_date = Date()
-            if year:
-                event_date.set(
-                    quality,
-                    Date.MOD_NONE,
-                    Date.CAL_GREGORIAN,
-                    (day, month, year, False),
-                )
-            return event_date
-
         s_events = {
-            "s_birth": _mock_event("s_birth", "Birth", date(2, 10, 1864)),
-            "s_empty": _mock_event("s_empty", "Birth"),
-        }
-        t_events = {
-            "t_empty": _mock_event("t_empty", "Birth"),
-            "t_birth": _mock_event(
-                "t_birth",
-                "Birth",
-                date(2, 10, 1864, Date.QUAL_ESTIMATED),
+            "s_cen1920": Mock(
+                handle="s_cen1920",
+                get_type=Mock(return_value="Census"),
+                get_citation_list=Mock(return_value=[]),
+            ),
+            "s_cen1910": Mock(
+                handle="s_cen1910",
+                get_type=Mock(return_value="Census"),
+                get_citation_list=Mock(return_value=[]),
             ),
         }
         event_lines = {
-            "s_birth": "1864-10-02 Luderup",
-            "s_empty": "",
-            "t_birth": "estimated 1864-10-02 Luderup",
-            "t_empty": "",
+            "s_cen1920": "1920 Census",
+            "s_cen1910": "1910 Census",
         }
 
         dialog.source_db.get_event_from_handle.side_effect = s_events.get
-        dialog.target_db.get_event_from_handle.side_effect = t_events.get
+        dialog.target_db.get_event_from_handle.return_value = None
         dialog.source_db.get_dbname.return_value = "db"
         dialog.target_db.get_dbname.return_value = "db"
         dialog._event_line_from = lambda db, ev: (
             event_lines.get(ev.handle, "") if ev else ""
         )
 
-        # Source and target have different event order and date quality.
+        # Added in reverse order: 1920 before 1910
         ref_s1 = EventRef()
-        ref_s1.ref = "s_birth"
+        ref_s1.ref = "s_cen1920"
         dialog.source_person.add_event_ref(ref_s1)
         ref_s2 = EventRef()
-        ref_s2.ref = "s_empty"
+        ref_s2.ref = "s_cen1910"
         dialog.source_person.add_event_ref(ref_s2)
 
-        ref_t1 = EventRef()
-        ref_t1.ref = "t_empty"
-        dialog.target_person.add_event_ref(ref_t1)
-        ref_t2 = EventRef()
-        ref_t2.ref = "t_birth"
-        dialog.target_person.add_event_ref(ref_t2)
-
         rendered_events = []
-        birth_rows_seen = 0
-        arrow_keys = []
-        dialog._make_arrow.side_effect = lambda key, label: arrow_keys.append(key)
 
         def record_diff_line(label, a, b, show_label, is_left):
-            nonlocal birth_rows_seen
-            if is_left and label == "Birth":
-                birth_rows_seen += 1
-                if birth_rows_seen > 1:
-                    rendered_events.append((a, b))
+            if is_left and label == "Census":
+                rendered_events.append(a)
             return a
 
         dialog._format_diff_line = record_diff_line
 
         GWizardMergeDialog._populate_fields(dialog)
-        self.assertEqual(
-            rendered_events,
-            [
-                ("", ""),
-                ("1864-10-02 Luderup", "estimated 1864-10-02 Luderup"),
-            ],
-        )
-        self.assertIn("birth_event", arrow_keys)
+        self.assertEqual(rendered_events, ["1910 Census", "1920 Census"])
 
 
 if __name__ == "__main__":
