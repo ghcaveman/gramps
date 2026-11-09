@@ -1,0 +1,39 @@
+Finish Citation Fix – add fixes and retest
+Run Citation Merge test and analyze with claude
+Re-examine GWizard file merge – have AI generate more unit test scenarios
+Add nara key to nara_merge
+Explore more merge potential from wikitree notes and interface documents
+Rename any gwizard functions to have a gw_ prefix
+Check all files for proper copyright banner
+Review gwizard.py, gwizard_common.py, etc. for commonalities
+Make checklist for items to not forget prior to “finalizing” a feature
+Make buttonswap template/instructions
+Add copyright banner to functionalitybase
+Add squash instructions to functionalitybase
+Update other instructions to functionalitybase
+Email Nick for instructions for using the FamilySearch key
+Check gramps for [help] buttons
+Change WebSearch fork to use Nick’s suggested interface – add new feature branch html_bridge
+Re-start effort for html branches
+
+Change starting point for citationfix to be mediafix
+Add media references to citationfix
+Re-write citationfix and remove URLs from volume/page to notes section – double-check good options
+
+Attempt to finalize citationfix
+Create new .gedcom file with “fixed” citations
+
+Use AI to suggest a way to debug plugins on Windows
+Use AI to correct the “debugging/setup for gramps in Windows” web page
+Use AI to compare the mediafix feature to the built-in mediamanager
+Use AI to compare the citationfix feature to the built-in Citation Merge
+
+Squash features before adding them to GoatGramps
+Buttonswap
+Media fix
+
+GoatGramps:
+Bring up-to-date
+Add attributefix
+Add buttonswap
+Add mediafix

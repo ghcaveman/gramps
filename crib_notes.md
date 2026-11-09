@@ -28,3 +28,14 @@ git fetch origin
 git checkout <feature-branch-name>
 git rebase functionality_base
 git push origin <feature-branch-name> --force-with-lease
+
+To squash all of the commits for a feature:
+git reset --soft main
+git commit -m "Implement complete feature X"
+git push --force-with-lease
+
+To update functionality_base changes to a branch that is based on it:
+git fetch origin
+git checkout feature
+git rebase origin/functionality_base
+git push --force-with-lease origin feature
