@@ -26,6 +26,8 @@
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import os
+import shutil
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -146,3 +148,136 @@ def create_table_grid(col_spacing: int = 6, row_spacing: int = 6) -> Gtk.Grid:
     grid.set_hexpand(True)
     grid.set_vexpand(True)
     return grid
+
+
+# ------------------------------------------------------------
+#
+# Pure path helpers (no GTK / Gramps dependency; unit-testable)
+#
+# ------------------------------------------------------------
+def clean_path(path: str | None) -> str:
+    """Strip whitespace and surrounding quotes from a path string.
+
+    Matched pairs of quotes are removed.  An unmatched double quote is removed
+    (never valid in a Windows filename), but an unmatched apostrophe is kept
+    because it can legitimately end a folder name ("Grandma's").
+    """
+    if not path:
+        return ""
+    p = str(path).strip()
+    while len(p) >= 2 and p[0] == p[-1] and p[0] in "\"'":
+        p = p[1:-1].strip()
+    if p.startswith('"'):
+        p = p[1:].strip()
+    if p.endswith('"'):
+        p = p[:-1].strip()
+    return p
+
+
+def is_absolute_path(path: str | None) -> bool:
+    """Return True for drive-absolute AND rooted drive-less paths.
+
+    Python 3.13+ on Windows no longer treats "/Users/x" as absolute, but GEDCOM
+    imports commonly produce exactly such paths (drive letter stripped).  Treat
+    them as absolute so they are not mistaken for paths relative to the media
+    base directory.
+    """
+    p = clean_path(path)
+    if not p:
+        return False
+    return os.path.isabs(p) or p[0] in ("/", "\\")
+
+
+def path_key(path: str) -> str:
+    """Normalised, case-folded key for comparing two paths."""
+    return os.path.normcase(os.path.normpath(clean_path(path)))
+
+
+def to_db_path(full_path: str, base_dir: str) -> str:
+    """Return full_path relative to base_dir (forward slashes) when inside it.
+
+    Paths outside base_dir (or on another drive) are returned unchanged.
+    """
+    if not full_path or not base_dir:
+        return full_path
+    try:
+        abs_full = os.path.abspath(full_path)
+        abs_base = os.path.abspath(base_dir)
+        nf = os.path.normcase(os.path.normpath(abs_full))
+        nb = os.path.normcase(os.path.normpath(abs_base))
+        if nf == nb or os.path.commonpath([nf, nb]) != nb:
+            return full_path
+        return os.path.relpath(abs_full, abs_base).replace("\\", "/")
+    except (ValueError, OSError):
+        return full_path
+
+
+def unique_destination(dest: str, claimed: set[str], src: str | None = None) -> str:
+    """Return dest, or dest with _2, _3 ... appended to the stem, such that the
+    result neither exists on disk (unless it is src itself) nor was already
+    claimed by another record in the current batch.  The result is claimed."""
+
+    def taken(p: str) -> bool:
+        if path_key(p) in claimed:
+            return True
+        if os.path.exists(p):
+            try:
+                if src and os.path.exists(src) and os.path.samefile(src, p):
+                    return False
+            except OSError:
+                pass
+            return True
+        return False
+
+    stem, ext = os.path.splitext(dest)
+    cand, n = dest, 2
+    while taken(cand):
+        cand = f"{stem}_{n}{ext}"
+        n += 1
+    claimed.add(path_key(cand))
+    return cand
+
+
+def relocate_file(src: str, dest: str, copy: bool = False) -> tuple[bool, str]:
+    """Move or copy src to dest WITHOUT ever overwriting an existing file.
+
+    Returns (ok, error_message).  ok is also True when dest already is the
+    same file as src.
+    """
+    try:
+        if os.path.exists(dest):
+            try:
+                same = os.path.samefile(src, dest)
+            except OSError:
+                same = False
+            if not same:
+                return False, "destination already exists"
+            if not copy and os.path.basename(src) != os.path.basename(dest):
+                os.rename(src, dest)  # case-only rename on a case-insensitive FS
+            return True, ""
+        parent = os.path.dirname(dest)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        if copy:
+            shutil.copy2(src, dest)
+        else:
+            shutil.move(src, dest)
+        return True, ""
+    except Exception as err:  # noqa: BLE001 - report any OS/shutil error
+        return False, str(err)
+
+
+def build_basename_index(base_dir: str, limit: int = 50000) -> dict[str, list[str]]:
+    """Map lower-cased file name -> full paths for every file below base_dir."""
+    index: dict[str, list[str]] = {}
+    seen = 0
+    for root, dirs, files in os.walk(base_dir):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for fname in files:
+            if fname.startswith("."):
+                continue
+            index.setdefault(fname.lower(), []).append(os.path.join(root, fname))
+            seen += 1
+            if seen >= limit:
+                return index
+    return index
