@@ -403,6 +403,83 @@ class GWizardMediaFixTest(unittest.TestCase):
             os.path.normpath("new_folder/found_image.jpg"),
         )
 
+    def test_find_missing_media_base_path_selector(self) -> None:
+        """FindMissingMediaDialog lets users choose and stage the base media path."""
+        self.db.set_mediapath(None)
+        dlg = FindMissingMediaDialog(dbstate=self.dbstate)
+        self.assertTrue(hasattr(dlg, "path_entry"))
+        self.assertTrue(hasattr(dlg, "path_button"))
+
+        chosen_folder = os.path.join(USER_HOME, "MissingMediaDestination")
+        mock_chooser = MagicMock()
+        mock_chooser.run.return_value = Gtk.ResponseType.OK
+        mock_chooser.get_filename.return_value = chosen_folder
+
+        with patch(
+            "gramps.plugins.tool.gwizardmediafix.Gtk.FileChooserDialog",
+            return_value=mock_chooser,
+        ):
+            dlg.cb_select_mediapath()
+
+        self.assertEqual(dlg.path_entry.get_text(), chosen_folder)
+        self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(chosen_folder)))
+        self.assertEqual(self.db.get_mediapath(), None)
+
+    def test_find_missing_media_copy_uses_staged_base_path(self) -> None:
+        """Queued copies use and save the selected base media path."""
+        self.db.set_mediapath(None)
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as destination_dir,
+        ):
+            source_path = os.path.join(source_dir, "missing_photo.jpg")
+            with open(source_path, "wb") as source_file:
+                source_file.write(b"photo")
+
+            with DbTxn("Create missing media", self.db) as trans:
+                media = Media()
+                media.set_description("Missing photo")
+                media.set_path("old/missing_photo.jpg")
+                media_handle = self.db.add_media(media, trans)
+
+            dlg = FindMissingMediaDialog(dbstate=self.dbstate)
+            self.assertEqual(len(dlg.rows), 1)
+            dlg.path_entry.set_text(destination_dir)
+            dlg.cb_set_mediapath()
+
+            path_entry = MagicMock()
+            path_entry.get_text.return_value = ""
+            row_target = {
+                "entry": dlg.rows[0],
+                "path_entry": path_entry,
+                "hint_label": MagicMock(),
+            }
+            dlg.row_targets = [row_target]
+
+            mock_chooser = MagicMock()
+            mock_chooser.run.return_value = Gtk.ResponseType.OK
+            mock_chooser.get_filename.return_value = source_dir
+            with (
+                patch(
+                    "gramps.plugins.tool.gwizardmediafix.Gtk.FileChooserDialog",
+                    return_value=mock_chooser,
+                ),
+                patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
+            ):
+                dlg.cb_copy_from_folder(MagicMock())
+
+            self.assertEqual(row_target["copy_src"], source_path)
+            path_entry.get_text.return_value = "missing_photo.jpg"
+            with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
+                dlg.cb_apply(MagicMock())
+
+            self.assertTrue(
+                os.path.exists(os.path.join(destination_dir, "missing_photo.jpg"))
+            )
+            self.assertEqual(self.db.get_mediapath(), destination_dir)
+            updated = self.db.get_media_from_handle(media_handle)
+            self.assertEqual(updated.get_path(), "missing_photo.jpg")
+
     def test_consolidate_media_location_apply(self) -> None:
         """ConsolidateMediaLocationDialog detects non-standard/absolute paths and applies."""
         with DbTxn("Create media", self.db) as trans:
