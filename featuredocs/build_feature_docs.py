@@ -296,6 +296,7 @@ def main() -> None:
         help="Convert README_.md with templates into .mediawiki and check missing images",
     )
     args = parser.parse_args()
+    # Ensure at least one action is specified
     if not args.prepare and not args.build:
         parser.print_help()
         print(
@@ -303,10 +304,25 @@ def main() -> None:
             file=sys.stderr,
         )
         sys.exit(1)
-        if args.prepare:
+
+    # Execute the requested actions and report success/failure
+    if args.prepare:
+        try:
             prepare_docs(args.feature, args.filelist, args.parent)
-        if args.build:
-            exit_code = build_wiki_and_audit(args.feature)
-            sys.exit(exit_code)
-    if name == "main":
-        main()
+            print("[PREPARE] Completed successfully.")
+        except Exception as exc:  # pragma: no cover
+            print(f"[PREPARE] Failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    if args.build:
+        exit_code = build_wiki_and_audit(args.feature)
+        if exit_code == 0:
+            print("[BUILD] Completed successfully.")
+        else:
+            print(f"[BUILD] Failed with exit code {exit_code}", file=sys.stderr)
+        sys.exit(exit_code)
+
+
+# Standard Python entry point guard
+if __name__ == "__main__":
+    main()
