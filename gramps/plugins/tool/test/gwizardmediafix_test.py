@@ -317,10 +317,10 @@ from gramps.plugins.tool.gwizardmediafix import (
     check_path_permission,
     get_path_ancestors,
 )
-from gramps.plugins.tool.fixmediareferencesdialog import (
+from gramps.plugins.tool.gw_fixmediareferencesdialog import (
     find_duplicate_media_groups,
 )
-from gramps.plugins.tool.fixmediareferencesdialog import (
+from gramps.plugins.tool.gw_fixmediareferencesdialog import (
     find_duplicate_media_groups,
 )
 
@@ -1356,7 +1356,7 @@ class GWizardMediaFixTest(unittest.TestCase):
             }
         ]
 
-        with patch("gramps.plugins.tool.fixmediareferencesdialog.OkDialog"):
+        with patch("gramps.plugins.tool.gw_fixmediareferencesdialog.OkDialog"):
             dlg.cb_apply(MagicMock())
 
         # m2 should be merged into m1 and removed
@@ -1393,14 +1393,14 @@ class GWizardMediaFixTest(unittest.TestCase):
 
         with (
             patch(
-                "gramps.plugins.tool.fixmediareferencesdialog.os.path.exists",
+                "gramps.plugins.tool.gw_fixmediareferencesdialog.os.path.exists",
                 return_value=True,
             ),
-            patch("gramps.plugins.tool.fixmediareferencesdialog.os.makedirs"),
+            patch("gramps.plugins.tool.gw_fixmediareferencesdialog.os.makedirs"),
             patch(
-                "gramps.plugins.tool.fixmediareferencesdialog.shutil.copy2"
+                "gramps.plugins.tool.gw_fixmediareferencesdialog.shutil.copy2"
             ) as mock_copy,
-            patch("gramps.plugins.tool.fixmediareferencesdialog.OkDialog"),
+            patch("gramps.plugins.tool.gw_fixmediareferencesdialog.OkDialog"),
         ):
             dlg.cb_apply(MagicMock())
             mock_copy.assert_called_once()
@@ -1441,7 +1441,7 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertEqual(unref_groups[0]["keeper"]["handle"], m_h)
 
         # Apply deletion (choice 0)
-        with patch("gramps.plugins.tool.fixmediareferencesdialog.OkDialog"):
+        with patch("gramps.plugins.tool.gw_fixmediareferencesdialog.OkDialog"):
             dlg.cb_apply(MagicMock())
 
         # Media record should now be deleted from database
