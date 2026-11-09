@@ -118,7 +118,7 @@ class NaraCatalogInterface:
                 "SSL_CERT_FILE"
             )
             if ca_env and os.path.isfile(ca_env):
-                self.verify_ssl: bool | str = ca_env
+                self.verify_ssl = ca_env
             else:
                 user_combined = os.path.expanduser(r"~\certs\COMBINED_PEM.pem")
                 if os.path.isfile(user_combined):
