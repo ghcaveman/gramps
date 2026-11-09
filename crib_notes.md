@@ -1,6 +1,6 @@
 Git notes:
 Update fork, add stuff to functionality_base:
-git checkout functionality_base
+git checkout master
 git remote add upstream https://github.com/gramps-project/gramps.git (use git remote -v to verify)
 git fetch upstream
 git rebase upstream/master (this was wrong)
@@ -18,9 +18,9 @@ git fetch origin
 git merge origin/attributefix
 git push origin functionality_base
 
-To add attributefix changes to functionality_base:
+To add <feature-branch-name> changes to functionality_base:
 git checkout functionality_base
-git merge attributefix
+git merge <feature-branch-name>
 git push origin functionality_base
 
 To change the starting point of the <feature-branch-name> branch to be functionality_base:
