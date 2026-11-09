@@ -37,7 +37,10 @@ git push --force-with-lease
 To update functionality_base changes to a branch that is based on it:
 git fetch origin
 git checkout <feature-branch-name>
-git rebase origin/functionality_base
+git rev-list --count origin/functionality_base..HEAD (returns max number of conflict-resolution stops)
+comm -12 <(git diff --name-only origin/functionality_base...HEAD | sort) <(git diff --name-only HEAD...origin/functionality_base | sort) # list files modified in both branches
+git merge-tree --write-tree origin/functionality_base HEAD  #Test for overall conflicts
+git rebase origin/functionality_base (git rebase --abort) to give up
 git push --force-with-lease origin <feature-branch-name>
 
 List all files touched/added by this feature branch:
@@ -45,3 +48,6 @@ git diff --name-only functionality_base...mediafix > changed_files.txt
 
 Count the number of commits in a particular feature branch:
 git rev-list --count functionality_base..mediafix
+
+To show what the branch which your branch is based off of:
+git log --oneline --graph --decorate --simplify-by-decoration
