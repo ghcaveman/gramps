@@ -91,11 +91,15 @@ REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
         "from gwizard_common import",
     ),
     (
-        re.compile(r"from\s+gramps\.plugins\.tool\.gw_fixmediareferencesdialog\s+import\b"),
+        re.compile(
+            r"from\s+gramps\.plugins\.tool\.gw_fixmediareferencesdialog\s+import\b"
+        ),
         "from gw_fixmediareferencesdialog import",
     ),
     (
-        re.compile(r"from\s+\.+(gwizardmediafix|gwizard_common|gw_fixmediareferencesdialog)\s+import\b"),
+        re.compile(
+            r"from\s+\.+(gwizardmediafix|gwizard_common|gw_fixmediareferencesdialog)\s+import\b"
+        ),
         r"from \1 import",
     ),
 )
