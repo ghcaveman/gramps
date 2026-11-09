@@ -1514,6 +1514,15 @@ class FindMissingMediaDialog(Gtk.Dialog):
         self.rows: list[dict[str, Any]] = []
         self.row_targets: list[dict[str, Any]] = []
         self.set_default_size(1360, 520)
+        curr_mpath = (
+            self.dbstate.db.get_mediapath()
+            if self.dbstate
+            and self.dbstate.db
+            and hasattr(self.dbstate.db, "get_mediapath")
+            else ""
+        )
+        self._orig_mediapath = (curr_mpath or "").strip()
+        self._mediapath_text = self._orig_mediapath
 
         # Scan database for missing media files
         base_dir = (
@@ -1605,6 +1614,32 @@ class FindMissingMediaDialog(Gtk.Dialog):
         info.set_line_wrap(True)
         info.set_halign(Gtk.Align.START)
         content.add(info)
+
+        path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        path_label = HeaderLabel(str(_("Base media path:")))
+        path_box.pack_start(path_label, False, False, 0)
+
+        self.path_entry = Gtk.Entry()
+        if curr_mpath:
+            self.path_entry.set_text(curr_mpath)
+        self.path_entry.connect("changed", self.cb_set_mediapath)
+        self.path_entry.set_hexpand(True)
+        path_box.pack_start(self.path_entry, True, True, 0)
+
+        self.path_button = Gtk.Button()
+        self.path_button.connect("clicked", self.cb_select_mediapath)
+        image = Gtk.Image()
+        image.set_from_icon_name("document-open", Gtk.IconSize.BUTTON)
+        image.show()
+        self.path_button.add(image)
+        path_box.pack_start(self.path_button, False, False, 0)
+        content.add(path_box)
+
+        self.base_path_label = SelectableLabel(
+            label="<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir),
+            markup=True,
+        )
+        content.add(self.base_path_label)
 
         if not self.rows:
             done = Gtk.Label(label=str(_("No missing media files found.")))
@@ -1716,18 +1751,58 @@ class FindMissingMediaDialog(Gtk.Dialog):
             parent=self,
         )
 
+    def cb_set_mediapath(self, *_args: Any) -> None:
+        """Track the base path to use for copies and save it when changes are applied."""
+        text = clean_path(self.path_entry.get_text())
+        self._mediapath_text = text
+        if text:
+            expanded = os.path.expandvars(os.path.expanduser(text))
+            self.base_dir = os.path.normpath(os.path.abspath(expanded))
+        else:
+            self.base_dir = os.path.normpath(os.path.abspath(USER_HOME))
+        self.base_path_label.set_markup(
+            "<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir)
+        )
+
+    def cb_select_mediapath(self, *_args: Any) -> None:
+        """Open a folder chooser for the base media path."""
+        chooser = Gtk.FileChooserDialog(
+            title=str(_("Select media directory")),
+            transient_for=self,
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+            buttons=(
+                str(_("_Cancel")),
+                Gtk.ResponseType.CANCEL,
+                str(_("_Apply")),
+                Gtk.ResponseType.OK,
+            ),
+        )
+        if hasattr(chooser, "set_default_size"):
+            chooser.set_default_size(600, 400)
+        current_path = self._mediapath_text or self.base_dir
+        if current_path and os.path.exists(current_path):
+            chooser.set_current_folder(
+                current_path
+                if os.path.isdir(current_path)
+                else os.path.dirname(current_path)
+            )
+        status = chooser.run()
+        if status == Gtk.ResponseType.OK:
+            selected_path = chooser.get_filename()
+            if selected_path:
+                self.path_entry.set_text(selected_path)
+        chooser.destroy()
+
     def cb_copy_from_folder(self, _button: Gtk.Button) -> None:
         """Match missing files by name in a folder you can read and queue copies
         into the media directory (performed when Apply is pressed)."""
-        db = self.dbstate.db
-        if not (db.get_mediapath() or "").strip():
+        if not self._mediapath_text:
             OkDialog(
                 str(_("Set a base media path first")),
                 str(
                     _(
-                        "Copying needs a destination. Set the base media path "
-                        "(Consolidate media location > Base media path, or "
-                        "Edit > Preferences > Family Tree), then try again."
+                        "Copying needs a destination. Set the base media path above, "
+                        "then try again."
                     )
                 ),
                 parent=self,
@@ -1790,6 +1865,9 @@ class FindMissingMediaDialog(Gtk.Dialog):
         claimed: set[str] = set()
         base = self.base_dir
         with DbTxn(_("Update Missing Media Paths"), self.dbstate.db) as trans:
+            if self._mediapath_text != self._orig_mediapath:
+                self.dbstate.db.set_mediapath(self._mediapath_text or None)
+                self._orig_mediapath = self._mediapath_text
             for target in self.row_targets:
                 new_path = clean_path(target["path_entry"].get_text())
                 if not new_path:
