@@ -51,3 +51,8 @@ git rev-list --count functionality_base..mediafix
 
 To show what the branch which your branch is based off of:
 git log --oneline --graph --decorate --simplify-by-decoration
+
+Rename a branch:
+git branch -m <new-name>
+git push -u origin <new-name>
+git push origin --delete <old-name>
