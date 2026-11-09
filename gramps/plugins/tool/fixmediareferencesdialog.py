@@ -28,7 +28,6 @@
 from __future__ import annotations
 import logging
 import os
-import shutil
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -54,33 +53,22 @@ try:
         TableLabel,
         HeaderLabel,
         create_table_grid,
+        clean_path,
+        unique_destination,
+        relocate_file,
     )
 except (ImportError, ValueError):
     from gwizard_common import (  # type: ignore[import-not-found,no-redef]
         TableLabel,
         HeaderLabel,
         create_table_grid,
+        clean_path,
+        unique_destination,
+        relocate_file,
     )
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
-
-
-def clean_path(path: str | None) -> str:
-    """Clean a path string by stripping surrounding whitespace and quotes."""
-    if not path:
-        return ""
-    p = str(path).strip()
-    while len(p) >= 2 and (
-        (p.startswith('"') and p.endswith('"'))
-        or (p.startswith("'") and p.endswith("'"))
-    ):
-        p = p[1:-1].strip()
-    if p.startswith('"') or p.startswith("'"):
-        p = p[1:].strip()
-    if p.endswith('"') or p.endswith("'"):
-        p = p[:-1].strip()
-    return p
 
 
 def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
@@ -161,8 +149,8 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
             records.sort(
                 key=lambda r: (
                     -r["backlink_count"],
-                    bool(r["assoc"]),
-                    bool(r["desc"]),
+                    not r["assoc"],
+                    not r["desc"],
                     r["gramps_id"],
                 )
             )
@@ -361,7 +349,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                 action_combo = Gtk.ComboBoxText()
                 action_combo.append_text(str(_("Delete unreferenced record")))
                 action_combo.append_text(str(_("Keep unreferenced (no change)")))
-                action_combo.set_active(0)
+                action_combo.set_active(1)  # never delete by default
                 action_combo.set_hexpand(True)
                 grid.attach(action_combo, 2, row_index, 1, 1)
 
@@ -538,24 +526,32 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                     src_full = src_path
 
                 base, ext = os.path.splitext(src_path)
+                claimed: set[str] = set()
                 with DbTxn(_("Split Media References"), self.dbstate.db) as trans:
-                    for idx, r in enumerate(records[1:], start=1):
+                    for r in records[1:]:
                         new_rel = f"{base}_{r['gramps_id']}{ext}"
                         try:
-                            dest_full = media_path_full(self.dbstate.db, new_rel)
+                            expected = media_path_full(self.dbstate.db, new_rel)
                         except Exception:
-                            dest_full = new_rel
-
-                        if os.path.exists(src_full) and os.path.normpath(
-                            src_full
-                        ) != os.path.normpath(dest_full):
-                            try:
-                                os.makedirs(os.path.dirname(dest_full), exist_ok=True)
-                                shutil.copy2(src_full, dest_full)
-                                copied_count += 1
-                            except Exception as err:
-                                LOG.exception("Failed to copy media file: %s", err)
-
+                            expected = new_rel
+                        if not os.path.exists(src_full):
+                            errors.append(
+                                "[%s] source file not found: %s"
+                                % (r["gramps_id"], src_full)
+                            )
+                            continue
+                        dest_full = unique_destination(expected, claimed, src_full)
+                        if dest_full != expected:  # keep DB path and disk name in step
+                            extra = os.path.splitext(dest_full)[0][
+                                len(os.path.splitext(expected)[0]) :
+                            ]
+                            new_rel = f"{base}_{r['gramps_id']}{extra}{ext}"
+                        ok, err = relocate_file(src_full, dest_full, copy=True)
+                        if not ok:
+                            LOG.warning("Failed to copy media file: %s", err)
+                            errors.append("[%s] %s" % (r["gramps_id"], err))
+                            continue
+                        copied_count += 1
                         other_media = self.dbstate.db.get_media_from_handle(r["handle"])
                         if other_media:
                             other_media.set_path(new_rel)
@@ -586,7 +582,11 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         msg = " ".join(summary)
         if errors:
             msg += "\n\n" + "\n".join(errors)
-        OkDialog(str(_("Media References Resolved")), msg, parent=self)
+        OkDialog(
+            str(_("Media References Resolved")),
+            msg + "\n\n" + str(_("Close and reopen this dialog to rescan.")),
+            parent=self,
+        )
 
         # Update button sensitivities and group records after applying
         self.groups = []
