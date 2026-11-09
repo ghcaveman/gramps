@@ -36,6 +36,9 @@ git push --force-with-lease
 
 To update functionality_base changes to a branch that is based on it:
 git fetch origin
-git checkout feature
+git checkout <feature-branch-name>
 git rebase origin/functionality_base
-git push --force-with-lease origin feature
+git push --force-with-lease origin <feature-branch-name>
+
+List all files touched/added by this feature branch:
+git diff --name-only functionality_base...mediafix > changed_files.txt
