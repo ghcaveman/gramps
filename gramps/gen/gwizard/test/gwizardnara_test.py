@@ -105,7 +105,7 @@ from gramps.gen.lib import Person, Name, Surname
 # Local imports
 #
 # -------------------------------------------------------------------------
-from ..gwizardnara import NaraCatalogInterface, NaraGWizard
+from ..gwizardnaramerge import NaraCatalogInterface, NaraGWizard
 
 
 # ------------------------------------------------------------

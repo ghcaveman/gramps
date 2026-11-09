@@ -48,7 +48,7 @@ from gi.repository import Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.gwizard.gwizard import surname_text
-from gramps.gen.gwizard.gwizardnara import NaraGWizard, NaraCatalogInterface
+from gramps.gen.gwizard.gwizardnaramerge import NaraGWizard, NaraCatalogInterface
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -622,7 +622,7 @@ class NaraSearchDialog(Gtk.Dialog):
         while Gtk.events_pending():
             Gtk.main_iteration_do(False)
 
-        from gramps.gen.gwizard.gwizardnara import NaraGWizard
+        from gramps.gen.gwizard.gwizardnaramerge import NaraGWizard
 
         db = self.dbstate.db if self.dbstate else None
         if not db:
@@ -757,7 +757,7 @@ def load_nara_gwizard(db: Any, params: dict[str, Any]) -> Any:
     :raises ValueError: If query is missing or connection fails.
     :raises RuntimeError: If loading/parsing records fails.
     """
-    from gramps.gen.gwizard.gwizardnara import NaraGWizard
+    from gramps.gen.gwizard.gwizardnaramerge import NaraGWizard
 
     query = params.get("query", "").strip()
     if not query:

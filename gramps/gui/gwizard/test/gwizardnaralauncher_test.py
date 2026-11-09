@@ -375,7 +375,7 @@ class TestNaraLauncher(unittest.TestCase):
 
         with (
             patch(
-                "gramps.gen.gwizard.gwizardnara.NaraGWizard.run_step",
+                "gramps.gen.gwizard.gwizardnaramerge.NaraGWizard.run_step",
                 autospec=True,
                 side_effect=fake_run_step,
             ),

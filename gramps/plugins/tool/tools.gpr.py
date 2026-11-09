@@ -552,7 +552,7 @@ register(
     gramps_target_version=MODULE_VERSION,
     status=EXPERIMENTAL,
     audience=EXPERT,
-    fname="gwizardnara.py",
+    fname="gwizardnaramerge.py",
     authors=["Kevin White"],
     authors_email=["gocaveman@gmail.com"],
     category=TOOL_DBPROC,

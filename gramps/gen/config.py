@@ -415,6 +415,8 @@ register("familysearch.redirect", "http://127.0.0.1:57938/familysearch-auth")
 register("familysearch.auth-provider", "foundation")
 register("familysearch.middleware.base-url", "")
 register("familysearch.middleware.access-code", "")
+# NARA API key – stored securely in the user config (mirrors FamilySearch pattern)
+register("nara.api-key", "")
 
 if __debug__:  # enable a simple CLI test to see if the datestrings exist
     register("test.january", _("January", "localized lexeme inflections"))
