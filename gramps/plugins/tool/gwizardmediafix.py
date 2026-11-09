@@ -66,6 +66,13 @@ try:
         TableLabel,
         HeaderLabel,
         create_table_grid,
+        clean_path,
+        is_absolute_path,
+        path_key,
+        to_db_path,
+        unique_destination,
+        relocate_file,
+        build_basename_index,
     )
 except (ImportError, ValueError):
     from gwizard_common import (  # type: ignore[import-not-found,no-redef]
@@ -73,6 +80,13 @@ except (ImportError, ValueError):
         TableLabel,
         HeaderLabel,
         create_table_grid,
+        clean_path,
+        is_absolute_path,
+        path_key,
+        to_db_path,
+        unique_destination,
+        relocate_file,
+        build_basename_index,
     )
 
 try:
