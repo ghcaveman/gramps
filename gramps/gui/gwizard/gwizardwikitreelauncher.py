@@ -46,7 +46,7 @@ from gi.repository import Pango
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.gwizard.gwizard import (
+from gramps.gen.gwizard.gwizard_base import (
     surname_text,
     get_wikitree_id,
     extract_wikitree_id,
