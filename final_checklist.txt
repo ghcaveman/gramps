@@ -4,9 +4,9 @@ Any grizard files named gw_*
 Common changes put into same file
 Squash?
 Does the feature need a [help]?
-Are there adequate test cases?
+Are there adequate test cases for testing this feature?
 Do buttons meet the buttonswap template?
-Do files comply with .gitattributes
+What files do not conform to the .gitattribute rules?
 Has the repo been pulled/merged to latest upstream?
 Every feature has notes.txt
 Every feature has a package script
