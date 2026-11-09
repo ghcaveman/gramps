@@ -1,0 +1,59 @@
+{{Third-party plugin}}
+{{Languages|Addon:<PluginName>}}
+
+{| class="wikitable" style="float:right; margin-left: 1em; width: 280px;"
+! colspan="2" style="background:#e8eef5; text-align:center;" | <Plugin Display Name>
+|-
+
+| '''Addon ID''' || <code><plugin_id></code>
+|-
+
+| '''Type''' || <Gramplet / Report / Tool / View>
+|-
+
+| '''Status''' || {{Stable_branch}}
+|-
+
+| '''Target Version''' || Gramps 6.1
+|-
+
+| '''Source Code''' || {{github_url|<PluginDirectory>}}
+|}
+
+'''<Plugin Display Name>''' is a third-party [[Addons|addon]] that <one-sentence summary of the genealogical problem it solves>.
+
+[[File:<PluginName>-main.png|thumb|right|350px|<Plugin Display Name> main interface]]
+
+== Overview ==
+
+Describe what '''gwizard_filemerge''' does and what genealogical workflow it improves.
+
+[[File:gwizard_filemerge-main.png|thumb|gwizard_filemerge main dialog]]
+
+== Usage ==
+
+# Open Gramps and navigate to '''[VERIFY MENU PATH]'''.
+# Configure your desired options and click '''OK'''.
+
+== Configure Options ==
+
+* '''Option 1''': Description of option 1.
+
+== Features ==
+
+* Key feature 1.
+== Prerequisites ==
+* Gramps 6.1.x
+* <Optional external Python dependencies, e.g., Pillow, networkx — omit if none>
+
+== Issues ==
+* Report bugs or feature requests on the [https://gramps-project.org Gramps Bug Tracker] under the '''Addons''' project.
+* Discuss this addon on the [https://discourse.group Gramps Discourse Forum].
+
+== See Also ==
+* [[6.1_Addons|List of Gramps 6.1 Addons]]
+* [[Addons_development|Addons Development]]
+
+[[Category:Addons]]
+[[Category:Plugins]]
+[[Category:Developers/General]]
