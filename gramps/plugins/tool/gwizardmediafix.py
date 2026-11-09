@@ -3140,11 +3140,6 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             with open(target_path, "w", encoding="utf-8") as handle:
                 handle.write(report_text)
             self.report_path = target_path
-            OkDialog(
-                str(_("Report Generated")),
-                str(_("Report written to %s.") % target_path),
-                parent=self.window,
-            )
             self.cb_view_report()
         except OSError as err:
             LOG.error("Failed to write report: %s", err)
