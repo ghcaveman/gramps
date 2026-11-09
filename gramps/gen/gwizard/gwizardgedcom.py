@@ -65,7 +65,7 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 # Local imports
 #
 # -------------------------------------------------------------------------
-from .gwizard import (
+from .gwizard_base import (
     GWizardBase,
     GWizardCompareRow,
     CandidateMatcher,
