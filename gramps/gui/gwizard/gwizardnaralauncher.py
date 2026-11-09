@@ -47,7 +47,7 @@ from gi.repository import Pango
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.gwizard.gwizard import surname_text
+from gramps.gen.gwizard.gwizard_base import surname_text
 from gramps.gen.gwizard.gwizardnaramerge import NaraGWizard, NaraCatalogInterface
 
 _ = glocale.translation.sgettext

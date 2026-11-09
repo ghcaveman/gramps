@@ -378,7 +378,7 @@ gramps/gen/fs/sync_directions.py
 gramps/gen/fs/tags.py
 gramps/gen/fs/utils/attributes.py
 gramps/gen/fs/utils/linking.py
-gramps/gen/gwizard/gwizard.py
+gramps/gen/gwizard/gwizard_base.py
 gramps/gen/gwizard/gwizardgedcom.py
 gramps/gen/gwizard/gwizardnara.py
 gramps/gen/lib/address.py

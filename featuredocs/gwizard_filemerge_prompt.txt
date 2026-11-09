@@ -10251,7 +10251,7 @@ index 693f47a5f6..96388f2c4d 100755
  gramps/gen/fs/tags.py
  gramps/gen/fs/utils/attributes.py
  gramps/gen/fs/utils/linking.py
-+gramps/gen/gwizard/gwizard.py
++gramps/gen/gwizard/gwizard_base.py
 +gramps/gen/gwizard/gwizardgedcom.py
  gramps/gen/lib/address.py
  gramps/gen/lib/attribute.py
