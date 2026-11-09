@@ -60,6 +60,7 @@ LOG = logging.getLogger(__name__)
 
 _ = glocale.translation.gettext
 
+
 # ------------------------------------------------------------
 #
 # GWizardCompareRow
@@ -84,6 +85,7 @@ class GWizardCompareRow(NamedTuple):
     target_date: str = ""
     field_type: str = ""
     extra_data: Any = None
+
 
 # ------------------------------------------------------------
 #
@@ -155,6 +157,7 @@ class GWizardBase(abc.ABC):
     @abc.abstractmethod
     def _apply(self, **kwargs: Any) -> bool: ...
 
+
 # ------------------------------------------------------------
 # Safe handle lookups (unchanged from original implementation)
 # ------------------------------------------------------------
@@ -167,23 +170,30 @@ def safe_get(db: Any, handle: str | None, getter_name: str, what: str) -> Any | 
         LOG.debug("Stale %s handle ignored: %s", what, handle)
         return None
 
+
 def safe_get_person(db: Any, handle: str | None) -> Person | None:
     return safe_get(db, handle, "get_person_from_handle", "person")
+
 
 def safe_get_family(db: Any, handle: str | None) -> Any | None:
     return safe_get(db, handle, "get_family_from_handle", "family")
 
+
 def safe_get_event(db: Any, handle: str | None) -> Event | None:
     return safe_get(db, handle, "get_event_from_handle", "event")
+
 
 def safe_get_place(db: Any, handle: str | None) -> Any | None:
     return safe_get(db, handle, "get_place_from_handle", "place")
 
+
 def safe_get_source(db: Any, handle: str | None) -> Any | None:
     return safe_get(db, handle, "get_source_from_handle", "source")
 
+
 def safe_get_repository(db: Any, handle: str | None) -> Any | None:
     return safe_get(db, handle, "get_repository_from_handle", "repository")
+
 
 def vital_event_ref(db: Any, person: Person | None, kind: str) -> Any | None:
     if person is None or db is None:
@@ -218,6 +228,7 @@ def vital_event_ref(db: Any, person: Person | None, kind: str) -> Any | None:
             return cand
     return None
 
+
 # ------------------------------------------------------------
 # Source matching helpers (unchanged)
 # ------------------------------------------------------------
@@ -227,9 +238,11 @@ SOURCE_NEW = "new"
 
 _MARKUP_TAG_RE = re.compile(r"</?[A-Za-z][^>]*>")
 
+
 def normalize_source_text(text: str | None) -> str:
     text = unicodedata.normalize("NFKC", _MARKUP_TAG_RE.sub("", text or ""))
     return " ".join(text.split()).casefold()
+
 
 def source_signature(source: Any) -> tuple[str, str, str] | None:
     title = normalize_source_text(source.get_title())
@@ -240,6 +253,7 @@ def source_signature(source: Any) -> tuple[str, str, str] | None:
         normalize_source_text(source.get_author()),
         normalize_source_text(source.get_publication_info()),
     )
+
 
 class SourceMatcher:
     def __init__(self, db: Any) -> None:
@@ -275,6 +289,7 @@ class SourceMatcher:
         if source.handle not in handles:
             handles.append(source.handle)
 
+
 def source_match_report(source_db: Any, target_db: Any) -> list[dict[str, str]]:
     matcher = SourceMatcher(target_db)
     rows = []
@@ -291,18 +306,22 @@ def source_match_report(source_db: Any, target_db: Any) -> list[dict[str, str]]:
     rows.sort(key=lambda r: (r["status"], r["title"].casefold()))
     return rows
 
+
 # ------------------------------------------------------------
 # Given‑name matching helpers (unchanged)
 # ------------------------------------------------------------
 _QUOTED_NICK_RE = re.compile(r'"[^"]*"|\([^)]*\)|\'[^\']*\'')
 
+
 def _strip_embedded_nickname(given: str) -> str:
     return _QUOTED_NICK_RE.sub(" ", given)
+
 
 def _given_tokens(given: str) -> list[str]:
     cleaned = _strip_embedded_nickname(given)
     cleaned = cleaned.replace("-", " ")
     return [tok.lower() for tok in cleaned.split() if tok]
+
 
 def score_given_names(source_given: str, target_given: str) -> float:
     s_raw = (source_given or "").strip()
@@ -321,21 +340,30 @@ def score_given_names(source_given: str, target_given: str) -> float:
         return 0.9
     if set(s_tokens) & set(t_tokens):
         return 0.5
-    ratio = difflib.SequenceMatcher(None, " ".join(s_tokens), " ".join(t_tokens)).ratio()
+    ratio = difflib.SequenceMatcher(
+        None, " ".join(s_tokens), " ".join(t_tokens)
+    ).ratio()
     if ratio >= 0.8:
         return 0.6
     if s_tokens[0][0] == t_tokens[0][0]:
         return 0.25
     return 0.0
 
+
 # ------------------------------------------------------------
 # Name part helpers (unchanged)
 # ------------------------------------------------------------
 def surname_text(name: Name) -> str:
-    return " ".join([surn.get_surname() for surn in name.get_surname_list() if surn.get_surname()])
+    return " ".join(
+        [surn.get_surname() for surn in name.get_surname_list() if surn.get_surname()]
+    )
+
 
 def surname_prefix_text(name: Name) -> str:
-    return " ".join([surn.get_prefix() for surn in name.get_surname_list() if surn.get_prefix()])
+    return " ".join(
+        [surn.get_prefix() for surn in name.get_surname_list() if surn.get_prefix()]
+    )
+
 
 # ------------------------------------------------------------
 # CandidateMatcher (unchanged)
@@ -350,11 +378,16 @@ class CandidateMatcher:
     def get_prefixes(self, name: Name) -> str:
         return surname_prefix_text(name)
 
-    def score_match(self, source: Person, target: Person, source_db: Any | None = None) -> float:
+    def score_match(
+        self, source: Person, target: Person, source_db: Any | None = None
+    ) -> float:
         # Gender must match, or be unknown/other in either
         s_gender = source.get_gender()
         t_gender = target.get_gender()
-        if s_gender in (Person.MALE, Person.FEMALE) and t_gender in (Person.MALE, Person.FEMALE):
+        if s_gender in (Person.MALE, Person.FEMALE) and t_gender in (
+            Person.MALE,
+            Person.FEMALE,
+        ):
             if s_gender != t_gender:
                 return -1.0
         score = 0.0
@@ -419,7 +452,9 @@ class CandidateMatcher:
                 pass
         return score
 
-    def find_matches(self, source: Person, threshold: float = 1.0, source_db: Any | None = None) -> list[tuple[PersonHandle, float]]:
+    def find_matches(
+        self, source: Person, threshold: float = 1.0, source_db: Any | None = None
+    ) -> list[tuple[PersonHandle, float]]:
         results: list[tuple[PersonHandle, float]] = []
         for handle in self.db.iter_person_handles():
             try:
