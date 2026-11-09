@@ -533,7 +533,8 @@ def parse_name_from_text(text: str) -> tuple[str, str, str]:
     if not text:
         return "", "", ""
     m = re.match(
-        r"^\s*((?:[^\W\d_]|[\s'\-])+?)\s*,\s*((?:[^\W\d_]|[\s'\-])+?)\s*[-_:]+\s*(.+)$", text
+        r"^\s*((?:[^\W\d_]|[\s'\-])+?)\s*,\s*((?:[^\W\d_]|[\s'\-])+?)\s*[-_:]+\s*(.+)$",
+        text,
     )
     if m:
         return m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
@@ -555,7 +556,8 @@ def extract_year_and_clean_doctype(
 
     # Strip any leading 'Surname, Given -' pattern from doc_type
     sur_giv_m = re.match(
-        r"^\s*(?:[^\W\d_]|[\s'\-])+?,\s*(?:[^\W\d_]|[\s'\-])+?\s*[-_:]+\s*(.+)$", doc_type
+        r"^\s*(?:[^\W\d_]|[\s'\-])+?,\s*(?:[^\W\d_]|[\s'\-])+?\s*[-_:]+\s*(.+)$",
+        doc_type,
     )
     if sur_giv_m:
         doc_type = sur_giv_m.group(1)
@@ -685,9 +687,7 @@ def find_name_mismatches(
             if ratio >= best_ratio:
                 best_ratio = ratio
                 best_name = "%s, %s" % (pn.get_surname(), pn.get_first_name())
-        kind = (
-            "probable spelling variant" if best_ratio >= 0.75 else "different person"
-        )
+        kind = "probable spelling variant" if best_ratio >= 0.75 else "different person"
         out.append(
             (
                 str(media.get_gramps_id() or ""),
@@ -1256,7 +1256,9 @@ def remove_import_notes(db: Any, items: list[tuple[str, str, str, str]]) -> int:
                 continue
             media.remove_note(nh)
             db.commit_media(media, trans)
-            others = [b for b in db.find_backlink_handles(nh) if tuple(b) != ("Media", mh)]
+            others = [
+                b for b in db.find_backlink_handles(nh) if tuple(b) != ("Media", mh)
+            ]
             if not others:
                 db.remove_note(nh, trans)
                 removed += 1
@@ -1301,7 +1303,9 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
         effective[handle] = raw
         if os.path.exists(full) or (is_absolute_path(raw) and os.path.exists(raw)):
             continue
-        rel = find_in_media_dir(base_dir, os.path.basename(raw.replace("\\", "/")), index)
+        rel = find_in_media_dir(
+            base_dir, os.path.basename(raw.replace("\\", "/")), index
+        )
         if rel:
             plan["find"].append((str(media.get_gramps_id() or ""), raw, rel))
             effective[handle] = rel
@@ -1317,7 +1321,11 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
             gone |= {r["handle"] for r in others}
             merged_gids |= {r["gramps_id"] for r in others}
             plan["merges"].append(
-                (keeper["gramps_id"], [r["gramps_id"] for r in others], group["raw_path"])
+                (
+                    keeper["gramps_id"],
+                    [r["gramps_id"] for r in others],
+                    group["raw_path"],
+                )
             )
         else:
             if GWizardMediaFix._is_bare_media(keeper["media"]):
@@ -1328,7 +1336,9 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
 
     # Step 3: consolidate
     if not base_set:
-        plan["halted"] = "no base media path is set (set one under 'Consolidate media location')"
+        plan["halted"] = (
+            "no base media path is set (set one under 'Consolidate media location')"
+        )
     else:
         claimed: set[str] = set()
         for media in list(db.iter_media()):
@@ -1366,8 +1376,12 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
 
     missing, denied = scan_unreadable_media(db)
     fixed = {g for g, _o, _n in plan["find"]}
-    plan["missing"] = [x for x in missing if x[0] not in fixed and x[0] not in merged_gids]
-    plan["denied"] = [x for x in denied if x[0] not in fixed and x[0] not in merged_gids]
+    plan["missing"] = [
+        x for x in missing if x[0] not in fixed and x[0] not in merged_gids
+    ]
+    plan["denied"] = [
+        x for x in denied if x[0] not in fixed and x[0] not in merged_gids
+    ]
     return plan
 
 
@@ -1393,7 +1407,8 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
         )
     if plan["merges"]:
         section(
-            str(_("2. Merge duplicate records - %d file group(s):")) % len(plan["merges"]),
+            str(_("2. Merge duplicate records - %d file group(s):"))
+            % len(plan["merges"]),
             [
                 "[%s] absorbs %s  (%s)" % (k, ", ".join(o), p)
                 for k, o, p in plan["merges"]
@@ -1425,7 +1440,9 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
     if plan["missing"] or plan["denied"]:
         lines.append(str(_("NEEDS YOUR ATTENTION (cannot be fixed automatically):")))
         if plan["missing"]:
-            lines.append("    " + str(_("%d file(s) not found on disk")) % len(plan["missing"]))
+            lines.append(
+                "    " + str(_("%d file(s) not found on disk")) % len(plan["missing"])
+            )
         if plan["denied"]:
             lines.append(
                 "    "
@@ -1462,7 +1479,9 @@ def confirm_plan(parent: Any, text: str) -> bool:
     scrolled.set_hexpand(True)
     scrolled.set_vexpand(True)
     scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-    scrolled.add(SelectableLabel(label=text, selectable=True, wrap=True, can_focus=True))
+    scrolled.add(
+        SelectableLabel(label=text, selectable=True, wrap=True, can_focus=True)
+    )
     content.pack_start(scrolled, True, True, 0)
     dlg.show_all()
     resp = dlg.run()
@@ -1725,7 +1744,9 @@ class FindMissingMediaDialog(Gtk.Dialog):
                 Gtk.ResponseType.OK,
             ),
         )
-        folder = chooser.get_filename() if chooser.run() == Gtk.ResponseType.OK else None
+        folder = (
+            chooser.get_filename() if chooser.run() == Gtk.ResponseType.OK else None
+        )
         chooser.destroy()
         if not folder:
             return
@@ -1753,7 +1774,11 @@ class FindMissingMediaDialog(Gtk.Dialog):
             queued += 1
         OkDialog(
             str(_("Copies queued")),
-            str(_("Queued %d file(s) to copy into the media directory. Review and press Apply."))
+            str(
+                _(
+                    "Queued %d file(s) to copy into the media directory. Review and press Apply."
+                )
+            )
             % queued,
             parent=self,
         )
@@ -2381,7 +2406,9 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                 ok, err = relocate_file(src_full, dest_full, copy=is_copy)
                 if not ok:
                     LOG.warning("Failed to relocate '%s': %s", src_full, err)
-                    failures.append("[%s] %s: %s" % (gid, entry.get("raw_path", ""), err))
+                    failures.append(
+                        "[%s] %s: %s" % (gid, entry.get("raw_path", ""), err)
+                    )
                     continue
                 if path_key(src_full) != path_key(dest_full):
                     if is_copy:
@@ -2726,7 +2753,11 @@ def generate_media_fix_report(db: Any) -> str:
                     )
                 else:
                     std_path = sanitize_standard_filename(
-                        raw_path, db=db, media=media, template=curr_tmpl, cache=ctx_cache
+                        raw_path,
+                        db=db,
+                        media=media,
+                        template=curr_tmpl,
+                        cache=ctx_cache,
                     )
                     file_to_std_basename[norm_key] = os.path.basename(std_path)
 
@@ -3294,9 +3325,9 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 src_full = clean_path(media_path_full(db, clean_raw))
 
                 # Idempotent: already standard AND already stored relative.
-                if path_key(src_full) == path_key(dest_full) and clean_raw == to_db_path(
-                    dest_full, base_dir
-                ):
+                if path_key(src_full) == path_key(
+                    dest_full
+                ) and clean_raw == to_db_path(dest_full, base_dir):
                     claimed.add(path_key(dest_full))
                     continue
 
@@ -3398,7 +3429,9 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
 
         if base_set:
             consolidate_line = str(
-                _("  • Consolidate media location: %d file(s) moved or renamed in '%s'.")
+                _(
+                    "  • Consolidate media location: %d file(s) moved or renamed in '%s'."
+                )
             ) % (consolidated_count, base_dir)
         else:
             consolidate_line = str(
@@ -3451,9 +3484,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 % len(perm_denied)
             )
             for gid, desc, path, inaccess in perm_denied[:5]:
-                manual_items.append(
-                    f"      - [{gid}] {path} (blocked at: {inaccess})"
-                )
+                manual_items.append(f"      - [{gid}] {path} (blocked at: {inaccess})")
             if len(perm_denied) > 5:
                 manual_items.append(
                     str(_("      - ... and %d more inaccessible file(s)"))
@@ -3462,21 +3493,14 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
 
         if ref_errors:
             manual_items.append(
-                str(
-                    _("  • Reference items needing review (%d):")
-                    % len(ref_errors)
-                )
+                str(_("  • Reference items needing review (%d):") % len(ref_errors))
             )
             for err in ref_errors[:5]:
                 manual_items.append(f"      - {err}")
 
         if unconsolidated:
             manual_items.append(
-                str(
-                    _(
-                        "  • Unconsolidated paths (%d): could not be relocated:"
-                    )
-                )
+                str(_("  • Unconsolidated paths (%d): could not be relocated:"))
                 % len(unconsolidated)
             )
             for gid, desc, path in unconsolidated[:5]:
