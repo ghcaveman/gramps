@@ -40,7 +40,7 @@ from unittest.mock import Mock
 #
 # -------------------------------------------------------------------------
 from gramps.gen.lib import EventRef, Name, Person, Surname
-from gramps.gen.gwizard.gwizard import surname_prefix_text, surname_text
+from gramps.gen.gwizard.gwizard_base import surname_prefix_text, surname_text
 from gramps.gui.gwizard.gwizardmergedialog import (
     citation_sources_summary,
     field_values_differ,
