@@ -51,7 +51,7 @@ from gi.repository import Gdk
 from gramps.gen.lib import Person
 from gramps.gen.errors import HandleError
 from gramps.gen.gwizard.gwizardgedcom import GedGWizard
-from gramps.gen.gwizard.gwizard import (
+from gramps.gen.gwizard.gwizard_base import (
     CandidateMatcher,
     safe_get_event,
     safe_get_family,

@@ -124,7 +124,7 @@ from gramps.gen.types import PersonHandle
 # Local imports
 #
 # -------------------------------------------------------------------------
-from ..gwizard import (
+from ..gwizard_base import (
     GWizardCompareRow,
     CandidateMatcher,
     safe_get,
