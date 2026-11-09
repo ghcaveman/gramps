@@ -338,7 +338,7 @@ from gramps.plugins.tool.gw_fixmediareferencesdialog import (
 from gramps.plugins.tool.fixmediareferencesdialog import (
     find_duplicate_media_groups,
 )
-from gramps.plugins.tool.fixmediareferencesdialog import (
+from gramps.plugins.tool.gw_fixmediareferencesdialog import (
     find_duplicate_media_groups,
 )
 
@@ -2063,7 +2063,7 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertEqual(unref_groups[0]["keeper"]["handle"], m_h)
 
         # Apply deletion (choice 0)
-        with patch("gramps.plugins.tool.fixmediareferencesdialog.OkDialog"):
+        with patch("gramps.plugins.tool.gw_fixmediareferencesdialog.OkDialog"):
             dlg.cb_apply(MagicMock())
 
         # Media record should now be deleted from database
