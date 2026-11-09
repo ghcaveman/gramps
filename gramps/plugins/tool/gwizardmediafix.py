@@ -105,12 +105,12 @@ except (ImportError, ValueError):
     )
 
 try:
-    from .fixmediareferencesdialog import (
+    from .gw_fixmediareferencesdialog import (
         FixMediaReferencesDialog,
         find_duplicate_media_groups,
     )
 except (ImportError, ValueError):
-    from fixmediareferencesdialog import (  # type: ignore[import-not-found,no-redef]
+    from gw_fixmediareferencesdialog import (  # type: ignore[import-not-found,no-redef]
         FixMediaReferencesDialog,
         find_duplicate_media_groups,
     )
