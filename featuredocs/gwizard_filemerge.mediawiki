@@ -28,8 +28,8 @@
 
 Describe what '''gwizard_filemerge''' does and what genealogical workflow it improves.
 
-[[File:gwizard_filemerge-main.png|thumb|gwizard_filemerge main dialog]]
-
+[[File:gwizard_filemerge-compare.png|thumb|Capture: GWizard compare dialog]]
+[[File:gwizard_filemerge-merge.png|thumb|Capture: GWizard merge dialog]]
 == Usage ==
 
 # Open Gramps and navigate to '''[VERIFY MENU PATH]'''.

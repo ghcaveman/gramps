@@ -2,8 +2,8 @@
 
 Describe what **gwizard_filemerge** does and what genealogical workflow it improves.
 
-![gwizard_filemerge main dialog](images/gwizard_filemerge-main.png)
-
+![Capture: GWizard compare dialog](images/gwizard_filemerge-compare.png)
+![Capture: GWizard merge dialog](images/gwizard_filemerge-merge.png)
 ## Usage
 
 1. Open Gramps and navigate to **[VERIFY MENU PATH]**.
