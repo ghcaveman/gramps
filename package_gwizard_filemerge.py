@@ -127,8 +127,6 @@ DEFAULT_GRAMPS_TARGET = "6.0"
 SOURCES: dict[str, str] = {
     "gwizardgedcom.py": "gramps/gen/gwizard/gwizardgedcom.py",
     "gwizard_base.py": "gramps/gen/gwizard/gwizard_base.py",
-    "gwizard_base.py": "gramps/gen/gwizard/gwizard_base.py",
-    "gwizard_base.py": "gramps/gen/gwizard/gwizard_base.py",
     "gwizardmerge.py": "gramps/plugins/tool/gwizardmerge.py",
     "gwizardmergedialog.py": "gramps/gui/gwizard/gwizardmergedialog.py",
 }
@@ -291,21 +289,28 @@ def build_translations(repo_root: Path) -> bytes:
     import ast
     import datetime
 
-    # Files that go into the bundle (not the test files).
-    source_files = [
-        "gramps/gen/gwizard/gwizardgedcom.py",
-        "gramps/gen/gwizard/gwizard_base.py",
-        "gramps/gui/gwizard/gwizardcompare.py",
-        "gramps/gui/gwizard/gwizardlauncher.py",
-        "gramps/plugins/tool/gwizardmerge.py",
-        "gramps/gui/gwizard/gwizardmergedialog.py",
-    ]
+    # Files that go into the bundle (not the test files). Keys are archive
+    # member names (flat path inside the zip) and values are source file paths
+    # relative to the repo root.
+    source_files = {
+        "gwizardgedcom.py": "gramps/gen/gwizard/gwizardgedcom.py",
+        "gwizard_base.py": "gramps/gen/gwizard/gwizard_base.py",
+        "gwizardcompare.py": "gramps/gui/gwizard/gwizardcompare.py",
+        "gwizardlauncher.py": "gramps/gui/gwizard/gwizardlauncher.py",
+        "gwizardmerge.py": "gramps/plugins/tool/gwizardmerge.py",
+        "gwizardmergedialog.py": "gramps/gui/gwizard/gwizardmergedialog.py",
+    }
 
     # Collect translatable strings from each source file.
-    # Each entry is (file_path, line_number, string_value).
+    # Each entry is (file_path, line_number, string_value).  file_path is the
+    # archive member name (flat, deployed path), not the source tree path, so
+    # the #: references in template.pot match where the files actually land
+    # in the bundle (GWizardFileMerge/<member>, not gramps/...).  Using the
+    # archive member names avoids pipeline failures due to local directory
+    # differences between dev checkout and deployed zip layout.
     entries: list[tuple[str, int, str]] = []
     seen: set[str] = set()
-    for rel_path in source_files:
+    for member_name, rel_path in source_files.items():
         full_path = repo_root / rel_path
         if not full_path.is_file():
             continue
@@ -333,7 +338,7 @@ def build_translations(repo_root: Path) -> bytes:
                             msgid = arg.left.value
                     if msgid is not None and msgid not in seen:
                         seen.add(msgid)
-                        entries.append((rel_path, node.lineno, msgid))
+                        entries.append((member_name, node.lineno, msgid))
 
     # Generate the .pot file content.
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M%z")
