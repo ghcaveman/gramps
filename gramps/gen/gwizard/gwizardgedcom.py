@@ -110,6 +110,11 @@ class GedGWizard(GWizardBase):
     # fail to load.
     GRAMPS_XML_EXTENSIONS = frozenset({"gramps", "xml"})
 
+    # Minimum score for linking a relative (father, mother, spouse, child)
+    # when the compare window has not already paired the person. Matches
+    # the compare window's default so both agree on who is the same person.
+    RELATIVE_MATCH_THRESHOLD = 0.7
+
     def __init__(self, db: DbWriteBase) -> None:
         """
         Initialize the GedGWizard.
@@ -1069,6 +1074,56 @@ class GedGWizard(GWizardBase):
                 if signature is not None:
                     existing.add(signature)
 
+        def remap_citations_notes(obj: Any) -> None:
+            """Copy the citations and notes of ``obj`` into the target tree."""
+            if hasattr(obj, "get_citation_list"):
+                obj.set_citation_list(
+                    [
+                        handle
+                        for handle in (
+                            copy_citation(citation, trans)
+                            for citation in obj.get_citation_list()
+                        )
+                        if handle
+                    ]
+                )
+            if hasattr(obj, "get_note_list"):
+                obj.set_note_list(
+                    [
+                        handle
+                        for handle in (
+                            copy_note(note, trans) for note in obj.get_note_list()
+                        )
+                        if handle
+                    ]
+                )
+
+        def copy_event_ref(
+            s_event_handle: str | None,
+            t_event_handle: str,
+            trans: Any,
+            role: Any = None,
+        ) -> EventRef:
+            """
+            Return an EventRef to the copied event ``t_event_handle``.
+
+            The source person's reference to ``s_event_handle`` is copied
+            so its role, privacy, attributes and notes survive. ``role``
+            overrides the copied role (birth and death are always Primary).
+            """
+            new_ref = EventRef()
+            for ref in s_person.get_event_ref_list():
+                if ref.ref == s_event_handle:
+                    new_ref = copy.deepcopy(ref)
+                    break
+            new_ref.ref = t_event_handle
+            if role is not None:
+                new_ref.set_role(role)
+            remap_citations_notes(new_ref)
+            for attribute in new_ref.get_attribute_list():
+                remap_citations_notes(attribute)
+            return new_ref
+
         with DbTxn(_("GWizard Data Merge"), self.db) as trans:
             if target_person_handle is None:
                 # Add as entirely new person
@@ -1080,30 +1135,6 @@ class GedGWizard(GWizardBase):
                 ):
                     new_person.set_gramps_id("")
                 resolve_references_for_person(new_person, trans)
-
-                def remap_citations_notes(obj: Any) -> None:
-                    if hasattr(obj, "get_citation_list"):
-                        obj.set_citation_list(
-                            [
-                                handle
-                                for handle in (
-                                    copy_citation(citation, trans)
-                                    for citation in obj.get_citation_list()
-                                )
-                                if handle
-                            ]
-                        )
-                    if hasattr(obj, "get_note_list"):
-                        obj.set_note_list(
-                            [
-                                handle
-                                for handle in (
-                                    copy_note(note, trans)
-                                    for note in obj.get_note_list()
-                                )
-                                if handle
-                            ]
-                        )
 
                 birth_idx = new_person.birth_ref_index
                 death_idx = new_person.death_ref_index
@@ -1209,20 +1240,22 @@ class GedGWizard(GWizardBase):
                     s_birth_h = get_source_event_handle(s_person, EventType.BIRTH)
                     t_birth_h = copy_event(s_birth_h, trans)
                     if t_birth_h:
-                        new_birth_ref = EventRef()
-                        new_birth_ref.ref = t_birth_h
-                        new_birth_ref.set_role(EventRoleType.PRIMARY)
-                        t_person.set_birth_ref(new_birth_ref)
+                        t_person.set_birth_ref(
+                            copy_event_ref(
+                                s_birth_h, t_birth_h, trans, EventRoleType.PRIMARY
+                            )
+                        )
 
                 # 5. Death Event
                 if resolutions.get("death_event") == "source":
                     s_death_h = get_source_event_handle(s_person, EventType.DEATH)
                     t_death_h = copy_event(s_death_h, trans)
                     if t_death_h:
-                        new_death_ref = EventRef()
-                        new_death_ref.ref = t_death_h
-                        new_death_ref.set_role(EventRoleType.PRIMARY)
-                        t_person.set_death_ref(new_death_ref)
+                        t_person.set_death_ref(
+                            copy_event_ref(
+                                s_death_h, t_death_h, trans, EventRoleType.PRIMARY
+                            )
+                        )
 
                 # Helpers for field-level items beyond the standard rows
                 def best_target_person(s_handle: str) -> str | None:
@@ -1230,11 +1263,22 @@ class GedGWizard(GWizardBase):
                     Find the target person that best matches the source
                     person with the given handle.
                     """
+                    # The compare window records its one-to-one pairing (and
+                    # any "Not a Match" rejections as None); use it so a
+                    # relative is linked to the person the user sees paired.
+                    pair_map = self.context.get("pair_map") or {}
+                    if s_handle in pair_map:
+                        paired = pair_map[s_handle]
+                        if paired and safe_get_person(self.db, paired) is not None:
+                            return paired
+                        return None
                     rel = safe_get_person(source_db, s_handle)
                     if not rel:
                         return None
                     matches = CandidateMatcher(self.db).find_matches(
-                        rel, threshold=0.5, source_db=source_db
+                        rel,
+                        threshold=self.RELATIVE_MATCH_THRESHOLD,
+                        source_db=source_db,
                     )
                     if not matches:
                         return None
@@ -1297,10 +1341,9 @@ class GedGWizard(GWizardBase):
                             continue
                         t_evt_h = copy_event(s_evt_h, trans)
                         if t_evt_h:
-                            event_ref = EventRef()
-                            event_ref.ref = t_evt_h
-                            event_ref.set_role(EventRoleType.CUSTOM)
-                            t_person.add_event_ref(event_ref)
+                            t_person.add_event_ref(
+                                copy_event_ref(s_evt_h, t_evt_h, trans)
+                            )
                         continue
 
                     # 7. FamilySearch ID
@@ -1322,6 +1365,9 @@ class GedGWizard(GWizardBase):
                         if not t_rel_h:
                             LOG.warning("No target match for %s; skipped", key)
                             continue
+                        if t_rel_h == t_person.handle:
+                            LOG.warning("%s matches the person itself; skipped", key)
+                            continue
                         fam = ensure_parent_family(trans)
                         if role == "father" and not fam.get_father_handle():
                             fam.set_father_handle(t_rel_h)
@@ -1331,6 +1377,12 @@ class GedGWizard(GWizardBase):
                             LOG.warning("%s slot occupied; skipped", key)
                             continue
                         self.db.commit_family(fam, trans)
+                        # A parent must list the family too, or the two
+                        # records disagree (Check and Repair would flag it).
+                        t_parent = safe_get_person(self.db, t_rel_h)
+                        if t_parent is not None:
+                            t_parent.add_family_handle(fam.handle)
+                            self.db.commit_person(t_parent, trans)
                         continue
 
                     # 9. Spouse, key is "spouse:<source person handle>".
@@ -1340,6 +1392,9 @@ class GedGWizard(GWizardBase):
                         t_rel = safe_get_person(self.db, t_rel_h) if t_rel_h else None
                         if not t_rel:
                             LOG.warning("No target match for spouse; skipped")
+                            continue
+                        if t_rel_h == t_person.handle:
+                            LOG.warning("Spouse matches the person itself; skipped")
                             continue
                         spouse_fam: Family | None = None
                         occupied = False
@@ -1386,15 +1441,29 @@ class GedGWizard(GWizardBase):
                         if not t_rel_h:
                             LOG.warning("No target match for child; skipped")
                             continue
+                        if t_rel_h == t_person.handle:
+                            LOG.warning("Child matches the person itself; skipped")
+                            continue
                         child_fam: Family | None = None
+                        already_child = False
                         for fh in t_person.get_family_handle_list():
                             candidate = safe_get_family(self.db, fh)
-                            if candidate and t_person.handle in (
+                            if not candidate or t_person.handle not in (
                                 candidate.get_father_handle(),
                                 candidate.get_mother_handle(),
                             ):
-                                child_fam = candidate
+                                continue
+                            if any(
+                                ref.ref == t_rel_h
+                                for ref in candidate.get_child_ref_list()
+                            ):
+                                already_child = True
                                 break
+                            if child_fam is None:
+                                child_fam = candidate
+                        if already_child:
+                            LOG.info("Child %s is already in the tree; skipped", key)
+                            continue
                         if child_fam is None:
                             child_fam = Family()
                             if t_person.get_gender() == Person.FEMALE:
