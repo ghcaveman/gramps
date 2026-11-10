@@ -109,6 +109,7 @@ from gramps.gen.lib import (
     ChildRefType,
     Date,
     EventType,
+    NameType,
 )
 
 # -------------------------------------------------------------------------
@@ -1121,6 +1122,68 @@ Sample was born and lived a quiet life.
         self.assertEqual(attrs.get("Society Ancestor"), "SAR: S9999")
         urls = [u.get_path() for u in person.get_url_list()]
         self.assertTrue(any("987654" in u for u in urls))
+
+    def test_load_additional_name_elements(self) -> None:
+        """Verify RealName call names, married names, and LastNameOther aliases."""
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 394,
+            "Name": "Read-1",
+            "FirstName": "Deborah",
+            "RealName": "Debby",
+            "LastNameBirth": "Read",
+            "LastNameCurrent": "Franklin",
+            "LastNameOther": "Rogers, Smith",
+            "Gender": "Female",
+        }
+
+        gw.run_step("connect", query="Read-1", people_data=[mock_person])
+        people = gw.run_step("load")
+        self.assertEqual(len(people), 1)
+
+        person = people[0]
+        primary = person.get_primary_name()
+        self.assertEqual(primary.get_first_name(), "Deborah")
+        self.assertEqual(primary.get_surname(), "Read")
+        self.assertEqual(primary.get_type(), NameType.BIRTH)
+        self.assertEqual(primary.get_call_name(), "Debby")
+        self.assertEqual(primary.get_nick_name(), "Debby")
+
+        # Verify Alternate Names
+        alt_names = person.get_alternate_names()
+        # Married name: Franklin
+        married = [a for a in alt_names if a.get_type() == NameType.MARRIED]
+        self.assertEqual(len(married), 1)
+        self.assertEqual(married[0].get_surname(), "Franklin")
+
+        # AKA names: Rogers, Smith, and Debby Read
+        aka_names = [a for a in alt_names if a.get_type() == NameType.AKA]
+        aka_surnames = [a.get_surname() for a in aka_names]
+        self.assertIn("Rogers", aka_surnames)
+        self.assertIn("Smith", aka_surnames)
+
+        aka_firsts = [a.get_first_name() for a in aka_names]
+        self.assertIn("Debby", aka_firsts)
+
+    def test_load_middle_initial_fallback(self) -> None:
+        """Verify MiddleInitial is used when MiddleName is absent."""
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 1,
+            "Name": "Adams-1",
+            "FirstName": "John",
+            "MiddleName": "",
+            "MiddleInitial": "Q",
+            "LastNameBirth": "Adams",
+            "Gender": "Male",
+        }
+
+        gw.run_step("connect", query="Adams-1", people_data=[mock_person])
+        people = gw.run_step("load")
+        person = people[0]
+
+        primary = person.get_primary_name()
+        self.assertEqual(primary.get_first_name(), "John Q.")
 
 
 if __name__ == "__main__":

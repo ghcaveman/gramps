@@ -69,6 +69,7 @@ from gramps.gen.lib import (
     Url,
     UrlType,
     Date,
+    NameType,
 )
 from gramps.gen.lib.date import Today
 from gramps.gen.const import GRAMPS_LOCALE as glocale
@@ -85,8 +86,8 @@ LOG = logging.getLogger(__name__)
 _ = glocale.translation.gettext
 
 _DEFAULT_FIELDS = (
-    "Id,Name,FirstName,MiddleName,LastNameBirth,LastNameCurrent,LastNameOther,"
-    "RealName,Prefix,Suffix,Nicknames,Gender,BirthDate,DeathDate,BirthDateDecade,"
+    "Id,Name,FirstName,MiddleName,MiddleInitial,LastNameBirth,LastNameCurrent,LastNameOther,"
+    "RealName,ColloquialName,Prefix,Suffix,Nicknames,Gender,BirthDate,DeathDate,BirthDateDecade,"
     "DeathDateDecade,BirthLocation,DeathLocation,BirthDateStatus,DeathDateStatus,"
     "Photo,PhotoData,Father,Mother,Parents,Children,Spouses,DataStatus,Templates,Bio"
 )
@@ -1151,18 +1152,25 @@ class WikiTreeGWizard(GedGWizard):
                 num_id = str(pdata.get("Id") or "")
                 first_name = str(pdata.get("FirstName") or "")
                 middle_name = str(pdata.get("MiddleName") or "")
+                middle_initial = str(pdata.get("MiddleInitial") or "")
                 last_name_birth = str(
                     pdata.get("LastNameBirth") or pdata.get("LastNameAtBirth") or ""
                 )
                 last_name_current = str(pdata.get("LastNameCurrent") or "")
+                last_name_other = str(pdata.get("LastNameOther") or "")
                 prefix = str(pdata.get("Prefix") or "")
                 suffix = str(pdata.get("Suffix") or "")
                 nicknames = str(pdata.get("Nicknames") or "")
-                real_name = str(pdata.get("RealName") or "")
+                real_name = str(
+                    pdata.get("RealName") or pdata.get("ColloquialName") or ""
+                ).strip()
 
                 given = first_name
                 if middle_name and middle_name not in given:
                     given = f"{given} {middle_name}".strip()
+                elif middle_initial and middle_initial not in given:
+                    given = f"{given} {middle_initial}.".strip()
+
                 if not given and real_name:
                     given = real_name
 
@@ -1171,6 +1179,8 @@ class WikiTreeGWizard(GedGWizard):
                 person = Person()
                 name_obj = Name()
                 name_obj.set_first_name(given)
+                if last_name_birth:
+                    name_obj.set_type(NameType(NameType.BIRTH))
                 if surname_val:
                     surn_obj = Surname()
                     surn_obj.set_surname(surname_val)
@@ -1181,6 +1191,14 @@ class WikiTreeGWizard(GedGWizard):
                     name_obj.set_suffix(suffix)
                 if nicknames:
                     name_obj.set_nick_name(nicknames)
+
+                # Set call name if RealName/ColloquialName provided
+                if real_name:
+                    if real_name != given and real_name != first_name:
+                        name_obj.set_call_name(real_name)
+                    if not nicknames and real_name != given and real_name != first_name:
+                        name_obj.set_nick_name(real_name)
+
                 person.set_primary_name(name_obj)
 
                 # Alternate name if current surname differs from birth surname
@@ -1190,11 +1208,56 @@ class WikiTreeGWizard(GedGWizard):
                     and last_name_current != last_name_birth
                 ):
                     alt_name = Name()
+                    alt_name.set_type(NameType(NameType.MARRIED))
                     alt_name.set_first_name(given)
                     alt_surn = Surname()
                     alt_surn.set_surname(last_name_current)
                     alt_name.add_surname(alt_surn)
+                    if prefix:
+                        alt_name.set_title(prefix)
+                    if suffix:
+                        alt_name.set_suffix(suffix)
                     person.add_alternate_name(alt_name)
+
+                # Alternate names for LastNameOther (e.g. prior married names, aliases)
+                if last_name_other:
+                    other_surnames = [
+                        s.strip()
+                        for s in re.split(r"[,;/]+", last_name_other)
+                        if s.strip()
+                    ]
+                    for oth_surn in other_surnames:
+                        if (
+                            oth_surn
+                            and oth_surn != last_name_birth
+                            and oth_surn != last_name_current
+                        ):
+                            alt_other = Name()
+                            alt_other.set_type(NameType(NameType.AKA))
+                            alt_other.set_first_name(given)
+                            alt_surn_oth = Surname()
+                            alt_surn_oth.set_surname(oth_surn)
+                            alt_other.add_surname(alt_surn_oth)
+                            if prefix:
+                                alt_other.set_title(prefix)
+                            if suffix:
+                                alt_other.set_suffix(suffix)
+                            person.add_alternate_name(alt_other)
+
+                # If RealName differs significantly from given name, also add an AKA alternate name
+                if real_name and real_name != given and real_name != first_name:
+                    alt_real = Name()
+                    alt_real.set_type(NameType(NameType.AKA))
+                    alt_real.set_first_name(real_name)
+                    if surname_val:
+                        alt_s = Surname()
+                        alt_s.set_surname(surname_val)
+                        alt_real.add_surname(alt_s)
+                    if prefix:
+                        alt_real.set_title(prefix)
+                    if suffix:
+                        alt_real.set_suffix(suffix)
+                    person.add_alternate_name(alt_real)
 
                 # Gender
                 gender_str = str(pdata.get("Gender") or "").strip().lower()
