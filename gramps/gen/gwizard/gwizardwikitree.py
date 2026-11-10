@@ -68,7 +68,9 @@ from gramps.gen.lib import (
     ChildRefType,
     Url,
     UrlType,
+    Date,
 )
+from gramps.gen.lib.date import Today
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 
 # -------------------------------------------------------------------------
@@ -84,9 +86,9 @@ _ = glocale.translation.gettext
 
 _DEFAULT_FIELDS = (
     "Id,Name,FirstName,MiddleName,LastNameBirth,LastNameCurrent,LastNameOther,"
-    "RealName,Prefix,Suffix,Nicknames,Gender,BirthDate,DeathDate,BirthLocation,"
-    "DeathLocation,BirthDateStatus,DeathDateStatus,Photo,PhotoData,Father,Mother,"
-    "Parents,Children,Spouses,DataStatus,Bio"
+    "RealName,Prefix,Suffix,Nicknames,Gender,BirthDate,DeathDate,BirthDateDecade,"
+    "DeathDateDecade,BirthLocation,DeathLocation,BirthDateStatus,DeathDateStatus,"
+    "Photo,PhotoData,Father,Mother,Parents,Children,Spouses,DataStatus,Bio"
 )
 
 
@@ -412,6 +414,109 @@ class WikiTreeGWizard(GedGWizard):
         return val
 
     @staticmethod
+    def wikitree_date_to_gramps(
+        value: str | None,
+        status: str | None = None,
+        decade: str | None = None,
+    ) -> Date:
+        """
+        Convert WikiTree date, status/certainty flag, and decade to a Date.
+
+        :param value: Date string (e.g. '1706-01-17', '1706-00-00', or '1706').
+        :param status: Certainty status ('certain', 'guess', 'before', 'after').
+        :param decade: Fallback decade string (e.g. '1700s').
+        :returns: Gramps Date object with appropriate modifier and quality.
+        """
+        date = Date()
+        val = (value or "").strip()
+        st = (status or "").strip().lower()
+
+        modifier = Date.MOD_NONE
+        quality = Date.QUAL_NONE
+        if st in ("guess", "estimated", "about", "abt"):
+            modifier = Date.MOD_ABOUT
+            quality = Date.QUAL_ESTIMATED
+        elif st in ("before", "bef"):
+            modifier = Date.MOD_BEFORE
+        elif st in ("after", "aft"):
+            modifier = Date.MOD_AFTER
+
+        # Check full ISO YYYY-MM-DD
+        m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", val)
+        if m:
+            year, month, day = (int(p) for p in m.groups())
+            if year > 0:
+                if month == 0:
+                    day = 0
+                date.set(
+                    quality=quality,
+                    modifier=modifier,
+                    calendar=Date.CAL_GREGORIAN,
+                    value=(day, month, year, False),
+                )
+                return date
+
+        # Check YYYY-MM
+        m = re.match(r"^(\d{4})-(\d{2})$", val)
+        if m:
+            year, month = (int(p) for p in m.groups())
+            if year > 0:
+                date.set(
+                    quality=quality,
+                    modifier=modifier,
+                    calendar=Date.CAL_GREGORIAN,
+                    value=(0, month, year, False),
+                )
+                return date
+
+        # Check year only
+        m = re.match(r"^(\d{4})$", val)
+        if m:
+            year = int(m.group(1))
+            if year > 0:
+                date.set(
+                    quality=quality,
+                    modifier=modifier,
+                    calendar=Date.CAL_GREGORIAN,
+                    value=(0, 0, year, False),
+                )
+                return date
+
+        # Try parsing with dateparser if non-empty and not all zero
+        if val and val != "0000-00-00":
+            clean = WikiTreeGWizard._clean_date_str(val)
+            if clean:
+                parsed = dateparser.parse(clean)
+                if not parsed.is_empty():
+                    if (
+                        modifier != Date.MOD_NONE
+                        and parsed.get_modifier() == Date.MOD_NONE
+                    ):
+                        parsed.set_modifier(modifier)
+                    if (
+                        quality != Date.QUAL_NONE
+                        and parsed.get_quality() == Date.QUAL_NONE
+                    ):
+                        parsed.set_quality(quality)
+                    return parsed
+
+        # Fallback to decade if value was empty or 0000-00-00
+        dec_val = (decade or "").strip()
+        m_dec = re.match(r"^(\d{3}0)s$", dec_val, re.IGNORECASE)
+        if m_dec:
+            start_yr = int(m_dec.group(1))
+            stop_yr = start_yr + 9
+            date.set(
+                quality=Date.QUAL_ESTIMATED,
+                modifier=Date.MOD_RANGE,
+                calendar=Date.CAL_GREGORIAN,
+                value=(0, 0, start_yr, False, 0, 0, stop_yr, False),
+            )
+            return date
+
+        return date
+
+    @staticmethod
     def _parse_query_names(query: str) -> tuple[str, str]:
         """
         Split a human name query into first name and last name.
@@ -729,17 +834,26 @@ class WikiTreeGWizard(GedGWizard):
                         mref.ref = media_h
                         citation.add_media_reference(mref)
 
+                citation.set_date_object(Today())
                 cit_handle = source_db.add_citation(citation, trans)
                 person.add_citation(cit_handle)
 
                 # Birth Event
-                birth_date_raw = self._clean_date_str(str(pdata.get("BirthDate") or ""))
+                birth_status = str(
+                    pdata.get("BirthDateStatus")
+                    or (pdata.get("DataStatus") or {}).get("BirthDate")
+                    or ""
+                )
+                birth_decade = str(pdata.get("BirthDateDecade") or "")
+                b_date_obj = self.wikitree_date_to_gramps(
+                    pdata.get("BirthDate"), birth_status, birth_decade
+                )
                 birth_loc = str(pdata.get("BirthLocation") or "").strip()
-                if birth_date_raw or birth_loc:
+                if not b_date_obj.is_empty() or birth_loc:
                     b_evt = Event()
                     b_evt.set_type(EventType(EventType.BIRTH))
-                    if birth_date_raw:
-                        b_evt.set_date_object(dateparser.parse(birth_date_raw))
+                    if not b_date_obj.is_empty():
+                        b_evt.set_date_object(b_date_obj)
                     if birth_loc:
                         p_h = get_or_create_place(birth_loc, trans)
                         b_evt.set_place_handle(p_h)
@@ -750,13 +864,21 @@ class WikiTreeGWizard(GedGWizard):
                     person.set_birth_ref(b_ref)
 
                 # Death Event
-                death_date_raw = self._clean_date_str(str(pdata.get("DeathDate") or ""))
+                death_status = str(
+                    pdata.get("DeathDateStatus")
+                    or (pdata.get("DataStatus") or {}).get("DeathDate")
+                    or ""
+                )
+                death_decade = str(pdata.get("DeathDateDecade") or "")
+                d_date_obj = self.wikitree_date_to_gramps(
+                    pdata.get("DeathDate"), death_status, death_decade
+                )
                 death_loc = str(pdata.get("DeathLocation") or "").strip()
-                if death_date_raw or death_loc:
+                if not d_date_obj.is_empty() or death_loc:
                     d_evt = Event()
                     d_evt.set_type(EventType(EventType.DEATH))
-                    if death_date_raw:
-                        d_evt.set_date_object(dateparser.parse(death_date_raw))
+                    if not d_date_obj.is_empty():
+                        d_evt.set_date_object(d_date_obj)
                     if death_loc:
                         p_h = get_or_create_place(death_loc, trans)
                         d_evt.set_place_handle(p_h)
@@ -868,17 +990,31 @@ class WikiTreeGWizard(GedGWizard):
                         fam = get_or_create_family(f_h, m_h)
 
                         if not fam.get_event_ref_list():
-                            m_date_raw = self._clean_date_str(
-                                str(spouse_item.get("MarriageDate") or "")
+                            m_status = str(
+                                spouse_item.get("MarriageDateStatus")
+                                or (spouse_item.get("DataStatus") or {}).get(
+                                    "MarriageDate"
+                                )
+                                or (spouse_item.get("data_status") or {}).get(
+                                    "marriage_date"
+                                )
+                                or ""
+                            )
+                            m_date_obj = self.wikitree_date_to_gramps(
+                                spouse_item.get("MarriageDate")
+                                or spouse_item.get("marriage_date"),
+                                m_status,
                             )
                             m_loc = str(
-                                spouse_item.get("MarriageLocation") or ""
+                                spouse_item.get("MarriageLocation")
+                                or spouse_item.get("marriage_location")
+                                or ""
                             ).strip()
-                            if m_date_raw or m_loc:
+                            if not m_date_obj.is_empty() or m_loc:
                                 m_evt = Event()
                                 m_evt.set_type(EventType(EventType.MARRIAGE))
-                                if m_date_raw:
-                                    m_evt.set_date_object(dateparser.parse(m_date_raw))
+                                if not m_date_obj.is_empty():
+                                    m_evt.set_date_object(m_date_obj)
                                 if m_loc:
                                     m_evt.set_place_handle(
                                         get_or_create_place(m_loc, trans)

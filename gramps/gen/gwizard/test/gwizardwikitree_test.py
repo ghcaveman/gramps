@@ -107,6 +107,7 @@ from gramps.gen.lib import (
     Attribute,
     AttributeType,
     ChildRefType,
+    Date,
 )
 
 # -------------------------------------------------------------------------
@@ -777,6 +778,118 @@ class TestWikiTreeGWizard(unittest.TestCase):
         # There should be two families: one for Senior+Mother with Junior as child,
         # and one for Junior with Grandchild-1 as child
         self.assertEqual(source_db.get_number_of_families(), 2)
+
+    def test_wikitree_date_to_gramps(self) -> None:
+        """Verify wikitree_date_to_gramps parses modifiers, qualities, and decades."""
+        # Exact date with "certain"
+        d1 = WikiTreeGWizard.wikitree_date_to_gramps("1706-01-17", "certain")
+        self.assertEqual(d1.get_year(), 1706)
+        self.assertEqual(d1.get_month(), 1)
+        self.assertEqual(d1.get_day(), 17)
+        self.assertEqual(d1.get_modifier(), Date.MOD_NONE)
+        self.assertEqual(d1.get_quality(), Date.QUAL_NONE)
+
+        # Incomplete year-only with "guess"
+        d2 = WikiTreeGWizard.wikitree_date_to_gramps("1706-00-00", "guess")
+        self.assertEqual(d2.get_year(), 1706)
+        self.assertEqual(d2.get_month(), 0)
+        self.assertEqual(d2.get_day(), 0)
+        self.assertEqual(d2.get_modifier(), Date.MOD_ABOUT)
+        self.assertEqual(d2.get_quality(), Date.QUAL_ESTIMATED)
+
+        # Date with "before"
+        d3 = WikiTreeGWizard.wikitree_date_to_gramps("1750-05-00", "before")
+        self.assertEqual(d3.get_year(), 1750)
+        self.assertEqual(d3.get_month(), 5)
+        self.assertEqual(d3.get_day(), 0)
+        self.assertEqual(d3.get_modifier(), Date.MOD_BEFORE)
+
+        # Date with "after"
+        d4 = WikiTreeGWizard.wikitree_date_to_gramps("1790-04-17", "after")
+        self.assertEqual(d4.get_year(), 1790)
+        self.assertEqual(d4.get_modifier(), Date.MOD_AFTER)
+
+        # Empty date with decade fallback
+        d5 = WikiTreeGWizard.wikitree_date_to_gramps("", None, "1700s")
+        self.assertEqual(d5.get_modifier(), Date.MOD_RANGE)
+        self.assertEqual(d5.get_quality(), Date.QUAL_ESTIMATED)
+        self.assertEqual(d5.get_year(), 1700)
+        self.assertEqual(d5.get_start_date(), (0, 0, 1700, False))
+        self.assertEqual(d5.get_stop_date(), (0, 0, 1709, False))
+
+        # 0000-00-00 without decade is empty
+        d6 = WikiTreeGWizard.wikitree_date_to_gramps("0000-00-00")
+        self.assertTrue(d6.is_empty())
+
+    def test_load_date_certainty_and_modifiers(self) -> None:
+        """Verify load step populates date modifiers on events from WikiTree status."""
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 1,
+            "Name": "Franklin-1",
+            "FirstName": "Benjamin",
+            "LastNameBirth": "Franklin",
+            "Gender": "Male",
+            "BirthDate": "1706-00-00",
+            "BirthDateStatus": "guess",
+            "DeathDate": "1790-04-17",
+            "DeathDateStatus": "after",
+            "Spouses": [
+                {
+                    "Id": 2,
+                    "Name": "Read-1",
+                    "MarriageDate": "1730-09-01",
+                    "MarriageDateStatus": "before",
+                }
+            ],
+        }
+        mock_spouse = {
+            "Id": 2,
+            "Name": "Read-1",
+            "FirstName": "Deborah",
+            "LastNameBirth": "Read",
+            "Gender": "Female",
+        }
+
+        gw.run_step(
+            "connect",
+            query="Franklin-1",
+            people_data=[mock_person, mock_spouse],
+        )
+        gw.run_step("load")
+
+        source_db = gw.context.get("source_db")
+        p = [
+            source_db.get_person_from_handle(h)
+            for h in source_db.iter_person_handles()
+            if get_wikitree_id(source_db.get_person_from_handle(h)) == "Franklin-1"
+        ][0]
+
+        # Verify Birth Event has MOD_ABOUT and QUAL_ESTIMATED
+        b_ref = p.get_birth_ref()
+        self.assertIsNotNone(b_ref)
+        b_evt = source_db.get_event_from_handle(b_ref.ref)
+        b_date = b_evt.get_date_object()
+        self.assertEqual(b_date.get_year(), 1706)
+        self.assertEqual(b_date.get_modifier(), Date.MOD_ABOUT)
+        self.assertEqual(b_date.get_quality(), Date.QUAL_ESTIMATED)
+
+        # Verify Death Event has MOD_AFTER
+        d_ref = p.get_death_ref()
+        self.assertIsNotNone(d_ref)
+        d_evt = source_db.get_event_from_handle(d_ref.ref)
+        d_date = d_evt.get_date_object()
+        self.assertEqual(d_date.get_year(), 1790)
+        self.assertEqual(d_date.get_modifier(), Date.MOD_AFTER)
+
+        # Verify Marriage Event has MOD_BEFORE
+        fam_h = list(source_db.iter_family_handles())[0]
+        fam = source_db.get_family_from_handle(fam_h)
+        m_ref = fam.get_event_ref_list()[0]
+        m_evt = source_db.get_event_from_handle(m_ref.ref)
+        m_date = m_evt.get_date_object()
+        self.assertEqual(m_date.get_year(), 1730)
+        self.assertEqual(m_date.get_modifier(), Date.MOD_BEFORE)
 
 
 if __name__ == "__main__":
