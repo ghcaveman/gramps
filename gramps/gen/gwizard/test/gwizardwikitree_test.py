@@ -1316,6 +1316,108 @@ Sample was born and lived a quiet life.
         self.assertIn(EventType.BURIAL, ev_types)
         self.assertTrue(any("Christ Church Burial Ground" in pl for pl in places))
 
+    def test_load_media_attached_to_person_and_citation(self) -> None:
+        """Verify primary photo is attached to person and citation with metadata."""
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 1,
+            "Name": "Franklin-1",
+            "FirstName": "Benjamin",
+            "LastNameBirth": "Franklin",
+            "Gender": "Male",
+            "PhotoData": {
+                "path": "/photo.php/thumb/franklin.jpg",
+                "orig_width": "800",
+                "orig_height": "600",
+                "file": "franklin.jpg",
+            },
+        }
+
+        gw.run_step("connect", query="Franklin-1", people_data=[mock_person])
+        people = gw.run_step("load")
+        person = people[0]
+        source_db = gw.context.get("source_db")
+
+        # 1. Verify media is directly on Person (avatar)
+        p_media_refs = person.get_media_list()
+        self.assertEqual(len(p_media_refs), 1)
+        media_h = p_media_refs[0].ref
+        media_obj = source_db.get_media_from_handle(media_h)
+        self.assertIn(
+            "https://www.wikitree.com/photo.php/thumb/franklin.jpg",
+            media_obj.get_path(),
+        )
+        self.assertEqual(media_obj.get_mime_type(), "image/jpeg")
+
+        # Verify Dimensions attribute on media
+        dim_attrs = {
+            str(a.get_type()): str(a.get_value())
+            for a in media_obj.get_attribute_list()
+        }
+        self.assertEqual(dim_attrs.get("Dimensions"), "800x600")
+
+        # 2. Verify media is also linked to the Citation
+        cit_h = person.get_citation_list()[0]
+        cit = source_db.get_citation_from_handle(cit_h)
+        self.assertTrue(any(r.ref == media_h for r in cit.get_media_list()))
+
+    def test_load_photo_filename_fallback_and_mime(self) -> None:
+        """Verify Photo filename fallback and correct MIME type detection."""
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 2,
+            "Name": "Read-1",
+            "FirstName": "Deborah",
+            "LastNameBirth": "Read",
+            "Gender": "Female",
+            "Photo": "Deborah.gif",
+            # No PhotoData dict
+        }
+
+        gw.run_step("connect", query="Read-1", people_data=[mock_person])
+        people = gw.run_step("load")
+        person = people[0]
+        source_db = gw.context.get("source_db")
+
+        p_media_refs = person.get_media_list()
+        self.assertEqual(len(p_media_refs), 1)
+        media_obj = source_db.get_media_from_handle(p_media_refs[0].ref)
+        self.assertEqual(
+            media_obj.get_path(), "https://www.wikitree.com/photo/gif/Deborah.gif"
+        )
+        self.assertEqual(media_obj.get_mime_type(), "image/gif")
+
+    def test_load_gallery_images_from_bio(self) -> None:
+        """Verify additional gallery images in bio text are extracted."""
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 3,
+            "Name": "Josiah-1",
+            "FirstName": "Josiah",
+            "LastNameBirth": "Franklin",
+            "Gender": "Male",
+            "Photo": "Josiah.jpg",
+            "Bio": """== Biography ==
+Josiah lived a good life.
+Here is the gravestone: [[Image:Franklin-2-2.jpg|thumb|Josiah gravestone marker]]
+""",
+        }
+
+        gw.run_step("connect", query="Josiah-1", people_data=[mock_person])
+        people = gw.run_step("load")
+        person = people[0]
+        source_db = gw.context.get("source_db")
+
+        # Person should have 2 media items: primary photo + gallery photo from bio
+        p_media_refs = person.get_media_list()
+        self.assertEqual(len(p_media_refs), 2)
+
+        descs = [
+            source_db.get_media_from_handle(r.ref).get_description()
+            for r in p_media_refs
+        ]
+        self.assertTrue(any("gravestone marker" in d for d in descs))
+
 
 if __name__ == "__main__":
     unittest.main()

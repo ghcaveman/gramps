@@ -29,6 +29,7 @@ WikiTree implementation of the GWizard import and merge framework.
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import logging
+import mimetypes
 import os
 import re
 from typing import Any
@@ -1112,6 +1113,7 @@ class WikiTreeGWizard(GedGWizard):
 
         place_cache: dict[str, str] = {}
         source_cache: dict[str, str] = {}
+        media_cache: dict[str, str] = {}
         person_handle_map: dict[str, str] = {}  # wt_id or str(Id) -> person_handle
 
         def get_or_create_place(title: str, trans: DbTxn) -> str:
@@ -1321,28 +1323,79 @@ class WikiTreeGWizard(GedGWizard):
                     cit_note_handle = source_db.add_note(cit_note, trans)
                     citation.add_note(cit_note_handle)
 
-                # Photo / Media
+                # Primary Photo / Media
+                photo_file = str(pdata.get("Photo") or "").strip()
                 photo_data = pdata.get("PhotoData")
+                primary_media_url = ""
+                primary_media_desc = ""
+                orig_w = ""
+                orig_h = ""
+
                 if isinstance(photo_data, dict):
                     photo_path = str(
                         photo_data.get("path") or photo_data.get("url") or ""
-                    )
+                    ).strip()
                     if photo_path:
-                        media_url = (
+                        primary_media_url = (
                             f"https://www.wikitree.com{photo_path}"
                             if photo_path.startswith("/")
                             else photo_path
                         )
-                        media = Media()
-                        media.set_path(media_url)
-                        media.set_description(
-                            f"WikiTree photo for {given} {surname_val}".strip()
+                    orig_w = str(
+                        photo_data.get("orig_width") or photo_data.get("width") or ""
+                    )
+                    orig_h = str(
+                        photo_data.get("orig_height") or photo_data.get("height") or ""
+                    )
+                    file_name = str(photo_data.get("file") or photo_file or "")
+                    if file_name:
+                        primary_media_desc = (
+                            f"{given} {surname_val} ({file_name})".strip()
                         )
-                        media.set_mime_type("image/jpeg")
-                        media_h = source_db.add_media(media, trans)
-                        mref = MediaRef()
-                        mref.ref = media_h
-                        citation.add_media_reference(mref)
+
+                if not primary_media_url and photo_file:
+                    ext = (
+                        photo_file.rsplit(".", 1)[-1].lower()
+                        if "." in photo_file
+                        else "jpg"
+                    )
+                    primary_media_url = (
+                        f"https://www.wikitree.com/photo/{ext}/{photo_file}"
+                    )
+                    primary_media_desc = f"{given} {surname_val} ({photo_file})".strip()
+
+                if not primary_media_desc:
+                    primary_media_desc = (
+                        f"WikiTree photo for {given} {surname_val}".strip()
+                    )
+
+                if primary_media_url:
+                    primary_media_h = media_cache.get(primary_media_url)
+                    if not primary_media_h:
+                        media = Media()
+                        media.set_path(primary_media_url)
+                        media.set_description(primary_media_desc)
+                        mime = mimetypes.guess_type(primary_media_url)[0]
+                        media.set_mime_type(mime or "image/jpeg")
+
+                        if orig_w and orig_h:
+                            dim_attr = Attribute()
+                            dim_attr.set_type(AttributeType(_("Dimensions")))
+                            dim_attr.set_value(f"{orig_w}x{orig_h}")
+                            media.add_attribute(dim_attr)
+
+                        primary_media_h = source_db.add_media(media, trans)
+                        media_cache[primary_media_url] = primary_media_h
+
+                    # Attach directly to Person (primary photo / avatar)
+                    p_mref = MediaRef()
+                    p_mref.ref = primary_media_h
+                    person.add_media_reference(p_mref)
+
+                    # Also attach to Citation
+                    c_mref = MediaRef()
+                    c_mref.ref = primary_media_h
+                    citation.add_media_reference(c_mref)
 
                 citation.set_date_object(Today())
                 cit_handle = source_db.add_citation(citation, trans)
@@ -1544,6 +1597,54 @@ class WikiTreeGWizard(GedGWizard):
                     templates_data = self.parse_bio_templates(raw_bio)
                 if templates_data and isinstance(templates_data, list):
                     self.process_templates(person, templates_data, source_db, trans)
+
+                # 4. Extract gallery images from bio text: [[Image:filename|caption]]
+                if raw_bio:
+                    for img_m in re.finditer(
+                        r"\[\[(?:Image|File):([^\s|\]]+)(?:\|([^\]]+))?\]\]",
+                        raw_bio,
+                        re.IGNORECASE,
+                    ):
+                        img_file = img_m.group(1).strip()
+                        raw_caption = img_m.group(2) or ""
+                        clean_parts = [
+                            p.strip()
+                            for p in raw_caption.split("|")
+                            if not re.match(
+                                r"^\d+px$|^thumb$|^right$|^left$|^center$|^none$",
+                                p.strip(),
+                                re.IGNORECASE,
+                            )
+                        ]
+                        img_desc = (
+                            " - ".join(clean_parts)
+                            if clean_parts
+                            else f"{img_file} ({given} {surname_val})"
+                        )
+                        ext = (
+                            img_file.rsplit(".", 1)[-1].lower()
+                            if "." in img_file
+                            else "jpg"
+                        )
+                        img_url = f"https://www.wikitree.com/photo/{ext}/{img_file}"
+
+                        if img_url == primary_media_url:
+                            continue
+
+                        g_media_h = media_cache.get(img_url)
+                        if not g_media_h:
+                            g_media = Media()
+                            g_media.set_path(img_url)
+                            g_media.set_description(img_desc)
+                            mime = mimetypes.guess_type(img_url)[0]
+                            g_media.set_mime_type(mime or "image/jpeg")
+                            g_media_h = source_db.add_media(g_media, trans)
+                            media_cache[img_url] = g_media_h
+
+                        if not any(r.ref == g_media_h for r in person.get_media_list()):
+                            g_mref = MediaRef()
+                            g_mref.ref = g_media_h
+                            person.add_media_reference(g_mref)
 
                 p_handle = source_db.add_person(person, trans)
                 if wt_key:
