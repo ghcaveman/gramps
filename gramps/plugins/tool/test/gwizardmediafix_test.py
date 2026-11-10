@@ -674,117 +674,6 @@ class GWizardMediaFixTest(unittest.TestCase):
             self.assertNotIn("__", formatted)
             self.assertLessEqual(len(formatted), 90)
 
-    def test_resolve_media_reference_context_person(self) -> None:
-        """Resolve context for media referenced by a Person."""
-        with DbTxn("Create person media", self.db) as trans:
-            m = Media()
-            m.set_description("Headstone")
-            m.set_path("photos/raw_scan.JPG")
-            m_handle = self.db.add_media(m, trans)
-
-            p = Person()
-            n = Name()
-            s = Surname()
-            s.set_surname("Doe")
-            n.add_surname(s)
-            n.set_first_name("Mary")
-            p.set_primary_name(n)
-
-            d = Date()
-            d.set_year(1985)
-            e = Event()
-            e.set_type(EventType.DEATH)
-            e.set_date_object(d)
-            e_h = db_add_e = self.db.add_event(e, trans)
-            eref = EventRef()
-            eref.set_reference_handle(e_h)
-            p.add_event_ref(eref)
-
-            mref = MediaRef()
-            mref.set_reference_handle(m_handle)
-            p.add_media_reference(mref)
-            p_handle = self.db.add_person(p, trans)
-
-        media = self.db.get_media_from_handle(m_handle)
-        ctx = resolve_media_reference_context(self.db, media)
-        self.assertEqual(ctx["surname"], "Doe")
-        self.assertEqual(ctx["given"], "Mary")
-        self.assertEqual(ctx["doc_type"], "Headstone")
-        self.assertEqual(ctx["year"], "1985")
-
-        std_path = sanitize_standard_filename(media.get_path(), db=self.db, media=media)
-        self.assertEqual(
-            std_path,
-            os.path.join("photos", f"{ctx['ref_id']}_Doe_Mary-Headstone-1985.jpg"),
-        )
-
-    def test_resolve_media_reference_context_event(self) -> None:
-        """Resolve context for media referenced by an Event with a Person participant."""
-        with DbTxn("Create event media", self.db) as trans:
-            m = Media()
-            m.set_description("Birth Certificate")
-            m.set_path("documents/cert_scan.PNG")
-            m_handle = self.db.add_media(m, trans)
-
-            d = Date()
-            d.set_year(1920)
-            e = Event()
-            e.set_type(EventType.BIRTH)
-            e.set_date_object(d)
-            mref = MediaRef()
-            mref.set_reference_handle(m_handle)
-            e.add_media_reference(mref)
-            e_handle = self.db.add_event(e, trans)
-
-            p = Person()
-            n = Name()
-            s = Surname()
-            s.set_surname("Smith")
-            n.add_surname(s)
-            n.set_first_name("John")
-            p.set_primary_name(n)
-            eref = EventRef()
-            eref.set_reference_handle(e_handle)
-            p.add_event_ref(eref)
-            p_handle = self.db.add_person(p, trans)
-
-        media = self.db.get_media_from_handle(m_handle)
-        ctx = resolve_media_reference_context(self.db, media)
-        self.assertEqual(ctx["surname"], "Smith")
-        self.assertEqual(ctx["given"], "John")
-        self.assertEqual(ctx["year"], "1920")
-
-        std_path = sanitize_standard_filename(media.get_path(), db=self.db, media=media)
-        self.assertEqual(
-            std_path,
-            os.path.join(
-                "documents",
-                f"{ctx['ref_id']}_Smith_John-Birth_Certificate-1920.png",
-            ),
-        )
-
-    def test_format_standard_filename_presets(self) -> None:
-        """All filename presets produce platform-safe filenames without invalid characters."""
-        context = {
-            "ref_id": "I0042",
-            "surname": "Smith",
-            "given": "John",
-            "doc_type": "Birth Certificate",
-            "year": "1920",
-            "id": "O0001",
-            "orig": "scan#1 (original)",
-            "ext": "JPEG",
-        }
-        for tmpl, _desc in FILENAME_PRESETS:
-            formatted = format_standard_filename(tmpl, context)
-            self.assertTrue(formatted.endswith(".jpeg"))
-            self.assertNotIn(" ", formatted)
-            self.assertNotIn(",", formatted)
-            self.assertNotIn("_-_", formatted)
-            self.assertNotIn("--", formatted)
-            self.assertNotIn("__", formatted)
-            self.assertLessEqual(len(formatted), 90)
-
     def test_gwizard_media_fix_window_buttons(self) -> None:
         """GWizardMediaFix controller initializes with the required buttons."""
         mock_user = MagicMock()
@@ -1619,8 +1508,11 @@ class GWizardMediaFixTest(unittest.TestCase):
 
             # File should be moved to destination and updated in DB without quotes
             updated_cons = self.db.get_media_from_handle(m_h)
+            from gramps.plugins.tool.gwizard_common import to_db_path
+
             self.assertEqual(
-                os.path.normpath(updated_cons.get_path()), os.path.normpath(hint_sug)
+                os.path.normpath(updated_cons.get_path()),
+                os.path.normpath(to_db_path(hint_sug, base_dir)),
             )
             self.assertTrue(os.path.exists(hint_sug))
         finally:
@@ -1636,14 +1528,18 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertTrue(hasattr(dlg, "path_button"))
         self.assertEqual(dlg.path_entry.get_text(), custom_path)
 
-        # Changing path_entry directly updates db mediapath and recomputes base_dir
+        # Changing path_entry directly stages db mediapath and recomputes base_dir
         new_path = os.path.join(USER_HOME, "NewMediaFolder")
         dlg.path_entry.set_text(new_path)
         dlg.cb_set_mediapath()
-        self.assertEqual(self.db.get_mediapath(), new_path)
+        self.assertEqual(dlg._mediapath_text, new_path)
         self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(new_path)))
 
-        # Selecting folder from chooser dialog sets path on entry and database
+        with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
+            dlg.cb_apply(MagicMock())
+        self.assertEqual(self.db.get_mediapath(), new_path)
+
+        # Selecting folder from chooser dialog sets path on entry
         chosen_folder = os.path.join(USER_HOME, "ChosenFolder")
         mock_chooser = MagicMock()
         mock_chooser.run.return_value = Gtk.ResponseType.OK
@@ -1654,8 +1550,11 @@ class GWizardMediaFixTest(unittest.TestCase):
             return_value=mock_chooser,
         ):
             dlg.cb_select_mediapath()
-            self.assertEqual(self.db.get_mediapath(), chosen_folder)
             self.assertEqual(dlg.path_entry.get_text(), chosen_folder)
+            self.assertEqual(dlg._mediapath_text, chosen_folder)
+            self.assertEqual(
+                dlg.base_dir, os.path.normpath(os.path.abspath(chosen_folder))
+            )
 
     def test_consolidate_media_location_radio_buttons_move_vs_copy(self) -> None:
         """ConsolidateMediaLocationDialog provides radio buttons for move files vs make a copy."""
@@ -1665,47 +1564,55 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertTrue(dlg.radio_move.get_active())
         self.assertFalse(dlg.radio_copy.get_active())
 
-        with DbTxn("Create media for move", self.db) as trans:
-            m = Media()
-            m.set_description("Test Move")
-            m.set_path("/path/to/test.jpg")
-            m_h = self.db.add_media(m, trans)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            test_file = os.path.join(temp_dir, "test.jpg")
+            with open(test_file, "w") as f:
+                f.write("content")
 
-        mock_entry = MagicMock()
-        mock_entry.get_text.return_value = "new_folder/test.jpg"
-        dlg.row_targets = [
-            {
-                "entry": {"handle": m_h, "raw_path": "/path/to/test.jpg"},
-                "path_entry": mock_entry,
-            }
-        ]
+            with DbTxn("Create media for move", self.db) as trans:
+                m = Media()
+                m.set_description("Test Move")
+                m.set_path(test_file)
+                m_h = self.db.add_media(m, trans)
 
-        with (
-            patch(
-                "gramps.plugins.tool.gwizardmediafix.os.path.exists", return_value=True
-            ),
-            patch("gramps.plugins.tool.gwizardmediafix.os.makedirs"),
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.move") as mock_move,
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.copy2") as mock_copy,
-            patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
-        ):
-            dlg.cb_apply(MagicMock())
-            mock_move.assert_called_once()
-            mock_copy.assert_not_called()
+            mock_entry = MagicMock()
+            mock_entry.get_text.return_value = os.path.join(
+                temp_dir, "dest", "test.jpg"
+            )
+            dlg.row_targets = [
+                {
+                    "entry": {
+                        "handle": m_h,
+                        "raw_path": test_file,
+                        "src_full": test_file,
+                        "gramps_id": "O0001",
+                    },
+                    "path_entry": mock_entry,
+                }
+            ]
 
-        dlg.radio_copy.set_active(True)
-        with (
-            patch(
-                "gramps.plugins.tool.gwizardmediafix.os.path.exists", return_value=True
-            ),
-            patch("gramps.plugins.tool.gwizardmediafix.os.makedirs"),
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.move") as mock_move,
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.copy2") as mock_copy,
-            patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
-        ):
-            dlg.cb_apply(MagicMock())
-            mock_copy.assert_called_once()
-            mock_move.assert_not_called()
+            with (
+                patch(
+                    "gramps.plugins.tool.gwizardmediafix.relocate_file",
+                    return_value=(True, ""),
+                ) as mock_relocate,
+                patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
+            ):
+                dlg.cb_apply(MagicMock())
+                mock_relocate.assert_called_once()
+                self.assertFalse(mock_relocate.call_args[1].get("copy", False))
+
+            dlg.radio_copy.set_active(True)
+            with (
+                patch(
+                    "gramps.plugins.tool.gwizardmediafix.relocate_file",
+                    return_value=(True, ""),
+                ) as mock_relocate,
+                patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
+            ):
+                dlg.cb_apply(MagicMock())
+                mock_relocate.assert_called_once()
+                self.assertTrue(mock_relocate.call_args[1].get("copy", False))
 
     def test_generate_media_fix_report_includes_base_path(self) -> None:
         """generate_media_fix_report includes Media Base Path in summary metrics."""
@@ -2670,6 +2577,7 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertEqual(unref_groups[0]["keeper"]["handle"], m_h)
 
         # Apply deletion (choice 0)
+        dlg.row_targets[0]["action_combo"].set_active(0)
         with patch("gramps.plugins.tool.gw_fixmediareferencesdialog.OkDialog"):
             dlg.cb_apply(MagicMock())
 
@@ -2927,23 +2835,20 @@ class GWizardMediaFixTest(unittest.TestCase):
             tool_instance.dbstate = self.dbstate
             tool_instance.window = MagicMock()
 
-            # Test cancellation: QuestionDialog2 returns False
-            mock_confirm = MagicMock()
-            mock_confirm.run.return_value = False
+            # Test cancellation: confirm_plan returns False
             with patch(
-                "gramps.plugins.tool.gwizardmediafix.QuestionDialog2",
-                return_value=mock_confirm,
+                "gramps.plugins.tool.gwizardmediafix.confirm_plan",
+                return_value=False,
             ):
                 tool_instance.cb_auto_all()
                 # Should do nothing
                 self.assertIsNotNone(self.db.get_media_from_handle(h_orphan))
 
-            # Test acceptance: QuestionDialog2 returns True
-            mock_confirm.run.return_value = True
+            # Test acceptance: confirm_plan returns True
             with (
                 patch(
-                    "gramps.plugins.tool.gwizardmediafix.QuestionDialog2",
-                    return_value=mock_confirm,
+                    "gramps.plugins.tool.gwizardmediafix.confirm_plan",
+                    return_value=True,
                 ),
                 patch(
                     "gramps.plugins.tool.gwizardmediafix.AcceptAllHintsReportDialog"
