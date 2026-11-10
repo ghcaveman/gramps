@@ -106,6 +106,7 @@ from gramps.gen.lib import (
     UrlType,
     Attribute,
     AttributeType,
+    ChildRefType,
 )
 
 # -------------------------------------------------------------------------
@@ -606,6 +607,176 @@ class TestWikiTreeGWizard(unittest.TestCase):
         self.assertTrue(
             any("Washington-11" in u.get_path() for u in updated.get_url_list())
         )
+
+    def test_load_parent_child_relationships_and_confidence(self) -> None:
+        """Verify father, mother, and child links with DNA confidence note."""
+        gw = WikiTreeGWizard(self.db)
+        mock_child = {
+            "Id": 388,
+            "Name": "Franklin-1",
+            "FirstName": "Benjamin",
+            "LastNameBirth": "Franklin",
+            "Gender": "Male",
+            "Father": 389,
+            "Mother": 390,
+            "DataStatus": {
+                "Father": "20",  # DNA confirmed
+                "Mother": "10",  # Confirmed with sources
+            },
+        }
+        mock_father = {
+            "Id": 389,
+            "Name": "Franklin-2",
+            "FirstName": "Josiah",
+            "LastNameBirth": "Franklin",
+            "Gender": "Male",
+            "Spouses": [{"Id": 390, "Name": "Folger-1", "MarriageDate": "1689-11-25"}],
+        }
+        mock_mother = {
+            "Id": 390,
+            "Name": "Folger-1",
+            "FirstName": "Abiah",
+            "LastNameBirth": "Folger",
+            "Gender": "Female",
+        }
+
+        gw.run_step(
+            "connect",
+            query="Franklin-1",
+            people_data=[mock_child, mock_father, mock_mother],
+        )
+        people = gw.run_step("load")
+        self.assertEqual(len(people), 3)
+
+        source_db = gw.context.get("source_db")
+        self.assertIsNotNone(source_db)
+        self.assertEqual(source_db.get_number_of_families(), 1)
+
+        fam_handle = list(source_db.iter_family_handles())[0]
+        fam = source_db.get_family_from_handle(fam_handle)
+
+        child_p = [p for p in people if get_wikitree_id(p) == "Franklin-1"][0]
+        father_p = [p for p in people if get_wikitree_id(p) == "Franklin-2"][0]
+        mother_p = [p for p in people if get_wikitree_id(p) == "Folger-1"][0]
+
+        # Verify family parent handles
+        self.assertEqual(fam.get_father_handle(), father_p.get_handle())
+        self.assertEqual(fam.get_mother_handle(), mother_p.get_handle())
+
+        # Verify child ref in family
+        child_refs = fam.get_child_ref_list()
+        self.assertEqual(len(child_refs), 1)
+        cref = child_refs[0]
+        self.assertEqual(cref.ref, child_p.get_handle())
+        self.assertEqual(cref.get_father_relation(), ChildRefType.BIRTH)
+        self.assertEqual(cref.get_mother_relation(), ChildRefType.BIRTH)
+
+        # Verify DNA / source confirmation notes attached to ChildRef
+        note_handles = cref.get_note_list()
+        self.assertTrue(len(note_handles) >= 1)
+        notes_text = " ".join(
+            source_db.get_note_from_handle(nh).get() for nh in note_handles
+        )
+        self.assertIn("DNA", notes_text)
+        self.assertIn("sources", notes_text)
+
+        # Verify person parent/family references
+        self.assertIn(fam.handle, child_p.get_parent_family_handle_list())
+        self.assertIn(fam.handle, father_p.get_family_handle_list())
+        self.assertIn(fam.handle, mother_p.get_family_handle_list())
+
+    def test_load_adopted_and_stepchild_relations(self) -> None:
+        """Verify non-biological and stepchild relationship status mapping."""
+        gw = WikiTreeGWizard(self.db)
+        mock_child = {
+            "Id": 100,
+            "Name": "Adopted-1",
+            "FirstName": "Alex",
+            "LastNameBirth": "Smith",
+            "Gender": "Male",
+            "Father": 101,
+            "Mother": 102,
+            "DataStatus": {
+                "Father": "adopted",
+                "Mother": "stepchild",
+            },
+        }
+        mock_father = {
+            "Id": 101,
+            "Name": "Father-1",
+            "FirstName": "John",
+            "LastNameBirth": "Smith",
+            "Gender": "Male",
+        }
+        mock_mother = {
+            "Id": 102,
+            "Name": "Mother-1",
+            "FirstName": "Mary",
+            "LastNameBirth": "Jones",
+            "Gender": "Female",
+        }
+
+        gw.run_step(
+            "connect",
+            query="Adopted-1",
+            people_data=[mock_child, mock_father, mock_mother],
+        )
+        gw.run_step("load")
+
+        source_db = gw.context.get("source_db")
+        fam_handle = list(source_db.iter_family_handles())[0]
+        fam = source_db.get_family_from_handle(fam_handle)
+
+        cref = fam.get_child_ref_list()[0]
+        self.assertEqual(cref.get_father_relation(), ChildRefType.ADOPTED)
+        self.assertEqual(cref.get_mother_relation(), ChildRefType.STEPCHILD)
+
+    def test_load_nested_parents_and_children_dicts(self) -> None:
+        """Verify automatic extraction of nested Parents and Children structures."""
+        gw = WikiTreeGWizard(self.db)
+        mock_child = {
+            "Id": 10,
+            "Name": "Child-1",
+            "FirstName": "Junior",
+            "LastNameBirth": "Doe",
+            "Gender": "Male",
+            "Parents": {
+                "20": {
+                    "Id": 20,
+                    "Name": "Parent-1",
+                    "FirstName": "Senior",
+                    "LastNameBirth": "Doe",
+                    "Gender": "Male",
+                },
+                "30": {
+                    "Id": 30,
+                    "Name": "Parent-2",
+                    "FirstName": "Mother",
+                    "LastNameBirth": "Smith",
+                    "Gender": "Female",
+                },
+            },
+            "Children": {
+                "40": {
+                    "Id": 40,
+                    "Name": "Grandchild-1",
+                    "FirstName": "Third",
+                    "LastNameBirth": "Doe",
+                    "Gender": "Female",
+                }
+            },
+        }
+
+        # Provide only the single mock_child profile - parents & children are nested
+        gw.run_step("connect", query="Child-1", people_data=[mock_child])
+        people = gw.run_step("load")
+        self.assertEqual(len(people), 4)
+
+        source_db = gw.context.get("source_db")
+        self.assertEqual(source_db.get_number_of_people(), 4)
+        # There should be two families: one for Senior+Mother with Junior as child,
+        # and one for Junior with Grandchild-1 as child
+        self.assertEqual(source_db.get_number_of_families(), 2)
 
 
 if __name__ == "__main__":

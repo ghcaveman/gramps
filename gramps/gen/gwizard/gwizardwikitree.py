@@ -65,6 +65,7 @@ from gramps.gen.lib import (
     AttributeType,
     Family,
     ChildRef,
+    ChildRefType,
     Url,
     UrlType,
 )
@@ -84,7 +85,8 @@ _ = glocale.translation.gettext
 _DEFAULT_FIELDS = (
     "Id,Name,FirstName,MiddleName,LastNameBirth,LastNameCurrent,LastNameOther,"
     "RealName,Prefix,Suffix,Nicknames,Gender,BirthDate,DeathDate,BirthLocation,"
-    "DeathLocation,BirthDateStatus,DeathDateStatus,Photo,PhotoData,Parents,Children,Spouses,Bio"
+    "DeathLocation,BirthDateStatus,DeathDateStatus,Photo,PhotoData,Father,Mother,"
+    "Parents,Children,Spouses,DataStatus,Bio"
 )
 
 
@@ -476,6 +478,98 @@ class WikiTreeGWizard(GedGWizard):
                     else:
                         raw_people.append(match)
 
+        # Expand raw_people with relatives if present in Parents or Spouses/Children
+        existing_ids = {str(p.get("Id")) for p in raw_people if p.get("Id") is not None}
+        existing_names = {str(p.get("Name")) for p in raw_people if p.get("Name")}
+
+        for p in list(raw_people):
+            parents_dict = p.get("Parents")
+            if isinstance(parents_dict, dict):
+                for par_id, par_data in parents_dict.items():
+                    if isinstance(par_data, dict):
+                        p_id = str(par_data.get("Id") or par_id)
+                        p_name = str(par_data.get("Name") or "")
+                        if p_id not in existing_ids and p_name not in existing_names:
+                            raw_people.append(par_data)
+                            if p_id:
+                                existing_ids.add(p_id)
+                            if p_name:
+                                existing_names.add(p_name)
+
+            children_val = p.get("Children")
+            children_dict = children_val if isinstance(children_val, dict) else {}
+            if isinstance(children_val, list):
+                children_dict = {
+                    str(i): ch
+                    for i, ch in enumerate(children_val)
+                    if isinstance(ch, dict)
+                }
+            for ch_id, ch_data in children_dict.items():
+                if isinstance(ch_data, dict):
+                    c_id = str(ch_data.get("Id") or ch_id)
+                    c_name = str(ch_data.get("Name") or "")
+                    if (c_id not in existing_ids or not c_id) and (
+                        c_name not in existing_names or not c_name
+                    ):
+                        raw_people.append(ch_data)
+                        if c_id:
+                            existing_ids.add(c_id)
+                        if c_name:
+                            existing_names.add(c_name)
+
+        if self.context.get("include_relatives") and client:
+            missing_keys: list[str] = []
+            for p in list(raw_people):
+                spouses = p.get("Spouses")
+                if isinstance(spouses, list):
+                    for sp in spouses:
+                        if isinstance(sp, dict):
+                            sp_id = str(sp.get("Id") or sp.get("Name") or "")
+                            if (
+                                sp_id
+                                and sp_id not in existing_ids
+                                and sp_id not in existing_names
+                                and sp_id not in missing_keys
+                            ):
+                                missing_keys.append(sp_id)
+                children = p.get("Children")
+                if isinstance(children, dict):
+                    for ch_id, ch_data in children.items():
+                        ch_key = str(
+                            (ch_data.get("Name") if isinstance(ch_data, dict) else "")
+                            or ch_id
+                        )
+                        if (
+                            ch_key
+                            and ch_key not in existing_ids
+                            and ch_key not in existing_names
+                            and ch_key not in missing_keys
+                        ):
+                            missing_keys.append(ch_key)
+                elif isinstance(children, list):
+                    for ch in children:
+                        if isinstance(ch, dict):
+                            ch_key = str(ch.get("Name") or ch.get("Id") or "")
+                            if (
+                                ch_key
+                                and ch_key not in existing_ids
+                                and ch_key not in existing_names
+                                and ch_key not in missing_keys
+                            ):
+                                missing_keys.append(ch_key)
+
+            if missing_keys:
+                rel_people = client.get_people(missing_keys)
+                for rk, rdata in rel_people.items():
+                    rid = str(rdata.get("Id") or rk)
+                    rname = str(rdata.get("Name") or "")
+                    if rid not in existing_ids and rname not in existing_names:
+                        raw_people.append(rdata)
+                        if rid:
+                            existing_ids.add(rid)
+                        if rname:
+                            existing_names.add(rname)
+
         source_db = make_database("sqlite")
         source_db.load(":memory:")
         source_db.set_prefixes(
@@ -688,6 +782,62 @@ class WikiTreeGWizard(GedGWizard):
                     person_handle_map[num_id] = p_handle
 
             # 4. Link family relationships (parents, children, spouses)
+            def get_or_create_family(
+                father_h: str | None, mother_h: str | None
+            ) -> Family:
+                """Find an existing Family for father/mother or create a new one."""
+                for existing_fam_h in source_db.iter_family_handles():
+                    fam = source_db.get_family_from_handle(existing_fam_h)
+                    if not fam:
+                        continue
+                    cur_f = fam.get_father_handle()
+                    cur_m = fam.get_mother_handle()
+                    if father_h and mother_h:
+                        if (cur_f == father_h and cur_m == mother_h) or (
+                            cur_f == mother_h and cur_m == father_h
+                        ):
+                            return fam
+                    elif father_h and not mother_h:
+                        if cur_f == father_h and not cur_m:
+                            return fam
+                    elif mother_h and not father_h:
+                        if cur_m == mother_h and not cur_f:
+                            return fam
+
+                fam = Family()
+                if father_h:
+                    fam.set_father_handle(father_h)
+                if mother_h:
+                    fam.set_mother_handle(mother_h)
+                fam_h = source_db.add_family(fam, trans)
+                fam.handle = fam_h
+
+                if father_h:
+                    f_person = source_db.get_person_from_handle(father_h)
+                    if f_person and fam_h not in f_person.get_family_handle_list():
+                        f_person.add_family_handle(fam_h)
+                        source_db.commit_person(f_person, trans)
+
+                if mother_h:
+                    m_person = source_db.get_person_from_handle(mother_h)
+                    if m_person and fam_h not in m_person.get_family_handle_list():
+                        m_person.add_family_handle(fam_h)
+                        source_db.commit_person(m_person, trans)
+
+                return fam
+
+            def status_to_relation(status_val: str) -> ChildRefType:
+                """Convert WikiTree relationship status to ChildRefType."""
+                st = (status_val or "").strip().lower()
+                if st in ("non-biological", "adopted"):
+                    return ChildRefType(ChildRefType.ADOPTED)
+                if st in ("foster",):
+                    return ChildRefType(ChildRefType.FOSTER)
+                if st in ("stepchild", "step"):
+                    return ChildRefType(ChildRefType.STEPCHILD)
+                return ChildRefType(ChildRefType.BIRTH)
+
+            # 4a. Link spouses
             for pdata in raw_people:
                 wt_key = str(pdata.get("Name") or "")
                 num_id = str(pdata.get("Id") or "")
@@ -697,66 +847,211 @@ class WikiTreeGWizard(GedGWizard):
                 if not p_handle:
                     continue
 
-                # Spouses
                 spouses = pdata.get("Spouses")
                 if isinstance(spouses, list):
                     for spouse_item in spouses:
-                        if isinstance(spouse_item, dict):
-                            s_key = str(spouse_item.get("Name") or "")
-                            s_id = str(spouse_item.get("Id") or "")
-                            s_handle = person_handle_map.get(
-                                s_key
-                            ) or person_handle_map.get(s_id)
-                            if s_handle and s_handle != p_handle:
-                                # Ensure only one Family record per couple
-                                current_p = source_db.get_person_from_handle(p_handle)
-                                s_person = source_db.get_person_from_handle(s_handle)
-                                is_father = current_p.get_gender() == Person.MALE
-                                f_h = p_handle if is_father else s_handle
-                                m_h = s_handle if is_father else p_handle
+                        if not isinstance(spouse_item, dict):
+                            continue
+                        s_key = str(spouse_item.get("Name") or "")
+                        s_id = str(spouse_item.get("Id") or "")
+                        s_handle = person_handle_map.get(
+                            s_key
+                        ) or person_handle_map.get(s_id)
+                        if not s_handle or s_handle == p_handle:
+                            continue
 
-                                # Check if family already exists
-                                fam_found = False
-                                for existing_fam_h in source_db.iter_family_handles():
-                                    fam = source_db.get_family_from_handle(
-                                        existing_fam_h
-                                    )
-                                    if (
-                                        fam.get_father_handle() == f_h
-                                        and fam.get_mother_handle() == m_h
-                                    ) or (
-                                        fam.get_father_handle() == m_h
-                                        and fam.get_mother_handle() == f_h
-                                    ):
-                                        fam_found = True
-                                        break
-                                if not fam_found:
-                                    fam = Family()
-                                    fam.set_father_handle(f_h)
-                                    fam.set_mother_handle(m_h)
-                                    m_date_raw = self._clean_date_str(
-                                        str(spouse_item.get("MarriageDate") or "")
-                                    )
-                                    m_loc = str(
-                                        spouse_item.get("MarriageLocation") or ""
-                                    ).strip()
-                                    if m_date_raw or m_loc:
-                                        m_evt = Event()
-                                        m_evt.set_type(EventType(EventType.MARRIAGE))
-                                        if m_date_raw:
-                                            m_evt.set_date_object(
-                                                dateparser.parse(m_date_raw)
-                                            )
-                                        if m_loc:
-                                            m_evt.set_place_handle(
-                                                get_or_create_place(m_loc, trans)
-                                            )
-                                        m_handle = source_db.add_event(m_evt, trans)
-                                        m_ref = EventRef()
-                                        m_ref.ref = m_handle
-                                        fam.add_event_ref(m_ref)
+                        cur_p = source_db.get_person_from_handle(p_handle)
+                        is_father = cur_p.get_gender() == Person.MALE
+                        f_h = p_handle if is_father else s_handle
+                        m_h = s_handle if is_father else p_handle
 
-                                    source_db.add_family(fam, trans)
+                        fam = get_or_create_family(f_h, m_h)
+
+                        if not fam.get_event_ref_list():
+                            m_date_raw = self._clean_date_str(
+                                str(spouse_item.get("MarriageDate") or "")
+                            )
+                            m_loc = str(
+                                spouse_item.get("MarriageLocation") or ""
+                            ).strip()
+                            if m_date_raw or m_loc:
+                                m_evt = Event()
+                                m_evt.set_type(EventType(EventType.MARRIAGE))
+                                if m_date_raw:
+                                    m_evt.set_date_object(dateparser.parse(m_date_raw))
+                                if m_loc:
+                                    m_evt.set_place_handle(
+                                        get_or_create_place(m_loc, trans)
+                                    )
+                                m_handle = source_db.add_event(m_evt, trans)
+                                m_ref = EventRef()
+                                m_ref.ref = m_handle
+                                fam.add_event_ref(m_ref)
+                                source_db.commit_family(fam, trans)
+
+            # 4b. Link parents and children via ChildRef
+            for pdata in raw_people:
+                wt_key = str(pdata.get("Name") or "")
+                num_id = str(pdata.get("Id") or "")
+                child_h = person_handle_map.get(wt_key) or person_handle_map.get(num_id)
+                if not child_h:
+                    continue
+
+                child_p = source_db.get_person_from_handle(child_h)
+                if not child_p:
+                    continue
+
+                f_h: str | None = None
+                m_h: str | None = None
+
+                fat_val = pdata.get("Father")
+                mot_val = pdata.get("Mother")
+                if fat_val:
+                    f_h = person_handle_map.get(str(fat_val))
+                if mot_val:
+                    m_h = person_handle_map.get(str(mot_val))
+
+                parents_val = pdata.get("Parents")
+                if isinstance(parents_val, dict):
+                    for par_id, par_data in parents_val.items():
+                        if isinstance(par_data, dict):
+                            pk = str(
+                                par_data.get("Name") or par_data.get("Id") or par_id
+                            )
+                            ph = person_handle_map.get(pk) or person_handle_map.get(
+                                str(par_id)
+                            )
+                            if ph:
+                                g = str(par_data.get("Gender") or "").lower()
+                                if g == "male" and not f_h:
+                                    f_h = ph
+                                elif g == "female" and not m_h:
+                                    m_h = ph
+
+                if f_h or m_h:
+                    fam = get_or_create_family(f_h, m_h)
+                    if not any(cr.ref == child_h for cr in fam.get_child_ref_list()):
+                        data_status = pdata.get("DataStatus") or {}
+                        f_status = str(data_status.get("Father") or "").strip()
+                        m_status = str(data_status.get("Mother") or "").strip()
+
+                        child_ref = ChildRef()
+                        child_ref.ref = child_h
+                        child_ref.set_father_relation(status_to_relation(f_status))
+                        child_ref.set_mother_relation(status_to_relation(m_status))
+
+                        notes_to_add: list[str] = []
+                        if f_status == "20" and m_status == "20":
+                            notes_to_add.append(
+                                _(
+                                    "WikiTree: Paternal and maternal relationships are confirmed with DNA."
+                                )
+                            )
+                        elif f_status == "20":
+                            notes_to_add.append(
+                                _(
+                                    "WikiTree: Paternal relationship is confirmed with DNA."
+                                )
+                            )
+                        elif m_status == "20":
+                            notes_to_add.append(
+                                _(
+                                    "WikiTree: Maternal relationship is confirmed with DNA."
+                                )
+                            )
+
+                        if f_status == "10" and m_status == "10":
+                            notes_to_add.append(
+                                _(
+                                    "WikiTree: Paternal and maternal relationships are confirmed with sources."
+                                )
+                            )
+                        elif f_status == "10":
+                            notes_to_add.append(
+                                _(
+                                    "WikiTree: Paternal relationship is confirmed with sources."
+                                )
+                            )
+                        elif m_status == "10":
+                            notes_to_add.append(
+                                _(
+                                    "WikiTree: Maternal relationship is confirmed with sources."
+                                )
+                            )
+
+                        for note_text in notes_to_add:
+                            note = Note()
+                            note.set_type(NoteType(NoteType.GENERAL))
+                            note.set(note_text)
+                            note_h = source_db.add_note(note, trans)
+                            child_ref.add_note(note_h)
+
+                        fam.add_child_ref(child_ref)
+                        source_db.commit_family(fam, trans)
+
+                        if fam.handle not in child_p.get_parent_family_handle_list():
+                            child_p.add_parent_family_handle(fam.handle)
+                            source_db.commit_person(child_p, trans)
+
+            # 4c. Link children from parent's Children list
+            for pdata in raw_people:
+                wt_key = str(pdata.get("Name") or "")
+                num_id = str(pdata.get("Id") or "")
+                parent_h = person_handle_map.get(wt_key) or person_handle_map.get(
+                    num_id
+                )
+                if not parent_h:
+                    continue
+
+                parent_p = source_db.get_person_from_handle(parent_h)
+                if not parent_p:
+                    continue
+
+                children = pdata.get("Children")
+                children_list = []
+                if isinstance(children, dict):
+                    children_list = list(children.values())
+                elif isinstance(children, list):
+                    children_list = children
+
+                is_fat = parent_p.get_gender() == Person.MALE
+                for ch_data in children_list:
+                    if not isinstance(ch_data, dict):
+                        continue
+                    c_key = str(ch_data.get("Name") or "")
+                    c_id = str(ch_data.get("Id") or "")
+                    c_h = person_handle_map.get(c_key) or person_handle_map.get(c_id)
+                    if not c_h or c_h == parent_h:
+                        continue
+
+                    c_p = source_db.get_person_from_handle(c_h)
+                    if not c_p:
+                        continue
+
+                    already_linked = False
+                    for pf_h in c_p.get_parent_family_handle_list():
+                        pfam = source_db.get_family_from_handle(pf_h)
+                        if pfam and (
+                            (is_fat and pfam.get_father_handle() == parent_h)
+                            or (not is_fat and pfam.get_mother_handle() == parent_h)
+                        ):
+                            already_linked = True
+                            break
+
+                    if not already_linked:
+                        p_f_h = parent_h if is_fat else None
+                        p_m_h = None if is_fat else parent_h
+                        fam = get_or_create_family(p_f_h, p_m_h)
+                        if not any(cr.ref == c_h for cr in fam.get_child_ref_list()):
+                            cr = ChildRef()
+                            cr.ref = c_h
+                            cr.set_father_relation(ChildRefType(ChildRefType.BIRTH))
+                            cr.set_mother_relation(ChildRefType(ChildRefType.BIRTH))
+                            fam.add_child_ref(cr)
+                            source_db.commit_family(fam, trans)
+                        if fam.handle not in c_p.get_parent_family_handle_list():
+                            c_p.add_parent_family_handle(fam.handle)
+                            source_db.commit_person(c_p, trans)
 
         self.context["source_db"] = source_db
         display_name = f"WikiTree: {query}" if query else _("WikiTree")

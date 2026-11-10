@@ -688,6 +688,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                 query=wt_id,
                 app_id=self.app_id,
                 client=self.client,
+                include_relatives=True,
             ):
                 self.status_label.set_text(
                     _("Could not configure connection to WikiTree.")
