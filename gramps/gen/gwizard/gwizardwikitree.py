@@ -62,6 +62,8 @@ from gramps.gen.lib import (
     NoteType,
     Place,
     PlaceName,
+    PlaceRef,
+    PlaceType,
     Attribute,
     AttributeType,
     Family,
@@ -937,6 +939,100 @@ class WikiTreeGWizard(GedGWizard):
                         existing_attrs.add(("Project / Sticker", tname))
 
     @staticmethod
+    def determine_place_type(
+        name: str, level_from_top: int, total_levels: int
+    ) -> PlaceType:
+        """
+        Infer a PlaceType based on locality name and hierarchical level.
+
+        :param name: Specific name of the place part.
+        :param level_from_top: Distance from top enclosing level (0 = country/state).
+        :param total_levels: Total number of comma-separated components.
+        :returns: PlaceType object.
+        """
+        nl = name.lower()
+        if any(
+            k in nl
+            for k in (
+                "cemetery",
+                "burial ground",
+                "burying ground",
+                "memorial park",
+                "churchyard",
+                "church",
+                "cathedral",
+                "chapel",
+                "hospital",
+            )
+        ):
+            return PlaceType(PlaceType.BUILDING)
+        if "parish" in nl:
+            return PlaceType(PlaceType.PARISH)
+        if "county" in nl or "co." in nl:
+            return PlaceType(PlaceType.COUNTY)
+        if "township" in nl or "twp" in nl:
+            return PlaceType(PlaceType.TOWN)
+        if "borough" in nl:
+            return PlaceType(PlaceType.BOROUGH)
+
+        if total_levels == 1:
+            if any(
+                k in nl
+                for k in (
+                    "united states",
+                    "england",
+                    "france",
+                    "germany",
+                    "canada",
+                    "australia",
+                    "ireland",
+                    "scotland",
+                    "wales",
+                    "kingdom",
+                    "colony",
+                    "republic",
+                )
+            ):
+                return PlaceType(PlaceType.COUNTRY)
+            return PlaceType(PlaceType.UNKNOWN)
+
+        if level_from_top == 0:
+            if total_levels >= 4 or any(
+                k in nl
+                for k in (
+                    "united states",
+                    "england",
+                    "france",
+                    "germany",
+                    "canada",
+                    "australia",
+                    "ireland",
+                    "scotland",
+                    "wales",
+                    "kingdom",
+                    "colony",
+                    "republic",
+                )
+            ):
+                return PlaceType(PlaceType.COUNTRY)
+            return PlaceType(PlaceType.STATE)
+
+        if level_from_top == 1:
+            if total_levels >= 4:
+                return PlaceType(PlaceType.STATE)
+            return PlaceType(PlaceType.COUNTY)
+
+        if level_from_top == 2:
+            if total_levels >= 4:
+                return PlaceType(PlaceType.COUNTY)
+            return PlaceType(PlaceType.CITY)
+
+        if level_from_top == 3:
+            return PlaceType(PlaceType.CITY)
+
+        return PlaceType(PlaceType.LOCALITY)
+
+    @staticmethod
     def _parse_query_names(query: str) -> tuple[str, str]:
         """
         Split a human name query into first name and last name.
@@ -1120,16 +1216,47 @@ class WikiTreeGWizard(GedGWizard):
             clean = title.strip()
             if not clean:
                 return ""
-            if clean in place_cache:
-                return place_cache[clean]
-            p = Place()
-            pname = PlaceName()
-            pname.set_value(clean)
-            p.set_name(pname)
-            p.set_title(clean)
-            h = source_db.add_place(p, trans)
-            place_cache[clean] = h
-            return h
+            cache_key = clean.lower()
+            if cache_key in place_cache:
+                return place_cache[cache_key]
+
+            tokens = [p.strip() for p in clean.split(",") if p.strip()]
+            if not tokens:
+                return ""
+
+            parent_handle = ""
+            total = len(tokens)
+
+            # Build from highest enclosing level (rightmost) down to locality (leftmost)
+            for idx in range(total - 1, -1, -1):
+                name = tokens[idx]
+                current_title = ", ".join(tokens[idx:])
+                ckey = current_title.lower()
+
+                if ckey in place_cache:
+                    parent_handle = place_cache[ckey]
+                    continue
+
+                p = Place()
+                pname = PlaceName()
+                pname.set_value(name)
+                p.set_name(pname)
+                p.set_title(current_title)
+
+                level_from_top = total - 1 - idx
+                p.set_type(self.determine_place_type(name, level_from_top, total))
+
+                if parent_handle:
+                    pref = PlaceRef()
+                    pref.ref = parent_handle
+                    p.add_placeref(pref)
+
+                h = source_db.add_place(p, trans)
+                place_cache[ckey] = h
+                parent_handle = h
+
+            place_cache[cache_key] = parent_handle
+            return parent_handle
 
         with DbTxn(_("Load WikiTree Records"), source_db) as trans:
             # 1. Create Repository

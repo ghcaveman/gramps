@@ -761,6 +761,11 @@ class GedGWizard(GWizardBase):
 
                 new_place = copy.deepcopy(s_place)
                 fresh_gramps_id(new_place, self.db.has_place_gramps_id)
+                for pref in new_place.get_placeref_list():
+                    if pref.ref:
+                        t_parent_h = copy_place(pref.ref, trans)
+                        if t_parent_h:
+                            pref.ref = t_parent_h
                 self.db.add_place(new_place, trans)
                 return new_place.handle
             except Exception:

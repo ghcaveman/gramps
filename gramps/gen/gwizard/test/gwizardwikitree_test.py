@@ -110,6 +110,7 @@ from gramps.gen.lib import (
     Date,
     EventType,
     NameType,
+    PlaceType,
 )
 
 # -------------------------------------------------------------------------
@@ -1417,6 +1418,119 @@ Here is the gravestone: [[Image:Franklin-2-2.jpg|thumb|Josiah gravestone marker]
             for r in p_media_refs
         ]
         self.assertTrue(any("gravestone marker" in d for d in descs))
+
+    def test_determine_place_type(self) -> None:
+        """Verify inference of PlaceType from level and keywords."""
+        self.assertEqual(
+            WikiTreeGWizard.determine_place_type("Granary Burying Ground", 3, 4),
+            PlaceType(PlaceType.BUILDING),
+        )
+        self.assertEqual(
+            WikiTreeGWizard.determine_place_type("Suffolk County", 2, 4),
+            PlaceType(PlaceType.COUNTY),
+        )
+        self.assertEqual(
+            WikiTreeGWizard.determine_place_type("Pennsylvania", 1, 4),
+            PlaceType(PlaceType.STATE),
+        )
+        self.assertEqual(
+            WikiTreeGWizard.determine_place_type("United States", 0, 4),
+            PlaceType(PlaceType.COUNTRY),
+        )
+        self.assertEqual(
+            WikiTreeGWizard.determine_place_type("Boston", 3, 4),
+            PlaceType(PlaceType.CITY),
+        )
+
+    def test_load_hierarchical_places(self) -> None:
+        """Verify comma-separated place strings create enclosing PlaceRef hierarchies."""
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 1,
+            "Name": "Franklin-1",
+            "FirstName": "Benjamin",
+            "LastNameBirth": "Franklin",
+            "Gender": "Male",
+            "BirthDate": "1706-01-17",
+            "BirthLocation": "Boston, Suffolk, Massachusetts Bay Colony",
+            "DeathDate": "1790-04-17",
+            "DeathLocation": "Philadelphia, Philadelphia, Pennsylvania, United States",
+        }
+
+        gw.run_step("connect", query="Franklin-1", people_data=[mock_person])
+        people = gw.run_step("load")
+        person = people[0]
+        source_db = gw.context.get("source_db")
+
+        # 1. Check Birth Place hierarchy (Boston -> Suffolk -> Massachusetts Bay Colony)
+        b_ref = person.get_birth_ref()
+        self.assertIsNotNone(b_ref)
+        b_evt = source_db.get_event_from_handle(b_ref.ref)
+        b_pl = source_db.get_place_from_handle(b_evt.get_place_handle())
+        self.assertEqual(b_pl.get_title(), "Boston, Suffolk, Massachusetts Bay Colony")
+        self.assertEqual(b_pl.get_name().get_value(), "Boston")
+        self.assertEqual(b_pl.get_type(), PlaceType(PlaceType.CITY))
+
+        # Enclosing level 1: Suffolk
+        self.assertEqual(len(b_pl.get_placeref_list()), 1)
+        suffolk = source_db.get_place_from_handle(b_pl.get_placeref_list()[0].ref)
+        self.assertEqual(suffolk.get_name().get_value(), "Suffolk")
+        self.assertEqual(suffolk.get_type(), PlaceType(PlaceType.COUNTY))
+
+        # Enclosing level 2: Massachusetts Bay Colony
+        self.assertEqual(len(suffolk.get_placeref_list()), 1)
+        colony = source_db.get_place_from_handle(suffolk.get_placeref_list()[0].ref)
+        self.assertEqual(colony.get_name().get_value(), "Massachusetts Bay Colony")
+        self.assertEqual(colony.get_type(), PlaceType(PlaceType.COUNTRY))
+
+        # 2. Check Death Place hierarchy (Philadelphia -> Philadelphia County -> Pennsylvania -> United States)
+        d_ref = person.get_death_ref()
+        self.assertIsNotNone(d_ref)
+        d_evt = source_db.get_event_from_handle(d_ref.ref)
+        d_pl = source_db.get_place_from_handle(d_evt.get_place_handle())
+        self.assertEqual(
+            d_pl.get_title(), "Philadelphia, Philadelphia, Pennsylvania, United States"
+        )
+        self.assertEqual(d_pl.get_name().get_value(), "Philadelphia")
+        self.assertEqual(d_pl.get_type(), PlaceType(PlaceType.CITY))
+
+    def test_hierarchical_places_caching_and_sharing(self) -> None:
+        """Verify common enclosing places are shared across different locations."""
+        gw = WikiTreeGWizard(self.db)
+        p1 = {
+            "Id": 1,
+            "Name": "P1",
+            "FirstName": "A",
+            "LastNameBirth": "Test",
+            "BirthLocation": "Boston, Suffolk, Massachusetts Bay Colony",
+        }
+        p2 = {
+            "Id": 2,
+            "Name": "P2",
+            "FirstName": "B",
+            "LastNameBirth": "Test",
+            "BirthLocation": "Chelsea, Suffolk, Massachusetts Bay Colony",
+        }
+
+        gw.run_step("connect", query="P1", people_data=[p1, p2])
+        people = gw.run_step("load")
+        source_db = gw.context.get("source_db")
+
+        places = [
+            source_db.get_place_from_handle(h) for h in source_db.iter_place_handles()
+        ]
+        titles = [p.get_title() for p in places]
+
+        # There should be exactly 4 places:
+        # 1. Massachusetts Bay Colony
+        # 2. Suffolk, Massachusetts Bay Colony
+        # 3. Boston, Suffolk, Massachusetts Bay Colony
+        # 4. Chelsea, Suffolk, Massachusetts Bay Colony
+        self.assertEqual(len(places), 4)
+        self.assertIn("Massachusetts Bay Colony", titles)
+        self.assertIn("Suffolk, Massachusetts Bay Colony", titles)
+        self.assertIn("Boston, Suffolk, Massachusetts Bay Colony", titles)
+        self.assertIn("Chelsea, Suffolk, Massachusetts Bay Colony", titles)
 
 
 if __name__ == "__main__":
