@@ -46,6 +46,7 @@ MSYS_PATHS = [
     str(MSYS_ROOT / "usr" / "bin"),
 ]
 
+
 def _build_launch_json() -> dict:
     """Create the VS Code launch configuration using the current MSYS settings.
 
@@ -71,6 +72,7 @@ def _build_launch_json() -> dict:
             }
         ],
     }
+
 
 LAUNCH_JSON = _build_launch_json()
 

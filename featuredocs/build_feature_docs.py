@@ -271,7 +271,7 @@ def build_wiki_and_audit(feature_name: str) -> int:
             "--images-dir",
             str(IMAGES_DIR),
         ],
-        capture_output=True,   # capture stdout / stderr as strings
+        capture_output=True,  # capture stdout / stderr as strings
         text=True,
         encoding="utf-8",
         check=False,
