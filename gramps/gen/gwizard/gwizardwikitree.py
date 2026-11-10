@@ -88,7 +88,7 @@ _DEFAULT_FIELDS = (
     "Id,Name,FirstName,MiddleName,LastNameBirth,LastNameCurrent,LastNameOther,"
     "RealName,Prefix,Suffix,Nicknames,Gender,BirthDate,DeathDate,BirthDateDecade,"
     "DeathDateDecade,BirthLocation,DeathLocation,BirthDateStatus,DeathDateStatus,"
-    "Photo,PhotoData,Father,Mother,Parents,Children,Spouses,DataStatus,Bio"
+    "Photo,PhotoData,Father,Mother,Parents,Children,Spouses,DataStatus,Templates,Bio"
 )
 
 
@@ -699,6 +699,241 @@ class WikiTreeGWizard(GedGWizard):
         return "\n".join(cleaned_lines).strip()
 
     @staticmethod
+    def parse_bio_templates(bio_text: str) -> list[dict[str, Any]]:
+        """
+        Parse WikiTree templates/stickers {{Name|param1|param2=val}} from bio text.
+
+        :param bio_text: Raw biography wikitext markup.
+        :returns: List of dicts with 'name' and 'params'.
+        """
+        templates: list[dict[str, Any]] = []
+        if not bio_text:
+            return templates
+        for m in re.finditer(r"\{\{([A-Za-z0-9 _-]+)(?:\|([^}]+))?\}\}", bio_text):
+            tname = m.group(1).strip()
+            raw_params = m.group(2) or ""
+            params: dict[str, str] = {}
+            idx = 1
+            for part in raw_params.split("|"):
+                part = part.strip()
+                if not part:
+                    continue
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    params[k.strip()] = v.strip()
+                else:
+                    params[str(idx)] = part
+                    params[part] = ""
+                    idx += 1
+            templates.append({"name": tname, "params": params})
+        return templates
+
+    def process_templates(
+        self,
+        person: Person,
+        templates: list[dict[str, Any]],
+        source_db: DbWriteBase,
+        trans: DbTxn,
+    ) -> None:
+        """
+        Process WikiTree templates/stickers into Gramps Attributes, URLs, and Events.
+
+        :param person: Target Person object being populated.
+        :param templates: List of template dictionaries.
+        :param source_db: In-memory source database.
+        :param trans: Active database transaction.
+        """
+        existing_attrs = {
+            (str(a.get_type()), str(a.get_value())) for a in person.get_attribute_list()
+        }
+        existing_urls = {u.get_path() for u in person.get_url_list()}
+
+        for item in templates:
+            if not isinstance(item, dict):
+                continue
+            tname = str(item.get("name") or "").strip()
+            params = item.get("params") or {}
+            if isinstance(params, list):
+                params = {str(i + 1): v for i, v in enumerate(params)}
+            elif not isinstance(params, dict):
+                params = {}
+
+            tname_lower = tname.lower()
+
+            # 1. Find A Grave
+            if "findagrave" in tname_lower or "find a grave" in tname_lower:
+                mem_id = ""
+                for k in ("id", "memorial", "memorial_id", "1"):
+                    if k in params and str(params[k]).strip().isdigit():
+                        mem_id = str(params[k]).strip()
+                        break
+                if not mem_id:
+                    for k, v in params.items():
+                        if str(k).strip().isdigit():
+                            mem_id = str(k).strip()
+                            break
+                        if str(v).strip().isdigit():
+                            mem_id = str(v).strip()
+                            break
+
+                if mem_id:
+                    attr_val = mem_id
+                    if ("Find A Grave ID", attr_val) not in existing_attrs:
+                        attr = Attribute()
+                        attr.set_type(AttributeType(_("Find A Grave ID")))
+                        attr.set_value(attr_val)
+                        person.add_attribute(attr)
+                        existing_attrs.add(("Find A Grave ID", attr_val))
+
+                    memorial_url = f"https://www.findagrave.com/memorial/{mem_id}"
+                    if memorial_url not in existing_urls:
+                        fg_url = Url()
+                        fg_url.set_path(memorial_url)
+                        fg_url.set_type(UrlType(UrlType.WEB_SEARCH))
+                        fg_url.set_description(_("Find A Grave Memorial"))
+                        person.add_url(fg_url)
+                        existing_urls.add(memorial_url)
+
+            # 2. Occupation
+            elif tname_lower == "occupation":
+                occ_raw = (
+                    params.get("text")
+                    or params.get("occupation")
+                    or params.get("1")
+                    or ""
+                )
+                occ_cleaned = self.clean_source_text(str(occ_raw))
+                if occ_cleaned:
+                    occ_evt = Event()
+                    occ_evt.set_type(EventType(EventType.OCCUPATION))
+                    occ_evt.set_description(occ_cleaned)
+                    occ_h = source_db.add_event(occ_evt, trans)
+                    occ_ref = EventRef()
+                    occ_ref.ref = occ_h
+                    person.add_event_ref(occ_ref)
+
+                    if (
+                        len(occ_cleaned) <= 60
+                        and (str(AttributeType.OCCUPATION), occ_cleaned)
+                        not in existing_attrs
+                    ):
+                        attr = Attribute()
+                        attr.set_type(AttributeType(AttributeType.OCCUPATION))
+                        attr.set_value(occ_cleaned)
+                        person.add_attribute(attr)
+                        existing_attrs.add((str(AttributeType.OCCUPATION), occ_cleaned))
+
+            # 3. Succession / Public Office
+            elif "succession" in tname_lower:
+                for i in range(1, 10):
+                    pos = params.get(f"position{i}") or params.get(f"office{i}")
+                    yrs = params.get(f"years{i}") or params.get(f"dates{i}")
+                    if pos:
+                        pos_cleaned = self.clean_source_text(str(pos))
+                        succ_evt = Event()
+                        succ_evt.set_type(EventType(EventType.ELECTED))
+                        succ_evt.set_description(pos_cleaned)
+                        if yrs:
+                            succ_evt.set_date_object(
+                                self.wikitree_date_to_gramps(str(yrs))
+                            )
+                        succ_h = source_db.add_event(succ_evt, trans)
+                        succ_ref = EventRef()
+                        succ_ref.ref = succ_h
+                        person.add_event_ref(succ_ref)
+
+                        val_str = f"{pos_cleaned} ({yrs})" if yrs else pos_cleaned
+                        if ("Public Office", val_str) not in existing_attrs:
+                            attr = Attribute()
+                            attr.set_type(AttributeType(_("Public Office")))
+                            attr.set_value(val_str)
+                            person.add_attribute(attr)
+                            existing_attrs.add(("Public Office", val_str))
+
+            # 4. Society Ancestor
+            elif any(
+                term in tname_lower
+                for term in ("society ancestor", "dar sticker", "sar sticker")
+            ):
+                soc = params.get("society") or (
+                    "DAR" if "dar" in tname_lower else "SAR"
+                )
+                anc = params.get("ancestor") or params.get("1") or ""
+                val = f"{soc}: {anc}".strip(": ")
+                if ("Society Ancestor", val) not in existing_attrs:
+                    attr = Attribute()
+                    attr.set_type(AttributeType(_("Society Ancestor")))
+                    attr.set_value(val)
+                    person.add_attribute(attr)
+                    existing_attrs.add(("Society Ancestor", val))
+
+            # 5. Military / Revolutionary / Civil War
+            elif any(
+                term in tname_lower
+                for term in (
+                    "1776 sticker",
+                    "military",
+                    "civil war",
+                    "war of 1812",
+                    "veteran",
+                    "war sticker",
+                )
+            ):
+                unit = (
+                    params.get("unit")
+                    or params.get("regiment")
+                    or params.get("branch")
+                    or ""
+                )
+                rank = params.get("rank") or ""
+                parts = [tname]
+                if rank:
+                    parts.append(str(rank))
+                if unit:
+                    parts.append(str(unit))
+                desc = (
+                    ": ".join(parts[:1] + [" ".join(parts[1:])])
+                    if len(parts) > 1
+                    else parts[0]
+                )
+                mil_evt = Event()
+                mil_evt.set_type(EventType(EventType.MILITARY_SERV))
+                mil_evt.set_description(desc)
+                mil_h = source_db.add_event(mil_evt, trans)
+                mil_ref = EventRef()
+                mil_ref.ref = mil_h
+                person.add_event_ref(mil_ref)
+
+            # 6. Notability
+            elif tname_lower == "notability":
+                notab_text = params.get("text") or params.get("1") or ""
+                if notab_text:
+                    cleaned_notab = self.clean_source_text(str(notab_text))[:250]
+                    if ("Notability", cleaned_notab) not in existing_attrs:
+                        attr = Attribute()
+                        attr.set_type(AttributeType(_("Notability")))
+                        attr.set_value(cleaned_notab)
+                        person.add_attribute(attr)
+                        existing_attrs.add(("Notability", cleaned_notab))
+
+            # 7. Other project or ancestor stickers
+            elif (
+                tname.endswith("Sticker")
+                or tname.endswith("Project")
+                or any(
+                    x in tname_lower
+                    for x in ("mayflower", "huguenot", "puritan", "pioneer")
+                )
+            ):
+                if tname_lower not in ("citation needed", "reflist", "references"):
+                    if ("Project / Sticker", tname) not in existing_attrs:
+                        attr = Attribute()
+                        attr.set_type(AttributeType(_("Project / Sticker")))
+                        attr.set_value(tname)
+                        person.add_attribute(attr)
+                        existing_attrs.add(("Project / Sticker", tname))
+
+    @staticmethod
     def _parse_query_names(query: str) -> tuple[str, str]:
         """
         Split a human name query into first name and last name.
@@ -1163,6 +1398,13 @@ class WikiTreeGWizard(GedGWizard):
                         note.set(clean_bio)
                         note_h = source_db.add_note(note, trans)
                         person.add_note(note_h)
+
+                # 3. Process structured templates and stickers
+                templates_data = pdata.get("Templates")
+                if not templates_data and raw_bio:
+                    templates_data = self.parse_bio_templates(raw_bio)
+                if templates_data and isinstance(templates_data, list):
+                    self.process_templates(person, templates_data, source_db, trans)
 
                 p_handle = source_db.add_person(person, trans)
                 if wt_key:

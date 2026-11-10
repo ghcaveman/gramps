@@ -108,6 +108,7 @@ from gramps.gen.lib import (
     AttributeType,
     ChildRefType,
     Date,
+    EventType,
 )
 
 # -------------------------------------------------------------------------
@@ -990,6 +991,136 @@ He passed away and was buried in Christ Church.<ref>Christ Church Burial Registe
         bio_note = source_db.get_note_from_handle(note_handles[0]).get()
         self.assertNotIn("<ref", bio_note)
         self.assertIn("Benjamin was born in Boston.", bio_note)
+
+    def test_parse_bio_templates(self) -> None:
+        """Verify parsing templates/stickers from wikitext markup."""
+        bio = """{{FindAGrave|364}}
+{{Occupation|text=was a Freemason, St. Johns Lodge}}
+{{Society Ancestor|society=DAR|ancestor=A041702}}
+{{Succession|position1=6th President of Pennsylvania|years1=1785 - 1788}}
+{{1776 Sticker|unit=Founding Father}}
+{{Notability|text=Founding Father of the United States}}
+"""
+        templates = WikiTreeGWizard.parse_bio_templates(bio)
+        names = [t["name"] for t in templates]
+        self.assertIn("FindAGrave", names)
+        self.assertIn("Occupation", names)
+        self.assertIn("Society Ancestor", names)
+        self.assertIn("Succession", names)
+        self.assertIn("1776 Sticker", names)
+        self.assertIn("Notability", names)
+
+    def test_process_templates(self) -> None:
+        """Verify templates array creates Attributes, URLs, and Events."""
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 1,
+            "Name": "Franklin-1",
+            "FirstName": "Benjamin",
+            "LastNameBirth": "Franklin",
+            "Gender": "Male",
+            "Templates": [
+                {"name": "FindAGrave", "params": {"364": ""}},
+                {
+                    "name": "Occupation",
+                    "params": {"text": "was a Freemason, St. Johns Lodge Philadelphia"},
+                },
+                {
+                    "name": "Succession",
+                    "params": {
+                        "position1": "6th President of Pennsylvania",
+                        "years1": "1785 - 1788",
+                    },
+                },
+                {
+                    "name": "Society Ancestor",
+                    "params": {"society": "DAR", "ancestor": "A041702"},
+                },
+                {"name": "1776 Sticker", "params": {"unit": "Founding Father"}},
+                {
+                    "name": "Notability",
+                    "params": {"text": "Founding Father, scientist, and philosopher."},
+                },
+                {"name": "Mayflower Family Sticker", "params": {}},
+            ],
+        }
+
+        gw.run_step("connect", query="Franklin-1", people_data=[mock_person])
+        people = gw.run_step("load")
+        self.assertEqual(len(people), 1)
+
+        source_db = gw.context.get("source_db")
+        person = people[0]
+
+        # 1. Verify Find A Grave Attribute and URL
+        attrs = {
+            str(a.get_type()): str(a.get_value()) for a in person.get_attribute_list()
+        }
+        self.assertEqual(attrs.get("Find A Grave ID"), "364")
+        urls = [u.get_path() for u in person.get_url_list()]
+        self.assertTrue(
+            any("https://www.findagrave.com/memorial/364" in u for u in urls)
+        )
+
+        # 2. Verify Occupation Event and Attribute
+        ev_types = []
+        ev_descs = []
+        for ref in person.get_event_ref_list():
+            ev = source_db.get_event_from_handle(ref.ref)
+            ev_types.append(ev.get_type().value)
+            ev_descs.append(ev.get_description())
+
+        self.assertIn(EventType.OCCUPATION, ev_types)
+        self.assertTrue(any("Freemason" in d for d in ev_descs))
+
+        # 3. Verify Succession / Elected Event
+        self.assertIn(EventType.ELECTED, ev_types)
+        self.assertTrue(any("6th President of Pennsylvania" in d for d in ev_descs))
+        self.assertTrue(
+            any("6th President of Pennsylvania" in v for v in attrs.values())
+        )
+
+        # 4. Verify Society Ancestor Attribute
+        self.assertEqual(attrs.get("Society Ancestor"), "DAR: A041702")
+
+        # 5. Verify Military Service Event
+        self.assertIn(EventType.MILITARY_SERV, ev_types)
+        self.assertTrue(any("Founding Father" in d for d in ev_descs))
+
+        # 6. Verify Notability Attribute
+        self.assertTrue(any("Founding Father, scientist" in v for v in attrs.values()))
+
+        # 7. Verify Project / Sticker Attribute
+        self.assertEqual(attrs.get("Project / Sticker"), "Mayflower Family Sticker")
+
+    def test_load_templates_from_bio_fallback(self) -> None:
+        """Verify templates in bio text are processed when Templates field is absent."""
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 2,
+            "Name": "Sample-1",
+            "FirstName": "Sample",
+            "LastNameBirth": "Person",
+            "Gender": "Female",
+            "Bio": """== Biography ==
+{{FindAGrave|987654}}
+{{Occupation|text=Head Librarian}}
+{{Society Ancestor|society=SAR|ancestor=S9999}}
+Sample was born and lived a quiet life.
+""",
+        }
+
+        gw.run_step("connect", query="Sample-1", people_data=[mock_person])
+        people = gw.run_step("load")
+        person = people[0]
+
+        attrs = {
+            str(a.get_type()): str(a.get_value()) for a in person.get_attribute_list()
+        }
+        self.assertEqual(attrs.get("Find A Grave ID"), "987654")
+        self.assertEqual(attrs.get("Society Ancestor"), "SAR: S9999")
+        urls = [u.get_path() for u in person.get_url_list()]
+        self.assertTrue(any("987654" in u for u in urls))
 
 
 if __name__ == "__main__":
