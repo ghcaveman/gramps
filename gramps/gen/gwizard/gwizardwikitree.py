@@ -517,6 +517,188 @@ class WikiTreeGWizard(GedGWizard):
         return date
 
     @staticmethod
+    def clean_source_text(raw_text: str) -> str:
+        """
+        Strip wikitext markup and normalize external source citation text.
+
+        :param raw_text: Raw reference or source line from WikiTree.
+        :returns: Cleaned human-readable citation text.
+        """
+        text = (raw_text or "").strip()
+        # Convert [http://url Description] -> Description
+        text = re.sub(r"\[(?:https?://[^\s\]]+)\s+([^\]]+)\]", r"\1", text)
+        # Convert [http://url] -> http://url
+        text = re.sub(r"\[(https?://[^\s\]]+)\]", r"\1", text)
+        # Convert [[Target|Label]] -> Label, [[Target]] -> Target
+        text = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]+)\]\]", r"\1", text)
+        # Clean common templates like {{FindAGrave|123}}
+        text = re.sub(
+            r"\{\{FindAGrave\|(?:[^|]*\|)?(\d+)\}\}",
+            r"Find A Grave memorial \1",
+            text,
+            flags=re.I,
+        )
+        text = re.sub(r"\{\{[^\}]+\}\}", "", text)
+        # Clean HTML tags
+        text = re.sub(r"<[^>]+>", "", text)
+        # Clean bold and italics
+        text = re.sub(r"'''+|''", "", text)
+        # Normalize whitespace
+        return " ".join(text.split()).strip()
+
+    @staticmethod
+    def extract_source_title(cleaned_text: str) -> str:
+        """
+        Extract a concise, descriptive title for a Source record from citation text.
+
+        :param cleaned_text: Cleaned citation text string.
+        :returns: Abbreviated or full title string.
+        """
+        cleaned = (cleaned_text or "").strip()
+        if not cleaned:
+            return _("WikiTree Cited Source")
+        if len(cleaned) <= 90:
+            return cleaned.rstrip(".,;")
+        # Look for sentence boundary after at least 30 characters
+        m = re.search(r"^(.{30,90}?[.?!])\s+", cleaned)
+        if m:
+            return m.group(1).rstrip(".,;")
+        # Truncate at word boundary
+        cut = cleaned[:87]
+        if " " in cut:
+            cut = cut.rsplit(" ", 1)[0]
+        return cut.rstrip(".,;:-") + "..."
+
+    @staticmethod
+    def parse_bio_sources(bio_text: str) -> list[dict[str, str]]:
+        """
+        Extract inline <ref> citations and bibliography sources from a biography.
+
+        :param bio_text: Raw WikiTree biography markup.
+        :returns: List of dicts with keys 'name', 'text', and 'context'.
+        """
+        bio = (bio_text or "").strip()
+        if not bio:
+            return []
+
+        sources: list[dict[str, str]] = []
+        seen_texts: set[str] = set()
+
+        # 1. Match full <ref> tags
+        ref_pattern = re.compile(
+            r"<ref(?:\s+name\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s/>]+)))?\s*>(.*?)</ref>",
+            re.DOTALL | re.IGNORECASE,
+        )
+        for m in ref_pattern.finditer(bio):
+            name = m.group(1) or m.group(2) or m.group(3) or ""
+            content = m.group(4).strip()
+            if content:
+                norm = " ".join(content.split()).lower()
+                if norm not in seen_texts:
+                    seen_texts.add(norm)
+                    # Extract surrounding context (100 chars before, 50 chars after)
+                    start_pos = max(0, m.start() - 100)
+                    end_pos = min(len(bio), m.end() + 50)
+                    context_snippet = bio[start_pos:end_pos]
+                    sources.append(
+                        {
+                            "name": name,
+                            "text": content,
+                            "context": context_snippet,
+                        }
+                    )
+
+        # 2. Match sources section
+        sec_match = re.search(
+            r"==+\s*(?:Sources|References|Bibliography).*?==+(.*)",
+            bio,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if sec_match:
+            sec_text = sec_match.group(1)
+            for line in sec_text.splitlines():
+                line = line.strip()
+                if line.startswith(("*", "#")):
+                    item = line.lstrip("*# ").strip()
+                    if item and not item.lower().startswith(
+                        ("<references", "{{reflist", "see also:")
+                    ):
+                        norm = " ".join(item.split()).lower()
+                        if norm not in seen_texts:
+                            seen_texts.add(norm)
+                            sources.append(
+                                {
+                                    "name": "",
+                                    "text": item,
+                                    "context": "sources_section",
+                                }
+                            )
+
+        return sources
+
+    @staticmethod
+    def clean_bio_text(bio_text: str) -> str:
+        """
+        Clean wikitext markup and remove inline references to produce narrative text.
+
+        :param bio_text: Raw WikiTree biography markup.
+        :returns: Cleaned narrative text suitable for a Gramps Note.
+        """
+        bio = (bio_text or "").strip()
+        if not bio:
+            return ""
+
+        # Remove everything starting at the Sources section
+        bio = re.split(
+            r"==+\s*(?:Sources|References|Bibliography).*?==+",
+            bio,
+            flags=re.IGNORECASE,
+        )[0]
+
+        # Remove inline <ref> tags and self-closing tags
+        bio = re.sub(
+            r"<ref(?:\s+[^>]*)?>.*?</ref>",
+            "",
+            bio,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        bio = re.sub(r"<ref(?:\s+[^>]*)?/>", "", bio, flags=re.IGNORECASE)
+
+        # Remove categories [[Category:...]]
+        bio = re.sub(r"\[\[Category:[^\]]+\]\]", "", bio, flags=re.IGNORECASE)
+
+        # Remove templates {{...}}
+        bio = re.sub(r"\{\{[^\}]+\}\}", "", bio)
+
+        # Convert wiki links [[Target|Label]] -> Label, [[Target]] -> Target
+        bio = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]+)\]\]", r"\1", bio)
+
+        # Convert external links [http://url label] -> label
+        bio = re.sub(r"\[(?:https?://[^\s\]]+)\s+([^\]]+)\]", r"\1", bio)
+        bio = re.sub(r"\[(https?://[^\s\]]+)\]", r"\1", bio)
+
+        # Clean bold and italics
+        bio = re.sub(r"'''+|''", "", bio)
+
+        # Convert section headers like == Biography == or === Birth === to headings
+        bio = re.sub(r"==+\s*([^=]+?)\s*==+", r"\1:", bio)
+
+        # Collapse excess empty lines
+        lines = [line.strip() for line in bio.splitlines()]
+        cleaned_lines: list[str] = []
+        prev_empty = False
+        for line in lines:
+            if not line:
+                if not prev_empty and cleaned_lines:
+                    cleaned_lines.append("")
+                    prev_empty = True
+            else:
+                cleaned_lines.append(line)
+                prev_empty = False
+
+        return "\n".join(cleaned_lines).strip()
+
+    @staticmethod
     def _parse_query_names(query: str) -> tuple[str, str]:
         """
         Split a human name query into first name and last name.
@@ -692,6 +874,7 @@ class WikiTreeGWizard(GedGWizard):
         )
 
         place_cache: dict[str, str] = {}
+        source_cache: dict[str, str] = {}
         person_handle_map: dict[str, str] = {}  # wt_id or str(Id) -> person_handle
 
         def get_or_create_place(title: str, trans: DbTxn) -> str:
@@ -888,14 +1071,98 @@ class WikiTreeGWizard(GedGWizard):
                     d_ref.ref = d_h
                     person.set_death_ref(d_ref)
 
-                # Biography / Note
-                bio_text = str(pdata.get("Bio") or "").strip()
-                if bio_text:
-                    note = Note()
-                    note.set_type(NoteType(NoteType.GENERAL))
-                    note.set(bio_text)
-                    note_h = source_db.add_note(note, trans)
-                    person.add_note(note_h)
+                # Biography & Sources from Bio Text
+                raw_bio = str(pdata.get("Bio") or pdata.get("bio") or "").strip()
+                if raw_bio:
+                    # 1. Extract and create structured external Sources & Citations
+                    bio_sources = self.parse_bio_sources(raw_bio)
+                    for src_info in bio_sources:
+                        s_raw = src_info.get("text") or ""
+                        if not s_raw:
+                            continue
+                        s_cleaned = self.clean_source_text(s_raw)
+                        if not s_cleaned:
+                            continue
+                        s_title = self.extract_source_title(s_cleaned)
+
+                        cache_key = s_title.lower()
+                        s_h = source_cache.get(cache_key)
+                        if not s_h:
+                            new_src = Source()
+                            new_src.set_title(s_title)
+                            url_m = re.search(r"https?://[^\s()<>\"']+", s_raw)
+                            if url_m:
+                                new_src.set_publication_info(url_m.group(0))
+                            r_ref = RepoRef()
+                            r_ref.ref = repo_handle
+                            new_src.add_repo_reference(r_ref)
+                            s_h = source_db.add_source(new_src, trans)
+                            source_cache[cache_key] = s_h
+
+                        cit_obj = Citation()
+                        cit_obj.set_reference_handle(s_h)
+                        cit_obj.set_date_object(Today())
+
+                        m_page = re.search(
+                            r"(?:pp?\.\s*|pages?\s*|image\s*)(\d+(?:[-–]\d+)?)",
+                            s_cleaned,
+                            re.I,
+                        )
+                        if m_page:
+                            cit_obj.set_page(m_page.group(0))
+
+                        c_note = Note()
+                        c_note.set_type(NoteType(NoteType.CITATION))
+                        c_note.set(s_cleaned)
+                        c_note_h = source_db.add_note(c_note, trans)
+                        cit_obj.add_note(c_note_h)
+
+                        ext_cit_h = source_db.add_citation(cit_obj, trans)
+                        person.add_citation(ext_cit_h)
+
+                        ctx = (src_info.get("context") or "").lower()
+                        if b_ref and any(
+                            kw in ctx
+                            for kw in (
+                                "born",
+                                "birth",
+                                "baptism",
+                                "christen",
+                                "baptized",
+                            )
+                        ):
+                            b_ev = source_db.get_event_from_handle(b_ref.ref)
+                            if b_ev and ext_cit_h not in b_ev.get_citation_list():
+                                b_ev.add_citation(ext_cit_h)
+                                source_db.commit_event(b_ev, trans)
+
+                        if d_ref and any(
+                            kw in ctx
+                            for kw in (
+                                "died",
+                                "death",
+                                "burial",
+                                "buried",
+                                "cemetery",
+                                "grave",
+                                "killed",
+                                "probate",
+                                "will",
+                            )
+                        ):
+                            d_ev = source_db.get_event_from_handle(d_ref.ref)
+                            if d_ev and ext_cit_h not in d_ev.get_citation_list():
+                                d_ev.add_citation(ext_cit_h)
+                                source_db.commit_event(d_ev, trans)
+
+                    # 2. Clean narrative biography text for Person Note
+                    clean_bio = self.clean_bio_text(raw_bio)
+                    if clean_bio:
+                        note = Note()
+                        note.set_type(NoteType(NoteType.GENERAL))
+                        note.set(clean_bio)
+                        note_h = source_db.add_note(note, trans)
+                        person.add_note(note_h)
 
                 p_handle = source_db.add_person(person, trans)
                 if wt_key:

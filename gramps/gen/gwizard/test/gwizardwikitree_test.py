@@ -891,6 +891,106 @@ class TestWikiTreeGWizard(unittest.TestCase):
         self.assertEqual(m_date.get_year(), 1730)
         self.assertEqual(m_date.get_modifier(), Date.MOD_BEFORE)
 
+    def test_parse_bio_sources_and_clean_bio(self) -> None:
+        """Verify extraction of <ref> tags, sources section, and clean narrative text."""
+        sample_bio = """[[Category: Signers of Declaration]]
+{{1776 Project}}
+== Biography ==
+Benjamin was born on Milk Street.<ref name=church>Old South Church, "Baptismal records," pp. 54-55 (https://example.com/church).</ref>
+He was later apprenticed as a printer.<ref name=letters>Correspondence of Benjamin Franklin, 1817, p. 586.</ref>
+He died peacefully in Philadelphia.<ref name=death>Pennsylvania Gazette, obituary, 1790.</ref>
+Reused letter source.<ref name=letters/>
+
+== Sources ==
+<references />
+* Roberts, Oliver Ayer. ''History of the Military Company'', Vol. 1.
+* [[Space:NEHGR|The New England Historical & Genealogical Register]], Page 188.
+"""
+        sources = WikiTreeGWizard.parse_bio_sources(sample_bio)
+        # Should extract 3 inline refs + 2 section bibliography refs
+        self.assertEqual(len(sources), 5)
+        names = [s["name"] for s in sources if s["name"]]
+        self.assertIn("church", names)
+        self.assertIn("letters", names)
+        self.assertIn("death", names)
+
+        # Check clean narrative bio
+        clean_text = WikiTreeGWizard.clean_bio_text(sample_bio)
+        self.assertNotIn("<ref", clean_text)
+        self.assertNotIn("Category:", clean_text)
+        self.assertNotIn("{{1776", clean_text)
+        self.assertNotIn("== Sources ==", clean_text)
+        self.assertNotIn("<references", clean_text)
+        self.assertIn("Benjamin was born on Milk Street.", clean_text)
+        self.assertIn("He died peacefully in Philadelphia.", clean_text)
+
+    def test_load_bio_sources_and_event_citations(self) -> None:
+        """Verify loading profile extracts Sources and Citations linked to events."""
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 1,
+            "Name": "Franklin-1",
+            "FirstName": "Benjamin",
+            "LastNameBirth": "Franklin",
+            "Gender": "Male",
+            "BirthDate": "1706-01-17",
+            "DeathDate": "1790-04-17",
+            "Bio": """== Biography ==
+Benjamin was born in Boston.<ref>Old South Church baptism record, pp. 54-55 (https://archives.org/boston).</ref>
+He passed away and was buried in Christ Church.<ref>Christ Church Burial Register, 1790, page 12.</ref>
+
+== Sources ==
+* Wright, E. ''Franklin of Philadelphia''. Harvard Press, 1997.
+""",
+        }
+
+        gw.run_step("connect", query="Franklin-1", people_data=[mock_person])
+        people = gw.run_step("load")
+        self.assertEqual(len(people), 1)
+
+        source_db = gw.context.get("source_db")
+        person = people[0]
+
+        # Verify multiple Sources were created (shared WikiTree + 3 extracted)
+        sources = [
+            source_db.get_source_from_handle(h) for h in source_db.iter_source_handles()
+        ]
+        self.assertTrue(len(sources) >= 3)
+        titles = [s.get_title() for s in sources]
+        self.assertTrue(any("Old South Church" in t for t in titles))
+        self.assertTrue(any("Wright" in t for t in titles))
+
+        # Check URL was populated on the source
+        church_src = [s for s in sources if "Old South Church" in s.get_title()][0]
+        self.assertIn("https://archives.org/boston", church_src.get_publication_info())
+
+        # Verify Citations were created with pages
+        citations = [
+            source_db.get_citation_from_handle(h)
+            for h in source_db.iter_citation_handles()
+        ]
+        pages = [c.get_page() for c in citations if c.get_page()]
+        self.assertTrue(any("54" in p for p in pages))
+
+        # Verify birth event has the birth citation
+        b_ref = person.get_birth_ref()
+        self.assertIsNotNone(b_ref)
+        b_evt = source_db.get_event_from_handle(b_ref.ref)
+        self.assertTrue(len(b_evt.get_citation_list()) >= 2)  # primary WT + church
+
+        # Verify death event has the burial citation
+        d_ref = person.get_death_ref()
+        self.assertIsNotNone(d_ref)
+        d_evt = source_db.get_event_from_handle(d_ref.ref)
+        self.assertTrue(len(d_evt.get_citation_list()) >= 2)  # primary WT + burial
+
+        # Verify Person Note has clean narrative text without wikitext refs
+        note_handles = person.get_note_list()
+        self.assertTrue(len(note_handles) >= 1)
+        bio_note = source_db.get_note_from_handle(note_handles[0]).get()
+        self.assertNotIn("<ref", bio_note)
+        self.assertIn("Benjamin was born in Boston.", bio_note)
+
 
 if __name__ == "__main__":
     unittest.main()
