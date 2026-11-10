@@ -113,7 +113,7 @@ from gramps.gen.lib import (
 # Local imports
 #
 # -------------------------------------------------------------------------
-from ..gwizard import get_wikitree_id, extract_wikitree_id, is_wikitree_id
+from ..gwizard_base import get_wikitree_id, extract_wikitree_id, is_wikitree_id
 from ..gwizardwikitree import WikiTreeInterface, WikiTreeGWizard
 
 

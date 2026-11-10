@@ -75,7 +75,7 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 # Local imports
 #
 # -------------------------------------------------------------------------
-from .gwizard import is_wikitree_id, extract_wikitree_id, get_wikitree_id
+from .gwizard_base import is_wikitree_id, extract_wikitree_id, get_wikitree_id
 from .gwizardgedcom import GedGWizard
 
 LOG = logging.getLogger(__name__)
