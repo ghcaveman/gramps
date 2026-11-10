@@ -89,7 +89,8 @@ _DEFAULT_FIELDS = (
     "Id,Name,FirstName,MiddleName,MiddleInitial,LastNameBirth,LastNameCurrent,LastNameOther,"
     "RealName,ColloquialName,Prefix,Suffix,Nicknames,Gender,BirthDate,DeathDate,BirthDateDecade,"
     "DeathDateDecade,BirthLocation,DeathLocation,BirthDateStatus,DeathDateStatus,"
-    "Photo,PhotoData,Father,Mother,Parents,Children,Spouses,DataStatus,Templates,Bio"
+    "IsLiving,Privacy,Photo,PhotoData,Father,Mother,Parents,Children,Spouses,DataStatus,"
+    "Templates,Categories,Bio"
 )
 
 
@@ -1268,6 +1269,34 @@ class WikiTreeGWizard(GedGWizard):
                 else:
                     person.set_gender(Person.UNKNOWN)
 
+                # Privacy & Living Status
+                privacy_val = pdata.get("Privacy")
+                is_private = pdata.get("Privacy_IsPrivate")
+                if is_private is True or (
+                    isinstance(privacy_val, (int, str))
+                    and str(privacy_val).isdigit()
+                    and int(privacy_val) < 50
+                ):
+                    person.set_privacy(True)
+
+                is_living_raw = (
+                    pdata.get("IsLiving")
+                    if pdata.get("IsLiving") is not None
+                    else pdata.get("is_living")
+                )
+                is_living: bool | None = None
+                if is_living_raw is not None:
+                    try:
+                        is_living = int(is_living_raw) == 1
+                    except (ValueError, TypeError):
+                        is_living = bool(is_living_raw)
+
+                if is_living is True:
+                    liv_attr = Attribute()
+                    liv_attr.set_type(AttributeType(_("Living Status")))
+                    liv_attr.set_value(_("Living"))
+                    person.add_attribute(liv_attr)
+
                 # WikiTree ID custom attribute and Internet Web Home URL
                 if wt_key:
                     wt_attr = Attribute()
@@ -1368,9 +1397,56 @@ class WikiTreeGWizard(GedGWizard):
                     d_ref = EventRef()
                     d_ref.ref = d_h
                     person.set_death_ref(d_ref)
+                elif is_living is False and d_date_obj.is_empty() and not death_loc:
+                    d_evt = Event()
+                    d_evt.set_type(EventType(EventType.DEATH))
+                    d_evt.add_citation(cit_handle)
+                    d_h = source_db.add_event(d_evt, trans)
+                    d_ref = EventRef()
+                    d_ref.ref = d_h
+                    person.set_death_ref(d_ref)
+
+                # Burial Event (from Categories or Bio Cemetery)
+                cemetery_name = ""
+                categories_val = pdata.get("Categories") or []
+                if isinstance(categories_val, list):
+                    for cat in categories_val:
+                        cat_clean = str(cat).replace("_", " ").strip()
+                        if any(
+                            kw in cat_clean.lower()
+                            for kw in (
+                                "cemetery",
+                                "burial ground",
+                                "burying ground",
+                                "memorial park",
+                                "churchyard",
+                            )
+                        ):
+                            cemetery_name = cat_clean
+                            break
+
+                raw_bio = str(pdata.get("Bio") or pdata.get("bio") or "").strip()
+                if not cemetery_name and raw_bio:
+                    cat_m = re.search(
+                        r"\[\[Category:\s*([^\]]*(?:cemetery|burial ground|burying ground|memorial park|churchyard)[^\]]*)\]\]",
+                        raw_bio,
+                        re.IGNORECASE,
+                    )
+                    if cat_m:
+                        cemetery_name = cat_m.group(1).replace("_", " ").strip()
+
+                if cemetery_name:
+                    bur_evt = Event()
+                    bur_evt.set_type(EventType(EventType.BURIAL))
+                    cem_p_h = get_or_create_place(cemetery_name, trans)
+                    bur_evt.set_place_handle(cem_p_h)
+                    bur_evt.add_citation(cit_handle)
+                    bur_h = source_db.add_event(bur_evt, trans)
+                    bur_ref = EventRef()
+                    bur_ref.ref = bur_h
+                    person.add_event_ref(bur_ref)
 
                 # Biography & Sources from Bio Text
-                raw_bio = str(pdata.get("Bio") or pdata.get("bio") or "").strip()
                 if raw_bio:
                     # 1. Extract and create structured external Sources & Citations
                     bio_sources = self.parse_bio_sources(raw_bio)
@@ -1595,6 +1671,45 @@ class WikiTreeGWizard(GedGWizard):
                                 m_ref = EventRef()
                                 m_ref.ref = m_handle
                                 fam.add_event_ref(m_ref)
+                                source_db.commit_family(fam, trans)
+
+                        # Check for MarriageEndDate (Divorce)
+                        m_end_raw = self._clean_date_str(
+                            str(
+                                spouse_item.get("MarriageEndDate")
+                                or spouse_item.get("marriage_end_date")
+                                or ""
+                            )
+                        )
+                        if m_end_raw:
+                            m_end_status = str(
+                                spouse_item.get("MarriageEndDateStatus")
+                                or (spouse_item.get("DataStatus") or {}).get(
+                                    "MarriageEndDate"
+                                )
+                                or (spouse_item.get("data_status") or {}).get(
+                                    "marriage_end_date"
+                                )
+                                or ""
+                            )
+                            div_date_obj = self.wikitree_date_to_gramps(
+                                m_end_raw, m_end_status
+                            )
+                            has_div = any(
+                                source_db.get_event_from_handle(r.ref).get_type()
+                                == EventType.DIVORCE
+                                for r in fam.get_event_ref_list()
+                                if source_db.get_event_from_handle(r.ref)
+                            )
+                            if not has_div:
+                                div_evt = Event()
+                                div_evt.set_type(EventType(EventType.DIVORCE))
+                                if not div_date_obj.is_empty():
+                                    div_evt.set_date_object(div_date_obj)
+                                div_h = source_db.add_event(div_evt, trans)
+                                div_ref = EventRef()
+                                div_ref.ref = div_h
+                                fam.add_event_ref(div_ref)
                                 source_db.commit_family(fam, trans)
 
             # 4b. Link parents and children via ChildRef

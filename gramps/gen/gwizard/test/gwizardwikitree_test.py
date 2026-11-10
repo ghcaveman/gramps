@@ -1185,6 +1185,137 @@ Sample was born and lived a quiet life.
         primary = person.get_primary_name()
         self.assertEqual(primary.get_first_name(), "John Q.")
 
+    def test_load_living_status_and_privacy(self) -> None:
+        """Verify living status attribute, privacy flag, and deceased death fallback."""
+        gw = WikiTreeGWizard(self.db)
+        living_person = {
+            "Id": 1,
+            "Name": "Living-1",
+            "FirstName": "Live",
+            "LastNameBirth": "Person",
+            "Gender": "Male",
+            "IsLiving": 1,
+            "Privacy": 20,  # Private on WikiTree
+        }
+        deceased_person = {
+            "Id": 2,
+            "Name": "Deceased-1",
+            "FirstName": "Dead",
+            "LastNameBirth": "Person",
+            "Gender": "Female",
+            "IsLiving": 0,
+            "Privacy": 60,  # Open
+            # No DeathDate or DeathLocation specified
+        }
+
+        gw.run_step(
+            "connect",
+            query="Living-1",
+            people_data=[living_person, deceased_person],
+        )
+        people = gw.run_step("load")
+        self.assertEqual(len(people), 2)
+
+        p_live = [p for p in people if get_wikitree_id(p) == "Living-1"][0]
+        p_dead = [p for p in people if get_wikitree_id(p) == "Deceased-1"][0]
+
+        # Verify living person has privacy=True and Living Status attribute
+        self.assertTrue(p_live.get_privacy())
+        attrs_live = {
+            str(a.get_type()): str(a.get_value()) for a in p_live.get_attribute_list()
+        }
+        self.assertEqual(attrs_live.get("Living Status"), "Living")
+        self.assertIsNone(p_live.get_death_ref())
+
+        # Verify deceased person has privacy=False and a death event created
+        self.assertFalse(p_dead.get_privacy())
+        self.assertIsNotNone(p_dead.get_death_ref())
+
+    def test_load_marriage_end_date_divorce(self) -> None:
+        """Verify MarriageEndDate creates an EventType.DIVORCE on the family."""
+        gw = WikiTreeGWizard(self.db)
+        mock_husband = {
+            "Id": 1,
+            "Name": "Husband-1",
+            "FirstName": "John",
+            "LastNameBirth": "Doe",
+            "Gender": "Male",
+            "Spouses": [
+                {
+                    "Id": 2,
+                    "Name": "Wife-1",
+                    "MarriageDate": "1725-08-05",
+                    "MarriageEndDate": "1730-01-01",
+                }
+            ],
+        }
+        mock_wife = {
+            "Id": 2,
+            "Name": "Wife-1",
+            "FirstName": "Jane",
+            "LastNameBirth": "Smith",
+            "Gender": "Female",
+        }
+
+        gw.run_step(
+            "connect",
+            query="Husband-1",
+            people_data=[mock_husband, mock_wife],
+        )
+        gw.run_step("load")
+
+        source_db = gw.context.get("source_db")
+        self.assertEqual(source_db.get_number_of_families(), 1)
+        fam = source_db.get_family_from_handle(list(source_db.iter_family_handles())[0])
+
+        evt_types = []
+        for ref in fam.get_event_ref_list():
+            evt = source_db.get_event_from_handle(ref.ref)
+            evt_types.append(evt.get_type().value)
+
+        self.assertIn(EventType.MARRIAGE, evt_types)
+        self.assertIn(EventType.DIVORCE, evt_types)
+
+        div_evt = [
+            source_db.get_event_from_handle(r.ref)
+            for r in fam.get_event_ref_list()
+            if source_db.get_event_from_handle(r.ref).get_type() == EventType.DIVORCE
+        ][0]
+        self.assertEqual(div_evt.get_date_object().get_year(), 1730)
+
+    def test_load_burial_event_from_cemetery_category(self) -> None:
+        """Verify cemetery categories automatically create a BURIAL event with place."""
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 1,
+            "Name": "Franklin-1",
+            "FirstName": "Benjamin",
+            "LastNameBirth": "Franklin",
+            "Gender": "Male",
+            "DeathDate": "1790-04-17",
+            "Categories": [
+                "Christ Church Burial Ground, Philadelphia, Pennsylvania",
+                "Signers of the Declaration",
+            ],
+        }
+
+        gw.run_step("connect", query="Franklin-1", people_data=[mock_person])
+        people = gw.run_step("load")
+        person = people[0]
+        source_db = gw.context.get("source_db")
+
+        ev_types = []
+        places = []
+        for ref in person.get_event_ref_list():
+            ev = source_db.get_event_from_handle(ref.ref)
+            ev_types.append(ev.get_type().value)
+            if ev.get_place_handle():
+                p = source_db.get_place_from_handle(ev.get_place_handle())
+                places.append(p.get_title())
+
+        self.assertIn(EventType.BURIAL, ev_types)
+        self.assertTrue(any("Christ Church Burial Ground" in pl for pl in places))
+
 
 if __name__ == "__main__":
     unittest.main()
