@@ -34,244 +34,259 @@ import unittest
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+
 # -------------------------------------------------------------------------
 #
 # GTK mock fallback when running without display or PyGObject
 #
 # -------------------------------------------------------------------------
+class _FakeDialog:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.response: Any = None
+
+    def get_content_area(self) -> MagicMock:
+        return MagicMock()
+
+    def add_button(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def add_action_widget(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def connect(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def set_default_size(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def show_all(self) -> None:
+        pass
+
+    def destroy(self) -> None:
+        pass
+
+    def run(self) -> Any:
+        if self.response is not None:
+            return self.response
+        from gi.repository import Gtk
+
+        return Gtk.ResponseType.OK
+
+
+class _FakeLabel:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.selectable = False
+        self.can_focus = True
+        self.line_wrap = False
+        self.text = ""
+        self.markup = ""
+        self.max_width_chars: int | None = None
+        self.size_request: tuple[int, int] | None = None
+        self.xalign = 0.5
+        self.halign: Any = None
+
+    def set_text(self, val: str) -> None:
+        self.text = val
+
+    def set_markup(self, val: str) -> None:
+        self.markup = val
+
+    def set_use_markup(self, val: bool) -> None:
+        pass
+
+    def set_selectable(self, val: bool) -> None:
+        self.selectable = val
+
+    def set_can_focus(self, val: bool) -> None:
+        self.can_focus = val
+
+    def set_line_wrap(self, val: bool) -> None:
+        self.line_wrap = val
+
+    def set_line_wrap_mode(self, val: Any) -> None:
+        pass
+
+    def set_halign(self, val: Any) -> None:
+        self.halign = val
+
+    def set_xalign(self, val: float) -> None:
+        self.xalign = val
+
+    def set_max_width_chars(self, val: int) -> None:
+        self.max_width_chars = val
+
+    def set_size_request(self, w: int, h: int) -> None:
+        self.size_request = (w, h)
+
+    def set_hexpand(self, val: bool) -> None:
+        self.hexpand = val
+
+    def set_vexpand(self, val: bool) -> None:
+        self.vexpand = val
+
+
+class _FakeGrid:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.col_spacing = 0
+        self.row_spacing = 0
+        self.hexpand = False
+        self.vexpand = False
+
+    def set_column_spacing(self, val: int) -> None:
+        self.col_spacing = val
+
+    def set_row_spacing(self, val: int) -> None:
+        self.row_spacing = val
+
+    def set_hexpand(self, val: bool) -> None:
+        self.hexpand = val
+
+    def set_vexpand(self, val: bool) -> None:
+        self.vexpand = val
+
+    def attach(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+
+class _FakeEntry:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._text = ""
+        self._callbacks: list[Any] = []
+
+    def set_text(self, val: str) -> None:
+        self._text = val
+        for cb in self._callbacks:
+            try:
+                cb()
+            except Exception:
+                pass
+
+    def get_text(self) -> str:
+        return self._text
+
+    def set_width_chars(self, val: int) -> None:
+        pass
+
+    def set_hexpand(self, val: bool) -> None:
+        pass
+
+    def connect(self, signal: str, callback: Any, *args: Any) -> None:
+        if signal == "changed":
+            self._callbacks.append(callback)
+
+
+class _FakeRadioButton:
+    def __init__(self, group: Any = None, label: str = "") -> None:
+        self._active = False
+        self.group = group if group is not None else self
+        self._peers = [self]
+        if group is not None and hasattr(group, "_peers"):
+            group._peers.append(self)
+            self._peers = group._peers
+        self.label = label
+        self._callbacks: list[Any] = []
+
+    @classmethod
+    def new_with_label_from_widget(
+        cls, group: Any = None, label: str = ""
+    ) -> _FakeRadioButton:
+        btn = cls(group, label)
+        if group is None:
+            btn._active = True
+        return btn
+
+    def set_active(self, val: bool) -> None:
+        self._active = val
+        if val:
+            for peer in self._peers:
+                if peer is not self:
+                    peer._active = False
+        for cb in self._callbacks:
+            try:
+                cb(self)
+            except Exception:
+                pass
+
+    def get_active(self) -> bool:
+        return self._active
+
+    def connect(self, signal: str, callback: Any, *args: Any) -> None:
+        if signal == "toggled":
+            self._callbacks.append(callback)
+
+
+class _FakeComboBoxText:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._active = 0
+        self._items: list[str] = []
+        self._child = _FakeEntry()
+
+    @classmethod
+    def new_with_entry(cls) -> _FakeComboBoxText:
+        return cls()
+
+    def get_child(self) -> _FakeEntry:
+        return self._child
+
+    def append_text(self, text: str) -> None:
+        self._items.append(text)
+
+    def set_active(self, val: int) -> None:
+        self._active = val
+
+    def get_active(self) -> int:
+        return self._active
+
+    def set_hexpand(self, val: bool) -> None:
+        pass
+
+    def connect(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+
+class _FakeButton:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._label = kwargs.get("label", "")
+        if args and isinstance(args[0], str):
+            self._label = args[0]
+        self._sensitive = True
+
+    def set_label(self, val: str) -> None:
+        self._label = val
+
+    def get_label(self) -> str:
+        return self._label
+
+    def set_sensitive(self, val: bool) -> None:
+        self._sensitive = val
+
+    def get_sensitive(self) -> bool:
+        return self._sensitive
+
+    def set_hexpand(self, val: bool) -> None:
+        pass
+
+    def connect(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def add(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+
 if "gi" not in sys.modules:
     gi_mock = MagicMock()
-
-    class _FakeDialog:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def get_content_area(self) -> MagicMock:
-            return MagicMock()
-
-        def add_button(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def add_action_widget(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def connect(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_default_size(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def show_all(self) -> None:
-            pass
-
-        def destroy(self) -> None:
-            pass
-
-    class _FakeLabel:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self.selectable = False
-            self.can_focus = True
-            self.line_wrap = False
-            self.text = ""
-            self.markup = ""
-            self.max_width_chars: int | None = None
-            self.size_request: tuple[int, int] | None = None
-            self.xalign = 0.5
-            self.halign: Any = None
-
-        def set_text(self, val: str) -> None:
-            self.text = val
-
-        def set_markup(self, val: str) -> None:
-            self.markup = val
-
-        def set_use_markup(self, val: bool) -> None:
-            pass
-
-        def set_selectable(self, val: bool) -> None:
-            self.selectable = val
-
-        def set_can_focus(self, val: bool) -> None:
-            self.can_focus = val
-
-        def set_line_wrap(self, val: bool) -> None:
-            self.line_wrap = val
-
-        def set_line_wrap_mode(self, val: Any) -> None:
-            pass
-
-        def set_halign(self, val: Any) -> None:
-            self.halign = val
-
-        def set_xalign(self, val: float) -> None:
-            self.xalign = val
-
-        def set_max_width_chars(self, val: int) -> None:
-            self.max_width_chars = val
-
-        def set_size_request(self, w: int, h: int) -> None:
-            self.size_request = (w, h)
-
-        def set_hexpand(self, val: bool) -> None:
-            self.hexpand = val
-
-        def set_vexpand(self, val: bool) -> None:
-            self.vexpand = val
-
-    class _FakeGrid:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self.col_spacing = 0
-            self.row_spacing = 0
-            self.hexpand = False
-            self.vexpand = False
-
-        def set_column_spacing(self, val: int) -> None:
-            self.col_spacing = val
-
-        def set_row_spacing(self, val: int) -> None:
-            self.row_spacing = val
-
-        def set_hexpand(self, val: bool) -> None:
-            self.hexpand = val
-
-        def set_vexpand(self, val: bool) -> None:
-            self.vexpand = val
-
-        def attach(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-    class _FakeEntry:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self._text = ""
-            self._callbacks: list[Any] = []
-
-        def set_text(self, val: str) -> None:
-            self._text = val
-            for cb in self._callbacks:
-                try:
-                    cb()
-                except Exception:
-                    pass
-
-        def get_text(self) -> str:
-            return self._text
-
-        def set_width_chars(self, val: int) -> None:
-            pass
-
-        def set_hexpand(self, val: bool) -> None:
-            pass
-
-        def connect(self, signal: str, callback: Any, *args: Any) -> None:
-            if signal == "changed":
-                self._callbacks.append(callback)
-
-    class _FakeRadioButton:
-        def __init__(self, group: Any = None, label: str = "") -> None:
-            self._active = False
-            self.group = group if group is not None else self
-            self._peers = [self]
-            if group is not None and hasattr(group, "_peers"):
-                group._peers.append(self)
-                self._peers = group._peers
-            self.label = label
-            self._callbacks: list[Any] = []
-
-        @classmethod
-        def new_with_label_from_widget(
-            cls, group: Any = None, label: str = ""
-        ) -> _FakeRadioButton:
-            btn = cls(group, label)
-            if group is None:
-                btn._active = True
-            return btn
-
-        def set_active(self, val: bool) -> None:
-            self._active = val
-            if val:
-                for peer in self._peers:
-                    if peer is not self:
-                        peer._active = False
-            for cb in self._callbacks:
-                try:
-                    cb(self)
-                except Exception:
-                    pass
-
-        def get_active(self) -> bool:
-            return self._active
-
-        def connect(self, signal: str, callback: Any, *args: Any) -> None:
-            if signal == "toggled":
-                self._callbacks.append(callback)
-
-    class _FakeComboBoxText:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self._active = 0
-            self._items: list[str] = []
-            self._child = _FakeEntry()
-
-        @classmethod
-        def new_with_entry(cls) -> _FakeComboBoxText:
-            return cls()
-
-        def get_child(self) -> _FakeEntry:
-            return self._child
-
-        def append_text(self, text: str) -> None:
-            self._items.append(text)
-
-        def set_active(self, val: int) -> None:
-            self._active = val
-
-        def get_active(self) -> int:
-            return self._active
-
-        def set_hexpand(self, val: bool) -> None:
-            pass
-
-        def connect(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-    class _FakeButton:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self._label = kwargs.get("label", "")
-            if args and isinstance(args[0], str):
-                self._label = args[0]
-            self._sensitive = True
-
-        def set_label(self, val: str) -> None:
-            self._label = val
-
-        def get_label(self) -> str:
-            return self._label
-
-        def set_sensitive(self, val: bool) -> None:
-            self._sensitive = val
-
-        def get_sensitive(self) -> bool:
-            return self._sensitive
-
-        def set_hexpand(self, val: bool) -> None:
-            pass
-
-        def connect(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def add(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-    gi_mock.repository.Gtk.Dialog = _FakeDialog
-    gi_mock.repository.Gtk.Label = _FakeLabel
-    gi_mock.repository.Gtk.Grid = _FakeGrid
-    gi_mock.repository.Gtk.Entry = _FakeEntry
-    gi_mock.repository.Gtk.RadioButton = _FakeRadioButton
-    gi_mock.repository.Gtk.ComboBoxText = _FakeComboBoxText
-    gi_mock.repository.Gtk.Button = _FakeButton
     sys.modules["gi"] = gi_mock
     sys.modules["gi.repository"] = gi_mock.repository
 
 from gi.repository import Gtk
+
+Gtk.Dialog = _FakeDialog
+Gtk.Label = _FakeLabel
+Gtk.Grid = _FakeGrid
+Gtk.Entry = _FakeEntry
+Gtk.RadioButton = _FakeRadioButton
+Gtk.ComboBoxText = _FakeComboBoxText
+Gtk.Button = _FakeButton
 
 # -------------------------------------------------------------------------
 #
@@ -316,9 +331,6 @@ from gramps.plugins.tool.gwizardmediafix import (
     FILENAME_PRESETS,
     check_path_permission,
     get_path_ancestors,
-)
-from gramps.plugins.tool.gw_fixmediareferencesdialog import (
-    find_duplicate_media_groups,
 )
 from gramps.plugins.tool.gw_fixmediareferencesdialog import (
     find_duplicate_media_groups,
@@ -394,7 +406,12 @@ class GWizardMediaFixTest(unittest.TestCase):
         mock_entry.get_text.return_value = "new_folder/found_image.jpg"
         dlg.row_targets = [{"entry": row, "path_entry": mock_entry}]
 
-        with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
+        with (
+            patch(
+                "gramps.plugins.tool.gwizardmediafix.os.path.exists", return_value=True
+            ),
+            patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
+        ):
             dlg.cb_apply(MagicMock())
 
         updated = self.db.get_media_from_handle(m_handle)
@@ -533,117 +550,6 @@ class GWizardMediaFixTest(unittest.TestCase):
         group = dlg.groups[0]
         self.assertEqual(group["keeper"]["handle"], m1_h)
         self.assertEqual(len(group["records"]), 2)
-
-    def test_resolve_media_reference_context_person(self) -> None:
-        """Resolve context for media referenced by a Person."""
-        with DbTxn("Create person media", self.db) as trans:
-            m = Media()
-            m.set_description("Headstone")
-            m.set_path("photos/raw_scan.JPG")
-            m_handle = self.db.add_media(m, trans)
-
-            p = Person()
-            n = Name()
-            s = Surname()
-            s.set_surname("Doe")
-            n.add_surname(s)
-            n.set_first_name("Mary")
-            p.set_primary_name(n)
-
-            d = Date()
-            d.set_year(1985)
-            e = Event()
-            e.set_type(EventType.DEATH)
-            e.set_date_object(d)
-            e_h = db_add_e = self.db.add_event(e, trans)
-            eref = EventRef()
-            eref.set_reference_handle(e_h)
-            p.add_event_ref(eref)
-
-            mref = MediaRef()
-            mref.set_reference_handle(m_handle)
-            p.add_media_reference(mref)
-            p_handle = self.db.add_person(p, trans)
-
-        media = self.db.get_media_from_handle(m_handle)
-        ctx = resolve_media_reference_context(self.db, media)
-        self.assertEqual(ctx["surname"], "Doe")
-        self.assertEqual(ctx["given"], "Mary")
-        self.assertEqual(ctx["doc_type"], "Headstone")
-        self.assertEqual(ctx["year"], "1985")
-
-        std_path = sanitize_standard_filename(media.get_path(), db=self.db, media=media)
-        self.assertEqual(
-            std_path,
-            os.path.join("photos", f"{ctx['ref_id']}_Doe_Mary-Headstone-1985.jpg"),
-        )
-
-    def test_resolve_media_reference_context_event(self) -> None:
-        """Resolve context for media referenced by an Event with a Person participant."""
-        with DbTxn("Create event media", self.db) as trans:
-            m = Media()
-            m.set_description("Birth Certificate")
-            m.set_path("documents/cert_scan.PNG")
-            m_handle = self.db.add_media(m, trans)
-
-            d = Date()
-            d.set_year(1920)
-            e = Event()
-            e.set_type(EventType.BIRTH)
-            e.set_date_object(d)
-            mref = MediaRef()
-            mref.set_reference_handle(m_handle)
-            e.add_media_reference(mref)
-            e_handle = self.db.add_event(e, trans)
-
-            p = Person()
-            n = Name()
-            s = Surname()
-            s.set_surname("Smith")
-            n.add_surname(s)
-            n.set_first_name("John")
-            p.set_primary_name(n)
-            eref = EventRef()
-            eref.set_reference_handle(e_handle)
-            p.add_event_ref(eref)
-            p_handle = self.db.add_person(p, trans)
-
-        media = self.db.get_media_from_handle(m_handle)
-        ctx = resolve_media_reference_context(self.db, media)
-        self.assertEqual(ctx["surname"], "Smith")
-        self.assertEqual(ctx["given"], "John")
-        self.assertEqual(ctx["year"], "1920")
-
-        std_path = sanitize_standard_filename(media.get_path(), db=self.db, media=media)
-        self.assertEqual(
-            std_path,
-            os.path.join(
-                "documents",
-                f"{ctx['ref_id']}_Smith_John-Birth_Certificate-1920.png",
-            ),
-        )
-
-    def test_format_standard_filename_presets(self) -> None:
-        """All filename presets produce platform-safe filenames without invalid characters."""
-        context = {
-            "ref_id": "I0042",
-            "surname": "Smith",
-            "given": "John",
-            "doc_type": "Birth Certificate",
-            "year": "1920",
-            "id": "O0001",
-            "orig": "scan#1 (original)",
-            "ext": "JPEG",
-        }
-        for tmpl, _desc in FILENAME_PRESETS:
-            formatted = format_standard_filename(tmpl, context)
-            self.assertTrue(formatted.endswith(".jpeg"))
-            self.assertNotIn(" ", formatted)
-            self.assertNotIn(",", formatted)
-            self.assertNotIn("_-_", formatted)
-            self.assertNotIn("--", formatted)
-            self.assertNotIn("__", formatted)
-            self.assertLessEqual(len(formatted), 90)
 
     def test_resolve_media_reference_context_person(self) -> None:
         """Resolve context for media referenced by a Person."""
@@ -1027,87 +933,6 @@ class GWizardMediaFixTest(unittest.TestCase):
             expected_orig,
         )
 
-    def test_consolidate_media_location_path_selector_widget(self) -> None:
-        """ConsolidateMediaLocationDialog provides a path selector widget that sets database media path."""
-        custom_path = os.path.join(USER_HOME, "SelectorTestMedia")
-        self.db.set_mediapath(custom_path)
-
-        dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
-        self.assertTrue(hasattr(dlg, "path_entry"))
-        self.assertTrue(hasattr(dlg, "path_button"))
-        self.assertEqual(dlg.path_entry.get_text(), custom_path)
-
-        # Changing path_entry directly updates db mediapath and recomputes base_dir
-        new_path = os.path.join(USER_HOME, "NewMediaFolder")
-        dlg.path_entry.set_text(new_path)
-        dlg.cb_set_mediapath()
-        self.assertEqual(self.db.get_mediapath(), new_path)
-        self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(new_path)))
-
-        # Selecting folder from chooser dialog sets path on entry and database
-        chosen_folder = os.path.join(USER_HOME, "ChosenFolder")
-        mock_chooser = MagicMock()
-        mock_chooser.run.return_value = Gtk.ResponseType.OK
-        mock_chooser.get_filename.return_value = chosen_folder
-
-        with patch(
-            "gramps.plugins.tool.gwizardmediafix.Gtk.FileChooserDialog",
-            return_value=mock_chooser,
-        ):
-            dlg.cb_select_mediapath()
-            self.assertEqual(self.db.get_mediapath(), chosen_folder)
-            self.assertEqual(dlg.path_entry.get_text(), chosen_folder)
-
-    def test_consolidate_media_location_radio_buttons_move_vs_copy(self) -> None:
-        """ConsolidateMediaLocationDialog provides radio buttons for move files vs make a copy."""
-        dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
-        self.assertTrue(hasattr(dlg, "radio_move"))
-        self.assertTrue(hasattr(dlg, "radio_copy"))
-        self.assertTrue(dlg.radio_move.get_active())
-        self.assertFalse(dlg.radio_copy.get_active())
-
-        with DbTxn("Create media for move", self.db) as trans:
-            m = Media()
-            m.set_description("Test Move")
-            m.set_path("/path/to/test.jpg")
-            m_h = self.db.add_media(m, trans)
-
-        mock_entry = MagicMock()
-        mock_entry.get_text.return_value = "new_folder/test.jpg"
-        dlg.row_targets = [
-            {
-                "entry": {"handle": m_h, "raw_path": "/path/to/test.jpg"},
-                "path_entry": mock_entry,
-            }
-        ]
-
-        with (
-            patch(
-                "gramps.plugins.tool.gwizardmediafix.os.path.exists", return_value=True
-            ),
-            patch("gramps.plugins.tool.gwizardmediafix.os.makedirs"),
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.move") as mock_move,
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.copy2") as mock_copy,
-            patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
-        ):
-            dlg.cb_apply(MagicMock())
-            mock_move.assert_called_once()
-            mock_copy.assert_not_called()
-
-        dlg.radio_copy.set_active(True)
-        with (
-            patch(
-                "gramps.plugins.tool.gwizardmediafix.os.path.exists", return_value=True
-            ),
-            patch("gramps.plugins.tool.gwizardmediafix.os.makedirs"),
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.move") as mock_move,
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.copy2") as mock_copy,
-            patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
-        ):
-            dlg.cb_apply(MagicMock())
-            mock_copy.assert_called_once()
-            mock_move.assert_not_called()
-
     def test_find_and_consolidate_quotes_and_spaces(self) -> None:
         """Find Media and Consolidate operations handle paths enclosed in quotes and containing spaces."""
         temp_dir = tempfile.mkdtemp()
@@ -1171,8 +996,11 @@ class GWizardMediaFixTest(unittest.TestCase):
 
             # File should be moved to destination and updated in DB without quotes
             updated_cons = self.db.get_media_from_handle(m_h)
+            from gramps.plugins.tool.gwizard_common import to_db_path
+
             self.assertEqual(
-                os.path.normpath(updated_cons.get_path()), os.path.normpath(hint_sug)
+                os.path.normpath(updated_cons.get_path()),
+                os.path.normpath(to_db_path(hint_sug, base_dir)),
             )
             self.assertTrue(os.path.exists(hint_sug))
         finally:
@@ -1188,14 +1016,18 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertTrue(hasattr(dlg, "path_button"))
         self.assertEqual(dlg.path_entry.get_text(), custom_path)
 
-        # Changing path_entry directly updates db mediapath and recomputes base_dir
+        # Changing path_entry directly stages db mediapath and recomputes base_dir
         new_path = os.path.join(USER_HOME, "NewMediaFolder")
         dlg.path_entry.set_text(new_path)
         dlg.cb_set_mediapath()
-        self.assertEqual(self.db.get_mediapath(), new_path)
+        self.assertEqual(dlg._mediapath_text, new_path)
         self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(new_path)))
 
-        # Selecting folder from chooser dialog sets path on entry and database
+        with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
+            dlg.cb_apply(MagicMock())
+        self.assertEqual(self.db.get_mediapath(), new_path)
+
+        # Selecting folder from chooser dialog sets path on entry
         chosen_folder = os.path.join(USER_HOME, "ChosenFolder")
         mock_chooser = MagicMock()
         mock_chooser.run.return_value = Gtk.ResponseType.OK
@@ -1206,8 +1038,11 @@ class GWizardMediaFixTest(unittest.TestCase):
             return_value=mock_chooser,
         ):
             dlg.cb_select_mediapath()
-            self.assertEqual(self.db.get_mediapath(), chosen_folder)
             self.assertEqual(dlg.path_entry.get_text(), chosen_folder)
+            self.assertEqual(dlg._mediapath_text, chosen_folder)
+            self.assertEqual(
+                dlg.base_dir, os.path.normpath(os.path.abspath(chosen_folder))
+            )
 
     def test_consolidate_media_location_radio_buttons_move_vs_copy(self) -> None:
         """ConsolidateMediaLocationDialog provides radio buttons for move files vs make a copy."""
@@ -1217,47 +1052,55 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertTrue(dlg.radio_move.get_active())
         self.assertFalse(dlg.radio_copy.get_active())
 
-        with DbTxn("Create media for move", self.db) as trans:
-            m = Media()
-            m.set_description("Test Move")
-            m.set_path("/path/to/test.jpg")
-            m_h = self.db.add_media(m, trans)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            test_file = os.path.join(temp_dir, "test.jpg")
+            with open(test_file, "w") as f:
+                f.write("content")
 
-        mock_entry = MagicMock()
-        mock_entry.get_text.return_value = "new_folder/test.jpg"
-        dlg.row_targets = [
-            {
-                "entry": {"handle": m_h, "raw_path": "/path/to/test.jpg"},
-                "path_entry": mock_entry,
-            }
-        ]
+            with DbTxn("Create media for move", self.db) as trans:
+                m = Media()
+                m.set_description("Test Move")
+                m.set_path(test_file)
+                m_h = self.db.add_media(m, trans)
 
-        with (
-            patch(
-                "gramps.plugins.tool.gwizardmediafix.os.path.exists", return_value=True
-            ),
-            patch("gramps.plugins.tool.gwizardmediafix.os.makedirs"),
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.move") as mock_move,
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.copy2") as mock_copy,
-            patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
-        ):
-            dlg.cb_apply(MagicMock())
-            mock_move.assert_called_once()
-            mock_copy.assert_not_called()
+            mock_entry = MagicMock()
+            mock_entry.get_text.return_value = os.path.join(
+                temp_dir, "dest", "test.jpg"
+            )
+            dlg.row_targets = [
+                {
+                    "entry": {
+                        "handle": m_h,
+                        "raw_path": test_file,
+                        "src_full": test_file,
+                        "gramps_id": "O0001",
+                    },
+                    "path_entry": mock_entry,
+                }
+            ]
 
-        dlg.radio_copy.set_active(True)
-        with (
-            patch(
-                "gramps.plugins.tool.gwizardmediafix.os.path.exists", return_value=True
-            ),
-            patch("gramps.plugins.tool.gwizardmediafix.os.makedirs"),
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.move") as mock_move,
-            patch("gramps.plugins.tool.gwizardmediafix.shutil.copy2") as mock_copy,
-            patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
-        ):
-            dlg.cb_apply(MagicMock())
-            mock_copy.assert_called_once()
-            mock_move.assert_not_called()
+            with (
+                patch(
+                    "gramps.plugins.tool.gwizardmediafix.relocate_file",
+                    return_value=(True, ""),
+                ) as mock_relocate,
+                patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
+            ):
+                dlg.cb_apply(MagicMock())
+                mock_relocate.assert_called_once()
+                self.assertFalse(mock_relocate.call_args[1].get("copy", False))
+
+            dlg.radio_copy.set_active(True)
+            with (
+                patch(
+                    "gramps.plugins.tool.gwizardmediafix.relocate_file",
+                    return_value=(True, ""),
+                ) as mock_relocate,
+                patch("gramps.plugins.tool.gwizardmediafix.OkDialog"),
+            ):
+                dlg.cb_apply(MagicMock())
+                mock_relocate.assert_called_once()
+                self.assertTrue(mock_relocate.call_args[1].get("copy", False))
 
     def test_generate_media_fix_report_includes_base_path(self) -> None:
         """generate_media_fix_report includes Media Base Path in summary metrics."""
@@ -1333,9 +1176,9 @@ class GWizardMediaFixTest(unittest.TestCase):
             self.db.add_media(m2, trans)
 
         report = generate_media_fix_report(self.db)
-        self.assertIn("Multiple database links:   1", report)
+        self.assertIn("Shared media records:      1 (info)", report)
         self.assertIn("Unreferenced image tags:   1", report)
-        self.assertIn("MEDIA RECORDS WITH MULTIPLE DATABASE REFERENCES", report)
+        self.assertIn("SHARED MEDIA RECORDS", report)
         self.assertIn("Shared Photo", report)
         self.assertIn("References: 2 (Person: 2)", report)
         self.assertIn("UNREFERENCED IMAGE TAGS / MEDIA RECORDS", report)
@@ -1447,45 +1290,47 @@ class GWizardMediaFixTest(unittest.TestCase):
 
     def test_fix_media_references_dialog_copy(self) -> None:
         """FixMediaReferencesDialog creates separate copies of files for duplicate records."""
-        with DbTxn("Create duplicate media for copy", self.db) as trans:
-            m1 = Media()
-            m1.set_description("Photo A")
-            m1.set_path("shared/picture.jpg")
-            m1_h = self.db.add_media(m1, trans)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            shared_file = os.path.join(temp_dir, "picture.jpg")
+            with open(shared_file, "w") as f:
+                f.write("content")
 
-            m2 = Media()
-            m2.set_description("Photo B")
-            m2.set_path("shared/picture.jpg")
-            m2_h = self.db.add_media(m2, trans)
+            with DbTxn("Create duplicate media for copy", self.db) as trans:
+                m1 = Media()
+                m1.set_description("Photo A")
+                m1.set_path(shared_file)
+                m1_h = self.db.add_media(m1, trans)
 
-        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
-        mock_combo = MagicMock()
-        mock_combo.get_active.return_value = 1  # Create copies
-        dlg.row_targets = [
-            {
-                "group": dlg.groups[0],
-                "action_combo": mock_combo,
-            }
-        ]
+                m2 = Media()
+                m2.set_description("Photo B")
+                m2.set_path(shared_file)
+                m2_h = self.db.add_media(m2, trans)
 
-        with (
-            patch(
-                "gramps.plugins.tool.gw_fixmediareferencesdialog.os.path.exists",
-                return_value=True,
-            ),
-            patch("gramps.plugins.tool.gw_fixmediareferencesdialog.os.makedirs"),
-            patch(
-                "gramps.plugins.tool.gw_fixmediareferencesdialog.shutil.copy2"
-            ) as mock_copy,
-            patch("gramps.plugins.tool.gw_fixmediareferencesdialog.OkDialog"),
-        ):
-            dlg.cb_apply(MagicMock())
-            mock_copy.assert_called_once()
+            dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+            mock_combo = MagicMock()
+            mock_combo.get_active.return_value = 1  # Create copies
+            dlg.row_targets = [
+                {
+                    "group": dlg.groups[0],
+                    "action_combo": mock_combo,
+                }
+            ]
 
-        # m2 path should now be updated to a distinct file path
-        updated_m2 = self.db.get_media_from_handle(m2_h)
-        self.assertNotEqual(updated_m2.get_path(), "shared/picture.jpg")
-        self.assertIn("picture", updated_m2.get_path())
+            with (
+                patch(
+                    "gramps.plugins.tool.gw_fixmediareferencesdialog.relocate_file",
+                    return_value=(True, ""),
+                ) as mock_relocate,
+                patch("gramps.plugins.tool.gw_fixmediareferencesdialog.OkDialog"),
+            ):
+                dlg.cb_apply(MagicMock())
+                mock_relocate.assert_called_once()
+                self.assertTrue(mock_relocate.call_args[1].get("copy", False))
+
+            # m2 path should now be updated to a distinct file path
+            updated_m2 = self.db.get_media_from_handle(m2_h)
+            self.assertNotEqual(updated_m2.get_path(), shared_file)
+            self.assertIn("picture", updated_m2.get_path())
 
     def test_report_zero_unreferenced_image_tags(self) -> None:
         """Report explicitly notes when zero unreferenced image tags are found."""
@@ -1518,6 +1363,7 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertEqual(unref_groups[0]["keeper"]["handle"], m_h)
 
         # Apply deletion (choice 0)
+        dlg.row_targets[0]["action_combo"].set_active(0)
         with patch("gramps.plugins.tool.gw_fixmediareferencesdialog.OkDialog"):
             dlg.cb_apply(MagicMock())
 
@@ -1775,23 +1621,20 @@ class GWizardMediaFixTest(unittest.TestCase):
             tool_instance.dbstate = self.dbstate
             tool_instance.window = MagicMock()
 
-            # Test cancellation: QuestionDialog2 returns False
-            mock_confirm = MagicMock()
-            mock_confirm.run.return_value = False
+            # Test cancellation: confirm_plan returns False
             with patch(
-                "gramps.plugins.tool.gwizardmediafix.QuestionDialog2",
-                return_value=mock_confirm,
+                "gramps.plugins.tool.gwizardmediafix.confirm_plan",
+                return_value=False,
             ):
                 tool_instance.cb_auto_all()
                 # Should do nothing
                 self.assertIsNotNone(self.db.get_media_from_handle(h_orphan))
 
-            # Test acceptance: QuestionDialog2 returns True
-            mock_confirm.run.return_value = True
+            # Test acceptance: confirm_plan returns True
             with (
                 patch(
-                    "gramps.plugins.tool.gwizardmediafix.QuestionDialog2",
-                    return_value=mock_confirm,
+                    "gramps.plugins.tool.gwizardmediafix.confirm_plan",
+                    return_value=True,
                 ),
                 patch(
                     "gramps.plugins.tool.gwizardmediafix.AcceptAllHintsReportDialog"
