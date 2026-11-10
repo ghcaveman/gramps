@@ -70,6 +70,7 @@ from gramps.gen.gwizard.gwizard_base import (
     surname_text,
     SourceMatcher,
 )
+from gramps.gui.dialog import ErrorDialog
 from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
 
 try:
@@ -1342,14 +1343,29 @@ class GWizardMergeDialog(Gtk.Dialog):
                 return
 
         try:
-            self.gwizard.run_step(
+            applied = self.gwizard.run_step(
                 "apply",
                 source_person_handle=self.source_handle,
                 target_person_handle=self.target_handle,
                 resolutions=self._resolutions,
             )
         except Exception as e:  # pragma: no cover
+            # The apply runs in one database transaction that is rolled
+            # back when an exception escapes, so nothing was changed.
             LOG.exception("Apply failed: %s", e)
+            ErrorDialog(
+                _("Merge failed"),
+                _("No changes were made to your family tree.\n\n%s") % e,
+                parent=self,
+            )
+            return
+        if applied is False:
+            ErrorDialog(
+                _("Merge failed"),
+                _("The selected person could not be found in your family tree."),
+                parent=self,
+            )
+            return
         self.response(Gtk.ResponseType.OK)
 
     def cb_cancel(self, _button: Gtk.Button) -> None:

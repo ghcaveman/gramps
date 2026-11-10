@@ -58,6 +58,8 @@ from gramps.gen.lib import (
     EventType,
 )
 from gramps.gen.soundex import soundex
+from gramps.gen.display.place import displayer as place_displayer
+from gramps.gen.utils.id import create_id
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 
 # -------------------------------------------------------------------------
@@ -236,6 +238,9 @@ class GedGWizard(GWizardBase):
             raise RuntimeError("Failed to import GEDCOM file.")
 
         self.context["source_db"] = source_db
+        # Handles copied for an earlier file mean nothing for this one.
+        self.context["handle_map"] = {}
+        self.context.pop("place_index", None)
 
         people: list[Person] = []
         for handle in source_db.iter_person_handles():
@@ -744,51 +749,190 @@ class GedGWizard(GWizardBase):
             if obj.gramps_id and has_gramps_id(obj.gramps_id):
                 obj.set_gramps_id("")
 
-        # Helper to get/create place
+        # ------------------------------------------------------------------
+        # Copying the objects an incoming person refers to (notes, media,
+        # repositories, sources, citations and places).
+        #
+        # ``handle_map`` records, per kind of object, which target handle
+        # stands for each incoming handle. It lives in the session context,
+        # so an object reached from several people or several merges is
+        # copied once. A handle is never taken to mean "same object" just
+        # because the target uses it too: a file exported from the same tree
+        # can hold different content under a shared handle. An equal handle
+        # is reused only when the content is equivalent; otherwise the copy
+        # gets a fresh handle.
+        # ------------------------------------------------------------------
+        handle_map: dict[str, dict[str, str]] = self.context.setdefault(
+            "handle_map", {}
+        )
+
+        def mapped_handle(kind: str, s_handle: str, exists: Any) -> str | None:
+            """Return the target handle already chosen for ``s_handle``."""
+            t_handle = handle_map.get(kind, {}).get(s_handle)
+            if t_handle and exists(t_handle):
+                return t_handle
+            return None
+
+        def remember(kind: str, s_handle: str, t_handle: str) -> str:
+            """Record that ``s_handle`` is represented by ``t_handle``."""
+            handle_map.setdefault(kind, {})[s_handle] = t_handle
+            return t_handle
+
+        def unused_handle(obj: Any, exists: Any) -> None:
+            """Give ``obj`` a new handle when the target already uses its own."""
+            if not obj.handle or exists(obj.handle):
+                obj.set_handle(create_id())
+
+        def copy_note_list(obj: Any, trans: Any) -> None:
+            """Replace the notes of ``obj`` with copies in the target."""
+            obj.set_note_list(
+                [
+                    handle
+                    for handle in (
+                        copy_note(note, trans) for note in obj.get_note_list()
+                    )
+                    if handle
+                ]
+            )
+
+        def copy_media_refs(obj: Any, trans: Any) -> None:
+            """Point the media references of ``obj`` at copies in the target."""
+            kept = []
+            for mref in obj.get_media_list():
+                new_handle = copy_media(mref.get_reference_handle(), trans)
+                if new_handle:
+                    mref.set_reference_handle(new_handle)
+                    kept.append(mref)
+            obj.set_media_list(kept)
+
+        def copy_citation_list(obj: Any, trans: Any) -> None:
+            """Replace the citations of ``obj`` with copies in the target."""
+            obj.set_citation_list(
+                [
+                    handle
+                    for handle in (
+                        copy_citation(citation, trans)
+                        for citation in obj.get_citation_list()
+                    )
+                    if handle
+                ]
+            )
+
+        def source_fields(source: Any) -> tuple[str, str, str]:
+            """Return the fields that make two sources the same source."""
+            return (
+                normalize_source_text(source.get_title()),
+                normalize_source_text(source.get_author()),
+                normalize_source_text(source.get_publication_info()),
+            )
+
+        # Places are matched on their title, or on the displayed name when
+        # the title is empty (it usually is for hierarchical places).
+        def place_key(db: Any, place: Any) -> str:
+            title = (place.get_title() or "").strip()
+            if title:
+                return title
+            try:
+                return place_displayer.display(db, place).strip()
+            except Exception:  # pylint: disable=broad-except
+                return place.get_name().get_value().strip()
+
+        def place_index() -> dict[str, str]:
+            """Return {place key: handle} for the target, built on first use."""
+            index = self.context.get("place_index")
+            if index is None:
+                index = {}
+                for t_place in self.db.iter_places():
+                    key = place_key(self.db, t_place)
+                    if key:
+                        index.setdefault(key, t_place.handle)
+                self.context["place_index"] = index
+            return index
+
+        def find_target_place(key: str) -> str | None:
+            if not key:
+                return None
+            t_handle = place_index().get(key)
+            if t_handle:
+                t_place = safe_get_place(self.db, t_handle)
+                if t_place is not None and place_key(self.db, t_place) == key:
+                    return t_handle
+            return None
+
+        places_in_progress: set[str] = set()
+
         def get_or_create_place(s_pl_handle: str | None, trans: Any) -> str | None:
             if not s_pl_handle:
                 return None
+            hit = mapped_handle("place", s_pl_handle, self.db.has_place_handle)
+            if hit:
+                return hit
+            if s_pl_handle in places_in_progress:
+                return None  # the incoming places enclose each other in a loop
+            places_in_progress.add(s_pl_handle)
             try:
                 s_place = safe_get_place(source_db, s_pl_handle)
                 if not s_place:
                     return None
-
-                # Check if place with same title already exists in target
-                title = s_place.get_title()
-                for h in self.db.iter_place_handles():
-                    t_pl = safe_get_place(self.db, h)
-                    if t_pl and t_pl.get_title() == title:
-                        return h
+                key = place_key(source_db, s_place)
+                if key and self.db.has_place_handle(s_pl_handle):
+                    t_place = safe_get_place(self.db, s_pl_handle)
+                    if t_place is not None and place_key(self.db, t_place) == key:
+                        return remember("place", s_pl_handle, s_pl_handle)
+                found = find_target_place(key)
+                if found:
+                    return remember("place", s_pl_handle, found)
 
                 new_place = copy.deepcopy(s_place)
+                unused_handle(new_place, self.db.has_place_handle)
+                copy_note_list(new_place, trans)
+                copy_media_refs(new_place, trans)
+                copy_citation_list(new_place, trans)
+                enclosing = []
+                for pref in new_place.get_placeref_list():
+                    new_parent = get_or_create_place(pref.ref, trans)
+                    if new_parent:
+                        pref.ref = new_parent
+                        enclosing.append(pref)
+                new_place.set_placeref_list(enclosing)
                 fresh_gramps_id(new_place, self.db.has_place_gramps_id)
                 self.db.add_place(new_place, trans)
-                return new_place.handle
+                new_key = place_key(self.db, new_place)
+                if new_key:
+                    place_index().setdefault(new_key, new_place.handle)
+                return remember("place", s_pl_handle, new_place.handle)
             except Exception:
                 LOG.warning(
                     "Could not copy %s from the incoming file; it was skipped",
                     "place",
                     exc_info=True,
                 )
+            finally:
+                places_in_progress.discard(s_pl_handle)
             return None
 
         # Helper to copy note
         def copy_note(s_note_handle: str | None, trans: Any) -> str | None:
             if not s_note_handle:
                 return None
-            try:
-                if self.db.get_note_from_handle(s_note_handle):
-                    return s_note_handle
-            except Exception:
-                pass
+            hit = mapped_handle("note", s_note_handle, self.db.has_note_handle)
+            if hit:
+                return hit
             try:
                 s_note = source_db.get_note_from_handle(s_note_handle)
                 if not s_note:
                     return None
+                if self.db.has_note_handle(s_note_handle):
+                    t_note = self.db.get_note_from_handle(s_note_handle)
+                    if t_note.get_type() == s_note.get_type() and (
+                        t_note.get() == s_note.get()
+                    ):
+                        return remember("note", s_note_handle, s_note_handle)
                 new_note = copy.deepcopy(s_note)
+                unused_handle(new_note, self.db.has_note_handle)
                 fresh_gramps_id(new_note, self.db.has_note_gramps_id)
                 self.db.add_note(new_note, trans)
-                return new_note.handle
+                return remember("note", s_note_handle, new_note.handle)
             except Exception:
                 LOG.warning(
                     "Could not copy %s from the incoming file; it was skipped",
@@ -801,26 +945,24 @@ class GedGWizard(GWizardBase):
         def copy_media(s_media_handle: str | None, trans: Any) -> str | None:
             if not s_media_handle:
                 return None
-            try:
-                if self.db.get_media_from_handle(s_media_handle):
-                    return s_media_handle
-            except Exception:
-                pass
+            hit = mapped_handle("media", s_media_handle, self.db.has_media_handle)
+            if hit:
+                return hit
             try:
                 s_media = source_db.get_media_from_handle(s_media_handle)
                 if not s_media:
                     return None
+                if self.db.has_media_handle(s_media_handle):
+                    t_media = self.db.get_media_from_handle(s_media_handle)
+                    if t_media.get_path() == s_media.get_path():
+                        return remember("media", s_media_handle, s_media_handle)
                 new_media = copy.deepcopy(s_media)
-                new_notes = []
-                for nh in new_media.get_note_list():
-                    new_nh = copy_note(nh, trans)
-                    if new_nh:
-                        new_notes.append(new_nh)
-                new_media.set_note_list(new_notes)
-
+                unused_handle(new_media, self.db.has_media_handle)
+                copy_note_list(new_media, trans)
+                copy_citation_list(new_media, trans)
                 fresh_gramps_id(new_media, self.db.has_media_gramps_id)
                 self.db.add_media(new_media, trans)
-                return new_media.handle
+                return remember("media", s_media_handle, new_media.handle)
             except Exception:
                 LOG.warning(
                     "Could not copy %s from the incoming file; it was skipped",
@@ -833,26 +975,25 @@ class GedGWizard(GWizardBase):
         def copy_repository(s_repo_handle: str | None, trans: Any) -> str | None:
             if not s_repo_handle:
                 return None
-            try:
-                if self.db.get_repository_from_handle(s_repo_handle):
-                    return s_repo_handle
-            except Exception:
-                pass
+            hit = mapped_handle("repo", s_repo_handle, self.db.has_repository_handle)
+            if hit:
+                return hit
             try:
                 s_repo = source_db.get_repository_from_handle(s_repo_handle)
                 if not s_repo:
                     return None
+                if self.db.has_repository_handle(s_repo_handle):
+                    t_repo = self.db.get_repository_from_handle(s_repo_handle)
+                    if t_repo.get_name() == s_repo.get_name() and (
+                        t_repo.get_type() == s_repo.get_type()
+                    ):
+                        return remember("repo", s_repo_handle, s_repo_handle)
                 new_repo = copy.deepcopy(s_repo)
-                new_notes = []
-                for nh in new_repo.get_note_list():
-                    new_nh = copy_note(nh, trans)
-                    if new_nh:
-                        new_notes.append(new_nh)
-                new_repo.set_note_list(new_notes)
-
+                unused_handle(new_repo, self.db.has_repository_handle)
+                copy_note_list(new_repo, trans)
                 fresh_gramps_id(new_repo, self.db.has_repository_gramps_id)
                 self.db.add_repository(new_repo, trans)
-                return new_repo.handle
+                return remember("repo", s_repo_handle, new_repo.handle)
             except Exception:
                 LOG.warning(
                     "Could not copy %s from the incoming file; it was skipped",
@@ -865,15 +1006,19 @@ class GedGWizard(GWizardBase):
         def copy_source(s_source_handle: str | None, trans: Any) -> str | None:
             if not s_source_handle:
                 return None
-            try:
-                if safe_get_source(self.db, s_source_handle):
-                    return s_source_handle
-            except Exception:
-                pass
+            hit = mapped_handle("source", s_source_handle, self.db.has_source_handle)
+            if hit:
+                return hit
             try:
                 s_source = safe_get_source(source_db, s_source_handle)
                 if not s_source:
                     return None
+                if self.db.has_source_handle(s_source_handle):
+                    t_source = safe_get_source(self.db, s_source_handle)
+                    if t_source is not None and source_fields(
+                        t_source
+                    ) == source_fields(s_source):
+                        return remember("source", s_source_handle, s_source_handle)
                 existing_handle, status = source_matcher.find(s_source)
                 if existing_handle:
                     LOG.info(
@@ -881,7 +1026,7 @@ class GedGWizard(GWizardBase):
                         s_source.get_title(),
                         existing_handle,
                     )
-                    return existing_handle
+                    return remember("source", s_source_handle, existing_handle)
                 if status == SOURCE_AMBIGUOUS:
                     LOG.warning(
                         "Source %r matches several sources in the family tree; "
@@ -889,27 +1034,21 @@ class GedGWizard(GWizardBase):
                         s_source.get_title(),
                     )
                 new_source = copy.deepcopy(s_source)
-                new_notes = []
-                for nh in new_source.get_note_list():
-                    new_nh = copy_note(nh, trans)
-                    if new_nh:
-                        new_notes.append(new_nh)
-                new_source.set_note_list(new_notes)
-
-                for mref in new_source.media_list:
-                    new_mh = copy_media(mref.get_reference_handle(), trans)
-                    if new_mh:
-                        mref.set_reference_handle(new_mh)
-
-                for rref in new_source.reporef_list:
+                unused_handle(new_source, self.db.has_source_handle)
+                copy_note_list(new_source, trans)
+                copy_media_refs(new_source, trans)
+                kept_repos = []
+                for rref in new_source.get_reporef_list():
                     new_rh = copy_repository(rref.get_reference_handle(), trans)
                     if new_rh:
                         rref.set_reference_handle(new_rh)
+                        kept_repos.append(rref)
+                new_source.set_reporef_list(kept_repos)
 
                 fresh_gramps_id(new_source, self.db.has_source_gramps_id)
                 self.db.add_source(new_source, trans)
                 source_matcher.add(new_source)
-                return new_source.handle
+                return remember("source", s_source_handle, new_source.handle)
             except Exception:
                 LOG.warning(
                     "Could not copy %s from the incoming file; it was skipped",
@@ -922,35 +1061,36 @@ class GedGWizard(GWizardBase):
         def copy_citation(s_citation_handle: str | None, trans: Any) -> str | None:
             if not s_citation_handle:
                 return None
-            try:
-                if self.db.get_citation_from_handle(s_citation_handle):
-                    return s_citation_handle
-            except Exception:
-                pass
+            hit = mapped_handle(
+                "citation", s_citation_handle, self.db.has_citation_handle
+            )
+            if hit:
+                return hit
             try:
                 s_citation = source_db.get_citation_from_handle(s_citation_handle)
                 if not s_citation:
                     return None
+                if self.db.has_citation_handle(s_citation_handle):
+                    s_sig = citation_signature(source_db, s_citation_handle)
+                    if s_sig is not None and s_sig == citation_signature(
+                        self.db, s_citation_handle
+                    ):
+                        return remember("citation", s_citation_handle, s_citation_handle)
                 new_citation = copy.deepcopy(s_citation)
-                new_notes = []
-                for nh in new_citation.get_note_list():
-                    new_nh = copy_note(nh, trans)
-                    if new_nh:
-                        new_notes.append(new_nh)
-                new_citation.set_note_list(new_notes)
-
-                for mref in new_citation.media_list:
-                    new_mh = copy_media(mref.get_reference_handle(), trans)
-                    if new_mh:
-                        mref.set_reference_handle(new_mh)
-
+                unused_handle(new_citation, self.db.has_citation_handle)
+                copy_note_list(new_citation, trans)
+                copy_media_refs(new_citation, trans)
                 new_sh = copy_source(new_citation.get_reference_handle(), trans)
-                if new_sh:
-                    new_citation.set_reference_handle(new_sh)
-
+                if not new_sh:
+                    LOG.warning(
+                        "Citation %s: its source could not be copied; skipped",
+                        s_citation_handle,
+                    )
+                    return None
+                new_citation.set_reference_handle(new_sh)
                 fresh_gramps_id(new_citation, self.db.has_citation_gramps_id)
                 self.db.add_citation(new_citation, trans)
-                return new_citation.handle
+                return remember("citation", s_citation_handle, new_citation.handle)
             except Exception:
                 LOG.warning(
                     "Could not copy %s from the incoming file; it was skipped",
