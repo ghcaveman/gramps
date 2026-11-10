@@ -44,7 +44,7 @@ git rebase origin/functionality_base (git rebase --abort) to give up
 git push --force-with-lease origin <feature-branch-name>
 
 List all files touched/added by this feature branch:
-git diff --name-only functionality_base...mediafix > changed_files.txt
+git diff --name-only origin/functionality_base...origin/gwizard_filemerge > changed_files.txt
 
 Count the number of commits in a particular feature branch:
 git rev-list --count functionality_base..mediafix
