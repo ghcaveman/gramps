@@ -858,83 +858,84 @@ class GWizardMergeDialog(Gtk.Dialog):
 
         # ---------- Events & Other Records ----------
         section(_("Events & Other Records"))
-        primary_source_handles = {handle for handle in (l_b[2], l_d[2]) if handle}
+        primary_source_fields = {
+            handle: field
+            for handle, field in (
+                (l_b[2], "birth_event"),
+                (l_d[2], "death_event"),
+            )
+            if handle
+        }
         source_groups = person_events_by_type(sd, left)
         target_groups = person_events_by_type(td, right)
 
-        def event_sort_key(db: Any, handle: str) -> str:
+        def event_match_key(db: Any, handle: str) -> tuple[int, int, str, str, str]:
             ev = safe_get_event(db, handle)
-            return self._event_line_from(db, ev) if ev else ""
+            if not ev:
+                return (0, 0, "", "", "")
+            date = ev.get_date_object()
+            place = ""
+            place_handle = ev.get_place_handle()
+            if place_handle:
+                place_obj = safe_get_place(db, place_handle)
+                if place_obj:
+                    place = place_obj.get_name().get_value() or ""
+            date_text = date.get_text() if date.get_sort_value() == 0 else ""
+            return (
+                date.get_sort_value(),
+                date.get_modifier(),
+                " ".join(date_text.split()).casefold(),
+                " ".join(place.split()).casefold(),
+                " ".join((ev.get_description() or "").split()).casefold(),
+            )
 
-        # For each event type we align source and target events, sorted in
-        # alphabetic order so the database and file sides match cleanly.
+        def event_sort_key(db: Any, handle: str) -> tuple[Any, ...]:
+            ev = safe_get_event(db, handle)
+            if not ev:
+                return (0, 0, "", "", "", 0)
+            return (*event_match_key(db, handle), ev.get_date_object().get_sort_key())
+
+        # Match and order on event data, not rendered text: date quality can
+        # change the display string without changing the underlying event.
         for etype in sorted(set(source_groups.keys()) | set(target_groups.keys())):
-            s_event_handles = sorted(
-                source_groups.get(etype, []),
-                key=lambda h: event_sort_key(sd, h),
-            )
-            t_event_handles = sorted(
-                target_groups.get(etype, []),
-                key=lambda h: event_sort_key(td, h),
-            )
+            source_by_key: dict[tuple[int, int, str, str, str], list[str]] = {}
+            target_by_key: dict[tuple[int, int, str, str, str], list[str]] = {}
+            for handle in source_groups.get(etype, []):
+                source_by_key.setdefault(event_match_key(sd, handle), []).append(handle)
+            for handle in target_groups.get(etype, []):
+                target_by_key.setdefault(event_match_key(td, handle), []).append(handle)
 
-            # Build dictionaries of handle -> rendered line for quick lookup.
-            s_lines = {
-                handle: self._event_line_from(sd, safe_get_event(sd, handle))
-                for handle in s_event_handles
-            }
-            t_lines = {
-                handle: self._event_line_from(td, safe_get_event(td, handle))
-                for handle in t_event_handles
-            }
-
-            # Track which target handles have been paired.
-            used_t_handles: set[str] = set()
-
-            # First, try to pair each source event with an identical target
-            # event line.  If a match is found we pair them and mark the target
-            # as used.
-            for s_handle, s_line in s_lines.items():
-                match_handle: str | None = None
-                for t_candidate_h, t_line in t_lines.items():
-                    if t_candidate_h in used_t_handles:
-                        continue
-                    if s_line == t_line:
-                        match_handle = t_candidate_h
-                        break
-                if match_handle:
-                    used_t_handles.add(match_handle)
-                # Retrieve event objects for the row.
-                s_event = safe_get_event(sd, s_handle) if s_handle else None
-                t_event = safe_get_event(td, match_handle) if match_handle else None
-                key = (
-                    "event:" + s_handle
-                    if s_handle and s_handle not in primary_source_handles
-                    else None
+            for event_key in sorted(set(source_by_key) | set(target_by_key)):
+                s_event_handles = sorted(
+                    source_by_key.get(event_key, []),
+                    key=lambda h: event_sort_key(sd, h),
                 )
-                add_row(
-                    key,
-                    etype,
-                    s_line,
-                    self._event_line_from(td, t_event) if t_event else "",
-                    left_obj=s_event,
-                    right_obj=t_event,
+                t_event_handles = sorted(
+                    target_by_key.get(event_key, []),
+                    key=lambda h: event_sort_key(td, h),
                 )
-
-            # Any remaining target events that were not matched are added as
-            # rows with an empty source side.
-            for t_handle, t_line in t_lines.items():
-                if t_handle in used_t_handles:
-                    continue
-                t_event = safe_get_event(td, t_handle)
-                add_row(
-                    None,
-                    etype,
-                    "",
-                    t_line,
-                    left_obj=None,
-                    right_obj=t_event,
-                )
+                for index in range(max(len(s_event_handles), len(t_event_handles))):
+                    s_handle = (
+                        s_event_handles[index] if index < len(s_event_handles) else None
+                    )
+                    t_handle = (
+                        t_event_handles[index] if index < len(t_event_handles) else None
+                    )
+                    s_event = safe_get_event(sd, s_handle) if s_handle else None
+                    t_event = safe_get_event(td, t_handle) if t_handle else None
+                    key = (
+                        primary_source_fields.get(s_handle, "event:" + s_handle)
+                        if s_handle
+                        else None
+                    )
+                    add_row(
+                        key,
+                        etype,
+                        self._event_line_from(sd, s_event) if s_event else "",
+                        self._event_line_from(td, t_event) if t_event else "",
+                        left_obj=s_event,
+                        right_obj=t_event,
+                    )
 
     # ------------------------------------------------------------------
     # Data helpers
