@@ -186,22 +186,6 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
                 }
             )
 
-    # 2. Unreferenced media records (image tags with 0 data references)
-    for records in path_map.values():
-        if len(records) == 1 and records[0]["backlink_count"] == 0:
-            r = records[0]
-            groups.append(
-                {
-                    "type": "unreferenced",
-                    "file_key": r["full_path"],
-                    "records": [r],
-                    "keeper": r,
-                    "raw_path": r["raw_path"],
-                    "perm_issue": r.get("perm_issue", False),
-                    "inaccess_dir": r.get("inaccess_dir"),
-                }
-            )
-
     return groups
 
 
@@ -546,10 +530,10 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                                 len(os.path.splitext(expected)[0]) :
                             ]
                             new_rel = f"{base}_{r['gramps_id']}{extra}{ext}"
-                        ok, err = relocate_file(src_full, dest_full, copy=True)
+                        ok, copy_err = relocate_file(src_full, dest_full, copy=True)
                         if not ok:
-                            LOG.warning("Failed to copy media file: %s", err)
-                            errors.append("[%s] %s" % (r["gramps_id"], err))
+                            LOG.warning("Failed to copy media file: %s", copy_err)
+                            errors.append("[%s] %s" % (r["gramps_id"], copy_err))
                             continue
                         copied_count += 1
                         other_media = self.dbstate.db.get_media_from_handle(r["handle"])
