@@ -1532,6 +1532,104 @@ Here is the gravestone: [[Image:Franklin-2-2.jpg|thumb|Josiah gravestone marker]
         self.assertIn("Boston, Suffolk, Massachusetts Bay Colony", titles)
         self.assertIn("Chelsea, Suffolk, Massachusetts Bay Colony", titles)
 
+    def test_format_wikitree_timestamp(self) -> None:
+        """Verify timestamp formatting into ISO format."""
+        self.assertEqual(
+            WikiTreeGWizard.format_wikitree_timestamp("20260926230118"),
+            "2026-09-26 23:01:18",
+        )
+        self.assertEqual(
+            WikiTreeGWizard.format_wikitree_timestamp("20080703"),
+            "2008-07-03",
+        )
+        self.assertEqual(WikiTreeGWizard.format_wikitree_timestamp(""), "")
+
+    def test_check_profile_drift(self) -> None:
+        """Verify drift detection between local person and remote timestamp."""
+        p = Person()
+        attr = Attribute()
+        attr.set_type(AttributeType("WikiTree Touched"))
+        attr.set_value("2024-01-01 00:00:00")
+        p.add_attribute(attr)
+
+        # 1. Remote is newer -> has_drift True
+        drift_res = WikiTreeGWizard.check_profile_drift(p, "20260926230118")
+        self.assertTrue(drift_res["has_drift"])
+        self.assertIn("was modified on", drift_res["message"])
+
+        # 2. Remote is equal or older -> has_drift False
+        no_drift = WikiTreeGWizard.check_profile_drift(p, "20231231000000")
+        self.assertFalse(no_drift["has_drift"])
+        self.assertIn("up to date", no_drift["message"])
+
+        # 3. Person has no prior timestamp -> has_drift True
+        p_empty = Person()
+        res_empty = WikiTreeGWizard.check_profile_drift(p_empty, "20260926230118")
+        self.assertTrue(res_empty["has_drift"])
+
+    def test_load_and_apply_drift_metadata(self) -> None:
+        """Verify Touched and Manager metadata are stored and synced on apply."""
+        # Setup target person in self.db
+        target_p = Person()
+        pname = Name()
+        pname.set_first_name("Benjamin")
+        surn = Surname()
+        surn.set_surname("Franklin")
+        pname.add_surname(surn)
+        target_p.set_primary_name(pname)
+        with DbTxn("Add target", self.db) as trans:
+            t_handle = self.db.add_person(target_p, trans)
+
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 1,
+            "Name": "Franklin-1",
+            "FirstName": "Benjamin",
+            "LastNameBirth": "Franklin",
+            "Gender": "Male",
+            "Touched": "20260926230118",
+            "Manager": 10988142,
+        }
+
+        gw.run_step("connect", query="Franklin-1", people_data=[mock_person])
+        people = gw.run_step("load")
+        person = people[0]
+        s_handle = person.get_handle()
+        source_db = gw.context.get("source_db")
+
+        # Verify source person has WikiTree Touched and WikiTree Manager attributes
+        attrs = {
+            str(a.get_type()): str(a.get_value()) for a in person.get_attribute_list()
+        }
+        self.assertEqual(attrs.get("WikiTree Touched"), "2026-09-26 23:01:18")
+        self.assertEqual(attrs.get("WikiTree Manager"), "10988142")
+
+        # Verify Citation note contains synchronization metadata
+        cit = source_db.get_citation_from_handle(person.get_citation_list()[0])
+        note_text = " ".join(
+            source_db.get_note_from_handle(nh).get() for nh in cit.get_note_list()
+        )
+        self.assertIn("Last Modified: 2026-09-26 23:01:18", note_text)
+        self.assertIn("Profile Manager ID: 10988142", note_text)
+
+        # Apply merge
+        success = gw.run_step(
+            "apply",
+            source_person_handle=s_handle,
+            target_person_handle=t_handle,
+            resolutions={"wtid": "source"},
+        )
+        self.assertTrue(success)
+
+        # Target person should now have WikiTree Touched and Manager attributes
+        updated_target = self.db.get_person_from_handle(t_handle)
+        t_attrs = {
+            str(a.get_type()): str(a.get_value())
+            for a in updated_target.get_attribute_list()
+        }
+        self.assertEqual(t_attrs.get("WikiTree Touched"), "2026-09-26 23:01:18")
+        self.assertEqual(t_attrs.get("WikiTree Manager"), "10988142")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -92,8 +92,8 @@ _DEFAULT_FIELDS = (
     "Id,Name,FirstName,MiddleName,MiddleInitial,LastNameBirth,LastNameCurrent,LastNameOther,"
     "RealName,ColloquialName,Prefix,Suffix,Nicknames,Gender,BirthDate,DeathDate,BirthDateDecade,"
     "DeathDateDecade,BirthLocation,DeathLocation,BirthDateStatus,DeathDateStatus,"
-    "IsLiving,Privacy,Photo,PhotoData,Father,Mother,Parents,Children,Spouses,DataStatus,"
-    "Templates,Categories,Bio"
+    "IsLiving,Privacy,Touched,Manager,Created,Photo,PhotoData,Father,Mother,Parents,"
+    "Children,Spouses,DataStatus,Templates,Categories,Bio"
 )
 
 
@@ -1033,6 +1033,73 @@ class WikiTreeGWizard(GedGWizard):
         return PlaceType(PlaceType.LOCALITY)
 
     @staticmethod
+    def format_wikitree_timestamp(ts: str | None) -> str:
+        """
+        Format a WikiTree timestamp string (YYYYMMDDHHMMSS) to ISO format.
+
+        :param ts: WikiTree timestamp string.
+        :returns: Formatted timestamp string (YYYY-MM-DD HH:MM:SS) or original text.
+        """
+        val = (ts or "").strip()
+        if len(val) == 14 and val.isdigit():
+            return (
+                f"{val[:4]}-{val[4:6]}-{val[6:8]} "
+                f"{val[8:10]}:{val[10:12]}:{val[12:14]}"
+            )
+        if len(val) == 8 and val.isdigit():
+            return f"{val[:4]}-{val[4:6]}-{val[6:8]}"
+        return val
+
+    @staticmethod
+    def check_profile_drift(
+        target_person: Person | None,
+        remote_touched: str | None,
+    ) -> dict[str, Any]:
+        """
+        Check whether a remote WikiTree profile has been modified since it was merged.
+
+        :param target_person: Person in local Gramps database.
+        :param remote_touched: Touched timestamp from WikiTree profile.
+        :returns: Dictionary with 'has_drift', 'local_touched', 'remote_touched',
+            and 'message'.
+        """
+        result = {
+            "has_drift": False,
+            "local_touched": "",
+            "remote_touched": (remote_touched or "").strip(),
+            "message": "",
+        }
+        if not target_person:
+            return result
+
+        local_ts = ""
+        for attr in target_person.get_attribute_list():
+            if str(attr.get_type()) == "WikiTree Touched":
+                local_ts = str(attr.get_value() or "").strip()
+                break
+
+        result["local_touched"] = local_ts
+        rem_ts = (remote_touched or "").strip()
+
+        if local_ts and rem_ts:
+            norm_local = re.sub(r"\D", "", local_ts)
+            norm_rem = re.sub(r"\D", "", rem_ts)
+            if norm_rem > norm_local:
+                result["has_drift"] = True
+                result["message"] = _(
+                    "WikiTree profile was modified on %(remote)s (local copy from %(local)s)."
+                ) % {
+                    "remote": WikiTreeGWizard.format_wikitree_timestamp(rem_ts),
+                    "local": WikiTreeGWizard.format_wikitree_timestamp(local_ts),
+                }
+            else:
+                result["message"] = _("Local profile is up to date with WikiTree.")
+        elif not local_ts and rem_ts:
+            result["has_drift"] = True
+            result["message"] = _("No prior synchronization timestamp found.")
+        return result
+
+    @staticmethod
     def _parse_query_names(query: str) -> tuple[str, str]:
         """
         Split a human name query into first name and last name.
@@ -1426,6 +1493,10 @@ class WikiTreeGWizard(GedGWizard):
                     liv_attr.set_value(_("Living"))
                     person.add_attribute(liv_attr)
 
+                touched_raw = str(pdata.get("Touched") or "").strip()
+                manager_raw = str(pdata.get("Manager") or "").strip()
+                created_raw = str(pdata.get("Created") or "").strip()
+
                 # WikiTree ID custom attribute and Internet Web Home URL
                 if wt_key:
                     wt_attr = Attribute()
@@ -1439,14 +1510,38 @@ class WikiTreeGWizard(GedGWizard):
                     wt_url.set_description(_("WikiTree Profile"))
                     person.add_url(wt_url)
 
+                # Synchronization metadata attributes
+                if touched_raw:
+                    touched_formatted = self.format_wikitree_timestamp(touched_raw)
+                    touch_attr = Attribute()
+                    touch_attr.set_type(AttributeType("WikiTree Touched"))
+                    touch_attr.set_value(touched_formatted)
+                    person.add_attribute(touch_attr)
+
+                if manager_raw:
+                    mgr_attr = Attribute()
+                    mgr_attr.set_type(AttributeType("WikiTree Manager"))
+                    mgr_attr.set_value(manager_raw)
+                    person.add_attribute(mgr_attr)
+
                 # Citation
                 citation = Citation()
                 citation.set_reference_handle(source_handle)
                 citation.set_page(f"WikiTree: {wt_key}" if wt_key else f"ID: {num_id}")
+                cit_lines = []
                 if wt_key:
-                    cit_url = f"https://www.wikitree.com/wiki/{wt_key}"
+                    cit_lines.append(f"URL: https://www.wikitree.com/wiki/{wt_key}")
+                if touched_raw:
+                    cit_lines.append(
+                        f"Last Modified: {self.format_wikitree_timestamp(touched_raw)}"
+                    )
+                if manager_raw:
+                    cit_lines.append(f"Profile Manager ID: {manager_raw}")
+
+                if cit_lines:
                     cit_note = Note()
-                    cit_note.set(f"URL: {cit_url}")
+                    cit_note.set_type(NoteType(NoteType.CITATION))
+                    cit_note.set("\n".join(cit_lines))
                     cit_note_handle = source_db.add_note(cit_note, trans)
                     citation.add_note(cit_note_handle)
 
@@ -2128,7 +2223,45 @@ class WikiTreeGWizard(GedGWizard):
         """
         resolutions = kwargs.get("resolutions")
         target_person_handle = kwargs.get("target_person_handle")
+        source_person_handle = kwargs.get("source_person_handle")
+
         if target_person_handle and resolutions is not None:
             if "wtid" not in resolutions:
                 resolutions["wtid"] = "source"
-        return super()._apply(**kwargs)
+
+        applied = super()._apply(**kwargs)
+
+        if applied and target_person_handle and source_person_handle:
+            source_db = self.context.get("source_db")
+            if source_db:
+                s_p = source_db.get_person_from_handle(source_person_handle)
+                t_p = self.db.get_person_from_handle(target_person_handle)
+                if s_p and t_p:
+                    metadata_attrs = {}
+                    for a in s_p.get_attribute_list():
+                        if str(a.get_type()) in (
+                            "WikiTree Touched",
+                            "WikiTree Manager",
+                        ):
+                            metadata_attrs[str(a.get_type())] = str(a.get_value())
+
+                    if metadata_attrs:
+                        with DbTxn(
+                            _("Update WikiTree Synchronization Metadata"),
+                            self.db,
+                        ) as trans:
+                            for m_type, m_val in metadata_attrs.items():
+                                found = False
+                                for ta in t_p.get_attribute_list():
+                                    if str(ta.get_type()) == m_type:
+                                        ta.set_value(m_val)
+                                        found = True
+                                        break
+                                if not found:
+                                    new_attr = Attribute()
+                                    new_attr.set_type(AttributeType(m_type))
+                                    new_attr.set_value(m_val)
+                                    t_p.add_attribute(new_attr)
+                            self.db.commit_person(t_p, trans)
+
+        return applied
