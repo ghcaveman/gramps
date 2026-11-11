@@ -118,6 +118,7 @@ from gramps.gen.lib import (
     EventType,
 )
 from gramps.gen.types import PersonHandle
+from gramps.gen.user import User
 
 # -------------------------------------------------------------------------
 #
@@ -159,6 +160,7 @@ def _find_sample_dir(*names: str) -> str | None:
     root = globals().get("ROOT_DIR")
     if root:
         candidates.append(os.path.join(root, "example", "gramps"))
+        candidates.append(os.path.join(root, "data", "tests"))
     for base in (
         os.environ.get("GRAMPS_RESOURCES"),
         os.path.join(sys.prefix, "share"),
@@ -182,31 +184,6 @@ def _find_sample_dir(*names: str) -> str | None:
         if all(os.path.isfile(os.path.join(candidate, name)) for name in names):
             return candidate
     return None
-
-
-def _has_gtk_display() -> bool:
-    """
-    Return True only if a real Gtk display is available.
-
-    Building a widget without one crashes, so those tests must be skipped.
-    An X11 backend needs DISPLAY set and cannot run with the CI value of
-    GDK_BACKEND; the Windows and macOS backends need neither.
-    """
-    if sys.platform not in ("win32", "darwin"):
-        if not os.environ.get("DISPLAY") or os.environ.get("GDK_BACKEND") == "-":
-            return False
-    try:
-        import gi
-
-        gi.require_version("Gtk", "3.0")
-        from gi.repository import Gtk
-
-        return bool(Gtk.init_check([])[0])
-    except Exception:
-        return False
-
-
-_HAS_GTK_DISPLAY = _has_gtk_display()
 
 
 # ------------------------------------------------------------
@@ -314,6 +291,197 @@ class GWizardTest(unittest.TestCase):
         finally:
             source_db.close()
 
+    def test_generic_events_compare_and_apply_resolution(self) -> None:
+        """
+        Verify generic/custom events comparison produces match, differ,
+        source_only, target_only statuses, and that applying 'source' copies
+        the event while 'target' leaves the target record untouched.
+        """
+        source_db = make_database("sqlite")
+        source_db.load(":memory:")
+
+        def create_event(
+            db: DbWriteBase,
+            event_type: int | EventType,
+            description: str,
+            year: int,
+            month: int = 0,
+            day: int = 0,
+            place_name: str = "",
+        ) -> Event:
+            evt = Event()
+            evt.set_type(event_type)
+            evt.set_description(description)
+            d = Date()
+            if year and month and day:
+                d.set_yr_mon_day(year, month, day)
+            elif year:
+                d.set_yr_mon_day(year, 0, 0)
+            evt.set_date_object(d)
+            with DbTxn("create event", db) as trans:
+                if place_name:
+                    pl = Place()
+                    pl.set_title(place_name)
+                    db.add_place(pl, trans)
+                    evt.set_place_handle(pl.handle)
+                db.add_event(evt, trans)
+            return evt
+
+        try:
+            # 1. Matching event: Graduation on 1998-05-20 in Springfield
+            s_grad = create_event(
+                source_db, EventType.GRADUATION, "College", 1998, 5, 20, "Springfield"
+            )
+            t_grad = create_event(
+                self.db, EventType.GRADUATION, "College", 1998, 5, 20, "Springfield"
+            )
+
+            # 2. Differing event: Occupation (Engineer vs Manager) in 2005
+            s_occ = create_event(
+                source_db, EventType.OCCUPATION, "Engineer", 2005, 0, 0
+            )
+            t_occ = create_event(self.db, EventType.OCCUPATION, "Manager", 2005, 0, 0)
+
+            # 3. Source-only event: Military Service in 2001
+            s_mil = create_event(
+                source_db, EventType.MILITARY_SERV, "Army", 2001, 1, 15, "Fort Bragg"
+            )
+
+            # Build source person with graduation, occupation, military
+            s_person = Person()
+            s_person.set_gender(Person.MALE)
+            name = Name()
+            name.first_name = "John"
+            s1 = Surname()
+            s1.set_surname("Doe")
+            name.add_surname(s1)
+            s_person.set_primary_name(name)
+            for evt in (s_grad, s_occ, s_mil):
+                ref = EventRef()
+                ref.ref = evt.handle
+                s_person.add_event_ref(ref)
+            with DbTxn("add source person", source_db) as trans:
+                source_db.add_person(s_person, trans)
+
+            # Attach graduation and occupation to self.target_person
+            with DbTxn("update target person", self.db) as trans:
+                for evt in (t_grad, t_occ):
+                    ref = EventRef()
+                    ref.ref = evt.handle
+                    self.target_person.add_event_ref(ref)
+                self.db.commit_person(self.target_person, trans)
+
+            gwizard = GedGWizard(self.db)
+            gwizard.context["source_db"] = source_db
+
+            # Test compare step
+            rows = gwizard.run_step(
+                "compare",
+                source_person_handle=s_person.handle,
+                target_person_handle=self.target_person.handle,
+            )
+            event_rows = [r for r in rows if r.field_type == "event"]
+
+            # Graduation (College) should match
+            grad_rows = [
+                r
+                for r in event_rows
+                if "College" in r.source_val or "College" in r.target_val
+            ]
+            self.assertTrue(grad_rows)
+            self.assertEqual(grad_rows[0].status, "match")
+
+            # Occupation should differ
+            occ_rows = [
+                r
+                for r in event_rows
+                if "Engineer" in r.source_val or "Manager" in r.target_val
+            ]
+            self.assertTrue(occ_rows)
+            self.assertEqual(occ_rows[0].status, "differ")
+
+            # Military should be source_only
+            mil_rows = [r for r in event_rows if "Army" in r.source_val]
+            self.assertTrue(mil_rows)
+            self.assertEqual(mil_rows[0].status, "source_only")
+            self.assertEqual(mil_rows[0].extra_data["source_handle"], s_mil.handle)
+
+            # Test apply step: resolve Military Service as "source"
+            initial_t_events = len(self.target_person.get_event_ref_list())
+            self.assertTrue(
+                gwizard.run_step(
+                    "apply",
+                    source_person_handle=s_person.handle,
+                    target_person_handle=self.target_person.handle,
+                    resolutions={
+                        f"event:{s_mil.handle}": "source",
+                        f"event:{s_occ.handle}": "target",
+                    },
+                )
+            )
+
+            updated_target = self.db.get_person_from_handle(self.target_person.handle)
+            updated_event_refs = updated_target.get_event_ref_list()
+            self.assertEqual(len(updated_event_refs), initial_t_events + 1)
+
+            # Verify the military event was copied with its place
+            copied_mil_events = [
+                self.db.get_event_from_handle(r.ref)
+                for r in updated_event_refs
+                if self.db.get_event_from_handle(r.ref).get_type()
+                == EventType.MILITARY_SERV
+            ]
+            self.assertEqual(len(copied_mil_events), 1)
+            mil_evt = copied_mil_events[0]
+            self.assertEqual(mil_evt.get_description(), "Army")
+            self.assertTrue(mil_evt.get_place_handle())
+            mil_place = self.db.get_place_from_handle(mil_evt.get_place_handle())
+            self.assertEqual(mil_place.get_title(), "Fort Bragg")
+
+            # Verify Occupation remained "Manager" (resolution was "target")
+            occ_events = [
+                self.db.get_event_from_handle(r.ref)
+                for r in updated_event_refs
+                if self.db.get_event_from_handle(r.ref).get_type()
+                == EventType.OCCUPATION
+            ]
+            self.assertEqual(len(occ_events), 1)
+            self.assertEqual(occ_events[0].get_description(), "Manager")
+
+            # Also verify target_only when target person has events source lacks
+            t_extra = create_event(
+                self.db, EventType.RESIDENCE, "Retirement Home", 2020, 0, 0
+            )
+            with DbTxn("add target-only event", self.db) as trans:
+                r_extra = EventRef()
+                r_extra.ref = t_extra.handle
+                updated_target.add_event_ref(r_extra)
+                self.db.commit_person(updated_target, trans)
+
+            # Build source person with only graduation (1 event vs 4 in target)
+            s_solo = Person()
+            s_solo.set_primary_name(name)
+            ref_solo = EventRef()
+            ref_solo.ref = s_grad.handle
+            s_solo.add_event_ref(ref_solo)
+            with DbTxn("add solo person", source_db) as trans:
+                source_db.add_person(s_solo, trans)
+
+            rows_solo = gwizard.run_step(
+                "compare",
+                source_person_handle=s_solo.handle,
+                target_person_handle=updated_target.handle,
+            )
+            target_only_rows = [
+                r
+                for r in rows_solo
+                if r.field_type == "event" and r.status == "target_only"
+            ]
+            self.assertTrue(len(target_only_rows) >= 1)
+
+        finally:
+            source_db.close()
+
     def tearDown(self) -> None:
         """
         Close the target database connection.
@@ -345,6 +513,84 @@ class GWizardTest(unittest.TestCase):
         source_person.set_gender(Person.FEMALE)
         score = matcher.score_match(source_person, self.target_person)
         self.assertEqual(score, -1.0)
+
+        # Unknown gender does NOT cause mismatch
+        source_person.set_gender(Person.UNKNOWN)
+        score_unknown = matcher.score_match(source_person, self.target_person)
+        self.assertGreater(score_unknown, 1.0)
+
+    def test_candidate_matcher_birth_date_granularity(self) -> None:
+        """
+        Verify fine-grained date scoring for CandidateMatcher:
+        same year/month/day (+1.0), same year/month diff day (+0.75),
+        same year/month missing day (+0.85), same year missing month (+0.75),
+        same year diff month (+0.5), diff year <= 2 (+0.5), diff year <= 5 (+0.25).
+        """
+        matcher = CandidateMatcher(self.db)
+        base_name_score = 2.0  # Given name (1.0) + Surname (1.0)
+
+        def make_source_with_birth(
+            year: int, month: int = 0, day: int = 0
+        ) -> tuple[Person, Any]:
+            s_db = make_database("sqlite")
+            s_db.load(":memory:")
+            p = Person()
+            p.set_gender(Person.MALE)
+            name = Name()
+            name.first_name = "John"
+            s1 = Surname()
+            s1.set_surname("Doe")
+            name.add_surname(s1)
+            p.set_primary_name(name)
+            evt = Event()
+            evt.set_type(EventType.BIRTH)
+            d = Date()
+            if year and month and day:
+                d.set_yr_mon_day(year, month, day)
+            elif year and month:
+                d.set_yr_mon_day(year, month, 0)
+            else:
+                d.set_yr_mon_day(year, 0, 0)
+            evt.set_date_object(d)
+            with DbTxn("birth", s_db) as trans:
+                s_db.add_event(evt, trans)
+                eref = EventRef()
+                eref.ref = evt.handle
+                p.set_birth_ref(eref)
+                s_db.add_person(p, trans)
+            return p, s_db
+
+        cases = [
+            # (year, month, day, expected_date_points)
+            (1980, 6, 15, 1.0),  # exact match
+            (1980, 6, 20, 0.75),  # same month, diff day
+            (1980, 6, 0, 0.85),  # same month, missing day
+            (1980, 0, 0, 0.75),  # same year, missing month
+            (1980, 9, 15, 0.5),  # same year, diff month
+            (1982, 6, 15, 0.5),  # diff <= 2 years
+            (1984, 6, 15, 0.25),  # diff <= 5 years
+            (1995, 6, 15, 0.0),  # diff > 5 years
+        ]
+        for y, m, d, pts in cases:
+            p, s_db = make_source_with_birth(y, m, d)
+            try:
+                score = matcher.score_match(p, self.target_person, source_db=s_db)
+                self.assertAlmostEqual(score, base_name_score + pts, places=2)
+            finally:
+                s_db.close()
+
+    def test_candidate_matcher_empty_target_db(self) -> None:
+        """
+        Verify find_matches on an empty database returns an empty list.
+        """
+        empty_db = make_database("sqlite")
+        empty_db.load(":memory:")
+        try:
+            matcher = CandidateMatcher(empty_db)
+            matches = matcher.find_matches(self.target_person)
+            self.assertEqual(matches, [])
+        finally:
+            empty_db.close()
 
     def test_score_given_names_reordered_tokens(self) -> None:
         """
@@ -495,6 +741,7 @@ class GWizardTest(unittest.TestCase):
             stored = target_db.get_person_from_handle(person.handle)
             ref = vital_event_ref(target_db, stored, "birth")
             self.assertIsNotNone(ref)
+            assert ref is not None
             event = target_db.get_event_from_handle(ref.ref)
             self.assertEqual(event.get_date_object().get_year(), 1968)
             self.assertIsNone(vital_event_ref(target_db, stored, "death"))
@@ -1041,6 +1288,43 @@ class GWizardTest(unittest.TestCase):
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
 
+    def test_load_compressed_gramps_xml(self) -> None:
+        """
+        Verify gzip-compressed .gramps files load into the source database.
+        """
+        sample_file = "imp_sample.gramps"
+        test_dir = _find_sample_dir(sample_file)
+        if test_dir is None:
+            self.skipTest("imp_sample.gramps not found")
+
+        file_path = os.path.join(test_dir, sample_file)
+        gwizard = GedGWizard(self.db)
+        self.assertTrue(gwizard.run_step("connect", gedcom_path=file_path))
+        self.assertTrue(gwizard._is_gramps_xml_file(file_path))
+        people = gwizard.run_step("load")
+        self.assertEqual(len(people), 42)
+        source_db = gwizard.context.get("source_db")
+        self.assertIsNotNone(source_db)
+        assert source_db is not None
+        self.assertGreater(source_db.get_number_of_events(), 0)
+
+    def test_load_malformed_gramps_xml_fails_cleanly(self) -> None:
+        """
+        Verify malformed Gramps XML does not crash and returns None from _load_gramps_xml.
+        """
+        malformed = "<database xmlns='http://gramps-project.org/xml/1.7.1'><unclosed>"
+        with tempfile.NamedTemporaryFile(suffix=".xml", mode="w", delete=False) as f:
+            f.write(malformed)
+            temp_path = f.name
+        try:
+            gwizard = GedGWizard(self.db)
+            self.assertTrue(gwizard._is_gramps_xml_file(temp_path))
+            result = gwizard._load_gramps_xml(temp_path, User())
+            self.assertIsNone(result)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
     def test_is_gramps_xml_file_rejects_gedcom(self) -> None:
         """
         Verify GEDCOM content is not sniffed as Gramps XML.
@@ -1062,32 +1346,6 @@ class GWizardTest(unittest.TestCase):
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-
-    def test_format_diff_line(self) -> None:
-        """
-        Test the GWizardMergeDialog's static method for rendering
-        Pango-highlighted differences between values.
-        """
-        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
-
-        # Exact match (should be plain)
-        res = GWizardMergeDialog._format_diff_line(
-            "Given Name", "John", "John", show_label=False, is_left=True
-        )
-        self.assertEqual(res, "John")
-
-        # Differ (one word differs)
-        res_diff = GWizardMergeDialog._format_diff_line(
-            "Given Name", "John James", "John Paul", show_label=False, is_left=True
-        )
-        # "James" differs, so it should be bolded, while "John" is matched and just italicized
-        self.assertIn("James", res_diff)
-
-        # Show label
-        res_label = GWizardMergeDialog._format_diff_line(
-            "Given Name", "John", "John", show_label=True, is_left=True
-        )
-        self.assertEqual(res_label, "Given Name: John")
 
     def test_ged_gwizard_apply_merge_relationships(self) -> None:
         """
@@ -1166,6 +1424,206 @@ class GWizardTest(unittest.TestCase):
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
+    def test_ged_gwizard_apply_merge_parents_and_child_relationships(self) -> None:
+        """
+        Verify resolving father, mother, and child keys links the target persons
+        into appropriate parent/child families and updates family references.
+        """
+        # Create Dad, Mom, and Child in self.db
+        with DbTxn("Add target relatives", self.db) as trans:
+            target_dad = Person()
+            target_dad.set_gender(Person.MALE)
+            dname = Name()
+            dname.first_name = "Father"
+            dname.add_surname(Surname())
+            dname.get_surname_list()[0].set_surname("Doe")
+            target_dad.set_primary_name(dname)
+            self.db.add_person(target_dad, trans)
+
+            target_mom = Person()
+            target_mom.set_gender(Person.FEMALE)
+            mname = Name()
+            mname.first_name = "Mother"
+            mname.add_surname(Surname())
+            mname.get_surname_list()[0].set_surname("Doe")
+            target_mom.set_primary_name(mname)
+            self.db.add_person(target_mom, trans)
+
+            target_child = Person()
+            target_child.set_gender(Person.MALE)
+            cname = Name()
+            cname.first_name = "Jimmy"
+            cname.add_surname(Surname())
+            cname.get_surname_list()[0].set_surname("Doe")
+            target_child.set_primary_name(cname)
+            self.db.add_person(target_child, trans)
+
+        # GEDCOM with John Doe having parents Father & Mother, and child Jimmy
+        gedcom_data = """0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME John /Doe/
+2 GIVN John
+2 SURN Doe
+1 SEX M
+1 FAMC @F1@
+1 FAMS @F2@
+0 @I2@ INDI
+1 NAME Father /Doe/
+2 GIVN Father
+2 SURN Doe
+1 SEX M
+1 FAMS @F1@
+0 @I3@ INDI
+1 NAME Mother /Doe/
+2 GIVN Mother
+2 SURN Doe
+1 SEX F
+1 FAMS @F1@
+0 @I4@ INDI
+1 NAME Jimmy /Doe/
+2 GIVN Jimmy
+2 SURN Doe
+1 SEX M
+1 FAMC @F2@
+0 @F1@ FAM
+1 HUSB @I2@
+1 WIFE @I3@
+1 CHIL @I1@
+0 @F2@ FAM
+1 HUSB @I1@
+1 CHIL @I4@
+0 TRLR
+"""
+        with tempfile.NamedTemporaryFile(suffix=".ged", mode="w", delete=False) as f:
+            f.write(gedcom_data)
+            temp_path = f.name
+
+        try:
+            gwizard = GedGWizard(self.db)
+            gwizard.run_step("connect", gedcom_path=temp_path)
+            people = gwizard.run_step("load")
+            s_map = {p.get_primary_name().first_name: p for p in people}
+
+            # Map the relatives in pair_map to ensure explicit resolution
+            gwizard.context["pair_map"] = {
+                s_map["Father"].handle: target_dad.handle,
+                s_map["Mother"].handle: target_mom.handle,
+                s_map["Jimmy"].handle: target_child.handle,
+            }
+
+            resolutions = {
+                f"father:{s_map['Father'].handle}": "source",
+                f"mother:{s_map['Mother'].handle}": "source",
+                f"child:{s_map['Jimmy'].handle}": "source",
+            }
+            self.assertTrue(
+                gwizard.run_step(
+                    "apply",
+                    source_person_handle=s_map["John"].handle,
+                    target_person_handle=self.target_person.handle,
+                    resolutions=resolutions,
+                )
+            )
+
+            # Check John's parent family was created with Father and Mother
+            updated_john = self.db.get_person_from_handle(self.target_person.handle)
+            parent_fams = updated_john.get_parent_family_handle_list()
+            self.assertTrue(parent_fams)
+            parent_fam = self.db.get_family_from_handle(parent_fams[0])
+            self.assertEqual(parent_fam.get_father_handle(), target_dad.handle)
+            self.assertEqual(parent_fam.get_mother_handle(), target_mom.handle)
+
+            # Check parent persons list this family
+            self.assertIn(
+                parent_fam.handle,
+                self.db.get_person_from_handle(
+                    target_dad.handle
+                ).get_family_handle_list(),
+            )
+            self.assertIn(
+                parent_fam.handle,
+                self.db.get_person_from_handle(
+                    target_mom.handle
+                ).get_family_handle_list(),
+            )
+
+            # Check Jimmy Doe is linked as child of John's family
+            child_fams = updated_john.get_family_handle_list()
+            self.assertTrue(child_fams)
+            c_fam = self.db.get_family_from_handle(child_fams[0])
+            c_refs = [r.ref for r in c_fam.get_child_ref_list()]
+            self.assertIn(target_child.handle, c_refs)
+            self.assertIn(
+                c_fam.handle,
+                self.db.get_person_from_handle(
+                    target_child.handle
+                ).get_parent_family_handle_list(),
+            )
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    def test_best_target_person_resolution_hierarchy(self) -> None:
+        """
+        Verify _best_target_person checks person_map, pair_map (including None),
+        CandidateMatcher, and returns None when no match exists.
+        """
+        gwizard = GedGWizard(self.db)
+        source_db = make_database("sqlite")
+        source_db.load(":memory:")
+        try:
+            gwizard.context["source_db"] = source_db
+
+            # Add sample person to source_db
+            s_person = Person()
+            s_name = Name()
+            s_name.first_name = "Candidate"
+            s_name.add_surname(Surname())
+            s_name.get_surname_list()[0].set_surname("Tester")
+            s_person.set_primary_name(s_name)
+            with DbTxn("source person", source_db) as trans:
+                source_db.add_person(s_person, trans)
+
+            # Case 1: person_map hit
+            gwizard.context["person_map"] = {s_person.handle: self.target_person.handle}
+            self.assertEqual(
+                gwizard._best_target_person(s_person.handle), self.target_person.handle
+            )
+
+            # Case 2: pair_map hit
+            gwizard.context["person_map"] = {}
+            gwizard.context["pair_map"] = {s_person.handle: self.target_person.handle}
+            self.assertEqual(
+                gwizard._best_target_person(s_person.handle), self.target_person.handle
+            )
+
+            # Case 3: pair_map with None (explicitly rejected match)
+            gwizard.context["pair_map"] = {s_person.handle: None}
+            self.assertIsNone(gwizard._best_target_person(s_person.handle))
+
+            # Case 4: CandidateMatcher match (no pair_map, but name matches target_person)
+            gwizard.context["pair_map"] = {}
+            # Update target_person name to match s_person
+            with DbTxn("update name", self.db) as trans:
+                self.target_person.set_primary_name(s_name)
+                self.db.commit_person(self.target_person, trans)
+            self.assertEqual(
+                gwizard._best_target_person(s_person.handle), self.target_person.handle
+            )
+
+            # Case 5: No candidate meets threshold
+            with DbTxn("change name to non-match", self.db) as trans:
+                diff_name = Name()
+                diff_name.first_name = "Completely"
+                diff_name.add_surname(Surname())
+                diff_name.get_surname_list()[0].set_surname("Unrelated")
+                self.target_person.set_primary_name(diff_name)
+                self.db.commit_person(self.target_person, trans)
+            self.assertIsNone(gwizard._best_target_person(s_person.handle))
+        finally:
+            source_db.close()
+
     def test_ged_gwizard_resolve_dangling_references(self) -> None:
         """
         Verify that dangling references (Notes, Citations, Sources) are
@@ -1240,176 +1698,6 @@ class GWizardTest(unittest.TestCase):
             self.assertIsNotNone(note)
             self.assertIn("linked note", str(note.get_styledtext()))
 
-        finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-
-    @unittest.skipUnless(
-        _HAS_GTK_DISPLAY,
-        "needs a real Gtk display (run under xvfb-run); "
-        "gramps CI sets GDK_BACKEND=- so Gtk.Dialog cannot init.",
-    )
-    def test_dialog_find_dangling_references(self) -> None:
-        """
-        Verify that GWizardMergeDialog._find_dangling_references correctly
-        detects and categorizes missing references prior to merge.
-        """
-        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
-
-        gedcom_data = """0 HEAD
-1 CHAR UTF-8
-0 @I1@ INDI
-1 NAME John /Doe/
-2 GIVN John
-2 SURN Doe
-1 SEX M
-1 BIRT
-2 DATE 15 JUN 1980
-2 SOUR @S1@
-3 PAGE 42
-0 @S1@ SOUR
-1 TITL Famous Book of Doe
-1 NOTE @N1@
-0 @N1@ NOTE This is a linked note for a source.
-0 TRLR
-"""
-        with tempfile.NamedTemporaryFile(suffix=".ged", mode="w", delete=False) as f:
-            f.write(gedcom_data)
-            temp_path = f.name
-
-        try:
-            gwizard = GedGWizard(self.db)
-            gwizard.run_step("connect", gedcom_path=temp_path)
-            people = gwizard.run_step("load")
-            source_person = people[0]
-
-            # Construct mock/real DbState
-            class MockDbState:
-                def __init__(self, db):
-                    self.db = db
-
-            # GWizardMergeDialog needs a real display (skipped otherwise).
-            dbstate = MockDbState(self.db)
-            dialog = GWizardMergeDialog(
-                dbstate=dbstate,
-                gwizard=gwizard,
-                source_handle=source_person.handle,
-                target_handle=self.target_person.handle,
-            )
-
-            # Select birth event resolution as 'source'
-            dialog._resolutions = {
-                "birth_event": "source",
-            }
-
-            missing = dialog._find_dangling_references()
-
-            # Assert that the dialog correctly finds missing citation, source, and note
-            self.assertTrue(len(missing["citation"]) > 0)
-            self.assertTrue(len(missing["source"]) > 0)
-            self.assertTrue(len(missing["note"]) > 0)
-
-            # If birth_event is not resolved, no missing references should be detected for birth
-            dialog._resolutions = {}
-            missing_empty = dialog._find_dangling_references()
-            self.assertEqual(len(missing_empty["citation"]), 0)
-            self.assertEqual(len(missing_empty["source"]), 0)
-            self.assertEqual(len(missing_empty["note"]), 0)
-
-            # Cleanup dialog
-            dialog.destroy()
-
-        finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-
-    @unittest.skipUnless(
-        _HAS_GTK_DISPLAY,
-        "needs a real Gtk display (run under xvfb-run); "
-        "gramps CI sets GDK_BACKEND=- so Gtk.Dialog cannot init.",
-    )
-    def test_dialog_rejects_dangling_source_handle(self) -> None:
-        """
-        Opening the merge dialog with a handle that no longer resolves
-        must raise HandleError instead of failing later with an
-        AttributeError on a None person.
-        """
-        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
-
-        class MockDbState:
-            def __init__(self, db):
-                self.db = db
-
-        gedcom_data = """0 HEAD
-1 CHAR UTF-8
-0 @I1@ INDI
-1 NAME Solo /Person/
-2 GIVN Solo
-2 SURN Person
-0 TRLR
-"""
-        with tempfile.NamedTemporaryFile(suffix=".ged", mode="w", delete=False) as f:
-            f.write(gedcom_data)
-            temp_path = f.name
-
-        try:
-            gwizard = GedGWizard(self.db)
-            gwizard.run_step("connect", gedcom_path=temp_path)
-
-            with self.assertRaises(HandleError):
-                GWizardMergeDialog(
-                    dbstate=MockDbState(self.db),
-                    gwizard=gwizard,
-                    source_handle="0000006e0000006e",
-                    target_handle=None,
-                )
-        finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-
-    @unittest.skipUnless(
-        _HAS_GTK_DISPLAY,
-        "needs a real Gtk display (run under xvfb-run); "
-        "gramps CI sets GDK_BACKEND=- so Gtk.Dialog cannot init.",
-    )
-    def test_dialog_opens_in_add_as_new_mode(self) -> None:
-        """
-        With no target handle the dialog must still build, since the
-        compare window opens it that way for unmatched people.
-        """
-        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
-
-        gedcom_data = """0 HEAD
-1 CHAR UTF-8
-0 @I1@ INDI
-1 NAME Solo /Person/
-2 GIVN Solo
-2 SURN Person
-0 TRLR
-"""
-        with tempfile.NamedTemporaryFile(suffix=".ged", mode="w", delete=False) as f:
-            f.write(gedcom_data)
-            temp_path = f.name
-
-        try:
-            gwizard = GedGWizard(self.db)
-            gwizard.run_step("connect", gedcom_path=temp_path)
-            people = gwizard.run_step("load")
-            source_person = people[0]
-
-            class MockDbState:
-                def __init__(self, db):
-                    self.db = db
-
-            dialog = GWizardMergeDialog(
-                dbstate=MockDbState(self.db),
-                gwizard=gwizard,
-                source_handle=source_person.handle,
-                target_handle=None,
-            )
-            # The rows are populated, and every one must carry a key.
-            self.assertTrue(dialog._row_index > 0)
-            dialog.destroy()
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
@@ -1537,12 +1825,40 @@ class GWizardSourceMediaMergeTest(unittest.TestCase):
                     source_person_handle=source_person.handle,
                     target_person_handle=None,
                     resolutions={},
+                    link_families=False,
                 )
             )
         self.assertEqual(self.db.get_number_of_sources(), 9)
         # 9, not 10: the 10th citation sits on the F1 family marriage
-        # event, and add-as-new deliberately drops family links.
+        # event, and add-as-new deliberately drops family links when link_families=False.
         self.assertEqual(self.db.get_number_of_citations(), 9)
+        self.assertEqual(self.db.get_number_of_repositories(), 3)
+        self.assertEqual(self.db.get_number_of_media(), 9)
+        for handle in self.db.iter_media_handles():
+            media = self.db.get_media_from_handle(handle)
+            self.assertTrue(
+                os.path.isfile(media.get_path()),
+                f"missing media file: {media.get_path()}",
+            )
+
+    def test_all_fixture_styles_with_family_linking(self) -> None:
+        """With family linking, all 10 citations including marriage event copy."""
+        if not os.path.isfile(self.GEDCOM_PATH):
+            self.skipTest("gwizard_mergefrom_sources.ged not found")
+        gwizard, people = self._load_source_db()
+        for first in ("Erik", "Anna", "Nils"):
+            source_person = self._source_person_by_name(people, first)
+            self.assertTrue(
+                gwizard.run_step(
+                    "apply",
+                    source_person_handle=source_person.handle,
+                    target_person_handle=None,
+                    resolutions={},
+                    link_families=True,
+                )
+            )
+        self.assertEqual(self.db.get_number_of_sources(), 9)
+        self.assertEqual(self.db.get_number_of_citations(), 10)
         self.assertEqual(self.db.get_number_of_repositories(), 3)
         self.assertEqual(self.db.get_number_of_media(), 9)
         for handle in self.db.iter_media_handles():

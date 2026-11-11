@@ -41,9 +41,10 @@ from typing import Any
 # Gramps modules
 #
 # -------------------------------------------------------------------------
+from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import import_as_dict
 from gramps.gen.gwizard.gwizardgedcom import GedGWizard
-from gramps.gen.lib import EventRoleType, EventType
+from gramps.gen.lib import EventRoleType, EventType, Media, MediaRef
 from gramps.gen.user import User
 
 # The incoming file: Kid Doe, whose parents are Dad Doe and Mom Roe.
@@ -297,6 +298,45 @@ class GWizardMergeFixesTest(unittest.TestCase):
         for family_handle in kid.get_parent_family_handle_list():
             family = self.db.get_family_from_handle(family_handle)
             self.assertIsNone(family.get_father_handle())
+
+    def test_person_level_media_reference_copied(self) -> None:
+        """A media reference directly on Person is copied to the target database."""
+        self._open(TARGET_NO_FAMILY)
+        source_db = self.gwizard.context["source_db"]
+        source_kid = self._source("Kid")
+        media = Media()
+        media.set_path("kid_photo.png")
+        media.set_description("Kid Portrait")
+        media.set_mime_type("image/png")
+        with DbTxn("add media to source", source_db) as trans:
+            source_db.add_media(media, trans)
+            mref = MediaRef()
+            mref.ref = media.handle
+            source_kid.add_media_reference(mref)
+            source_db.commit_person(source_kid, trans)
+
+        # Apply as new person
+        self.assertTrue(
+            self.gwizard.run_step(
+                "apply",
+                source_person_handle=source_kid.handle,
+                target_person_handle=None,
+                resolutions={},
+            )
+        )
+
+        # Verify media was copied to target DB
+        target_kid = [
+            p
+            for p in self.db.iter_people()
+            if p.get_primary_name().first_name == "Kid" and p.get_media_list()
+        ][0]
+        t_mrefs = target_kid.get_media_list()
+        self.assertEqual(len(t_mrefs), 1)
+        copied_media = self.db.get_media_from_handle(t_mrefs[0].ref)
+        self.assertIsNotNone(copied_media)
+        self.assertEqual(copied_media.get_description(), "Kid Portrait")
+        self.assertEqual(copied_media.get_path(), "kid_photo.png")
 
 
 if __name__ == "__main__":

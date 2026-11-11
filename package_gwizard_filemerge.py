@@ -137,6 +137,20 @@ SOURCES: dict[str, str] = {
 # and receive the same GWizard import rewriting as the tool modules.
 TEST_SOURCES: dict[str, str] = {
     "gwizard_test.py": "gramps/gen/gwizard/test/gwizard_test.py",
+    "gwizard_extra_items_test.py": (
+        "gramps/gen/gwizard/test/gwizard_extra_items_test.py"
+    ),
+    "gwizard_fixes_test.py": "gramps/gen/gwizard/test/gwizard_fixes_test.py",
+    "gwizard_handle_map_test.py": (
+        "gramps/gen/gwizard/test/gwizard_handle_map_test.py"
+    ),
+    "gwizard_link_families_test.py": (
+        "gramps/gen/gwizard/test/gwizard_link_families_test.py"
+    ),
+    "gwizard_source_matcher_test.py": (
+        "gramps/gen/gwizard/test/gwizard_source_matcher_test.py"
+    ),
+    "gwizard_dialog_test.py": "gramps/gui/gwizard/test/gwizard_dialog_test.py",
     "gwizard_merge_fields_test.py": (
         "gramps/gui/gwizard/test/gwizard_merge_fields_test.py"
     ),

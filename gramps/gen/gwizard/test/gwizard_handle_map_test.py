@@ -48,7 +48,7 @@ from typing import Any
 from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import import_as_dict, make_database
 from gramps.gen.gwizard.gwizardgedcom import GedGWizard
-from gramps.gen.lib import Place, PlaceRef, PlaceType
+from gramps.gen.lib import Media, MediaRef, Place, PlaceRef, PlaceType
 from gramps.gen.user import User
 
 TREE_GED = """0 HEAD
@@ -104,7 +104,9 @@ class GWizardHandleMapTest(unittest.TestCase):
         handle.write(TREE_GED)
         handle.close()
         self._path = handle.name
-        self.db = import_as_dict(self._path, User())
+        db = import_as_dict(self._path, User())
+        assert db is not None
+        self.db = db
         self.source_db = clone_database(self.db)
         self.gwizard = GedGWizard(self.db)
         self.gwizard.context["source_db"] = self.source_db
@@ -215,6 +217,46 @@ class GWizardHandleMapTest(unittest.TestCase):
         self.assertEqual(
             self._pages(self.db, self.db.iter_citation_handles()), ["p. 1", "p. 99"]
         )
+
+    def test_shared_media_is_copied_once_across_merges(self) -> None:
+        """Two people referencing the same media object share one copy."""
+        media = Media()
+        media.set_path("sample_photo.jpg")
+        media.set_description("Family Portrait")
+        media.set_mime_type("image/jpeg")
+        self._commit_source("add_media", media)
+
+        kid = self._named(self.source_db, "Kid")
+        dad = self._named(self.source_db, "Dad")
+
+        mref_kid = MediaRef()
+        mref_kid.ref = media.handle
+        kid.add_media_reference(mref_kid)
+
+        mref_dad = MediaRef()
+        mref_dad.ref = media.handle
+        dad.add_media_reference(mref_dad)
+
+        self._commit_source("commit_person", kid)
+        self._commit_source("commit_person", dad)
+
+        media_before = self.db.get_number_of_media()
+
+        new_kid = self._add_as_new("Kid")
+        new_dad = self._add_as_new("Dad")
+
+        # Both people reference the same newly copied media handle in target DB
+        kid_mrefs = new_kid.get_media_list()
+        dad_mrefs = new_dad.get_media_list()
+        self.assertEqual(len(kid_mrefs), 1)
+        self.assertEqual(len(dad_mrefs), 1)
+        self.assertEqual(kid_mrefs[0].ref, dad_mrefs[0].ref)
+
+        # Only one media was added to target DB
+        self.assertEqual(self.db.get_number_of_media(), media_before + 1)
+        target_media = self.db.get_media_from_handle(kid_mrefs[0].ref)
+        self.assertIsNotNone(target_media)
+        self.assertEqual(target_media.get_description(), "Family Portrait")
 
     def test_stale_map_entry_is_ignored(self) -> None:
         """A mapped handle that no longer exists (rolled back) is not reused."""
