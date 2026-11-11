@@ -1038,8 +1038,8 @@ class GWizardMergeDialog(Gtk.Dialog):
                 extra_text(kind, s_item) if s_item is not None else "",
                 extra_text(kind, t_item) if t_item is not None else "",
                 # Notes carry no citations of their own to show.
-                left_obj=s_item if kind != "note" else None,
-                right_obj=t_item if kind != "note" else None,
+                left_obj=s_item if kind not in ("note", "url") else None,
+                right_obj=t_item if kind not in ("note", "url") else None,
             )
 
     # ------------------------------------------------------------------
@@ -1400,7 +1400,7 @@ class GWizardMergeDialog(Gtk.Dialog):
                 continue
             if kind == "note":
                 scan_notes([self.source_person.get_note_list()[int(raw_index)]])
-            else:
+            elif kind != "url":
                 scan_notes(chosen.get_note_list())
                 for ch in chosen.get_citation_list():
                     scan_citation(ch)

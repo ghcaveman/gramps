@@ -140,7 +140,7 @@ def format_link_summary(
 # Person items that are compared one by one and only ever added, never
 # replaced: alternate names, attributes, addresses and notes. The merge
 # dialog keys them "<kind>:<index in the incoming person's list>".
-EXTRA_KINDS = ("altname", "attribute", "address", "note")
+EXTRA_KINDS = ("altname", "attribute", "address", "note", "url")
 
 # Notes the GEDCOM importer writes about itself ("Records not imported...")
 # describe the import, not the person, so they are left out.
@@ -159,6 +159,7 @@ def extra_label(kind: str) -> str:
         "attribute": _("Attribute"),
         "address": _("Address"),
         "note": _("Note"),
+        "url": _("Web Link"),
     }[kind]
 
 
@@ -180,6 +181,8 @@ def extra_items(kind: str, person: Any, db: Any) -> list[tuple[int, Any]]:
         ]
     if kind == "address":
         return list(enumerate(person.get_address_list()))
+    if kind == "url":
+        return list(enumerate(person.get_url_list()))
     items = []
     for index, handle in enumerate(person.get_note_list()):
         try:
@@ -208,6 +211,12 @@ def extra_signature(kind: str, item: Any) -> tuple[Any, ...]:
         )
     if kind == "attribute":
         return (_norm_text(item.get_type()), _norm_text(item.get_value()))
+    if kind == "url":
+        return (
+            _norm_text(item.get_type()),
+            _norm_text(item.get_path()).rstrip("/"),
+            _norm_text(item.get_description()),
+        )
     if kind == "address":
         return (
             _norm_text(glocale.date_displayer.display(item.get_date_object())),
@@ -229,6 +238,11 @@ def extra_text(kind: str, item: Any) -> str:
         return "%s (%s)" % (name_displayer.display_name(item), item.get_type())
     if kind == "attribute":
         return "%s: %s" % (item.get_type(), item.get_value())
+    if kind == "url":
+        text = "%s: %s" % (item.get_type(), item.get_path())
+        if item.get_description():
+            text += " (%s)" % item.get_description()
+        return text
     if kind == "address":
         parts = [
             item.get_street(),
@@ -1732,6 +1746,8 @@ class GedGWizard(GWizardBase):
                 t_person_obj.add_alternate_name(new_item)
             elif kind == "attribute":
                 t_person_obj.add_attribute(new_item)
+            elif kind == "url":
+                t_person_obj.add_url(new_item)
             else:
                 t_person_obj.add_address(new_item)
 
