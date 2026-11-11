@@ -29,7 +29,8 @@ error() {
 # We always refresh the list so that newly added files (e.g., dummy.py) are
 # included even if they were not present the last time the script ran.
 echo "Generating $CHANGED_FILE …"
-git diff --name-only functionality_base...HEAD \
+# Include added (A), copied (C), and modified (M) files between the base branch and HEAD.
+git diff --name-only origin/functionality_base...HEAD \
     | grep -E '\.py$' > "$CHANGED_FILE"
 # Inform about any untracked Python files (they are not included in the check)
 UNTRACKED=$(git ls-files --others --exclude-standard | grep -E '\.py$' || true)
@@ -49,6 +50,7 @@ sed -e ':a' -e 'N' -e '$!ba' -e 's/\n\+$//' "$BANNER_FILE" > "$BANNER_TMP"
 
 # ---- Step 3: Verify each changed file ------------------------------------
 FAIL=0
+HEADER_PRINTED=0
 
 while IFS= read -r pyfile; do
     [[ -z "$pyfile" ]] && continue
@@ -60,12 +62,12 @@ while IFS= read -r pyfile; do
     banner_line_count=$(wc -l < "$BANNER_TMP")
     head -n "$banner_line_count" "$pyfile" > "$pyfile.tmp.banner"
     if ! cmp -s "$BANNER_TMP" "$pyfile.tmp.banner"; then
-        echo "Banner mismatch in: $pyfile"
-        echo "---- Expected banner (first $banner_line_count lines) ----"
-        cat "$BANNER_TMP"
-        echo "---- Actual header in $pyfile ----"
-        cat "$pyfile.tmp.banner"
-        echo "----------------------------------------------------------"
+        # Print a header once, then list only the filenames for mismatched headers
+        if [[ $HEADER_PRINTED -eq 0 ]]; then
+            echo "Files missing copyright banner:"
+            HEADER_PRINTED=1
+        fi
+        echo "$pyfile"
         FAIL=1
     fi
     rm -f "$pyfile.tmp.banner"
