@@ -1,0 +1,11 @@
+
+Image Audit for: C:\workspace\gramps\featuredocs\gwizard_citationfix.mediawiki
+Checking folder: C:\workspace\gramps\featuredocs\images
+--------------------------------------------------------------------
+  [MISSING] <PluginName>-main.png
+             Capture: <Plugin Display Name> main interface
+  [MISSING] gwizard_citationfix-main.png
+             Capture: GWizard citation fix main dialog
+--------------------------------------------------------------------
+Summary: 0/2 present, 2 missing.
+
