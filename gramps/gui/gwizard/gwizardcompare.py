@@ -2043,12 +2043,31 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             self._reject_pair(pair[0], pair[1])
             return
         source_handle = pair[0]
+        from gramps.gen.gwizard.gwizardgedcom import format_link_summary
+        from gramps.gui.dialog import WarningDialog
+        from .gwizardmergedialog import GWizardAddNewDialog
+
+        try:
+            dialog = GWizardAddNewDialog(self.gwizard, source_handle, parent=self)
+        except Exception as exc:  # pragma: no cover
+            LOG.exception("Add as new failed: %s", exc)
+            ErrorDialog(_("Add as New failed"), str(exc), parent=self)
+            return
+        try:
+            response = dialog.run()
+            link_families = dialog.link_families
+        finally:
+            dialog.destroy()
+        if response != Gtk.ResponseType.OK:
+            self.present()
+            return
         try:
             self.gwizard.run_step(
                 "apply",
                 source_person_handle=source_handle,
                 target_person_handle=None,
                 resolutions={},
+                link_families=link_families,
             )
         except Exception as exc:  # pragma: no cover
             LOG.exception("Add as new failed: %s", exc)
@@ -2056,6 +2075,11 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             return
         self.present()
         self.select_category("person")
+        problems = format_link_summary(self.gwizard.context.get("link_summary", []))
+        if problems:
+            WarningDialog(
+                _("Some relationships were not linked"), problems, parent=self
+            )
 
     def cb_close(self, _button: Gtk.Button) -> None:
         """

@@ -57,7 +57,7 @@ from gramps.gen.lib import EventType, Person
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.errors import HandleError
-from gramps.gen.gwizard.gwizardgedcom import GedGWizard
+from gramps.gen.gwizard.gwizardgedcom import GedGWizard, format_link_preview
 from gramps.gen.gwizard.gwizard_base import (
     safe_get_event,
     safe_get_family,
@@ -350,6 +350,79 @@ def person_events_by_type(db: Any, person: Person) -> dict[str, list[str]]:
 # GWizardMergeDialog
 #
 # -------------------------------------------------------------------------
+class GWizardAddNewDialog(Gtk.Dialog):
+    """
+    Confirm adding an incoming person as new, and choose whether to link
+    their families to people who are already in the tree.
+    """
+
+    def __init__(
+        self,
+        gwizard: GedGWizard,
+        source_handle: str,
+        parent: Gtk.Window | None = None,
+    ) -> None:
+        """
+        :param gwizard: A GedGWizard whose connect/load steps already ran.
+        :param source_handle: Handle of the incoming person to add.
+        :param parent: Parent window (makes this a modal dialog).
+        """
+        Gtk.Dialog.__init__(self, transient_for=parent, modal=True)
+        self.set_title(_("Add as New Person"))
+        self.set_default_size(460, 380)
+        self.set_border_width(6)
+
+        source_db = gwizard.context.get("source_db")
+        person = safe_get_person(source_db, source_handle) if source_db else None
+        if person is None:
+            raise HandleError(_("Source person no longer exists: %s") % source_handle)
+        entries = gwizard.link_preview(source_handle)
+
+        box = self.get_content_area()
+        box.set_spacing(8)
+        heading = Gtk.Label(xalign=0.0)
+        heading.set_markup(
+            "<b>%s</b>" % GLib.markup_escape_text(name_displayer.display(person))
+        )
+        box.pack_start(heading, False, False, 0)
+
+        self._link_check = Gtk.CheckButton(label=_("Link family relationships"))
+        self._link_check.set_active(True)
+        self._link_check.set_sensitive(bool(entries))
+        box.pack_start(self._link_check, False, False, 0)
+
+        if entries:
+            intro = _(
+                "Relatives who are already in your tree are linked to the new "
+                "person. The others are linked when they are added."
+            )
+            preview = Gtk.Label(
+                label=format_link_preview(entries), xalign=0.0, selectable=True
+            )
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            scroll.set_shadow_type(Gtk.ShadowType.IN)
+            scroll.add(preview)
+        else:
+            intro = _("This person has no families in the incoming file.")
+            scroll = None
+        note = Gtk.Label(label=intro, xalign=0.0)
+        note.set_line_wrap(True)
+        box.pack_start(note, False, False, 0)
+        if scroll is not None:
+            box.pack_start(scroll, True, True, 0)
+
+        self.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        self.add_button(_("_Add"), Gtk.ResponseType.OK)
+        self.set_default_response(Gtk.ResponseType.OK)
+        self.show_all()
+
+    @property
+    def link_families(self) -> bool:
+        """Return True when the families should be linked."""
+        return bool(self._link_check.get_active())
+
+
 class GWizardMergeDialog(Gtk.Dialog):
     """
     Modal dialog to review one source/target person pair and move

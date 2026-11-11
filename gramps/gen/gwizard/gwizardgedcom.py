@@ -52,12 +52,17 @@ from gramps.gen.lib import (
     Place,
     Name,
     Family,
+    FamilyRelType,
     ChildRef,
     Attribute,
     EventRoleType,
     EventType,
 )
 from gramps.gen.soundex import soundex
+from gramps.gen.display.place import displayer as place_displayer
+from gramps.gen.utils.id import create_id
+from gramps.gen.display.name import displayer as name_displayer
+from gramps.gen.utils.db import get_birth_or_fallback
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 
 # -------------------------------------------------------------------------
@@ -91,6 +96,39 @@ from .gwizard_base import (
 LOG = logging.getLogger(__name__)
 
 _ = glocale.translation.gettext
+
+
+def format_link_preview(entries: list[dict[str, Any]]) -> str:
+    """Return plain text for the preview that ``link_preview`` produces."""
+    roles = {"father": _("father"), "mother": _("mother"), "child": _("child")}
+    lines: list[str] = []
+    for entry in entries:
+        lines.append(entry["label"])
+        for member in entry["members"]:
+            if member["is_self"]:
+                status = _("this person")
+            elif member["in_tree"]:
+                status = _("in your tree")
+            else:
+                status = _("not in your tree yet")
+            lines.append(
+                "    %s (%s): %s" % (member["name"], roles[member["role"]], status)
+            )
+        if not entry["will_link"]:
+            lines.append("    " + _("Nothing to link yet."))
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def format_link_summary(
+    summary: list[dict[str, str]], statuses: tuple[str, ...] = ("conflict",)
+) -> str:
+    """Return plain text for the entries of ``link_summary`` with ``statuses``."""
+    return "\n".join(
+        "%s: %s" % (entry["family"], entry["detail"])
+        for entry in summary
+        if entry["status"] in statuses
+    )
 
 
 # ------------------------------------------------------------
@@ -236,6 +274,10 @@ class GedGWizard(GWizardBase):
             raise RuntimeError("Failed to import GEDCOM file.")
 
         self.context["source_db"] = source_db
+        # Handles copied for an earlier file mean nothing for this one.
+        self.context["handle_map"] = {}
+        self.context["person_map"] = {}
+        self.context.pop("place_index", None)
 
         people: list[Person] = []
         for handle in source_db.iter_person_handles():
@@ -709,6 +751,95 @@ class GedGWizard(GWizardBase):
 
         return rows
 
+    def _best_target_person(self, s_handle: str) -> str | None:
+        """
+        Return the handle of the person in the tree that an incoming person
+        stands for, or None.
+
+        People the merge has already added or merged come first, then the
+        compare window's one-to-one pairing (where None means the user said
+        "Not a Match"), then the closest name match.
+        """
+        source_db = self.context.get("source_db")
+        if source_db is None:
+            return None
+        done = (self.context.get("person_map") or {}).get(s_handle)
+        if done and safe_get_person(self.db, done) is not None:
+            return done
+        pair_map = self.context.get("pair_map") or {}
+        if s_handle in pair_map:
+            paired = pair_map[s_handle]
+            if paired and safe_get_person(self.db, paired) is not None:
+                return paired
+            return None
+        rel = safe_get_person(source_db, s_handle)
+        if not rel:
+            return None
+        matches = CandidateMatcher(self.db).find_matches(
+            rel,
+            threshold=self.RELATIVE_MATCH_THRESHOLD,
+            source_db=source_db,
+        )
+        if not matches:
+            return None
+        matches.sort(key=lambda m: m[1], reverse=True)
+        return matches[0][0]
+
+    def link_preview(self, source_person_handle: str) -> list[dict[str, Any]]:
+        """
+        Describe, without changing anything, how the families of an
+        incoming person would link into the tree if the person were added.
+
+        Returns one entry per family: ``label``, ``will_link`` (some other
+        member is already in the tree) and ``members``, each with ``role``,
+        ``name``, ``in_tree`` and ``is_self``.
+        """
+        source_db = self.context.get("source_db")
+        s_person = safe_get_person(source_db, source_person_handle) if source_db else None
+        if s_person is None:
+            return []
+        entries: list[dict[str, Any]] = []
+        family_handles = list(s_person.get_parent_family_handle_list()) + list(
+            s_person.get_family_handle_list()
+        )
+        for sf_handle in family_handles:
+            s_family = safe_get_family(source_db, sf_handle)
+            if s_family is None:
+                continue
+            roles = [
+                ("father", s_family.get_father_handle()),
+                ("mother", s_family.get_mother_handle()),
+            ] + [("child", ref.ref) for ref in s_family.get_child_ref_list()]
+            members = []
+            others_in_tree = 0
+            for role, handle in roles:
+                if not handle:
+                    continue
+                person = safe_get_person(source_db, handle)
+                is_self = handle == source_person_handle
+                in_tree = is_self or self._best_target_person(handle) is not None
+                if in_tree and not is_self:
+                    others_in_tree += 1
+                members.append(
+                    {
+                        "role": role,
+                        "name": name_displayer.display(person) if person else handle,
+                        "in_tree": in_tree,
+                        "is_self": is_self,
+                    }
+                )
+            parents = [m["name"] for m in members if m["role"] != "child"]
+            label = (
+                _(" and ").join(parents)
+                if parents
+                else _("Family of %s")
+                % ", ".join(m["name"] for m in members[:2])
+            )
+            entries.append(
+                {"label": label, "will_link": others_in_tree > 0, "members": members}
+            )
+        return entries
+
     def _apply(self, **kwargs: Any) -> bool:
         """
         Apply resolutions by updating an existing person or adding as a new person in target db.
@@ -738,6 +869,13 @@ class GedGWizard(GWizardBase):
             raise ValueError("Source person not found.")
 
         source_matcher = SourceMatcher(self.db)
+        # Link a new person's families into the tree (on by default).
+        link_families = bool(kwargs.get("link_families", True))
+        # Who the merge has already added or merged, and what linking did.
+        person_map: dict[str, str] = self.context.setdefault("person_map", {})
+        link_summary: list[dict[str, str]] = []
+        self.context["link_summary"] = link_summary
+        best_target_person = self._best_target_person
 
         def fresh_gramps_id(obj: Any, has_gramps_id: Any) -> None:
             """Clear a Gramps ID the target already uses so a new one is assigned."""
@@ -1103,6 +1241,7 @@ class GedGWizard(GWizardBase):
             t_event_handle: str,
             trans: Any,
             role: Any = None,
+            owner: Any = None,
         ) -> EventRef:
             """
             Return an EventRef to the copied event ``t_event_handle``.
@@ -1110,9 +1249,11 @@ class GedGWizard(GWizardBase):
             The source person's reference to ``s_event_handle`` is copied
             so its role, privacy, attributes and notes survive. ``role``
             overrides the copied role (birth and death are always Primary).
+            ``owner`` is the incoming object holding the reference when it
+            is not the person (a family, for its events).
             """
             new_ref = EventRef()
-            for ref in s_person.get_event_ref_list():
+            for ref in (owner if owner is not None else s_person).get_event_ref_list():
                 if ref.ref == s_event_handle:
                     new_ref = copy.deepcopy(ref)
                     break
@@ -1123,6 +1264,287 @@ class GedGWizard(GWizardBase):
             for attribute in new_ref.get_attribute_list():
                 remap_citations_notes(attribute)
             return new_ref
+
+        # ------------------------------------------------------------------
+        # Linking families.
+        #
+        # ``reconcile_family`` makes the tree match one incoming family. It
+        # finds the family in the tree that already holds some of the same
+        # people (or creates one once at least two of them are in the tree),
+        # then adds whoever is missing, writing both sides of each link. It
+        # can run again at any time without adding anything twice, so the
+        # order in which people arrive does not matter: a family fills in as
+        # its members are added.
+        # ------------------------------------------------------------------
+        def source_name(handle: str) -> str:
+            person = safe_get_person(source_db, handle)
+            return name_displayer.display(person) if person else handle
+
+        def target_name(handle: str) -> str:
+            person = safe_get_person(self.db, handle)
+            return name_displayer.display(person) if person else handle
+
+        def family_label(s_family: Family) -> str:
+            parents = [
+                source_name(handle)
+                for handle in (s_family.get_father_handle(), s_family.get_mother_handle())
+                if handle
+            ]
+            if parents:
+                return _(" and ").join(parents)
+            children = [source_name(ref.ref) for ref in s_family.get_child_ref_list()]
+            return _("Family of %s") % ", ".join(children[:2])
+
+        def birth_sort(person: Any) -> int:
+            """Return the sort value of a person's birth date (0 if none)."""
+            try:
+                event = get_birth_or_fallback(self.db, person)
+                if event is not None:
+                    return event.get_date_object().get_sort_value()
+            except Exception:  # pylint: disable=broad-except
+                pass
+            return 0
+
+        def insert_child_by_birth(fam: Family, child_ref: ChildRef, child: Any) -> None:
+            """Put the child before the first sibling born after them."""
+            refs = list(fam.get_child_ref_list())
+            position = len(refs)
+            new_sort = birth_sort(child)
+            if new_sort:
+                for index, ref in enumerate(refs):
+                    other = safe_get_person(self.db, ref.ref)
+                    if other is not None and birth_sort(other) > new_sort:
+                        position = index
+                        break
+            refs.insert(position, child_ref)
+            fam.set_child_ref_list(refs)
+
+        def event_signature(db: Any, handle: str) -> tuple[str, int, str] | None:
+            event = safe_get_event(db, handle)
+            if event is None:
+                return None
+            return (
+                str(event.get_type()),
+                event.get_date_object().get_sort_value(),
+                (event.get_description() or "").strip(),
+            )
+
+        def find_target_family(
+            t_father: str | None,
+            t_mother: str | None,
+            t_children: list[str],
+            has_father: bool,
+            has_mother: bool,
+        ) -> Family | None:
+            """
+            Return the family in the tree that best fits these people.
+
+            Candidates are the families the parents already head and the
+            families the children already belong to. A family is ruled out
+            when a parent slot holds someone other than the person the
+            incoming parent maps to (or, when that parent is not in the tree
+            yet, anyone at all).
+            """
+            candidates: dict[str, Family] = {}
+
+            def consider(handles: Any) -> None:
+                for family_handle in handles:
+                    if family_handle not in candidates:
+                        found = safe_get_family(self.db, family_handle)
+                        if found is not None:
+                            candidates[family_handle] = found
+
+            for parent_handle in (t_father, t_mother):
+                parent = safe_get_person(self.db, parent_handle) if parent_handle else None
+                if parent is not None:
+                    consider(parent.get_family_handle_list())
+            for child_handle in t_children:
+                child = safe_get_person(self.db, child_handle)
+                if child is not None:
+                    consider(child.get_parent_family_handle_list())
+
+            best: Family | None = None
+            best_score = 0
+            for fam in candidates.values():
+                father_h = fam.get_father_handle()
+                mother_h = fam.get_mother_handle()
+                if has_father and father_h and father_h != t_father:
+                    continue
+                if has_mother and mother_h and mother_h != t_mother:
+                    continue
+                score = 0
+                if t_father and father_h == t_father:
+                    score += 2
+                if t_mother and mother_h == t_mother:
+                    score += 2
+                members = {ref.ref for ref in fam.get_child_ref_list()}
+                score += sum(1 for handle in t_children if handle in members)
+                if score > best_score:
+                    best, best_score = fam, score
+            return best
+
+        def reconcile_family(sf_handle: str, trans: Any) -> None:
+            s_family = safe_get_family(source_db, sf_handle)
+            if s_family is None:
+                return
+            s_father = s_family.get_father_handle()
+            s_mother = s_family.get_mother_handle()
+            t_father = best_target_person(s_father) if s_father else None
+            t_mother = best_target_person(s_mother) if s_mother else None
+            if t_father and t_father == t_mother:
+                t_mother = None
+            claimed = {handle for handle in (t_father, t_mother) if handle}
+            t_children: list[tuple[ChildRef, str]] = []
+            waiting: list[str] = []
+            for handle, found in ((s_father, t_father), (s_mother, t_mother)):
+                if handle and not found:
+                    waiting.append(source_name(handle))
+            for s_child_ref in s_family.get_child_ref_list():
+                t_child = best_target_person(s_child_ref.ref)
+                if t_child and t_child not in claimed:
+                    t_children.append((s_child_ref, t_child))
+                    claimed.add(t_child)
+                elif not t_child:
+                    waiting.append(source_name(s_child_ref.ref))
+
+            label = family_label(s_family)
+            if len(claimed) < 2:
+                # Nobody to link to yet; the family is built when more of
+                # its members are in the tree.
+                link_summary.append(
+                    {"status": "waiting", "family": label, "detail": ", ".join(waiting)}
+                )
+                return
+
+            fam = find_target_family(
+                t_father,
+                t_mother,
+                [handle for _ref, handle in t_children],
+                bool(s_father),
+                bool(s_mother),
+            )
+            created = fam is None
+            if fam is None:
+                fam = Family()
+                self.db.add_family(fam, trans)
+            linked: list[str] = []
+            conflicts: list[str] = []
+
+            for role, t_handle in (("father", t_father), ("mother", t_mother)):
+                if not t_handle:
+                    continue
+                current = (
+                    fam.get_father_handle() if role == "father" else fam.get_mother_handle()
+                )
+                if current and current != t_handle:
+                    conflicts.append(
+                        _("%s: the family already has someone else in that place")
+                        % target_name(t_handle)
+                    )
+                    continue
+                if not current:
+                    if role == "father":
+                        fam.set_father_handle(t_handle)
+                    else:
+                        fam.set_mother_handle(t_handle)
+                    linked.append(target_name(t_handle))
+                parent = safe_get_person(self.db, t_handle)
+                if parent is not None and fam.handle not in parent.get_family_handle_list():
+                    parent.add_family_handle(fam.handle)
+                    self.db.commit_person(parent, trans)
+                    if target_name(t_handle) not in linked:
+                        linked.append(target_name(t_handle))
+
+            members = {ref.ref for ref in fam.get_child_ref_list()}
+            for s_child_ref, t_child in t_children:
+                child = safe_get_person(self.db, t_child)
+                if child is None:
+                    continue
+                parent_families = child.get_parent_family_handle_list()
+                if parent_families and fam.handle not in parent_families:
+                    conflicts.append(
+                        _("%s already has other parents in the tree") % target_name(t_child)
+                    )
+                    continue
+                changed = False
+                if t_child not in members:
+                    new_ref = copy.deepcopy(s_child_ref)
+                    new_ref.ref = t_child
+                    remap_citations_notes(new_ref)
+                    insert_child_by_birth(fam, new_ref, child)
+                    members.add(t_child)
+                    changed = True
+                if fam.handle not in parent_families:
+                    child.add_parent_family_handle(fam.handle)
+                    self.db.commit_person(child, trans)
+                    changed = True
+                if changed:
+                    linked.append(target_name(t_child))
+
+            if created:
+                extras = copy.deepcopy(s_family)
+                copy_note_list(extras, trans)
+                copy_citation_list(extras, trans)
+                copy_media_refs(extras, trans)
+                fam.set_note_list(extras.get_note_list())
+                fam.set_citation_list(extras.get_citation_list())
+                fam.set_media_list(extras.get_media_list())
+                for attribute in extras.get_attribute_list():
+                    remap_citations_notes(attribute)
+                    fam.add_attribute(attribute)
+                fam.set_privacy(s_family.get_privacy())
+            else:
+                copy_new_citations(fam, s_family, trans)
+            if created or fam.get_relationship() == FamilyRelType.UNKNOWN:
+                fam.set_relationship(s_family.get_relationship())
+
+            known = {
+                event_signature(self.db, ref.ref) for ref in fam.get_event_ref_list()
+            }
+            for s_event_ref in s_family.get_event_ref_list():
+                signature = event_signature(source_db, s_event_ref.ref)
+                if signature is None or signature in known:
+                    continue
+                t_event = copy_event(s_event_ref.ref, trans)
+                if t_event:
+                    fam.add_event_ref(copy_event_ref(s_event_ref.ref, t_event, trans, owner=s_family))
+                    known.add(signature)
+                    if _("family events") not in linked:
+                        linked.append(_("family events"))
+            self.db.commit_family(fam, trans)
+
+            if created or linked:
+                link_summary.append(
+                    {
+                        "status": "created" if created else "linked",
+                        "family": label,
+                        "detail": ", ".join(linked),
+                    }
+                )
+            if waiting:
+                link_summary.append(
+                    {"status": "waiting", "family": label, "detail": ", ".join(waiting)}
+                )
+            for text in conflicts:
+                link_summary.append({"status": "conflict", "family": label, "detail": text})
+
+        def link_families_for(s_person_obj: Person, trans: Any) -> None:
+            """Link every family the incoming person belongs to."""
+            family_handles = list(s_person_obj.get_parent_family_handle_list()) + list(
+                s_person_obj.get_family_handle_list()
+            )
+            for sf_handle in family_handles:
+                try:
+                    reconcile_family(sf_handle, trans)
+                except Exception:  # pylint: disable=broad-except
+                    LOG.warning("Could not link family %s", sf_handle, exc_info=True)
+                    link_summary.append(
+                        {
+                            "status": "conflict",
+                            "family": sf_handle,
+                            "detail": _("could not be linked (see the log)"),
+                        }
+                    )
 
         with DbTxn(_("GWizard Data Merge"), self.db) as trans:
             if target_person_handle is None:
@@ -1174,6 +1596,9 @@ class GedGWizard(GWizardBase):
 
                 self.db.add_person(new_person, trans)
                 LOG.info("Added new person: %s", new_person.handle)
+                person_map[s_person.handle] = new_person.handle
+                if link_families:
+                    link_families_for(s_person, trans)
             else:
                 # Merge into existing target person
                 t_person = safe_get_person(self.db, target_person_handle)
@@ -1258,33 +1683,6 @@ class GedGWizard(GWizardBase):
                         )
 
                 # Helpers for field-level items beyond the standard rows
-                def best_target_person(s_handle: str) -> str | None:
-                    """
-                    Find the target person that best matches the source
-                    person with the given handle.
-                    """
-                    # The compare window records its one-to-one pairing (and
-                    # any "Not a Match" rejections as None); use it so a
-                    # relative is linked to the person the user sees paired.
-                    pair_map = self.context.get("pair_map") or {}
-                    if s_handle in pair_map:
-                        paired = pair_map[s_handle]
-                        if paired and safe_get_person(self.db, paired) is not None:
-                            return paired
-                        return None
-                    rel = safe_get_person(source_db, s_handle)
-                    if not rel:
-                        return None
-                    matches = CandidateMatcher(self.db).find_matches(
-                        rel,
-                        threshold=self.RELATIVE_MATCH_THRESHOLD,
-                        source_db=source_db,
-                    )
-                    if not matches:
-                        return None
-                    matches.sort(key=lambda m: m[1], reverse=True)
-                    return matches[0][0]
-
                 def ensure_parent_family(trans: Any) -> Family:
                     """
                     Return the target person's first parent family,
@@ -1484,5 +1882,8 @@ class GedGWizard(GWizardBase):
 
                 self.db.commit_person(t_person, trans)
                 LOG.info("Merged changes into person: %s", t_person.handle)
+                person_map[s_person.handle] = t_person.handle
+                if resolutions.get("link_families") == "source":
+                    link_families_for(s_person, trans)
 
         return True
