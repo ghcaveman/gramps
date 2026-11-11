@@ -44,10 +44,10 @@ git rebase origin/functionality_base (git rebase --abort) to give up
 git push --force-with-lease origin <feature-branch-name>
 
 List all files touched/added by this feature branch:
-git diff --name-only origin/functionality_base...origin/gwizard_filemerge > changed_files.txt
+git diff --name-only origin/functionality_base...origin/HEAD > changed_files.txt
 
 Count the number of commits in a particular feature branch:
-git rev-list --count functionality_base..mediafix
+git rev-list --count functionality_base..origin/HEAD
 
 To show what the branch which your branch is based off of:
 git log --oneline --graph --decorate --simplify-by-decoration
@@ -56,3 +56,13 @@ Rename a branch:
 git branch -m <new-name>
 git push -u origin <new-name>
 git push origin --delete <old-name>
+
+Auto-accept "ours"
+git fetch origin
+git rebase -X ours origin/functionality_base
+
+Remove a file that is in the parent branch (functionality_base):
+git checkout origin/functionality_base -- <path/to/file>
+
+To disable the "paging" in git:
+git config --global core.pager cat
