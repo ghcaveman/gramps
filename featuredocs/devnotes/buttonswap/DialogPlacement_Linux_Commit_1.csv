@@ -151,15 +151,15 @@ Geography Directory Chooser,gramps/plugins/lib/maps/geography.py,Cancel:Apply,Ye
 PlaceSelection,gramps/plugins/lib/maps/placeselection.py,Close,Yes,No
 FavoriteViews,gramps/plugins/sidebar/favoritessidebar.py,Help:Select All:Clear All:Close,No,No
 Check Image File Chooser,gramps/plugins/tool/check.py,Cancel:OK,Yes,No
-CitationFixDialog,gramps/plugins/tool/citationsfixdialog.py,Close,Yes,No
+CitationFixDialog,gramps/plugins/tool/gw_citationsfixdialog.py,Close,Yes,No
 DumpGenderStats,gramps/plugins/tool/dumpgenderstats.py,Close,Yes,No
 Event Comparison Save File Chooser,gramps/plugins/tool/eventcmp.py,Cancel:Save,Yes,No
 GWizardCitationFix Dialog,gramps/plugins/tool/gwizardcitationfix.py,Close,Yes,No
 MediaManager,gramps/plugins/tool/mediamanager.py,Help,N/A,No
 PatchNames Winprefix,gramps/plugins/tool/patchnames.py,OK,Yes,No
 PopulateSources Dialog,gramps/plugins/tool/populatesources.py,Cancel:OK,Yes,No
-RepoMergeDialog,gramps/plugins/tool/repomergedialog.py,Close,Yes,No
-SourceFixDialog,gramps/plugins/tool/sourcesfixdialog.py,Close,Yes,No
+RepoMergeDialog,gramps/plugins/tool/gw_repomergedialog.py,Close,Yes,No
+SourceFixDialog,gramps/plugins/tool/gw_sourcesfixdialog.py,Close,Yes,No
 TestCaseGenerator Dialog,gramps/plugins/tool/testcasegenerator.py,Cancel:OK:Help,Yes,No
 FanChart2WayView MessageDialog,gramps/plugins/view/fanchart2wayview.py,Close,Yes,No
 FanChartDescView MessageDialog,gramps/plugins/view/fanchartdescview.py,Close,Yes,No

@@ -646,9 +646,9 @@ Close,FavoriteViews,gramps/plugins/sidebar/favoritessidebar.py,Negative,right,Wi
 Favorites Toggle,FavoriteViews,gramps/plugins/sidebar/favoritessidebar.py,Unknown,left,Unknown
 Cancel,Check Image File Chooser,gramps/plugins/tool/check.py,Negative,left,Windows/Linux
 OK,Check Image File Chooser,gramps/plugins/tool/check.py,Positive,right,Windows/Linux
-Close,CitationFixDialog,gramps/plugins/tool/citationsfixdialog.py,Negative,right,Linux
-Auto (best guess),CitationFixDialog,gramps/plugins/tool/citationsfixdialog.py,Unknown,left,Unknown
-Apply,CitationFixDialog,gramps/plugins/tool/citationsfixdialog.py,Positive,right,Unknown
+Close,CitationFixDialog,gramps/plugins/tool/gw_citationsfixdialog.py,Negative,right,Linux
+Auto (best guess),CitationFixDialog,gramps/plugins/tool/gw_citationsfixdialog.py,Unknown,left,Unknown
+Apply,CitationFixDialog,gramps/plugins/tool/gw_citationsfixdialog.py,Positive,right,Unknown
 Close,DumpGenderStats,gramps/plugins/tool/dumpgenderstats.py,Negative,right,Linux
 Cancel,Event Comparison Save File Chooser,gramps/plugins/tool/eventcmp.py,Negative,left,Windows/Linux
 Save,Event Comparison Save File Chooser,gramps/plugins/tool/eventcmp.py,Positive,right,Windows/Linux
@@ -660,12 +660,12 @@ Help,MediaManager,gramps/plugins/tool/mediamanager.py,Positive,right,Windows
 OK,PatchNames Winprefix,gramps/plugins/tool/patchnames.py,Positive,right,Linux
 Cancel,PopulateSources Dialog,gramps/plugins/tool/populatesources.py,Negative,left,Windows/Linux
 OK,PopulateSources Dialog,gramps/plugins/tool/populatesources.py,Positive,right,Windows/Linux
-Close,RepoMergeDialog,gramps/plugins/tool/repomergedialog.py,Negative,right,Linux
-Auto (best guess),RepoMergeDialog,gramps/plugins/tool/repomergedialog.py,Unknown,left,Unknown
-Apply,RepoMergeDialog,gramps/plugins/tool/repomergedialog.py,Positive,right,Unknown
-Close,SourceFixDialog,gramps/plugins/tool/sourcesfixdialog.py,Negative,right,Linux
-Auto (best guess),SourceFixDialog,gramps/plugins/tool/sourcesfixdialog.py,Unknown,left,Unknown
-Apply,SourceFixDialog,gramps/plugins/tool/sourcesfixdialog.py,Positive,right,Unknown
+Close,RepoMergeDialog,gramps/plugins/tool/gw_repomergedialog.py,Negative,right,Linux
+Auto (best guess),RepoMergeDialog,gramps/plugins/tool/gw_repomergedialog.py,Unknown,left,Unknown
+Apply,RepoMergeDialog,gramps/plugins/tool/gw_repomergedialog.py,Positive,right,Unknown
+Close,SourceFixDialog,gramps/plugins/tool/gw_sourcesfixdialog.py,Negative,right,Linux
+Auto (best guess),SourceFixDialog,gramps/plugins/tool/gw_sourcesfixdialog.py,Unknown,left,Unknown
+Apply,SourceFixDialog,gramps/plugins/tool/gw_sourcesfixdialog.py,Positive,right,Unknown
 Cancel,TestCaseGenerator Dialog,gramps/plugins/tool/testcasegenerator.py,Negative,left,Windows/Linux
 OK,TestCaseGenerator Dialog,gramps/plugins/tool/testcasegenerator.py,Positive,right,Windows/Linux
 Help,TestCaseGenerator Dialog,gramps/plugins/tool/testcasegenerator.py,Positive,right,Windows/Linux
