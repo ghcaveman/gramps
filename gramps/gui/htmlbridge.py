@@ -214,6 +214,16 @@ class HtmlBridge:
         :returns: The decoded content, or None on failure.
         :rtype: str | None
         """
+        # Try Selenium first if available
+        try:
+            from gramps.plugins.gramplet.scraper import scrape_page_direct  # type: ignore
+
+            LOG.info("HtmlBridge: using Selenium to fetch %s", url)
+            return scrape_page_direct(url, timeout=60)
+        except Exception as exc:  # pragma: no cover – defensive fallback
+            LOG.error("Selenium fetch failed for %s: %s", url, exc)
+            pass
+
         import urllib.parse
         import urllib.request
 

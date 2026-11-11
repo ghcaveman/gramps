@@ -398,6 +398,7 @@ class HTMLView(PageView):
         # Notebook for Render and Source tabs
         notebook = Gtk.Notebook()
         notebook.connect("switch-page", self.cb_switch_tab)
+        notebook.set_current_page(1)
 
         # Tab 1: Render View
         render_scroll = Gtk.ScrolledWindow()
@@ -567,6 +568,26 @@ class HTMLView(PageView):
         :param text: The text to set.
         :type text: str
         """
+        # If the incoming text looks like a URL, try to fetch it with Selenium
+        is_url = isinstance(text, str) and text.strip().lower().startswith("http")
+        if is_url:
+            try:
+                from gramps.plugins.gramplet.scraper import scrape_page_async
+
+                LOG.info("HTMLView: invoking Selenium scraper for %s", text)
+
+                def _on_html_fetched(html: str) -> bool:
+                    if self.text_buffer is not None:
+                        self.text_buffer.set_text(html)
+                    self._update_rendered_html()
+                    self._maybe_append_filtered_results()
+                    return False
+
+                scrape_page_async(text, _on_html_fetched)
+                return
+            except Exception as exc:  # pragma: no cover – defensive fallback
+                LOG.error("Failed to start Selenium scraper: %s", exc)
+
         if self.text_buffer is not None:
             self.text_buffer.set_text(text)
         self._update_rendered_html()
