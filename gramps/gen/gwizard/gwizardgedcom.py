@@ -914,8 +914,12 @@ class GedGWizard(GWizardBase):
                     GWizardCompareRow(
                         status="source_only" if t_item is None else "target_only",
                         field=extra_label(kind),
-                        source_val=extra_text(kind, s_item) if s_item is not None else "",
-                        target_val=extra_text(kind, t_item) if t_item is not None else "",
+                        source_val=(
+                            extra_text(kind, s_item) if s_item is not None else ""
+                        ),
+                        target_val=(
+                            extra_text(kind, t_item) if t_item is not None else ""
+                        ),
                         field_type=kind,
                         extra_data={"source_index": s_index, "target_index": t_index},
                     )
@@ -967,7 +971,9 @@ class GedGWizard(GWizardBase):
         ``name``, ``in_tree`` and ``is_self``.
         """
         source_db = self.context.get("source_db")
-        s_person = safe_get_person(source_db, source_person_handle) if source_db else None
+        s_person = (
+            safe_get_person(source_db, source_person_handle) if source_db else None
+        )
         if s_person is None:
             return []
         entries: list[dict[str, Any]] = []
@@ -1004,8 +1010,7 @@ class GedGWizard(GWizardBase):
             label = (
                 _(" and ").join(parents)
                 if parents
-                else _("Family of %s")
-                % ", ".join(m["name"] for m in members[:2])
+                else _("Family of %s") % ", ".join(m["name"] for m in members[:2])
             )
             entries.append(
                 {"label": label, "will_link": others_in_tree > 0, "members": members}
@@ -1241,6 +1246,14 @@ class GedGWizard(GWizardBase):
                 s_citation = source_db.get_citation_from_handle(s_citation_handle)
                 if not s_citation:
                     return None
+                if self.db.has_citation_handle(s_citation_handle):
+                    s_sig = citation_signature(source_db, s_citation_handle)
+                    if s_sig is not None and s_sig == citation_signature(
+                        self.db, s_citation_handle
+                    ):
+                        return remember(
+                            "citation", s_citation_handle, s_citation_handle
+                        )
                 new_citation = copy.deepcopy(s_citation)
                 new_notes = []
                 for nh in new_citation.get_note_list():
@@ -1459,7 +1472,10 @@ class GedGWizard(GWizardBase):
         def family_label(s_family: Family) -> str:
             parents = [
                 source_name(handle)
-                for handle in (s_family.get_father_handle(), s_family.get_mother_handle())
+                for handle in (
+                    s_family.get_father_handle(),
+                    s_family.get_mother_handle(),
+                )
                 if handle
             ]
             if parents:
@@ -1527,7 +1543,9 @@ class GedGWizard(GWizardBase):
                             candidates[family_handle] = found
 
             for parent_handle in (t_father, t_mother):
-                parent = safe_get_person(self.db, parent_handle) if parent_handle else None
+                parent = (
+                    safe_get_person(self.db, parent_handle) if parent_handle else None
+                )
                 if parent is not None:
                     consider(parent.get_family_handle_list())
             for child_handle in t_children:
@@ -1606,7 +1624,9 @@ class GedGWizard(GWizardBase):
                 if not t_handle:
                     continue
                 current = (
-                    fam.get_father_handle() if role == "father" else fam.get_mother_handle()
+                    fam.get_father_handle()
+                    if role == "father"
+                    else fam.get_mother_handle()
                 )
                 if current and current != t_handle:
                     conflicts.append(
@@ -1621,7 +1641,10 @@ class GedGWizard(GWizardBase):
                         fam.set_mother_handle(t_handle)
                     linked.append(target_name(t_handle))
                 parent = safe_get_person(self.db, t_handle)
-                if parent is not None and fam.handle not in parent.get_family_handle_list():
+                if (
+                    parent is not None
+                    and fam.handle not in parent.get_family_handle_list()
+                ):
                     parent.add_family_handle(fam.handle)
                     self.db.commit_person(parent, trans)
                     if target_name(t_handle) not in linked:
@@ -1635,7 +1658,8 @@ class GedGWizard(GWizardBase):
                 parent_families = child.get_parent_family_handle_list()
                 if parent_families and fam.handle not in parent_families:
                     conflicts.append(
-                        _("%s already has other parents in the tree") % target_name(t_child)
+                        _("%s already has other parents in the tree")
+                        % target_name(t_child)
                     )
                     continue
                 changed = False
@@ -1679,7 +1703,9 @@ class GedGWizard(GWizardBase):
                     continue
                 t_event = copy_event(s_event_ref.ref, trans)
                 if t_event:
-                    fam.add_event_ref(copy_event_ref(s_event_ref.ref, t_event, trans, owner=s_family))
+                    fam.add_event_ref(
+                        copy_event_ref(s_event_ref.ref, t_event, trans, owner=s_family)
+                    )
                     known.add(signature)
                     if _("family events") not in linked:
                         linked.append(_("family events"))
@@ -1698,7 +1724,9 @@ class GedGWizard(GWizardBase):
                     {"status": "waiting", "family": label, "detail": ", ".join(waiting)}
                 )
             for text in conflicts:
-                link_summary.append({"status": "conflict", "family": label, "detail": text})
+                link_summary.append(
+                    {"status": "conflict", "family": label, "detail": text}
+                )
 
         def link_families_for(s_person_obj: Person, trans: Any) -> None:
             """Link every family the incoming person belongs to."""

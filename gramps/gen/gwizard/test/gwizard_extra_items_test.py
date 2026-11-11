@@ -52,14 +52,12 @@ from gramps.gen.gwizard.gwizardgedcom import (
     extra_signature,
     pair_extra_items,
 )
-from gramps.gen.lib import Address, Note, NoteType
+from gramps.gen.lib import Address, Note, NoteType, Url, UrlType
 from gramps.gen.user import User
 
 HEADER = "0 HEAD\n1 CHAR UTF-8\n"
 
-SOURCE_GED = (
-    HEADER
-    + """0 @I1@ INDI
+SOURCE_GED = HEADER + """0 @I1@ INDI
 1 NAME Kid /Doe/
 1 NAME Kiddo /Doe/
 2 TYPE aka
@@ -75,19 +73,15 @@ SOURCE_GED = (
 1 TITL Book
 0 TRLR
 """
-)
 
 # The tree already knows the Social Security number and the first note.
-TARGET_GED = (
-    HEADER
-    + """0 @I1@ INDI
+TARGET_GED = HEADER + """0 @I1@ INDI
 1 NAME Kid /Doe/
 1 SEX M
 1 SSN 123-45
 1 NOTE First note text
 0 TRLR
 """
-)
 
 
 class GWizardExtraItemsTest(unittest.TestCase):
@@ -144,6 +138,15 @@ class GWizardExtraItemsTest(unittest.TestCase):
         with DbTxn("address", db) as trans:
             db.commit_person(person, trans)
 
+    def _add_url(self, db: Any, person: Any, path: str) -> None:
+        url = Url()
+        url.set_path(path)
+        url.set_type(UrlType.WEB_HOME)
+        url.set_description("Home page")
+        person.add_url(url)
+        with DbTxn("url", db) as trans:
+            db.commit_person(person, trans)
+
     def _rows(self) -> list[Any]:
         rows = self.gwizard.run_step(
             "compare",
@@ -169,6 +172,9 @@ class GWizardExtraItemsTest(unittest.TestCase):
         """Each item the tree lacks shows up; matching items do not."""
         self._open()
         self._add_address(self.source_db, self._kid(self.source_db), "12 Main St")
+        self._add_url(
+            self.source_db, self._kid(self.source_db), "http://example.com/kid"
+        )
 
         rows = {row.field_type: row for row in self._rows()}
 
@@ -178,6 +184,7 @@ class GWizardExtraItemsTest(unittest.TestCase):
         self.assertEqual(rows["attribute"].source_val, "Description: tall and thin")
         self.assertIn("12 Main St", rows["address"].source_val)
         self.assertIn("Second note text", rows["note"].source_val)
+        self.assertIn("http://example.com/kid", rows["url"].source_val)
 
     def test_matching_items_are_not_listed(self) -> None:
         """Same social security number and first note: no rows for them."""
@@ -190,7 +197,10 @@ class GWizardExtraItemsTest(unittest.TestCase):
         """The FamilySearch ID has its own row in the dialog."""
         self._open()
         source_kid = self._kid(self.source_db)
-        names = [str(a.get_type()) for _i, a in extra_items("attribute", source_kid, self.source_db)]
+        names = [
+            str(a.get_type())
+            for _i, a in extra_items("attribute", source_kid, self.source_db)
+        ]
         self.assertNotIn("_FSFTID", names)
         self.assertEqual(sorted(names), ["Description", "Social Security Number"])
 
@@ -262,8 +272,11 @@ class GWizardExtraItemsTest(unittest.TestCase):
         """All four kinds are added, and merging again adds nothing."""
         self._open()
         self._add_address(self.source_db, self._kid(self.source_db), "12 Main St")
+        self._add_url(
+            self.source_db, self._kid(self.source_db), "http://example.com/kid"
+        )
         keys = self._keys()
-        self.assertEqual(len(keys), 4)
+        self.assertEqual(len(keys), 5)
 
         self._merge(keys)
         self._merge(keys)
@@ -273,14 +286,46 @@ class GWizardExtraItemsTest(unittest.TestCase):
             [extra_signature("altname", n)[1] for n in kid.get_alternate_names()],
             ["kiddo"],
         )
-        attributes = sorted(a.get_value() for _i, a in extra_items("attribute", kid, self.db))
+        attributes = sorted(
+            a.get_value() for _i, a in extra_items("attribute", kid, self.db)
+        )
         self.assertEqual(attributes, ["123-45", "tall and thin"])
-        self.assertEqual([a.get_street() for a in kid.get_address_list()], ["12 Main St"])
+        self.assertEqual(
+            [a.get_street() for a in kid.get_address_list()], ["12 Main St"]
+        )
         self.assertEqual(
             sorted(n.get() for _i, n in extra_items("note", kid, self.db)),
             ["First note text", "Second note text"],
         )
+        self.assertEqual(
+            [u.get_path() for u in kid.get_url_list()], ["http://example.com/kid"]
+        )
         self.assertEqual(self._rows(), [])
+
+    def test_same_web_link_matches_despite_trailing_slash_and_case(self) -> None:
+        """A link that differs only by a trailing slash or case is the same."""
+        self._open()
+        self._add_url(
+            self.source_db, self._kid(self.source_db), "HTTP://Example.com/kid/"
+        )
+        self._add_url(self.db, self._kid(self.db), "http://example.com/kid")
+        self.assertEqual([r for r in self._rows() if r.field_type == "url"], [])
+
+    def test_different_web_link_is_listed(self) -> None:
+        """A different link is listed as something to add."""
+        self._open()
+        self._add_url(
+            self.source_db, self._kid(self.source_db), "http://example.com/other"
+        )
+        self._add_url(self.db, self._kid(self.db), "http://example.com/kid")
+        rows = [r for r in self._rows() if r.field_type == "url"]
+        self.assertEqual(
+            sorted((r.status, r.source_val or r.target_val) for r in rows),
+            [
+                ("source_only", "Web Home: http://example.com/other (Home page)"),
+                ("target_only", "Web Home: http://example.com/kid (Home page)"),
+            ],
+        )
 
     def test_copied_alternate_name_keeps_its_citation(self) -> None:
         """The alternate name's citation comes across, with its source."""

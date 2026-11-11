@@ -1031,9 +1031,11 @@ class GWizardMergeDialog(Gtk.Dialog):
             section(_("Other Details"))
         for kind, (s_index, s_item, _t_index, t_item) in other_rows:
             add_row(
-                "%s:%d" % (kind, s_index)
-                if s_item is not None and t_item is None
-                else None,
+                (
+                    "%s:%d" % (kind, s_index)
+                    if s_item is not None and t_item is None
+                    else None
+                ),
                 extra_label(kind),
                 extra_text(kind, s_item) if s_item is not None else "",
                 extra_text(kind, t_item) if t_item is not None else "",

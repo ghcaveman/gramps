@@ -190,7 +190,9 @@ class GWizardHandleMapTest(unittest.TestCase):
 
         new_person = self._add_as_new("Kid")
 
-        self.assertEqual(self._pages(self.db, new_person.get_citation_list()), ["p. 99"])
+        self.assertEqual(
+            self._pages(self.db, new_person.get_citation_list()), ["p. 99"]
+        )
         self.assertEqual(
             self._pages(self.db, self.db.iter_citation_handles()), ["p. 1", "p. 99"]
         )
@@ -280,9 +282,7 @@ class GWizardHandleMapTest(unittest.TestCase):
 
         birth = self.db.get_event_from_handle(new_person.get_birth_ref().ref)
         self.assertNotEqual(birth.get_place_handle(), elsewhere.handle)
-        names = sorted(
-            place.get_name().get_value() for place in self.db.iter_places()
-        )
+        names = sorted(place.get_name().get_value() for place in self.db.iter_places())
         self.assertEqual(names, ["Elsewhere", "Reno", "Washoe"])
 
 

@@ -274,9 +274,7 @@ class GWizardMergeFixesTest(unittest.TestCase):
         )
         self._open(target)
         dads = [
-            p
-            for p in self.db.iter_people()
-            if p.get_primary_name().first_name == "Dad"
+            p for p in self.db.iter_people() if p.get_primary_name().first_name == "Dad"
         ]
         self.assertEqual(len(dads), 2)
         chosen = dads[1]

@@ -653,7 +653,9 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                     # the person a difference to step to.
                     if any(
                         r.status != "match"
-                        and not (r.status == "target_only" and r.field_type in EXTRA_KINDS)
+                        and not (
+                            r.status == "target_only" and r.field_type in EXTRA_KINDS
+                        )
                         for r in rows
                     ):
                         self.diff_list.append(

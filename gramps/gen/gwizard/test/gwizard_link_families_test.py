@@ -308,7 +308,8 @@ class GWizardLinkFamiliesTest(unittest.TestCase):
         ann = self._add("Ann")
 
         (family,) = [
-            self.db.get_family_from_handle(h) for h in ann.get_parent_family_handle_list()
+            self.db.get_family_from_handle(h)
+            for h in ann.get_parent_family_handle_list()
         ]
         marriages = [
             r
@@ -396,7 +397,11 @@ class GWizardLinkFamiliesTest(unittest.TestCase):
         """Only the entries asked for are written out."""
         summary = [
             {"status": "linked", "family": "A and B", "detail": "A"},
-            {"status": "conflict", "family": "C and D", "detail": "C has other parents"},
+            {
+                "status": "conflict",
+                "family": "C and D",
+                "detail": "C has other parents",
+            },
         ]
         text = format_link_summary(summary)
         self.assertIn("C and D", text)
