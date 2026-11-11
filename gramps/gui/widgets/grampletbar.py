@@ -160,7 +160,20 @@ class GrampletBar(Gtk.Notebook):
                 )
                 if gramplet:
                     self.__add_tab(gramplet)
-
+                else:
+                    LOG.warning(
+                        "GrampletBar: failed to create gramplet '%s' "
+                        "from saved layout %s",
+                        opts["name"],
+                        self.configfile,
+                    )
+            else:
+                LOG.warning(
+                    "GrampletBar: gramplet '%s' in saved layout %s is not "
+                    "in AVAILABLE_GRAMPLETS",
+                    opts["name"],
+                    self.configfile,
+                )
         if len(opts_list) == 0:
             self.empty = True
             self.__create_empty_tab()
@@ -168,6 +181,11 @@ class GrampletBar(Gtk.Notebook):
         if config_settings[0]:
             self.show()
         self.set_current_page(config_settings[1])
+        LOG.debug(
+            "GrampletBar: loaded %d gramplet(s) from %s",
+            len(opts_list),
+            self.configfile,
+        )
 
         uistate.connect("grampletbar-close-changed", self.cb_close_changed)
 

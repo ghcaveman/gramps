@@ -69,6 +69,7 @@ CATEGORY_ICON = {
     "Notes": "gramps-notes",
     "Citations": "gramps-citation",
     "DNA": "gramps-dna-test",
+    "HTML": "gramps-view",
 }
 
 

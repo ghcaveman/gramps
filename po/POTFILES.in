@@ -367,6 +367,11 @@ gramps/gen/filters/rules/source/_matchesrepositoryfilter.py
 gramps/gen/filters/rules/source/_matchestitlesubstringof.py
 gramps/gen/filters/rules/source/_regexpidof.py
 gramps/gen/filters/rules/source/_sourceprivate.py
+gramps/gen/filters/rules/websearch/_ancestry.py
+gramps/gen/filters/rules/websearch/_billiongraves.py
+gramps/gen/filters/rules/websearch/_familyservice.py
+gramps/gen/filters/rules/websearch/_findagrave.py
+gramps/gen/filters/rules/websearch/_websearchfilter.py
 gramps/gen/fs/compare/aggregate.py
 gramps/gen/fs/compare/comparators.py
 gramps/gen/fs/constants.py
@@ -783,6 +788,7 @@ gramps/plugins/gramplet/persondetails.py
 gramps/plugins/gramplet/personresidence.py
 gramps/plugins/gramplet/placedetails.py
 gramps/plugins/gramplet/quickviewgramplet.py
+gramps/plugins/gramplet/grizardresultsgramplet.py
 gramps/plugins/gramplet/recordsgramplet.py
 gramps/plugins/gramplet/relativegramplet.py
 gramps/plugins/gramplet/repositorydetails.py
@@ -925,6 +931,7 @@ gramps/plugins/view/geography.gpr.py
 gramps/plugins/view/geomoves.py
 gramps/plugins/view/geoperson.py
 gramps/plugins/view/geoplaces.py
+gramps/plugins/view/htmlview.py
 gramps/plugins/view/mediaview.py
 gramps/plugins/view/noteview.py
 gramps/plugins/view/pedigreeview.py
