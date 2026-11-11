@@ -19,13 +19,16 @@
 
 # -------------------------------------------------------------------------
 #
-# Python modules
+# Standard Python modules
 #
 # -------------------------------------------------------------------------
+from __future__ import annotations
+
 import os
-import webbrowser
 import sys
+from typing import Any
 from urllib.parse import quote
+import webbrowser
 
 # ------------------------------------------------------------------------
 #
@@ -60,7 +63,7 @@ else:
     EXTENSION = ""
 
 
-def display_help(webpage="", section=""):
+def display_help(webpage: str = "", section: str = "") -> None:
     """
     Display the specified webpage and section from the Gramps wiki.
     """
@@ -79,8 +82,20 @@ def display_help(webpage="", section=""):
     display_url(link)
 
 
-def display_url(link, uistate=None):
+def display_url(link: str, uistate: Any = None) -> None:
     """
-    Open the specified URL in a browser.
+    Open the specified URL in an internal HTML view if enabled,
+    or fall back to the default external browser.
     """
+    if os.environ.get("GRAMPS_HTML") and link.lower().startswith(
+        ("http://", "https://")
+    ):
+        try:
+            from gramps.gui.htmlbridge import HtmlBridge
+
+            if HtmlBridge.route_url(link):
+                return
+        except Exception:
+            pass
+
     webbrowser.open_new_tab(link)

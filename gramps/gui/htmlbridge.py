@@ -19,7 +19,7 @@
 #
 
 """
-HTML Bridge for routing raw web data between WebSearch and HTMLView.
+HTML Bridge for routing raw web data and URLs to HTMLView.
 """
 
 # -------------------------------------------------------------------------
@@ -59,7 +59,7 @@ class HTMLViewProtocol(Protocol):
 # ------------------------------------------------------------
 class HtmlBridge:
     """
-    HtmlBridge handles routing downloaded HTML content from WebSearch
+    HtmlBridge handles routing downloaded HTML content and URLs
     to the registered HTMLView and optional registered receivers.
     """
 
