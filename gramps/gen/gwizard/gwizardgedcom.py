@@ -136,6 +136,144 @@ def format_link_summary(
 # GedGWizard
 #
 # ------------------------------------------------------------
+
+# Person items that are compared one by one and only ever added, never
+# replaced: alternate names, attributes, addresses and notes. The merge
+# dialog keys them "<kind>:<index in the incoming person's list>".
+EXTRA_KINDS = ("altname", "attribute", "address", "note")
+
+# Notes the GEDCOM importer writes about itself ("Records not imported...")
+# describe the import, not the person, so they are left out.
+_IMPORT_NOTE_TYPE = "GEDCOM import"
+
+
+def _norm_text(value: Any) -> str:
+    """Return ``value`` as text with spaces collapsed and case folded."""
+    return " ".join(str(value or "").split()).casefold()
+
+
+def extra_label(kind: str) -> str:
+    """Return the row label for a kind of item."""
+    return {
+        "altname": _("Also Known As"),
+        "attribute": _("Attribute"),
+        "address": _("Address"),
+        "note": _("Note"),
+    }[kind]
+
+
+def extra_items(kind: str, person: Any, db: Any) -> list[tuple[int, Any]]:
+    """
+    Return (index, item) pairs for one kind of item of ``person``.
+
+    The index is the item's place in the person's own list, which is what
+    the merge dialog's keys refer to. The FamilySearch ID attribute has its
+    own row, so it is left out of the attributes.
+    """
+    if kind == "altname":
+        return list(enumerate(person.get_alternate_names()))
+    if kind == "attribute":
+        return [
+            (index, attribute)
+            for index, attribute in enumerate(person.get_attribute_list())
+            if str(attribute.get_type()) != "_FSFTID"
+        ]
+    if kind == "address":
+        return list(enumerate(person.get_address_list()))
+    items = []
+    for index, handle in enumerate(person.get_note_list()):
+        try:
+            note = db.get_note_from_handle(handle)
+        except Exception:  # pylint: disable=broad-except
+            continue
+        if note is not None and str(note.get_type()) != _IMPORT_NOTE_TYPE:
+            items.append((index, note))
+    return items
+
+
+def extra_signature(kind: str, item: Any) -> tuple[Any, ...]:
+    """Return what makes two items of the same kind the same item."""
+    if kind == "altname":
+        return (
+            _norm_text(item.get_type()),
+            _norm_text(item.get_first_name()),
+            tuple(
+                (_norm_text(s.get_prefix()), _norm_text(s.get_surname()))
+                for s in item.get_surname_list()
+            ),
+            _norm_text(item.get_suffix()),
+            _norm_text(item.get_title()),
+            _norm_text(item.get_nick_name()),
+            _norm_text(item.get_call_name()),
+        )
+    if kind == "attribute":
+        return (_norm_text(item.get_type()), _norm_text(item.get_value()))
+    if kind == "address":
+        return (
+            _norm_text(glocale.date_displayer.display(item.get_date_object())),
+            _norm_text(item.get_street()),
+            _norm_text(item.get_locality()),
+            _norm_text(item.get_city()),
+            _norm_text(item.get_county()),
+            _norm_text(item.get_state()),
+            _norm_text(item.get_country()),
+            _norm_text(item.get_postal_code()),
+            _norm_text(item.get_phone()),
+        )
+    return (_norm_text(item.get_type()), _norm_text(item.get()))
+
+
+def extra_text(kind: str, item: Any) -> str:
+    """Return a short one-line description of an item."""
+    if kind == "altname":
+        return "%s (%s)" % (name_displayer.display_name(item), item.get_type())
+    if kind == "attribute":
+        return "%s: %s" % (item.get_type(), item.get_value())
+    if kind == "address":
+        parts = [
+            item.get_street(),
+            item.get_locality(),
+            item.get_city(),
+            item.get_county(),
+            item.get_state(),
+            item.get_postal_code(),
+            item.get_country(),
+        ]
+        text = ", ".join(part for part in parts if part)
+        date = glocale.date_displayer.display(item.get_date_object())
+        return "%s (%s)" % (text, date) if date and text else text or date
+    body = " ".join(item.get().split())
+    if len(body) > 100:
+        body = body[:100].rstrip() + "\u2026"
+    return "%s: %s" % (item.get_type(), body)
+
+
+def pair_extra_items(
+    kind: str, s_person: Any, s_db: Any, t_person: Any, t_db: Any
+) -> list[tuple[int | None, Any, int | None, Any]]:
+    """
+    Pair the incoming person's items of one kind with the tree person's.
+
+    Returns (source index, source item, target index, target item) tuples:
+    items with the same content first (in incoming order), then incoming
+    items the tree person lacks, then items only the tree person has. The
+    missing side of an unpaired item is None.
+    """
+    unused = list(extra_items(kind, t_person, t_db))
+    paired = []
+    source_only = []
+    for s_index, s_item in extra_items(kind, s_person, s_db):
+        signature = extra_signature(kind, s_item)
+        for position, (t_index, t_item) in enumerate(unused):
+            if extra_signature(kind, t_item) == signature:
+                del unused[position]
+                paired.append((s_index, s_item, t_index, t_item))
+                break
+        else:
+            source_only.append((s_index, s_item, None, None))
+    return paired + source_only + [(None, None, i, item) for i, item in unused]
+
+
 class GedGWizard(GWizardBase):
     """
     Concrete GWizard implementation for importing data from GEDCOM (.ged)
@@ -748,6 +886,26 @@ class GedGWizard(GWizardBase):
                     extra_data={"source_handle": s_ref, "target_handle": t_ref},
                 )
             )
+
+        # 8. Alternate names, attributes, addresses and notes. Items found
+        # on both sides match and are not listed; the rest are source_only or
+        # target_only rows so the Diff list flags the person.
+        for kind in EXTRA_KINDS:
+            for s_index, s_item, t_index, t_item in pair_extra_items(
+                kind, s_person, source_db, t_person, self.db
+            ):
+                if s_item is not None and t_item is not None:
+                    continue
+                rows.append(
+                    GWizardCompareRow(
+                        status="source_only" if t_item is None else "target_only",
+                        field=extra_label(kind),
+                        source_val=extra_text(kind, s_item) if s_item is not None else "",
+                        target_val=extra_text(kind, t_item) if t_item is not None else "",
+                        field_type=kind,
+                        extra_data={"source_index": s_index, "target_index": t_index},
+                    )
+                )
 
         return rows
 
@@ -1546,6 +1704,37 @@ class GedGWizard(GWizardBase):
                         }
                     )
 
+        def copy_extra_item(
+            kind: str, index: int, t_person_obj: Person, trans: Any
+        ) -> None:
+            """
+            Add the incoming person's alternate name, attribute, address or
+            note number ``index`` to the tree person, unless the tree person
+            already has the same item.
+            """
+            wanted = dict(extra_items(kind, s_person, source_db)).get(index)
+            if wanted is None:
+                return
+            known = {
+                extra_signature(kind, item)
+                for _index, item in extra_items(kind, t_person_obj, self.db)
+            }
+            if extra_signature(kind, wanted) in known:
+                return
+            if kind == "note":
+                new_handle = copy_note(s_person.get_note_list()[index], trans)
+                if new_handle and new_handle not in t_person_obj.get_note_list():
+                    t_person_obj.add_note(new_handle)
+                return
+            new_item = copy.deepcopy(wanted)
+            remap_citations_notes(new_item)
+            if kind == "altname":
+                t_person_obj.add_alternate_name(new_item)
+            elif kind == "attribute":
+                t_person_obj.add_attribute(new_item)
+            else:
+                t_person_obj.add_address(new_item)
+
         with DbTxn(_("GWizard Data Merge"), self.db) as trans:
             if target_person_handle is None:
                 # Add as entirely new person
@@ -1742,6 +1931,13 @@ class GedGWizard(GWizardBase):
                             t_person.add_event_ref(
                                 copy_event_ref(s_evt_h, t_evt_h, trans)
                             )
+                        continue
+
+                    # Alternate names, attributes, addresses and notes: the key
+                    # is "<kind>:<index in the incoming person's list>".
+                    kind, _separator, raw_index = key.partition(":")
+                    if kind in EXTRA_KINDS and raw_index.isdigit():
+                        copy_extra_item(kind, int(raw_index), t_person, trans)
                         continue
 
                     # 7. FamilySearch ID

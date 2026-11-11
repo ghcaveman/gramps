@@ -1,0 +1,312 @@
+#
+# Gramps - a GTK+/GNOME based genealogy program
+#
+# Copyright (C) 2026  Kevin White
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+
+"""
+Tests for comparing and merging alternate names, attributes, addresses and
+notes of a person.
+
+The incoming Kid Doe has an alternate name, three attributes (one of them
+the FamilySearch ID), two notes and an address. The tree's Kid Doe has the
+Social Security attribute and the first note already.
+"""
+
+# -------------------------------------------------------------------------
+#
+# Standard Python modules
+#
+# -------------------------------------------------------------------------
+from __future__ import annotations
+import os
+import tempfile
+import unittest
+from typing import Any
+
+# -------------------------------------------------------------------------
+#
+# Gramps modules
+#
+# -------------------------------------------------------------------------
+from gramps.gen.db import DbTxn
+from gramps.gen.db.utils import import_as_dict
+from gramps.gen.gwizard.gwizardgedcom import (
+    EXTRA_KINDS,
+    GedGWizard,
+    extra_items,
+    extra_signature,
+    pair_extra_items,
+)
+from gramps.gen.lib import Address, Note, NoteType
+from gramps.gen.user import User
+
+HEADER = "0 HEAD\n1 CHAR UTF-8\n"
+
+SOURCE_GED = (
+    HEADER
+    + """0 @I1@ INDI
+1 NAME Kid /Doe/
+1 NAME Kiddo /Doe/
+2 TYPE aka
+3 SOUR @S1@
+4 PAGE p. 3
+1 SEX M
+1 DSCR tall and thin
+1 SSN 123-45
+1 _FSFTID ABCD-123
+1 NOTE First note text
+1 NOTE Second note text
+0 @S1@ SOUR
+1 TITL Book
+0 TRLR
+"""
+)
+
+# The tree already knows the Social Security number and the first note.
+TARGET_GED = (
+    HEADER
+    + """0 @I1@ INDI
+1 NAME Kid /Doe/
+1 SEX M
+1 SSN 123-45
+1 NOTE First note text
+0 TRLR
+"""
+)
+
+
+class GWizardExtraItemsTest(unittest.TestCase):
+    """Alternate names, attributes, addresses and notes are compared."""
+
+    def setUp(self) -> None:
+        self._paths: list[str] = []
+        self.db: Any = None
+        self.gwizard: GedGWizard | None = None
+
+    def tearDown(self) -> None:
+        if self.gwizard is not None:
+            source_db = self.gwizard.context.get("source_db")
+            if source_db is not None:
+                source_db.close()
+        if self.db is not None:
+            self.db.close()
+        for path in self._paths:
+            if os.path.exists(path):
+                os.remove(path)
+
+    # ------------------------------------------------------------------
+    # helpers
+    # ------------------------------------------------------------------
+    def _write(self, text: str) -> str:
+        with tempfile.NamedTemporaryFile(
+            suffix=".ged", mode="w", encoding="utf-8", delete=False
+        ) as handle:
+            handle.write(text)
+        self._paths.append(handle.name)
+        return handle.name
+
+    def _open(self, target_ged: str = TARGET_GED, source_ged: str = SOURCE_GED) -> None:
+        self.db = import_as_dict(self._write(target_ged), User())
+        self.gwizard = GedGWizard(self.db)
+        self.assertTrue(
+            self.gwizard.run_step("connect", gedcom_path=self._write(source_ged))
+        )
+        self.gwizard.run_step("load")
+
+    @property
+    def source_db(self) -> Any:
+        return self.gwizard.context["source_db"]
+
+    def _kid(self, db: Any) -> Any:
+        (person,) = [p for p in db.iter_people()]
+        return person
+
+    def _add_address(self, db: Any, person: Any, street: str) -> None:
+        address = Address()
+        address.set_street(street)
+        address.set_city("Reno")
+        person.add_address(address)
+        with DbTxn("address", db) as trans:
+            db.commit_person(person, trans)
+
+    def _rows(self) -> list[Any]:
+        rows = self.gwizard.run_step(
+            "compare",
+            source_person_handle=self._kid(self.source_db).handle,
+            target_person_handle=self._kid(self.db).handle,
+        )
+        return [row for row in rows if row.field_type in EXTRA_KINDS]
+
+    def _merge(self, keys: list[str]) -> None:
+        self.assertTrue(
+            self.gwizard.run_step(
+                "apply",
+                source_person_handle=self._kid(self.source_db).handle,
+                target_person_handle=self._kid(self.db).handle,
+                resolutions={key: "source" for key in keys},
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # what is compared
+    # ------------------------------------------------------------------
+    def test_unmatched_items_are_listed(self) -> None:
+        """Each item the tree lacks shows up; matching items do not."""
+        self._open()
+        self._add_address(self.source_db, self._kid(self.source_db), "12 Main St")
+
+        rows = {row.field_type: row for row in self._rows()}
+
+        self.assertEqual(set(rows), set(EXTRA_KINDS))
+        self.assertTrue(all(r.status == "source_only" for r in rows.values()))
+        self.assertIn("Kiddo", rows["altname"].source_val)
+        self.assertEqual(rows["attribute"].source_val, "Description: tall and thin")
+        self.assertIn("12 Main St", rows["address"].source_val)
+        self.assertIn("Second note text", rows["note"].source_val)
+
+    def test_matching_items_are_not_listed(self) -> None:
+        """Same social security number and first note: no rows for them."""
+        self._open()
+        values = [row.source_val for row in self._rows()]
+        self.assertFalse(any("123-45" in value for value in values))
+        self.assertFalse(any("First note text" in value for value in values))
+
+    def test_familysearch_id_is_not_an_attribute_row(self) -> None:
+        """The FamilySearch ID has its own row in the dialog."""
+        self._open()
+        source_kid = self._kid(self.source_db)
+        names = [str(a.get_type()) for _i, a in extra_items("attribute", source_kid, self.source_db)]
+        self.assertNotIn("_FSFTID", names)
+        self.assertEqual(sorted(names), ["Description", "Social Security Number"])
+
+    def test_importer_notes_are_not_compared(self) -> None:
+        """The note the GEDCOM importer writes about itself is left out."""
+        self._open()
+        kid = self._kid(self.db)
+        note = Note("Records not imported into INDI")
+        note.set_type("GEDCOM import")
+        with DbTxn("import note", self.db) as trans:
+            self.db.add_note(note, trans)
+            kid.add_note(note.handle)
+            self.db.commit_person(kid, trans)
+
+        self.assertEqual(
+            [n.get() for _i, n in extra_items("note", kid, self.db)],
+            ["First note text"],
+        )
+
+    def test_items_only_in_the_tree_are_reported(self) -> None:
+        """An item only the tree has is a target_only row."""
+        self._open()
+        kid = self._kid(self.db)
+        self._add_address(self.db, kid, "9 Elm Rd")
+
+        (row,) = [r for r in self._rows() if r.field_type == "address"]
+
+        self.assertEqual(row.status, "target_only")
+        self.assertIn("9 Elm Rd", row.target_val)
+
+    def test_same_content_matches_whatever_the_spacing_and_case(self) -> None:
+        """Notes that differ only in case or spacing are the same note."""
+        first = Note("Hello   World")
+        second = Note("hello world")
+        first.set_type(NoteType.PERSON)
+        second.set_type(NoteType.PERSON)
+        self.assertEqual(
+            extra_signature("note", first), extra_signature("note", second)
+        )
+        third = Note("hello there")
+        third.set_type(NoteType.PERSON)
+        self.assertNotEqual(
+            extra_signature("note", first), extra_signature("note", third)
+        )
+
+    def test_pairing_puts_matches_first(self) -> None:
+        """Pairs come first, then incoming-only, then tree-only items."""
+        self._open()
+        pairs = pair_extra_items(
+            "note",
+            self._kid(self.source_db),
+            self.source_db,
+            self._kid(self.db),
+            self.db,
+        )
+        shape = [(s is not None, t is not None) for _a, s, _b, t in pairs]
+        self.assertEqual(shape, [(True, True), (True, False)])
+
+    # ------------------------------------------------------------------
+    # merging
+    # ------------------------------------------------------------------
+    def _keys(self) -> list[str]:
+        return [
+            "%s:%d" % (row.field_type, row.extra_data["source_index"])
+            for row in self._rows()
+        ]
+
+    def test_merge_copies_each_item_once(self) -> None:
+        """All four kinds are added, and merging again adds nothing."""
+        self._open()
+        self._add_address(self.source_db, self._kid(self.source_db), "12 Main St")
+        keys = self._keys()
+        self.assertEqual(len(keys), 4)
+
+        self._merge(keys)
+        self._merge(keys)
+
+        kid = self._kid(self.db)
+        self.assertEqual(
+            [extra_signature("altname", n)[1] for n in kid.get_alternate_names()],
+            ["kiddo"],
+        )
+        attributes = sorted(a.get_value() for _i, a in extra_items("attribute", kid, self.db))
+        self.assertEqual(attributes, ["123-45", "tall and thin"])
+        self.assertEqual([a.get_street() for a in kid.get_address_list()], ["12 Main St"])
+        self.assertEqual(
+            sorted(n.get() for _i, n in extra_items("note", kid, self.db)),
+            ["First note text", "Second note text"],
+        )
+        self.assertEqual(self._rows(), [])
+
+    def test_copied_alternate_name_keeps_its_citation(self) -> None:
+        """The alternate name's citation comes across, with its source."""
+        self._open()
+        (row,) = [r for r in self._rows() if r.field_type == "altname"]
+
+        self._merge(["altname:%d" % row.extra_data["source_index"]])
+
+        (alt,) = self._kid(self.db).get_alternate_names()
+        (citation_handle,) = alt.get_citation_list()
+        citation = self.db.get_citation_from_handle(citation_handle)
+        self.assertEqual(citation.get_page(), "p. 3")
+        source = self.db.get_source_from_handle(citation.get_reference_handle())
+        self.assertEqual(source.get_title(), "Book")
+
+    def test_merged_note_is_a_new_note_for_the_person(self) -> None:
+        """A merged note is added next to the tree's own note."""
+        self._open()
+        (row,) = [r for r in self._rows() if r.field_type == "note"]
+        notes_before = self.db.get_number_of_notes()
+
+        self._merge(["note:%d" % row.extra_data["source_index"]])
+
+        self.assertEqual(self.db.get_number_of_notes(), notes_before + 1)
+        self.assertEqual(len(self._kid(self.db).get_note_list()), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

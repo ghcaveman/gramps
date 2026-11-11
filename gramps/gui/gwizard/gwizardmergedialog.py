@@ -57,7 +57,15 @@ from gramps.gen.lib import EventType, Person
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.errors import HandleError
-from gramps.gen.gwizard.gwizardgedcom import GedGWizard, format_link_preview
+from gramps.gen.gwizard.gwizardgedcom import (
+    EXTRA_KINDS,
+    GedGWizard,
+    extra_items,
+    extra_label,
+    extra_text,
+    format_link_preview,
+    pair_extra_items,
+)
 from gramps.gen.gwizard.gwizard_base import (
     safe_get_event,
     safe_get_family,
@@ -1010,6 +1018,30 @@ class GWizardMergeDialog(Gtk.Dialog):
                         right_obj=t_event,
                     )
 
+        # ---------- Other Details ----------
+        # Alternate names, attributes, addresses and notes are added to the
+        # person, never replaced, so each incoming item the tree person
+        # lacks gets an arrow that copies it over.
+        other_rows = [
+            (kind, row)
+            for kind in EXTRA_KINDS
+            for row in pair_extra_items(kind, left, sd, right, td)
+        ]
+        if other_rows:
+            section(_("Other Details"))
+        for kind, (s_index, s_item, _t_index, t_item) in other_rows:
+            add_row(
+                "%s:%d" % (kind, s_index)
+                if s_item is not None and t_item is None
+                else None,
+                extra_label(kind),
+                extra_text(kind, s_item) if s_item is not None else "",
+                extra_text(kind, t_item) if t_item is not None else "",
+                # Notes carry no citations of their own to show.
+                left_obj=s_item if kind != "note" else None,
+                right_obj=t_item if kind != "note" else None,
+            )
+
     # ------------------------------------------------------------------
     # Data helpers
     # ------------------------------------------------------------------
@@ -1354,6 +1386,24 @@ class GWizardMergeDialog(Gtk.Dialog):
                         scan_citation(ch)
             except Exception:
                 pass
+
+        # Alternate names, attributes, addresses and notes chosen in the
+        # "Other Details" section.
+        for key, val in self._resolutions.items():
+            kind, _separator, raw_index = key.partition(":")
+            if val != "source" or kind not in EXTRA_KINDS or not raw_index.isdigit():
+                continue
+            chosen = dict(extra_items(kind, self.source_person, self.source_db)).get(
+                int(raw_index)
+            )
+            if chosen is None:
+                continue
+            if kind == "note":
+                scan_notes([self.source_person.get_note_list()[int(raw_index)]])
+            else:
+                scan_notes(chosen.get_note_list())
+                for ch in chosen.get_citation_list():
+                    scan_citation(ch)
 
         return {k: list(v) for k, v in missing.items()}
 

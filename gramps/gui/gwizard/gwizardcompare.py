@@ -50,7 +50,7 @@ from gi.repository import Gdk
 # -------------------------------------------------------------------------
 from gramps.gen.lib import Person
 from gramps.gen.errors import HandleError
-from gramps.gen.gwizard.gwizardgedcom import GedGWizard
+from gramps.gen.gwizard.gwizardgedcom import EXTRA_KINDS, GedGWizard
 from gramps.gen.gwizard.gwizard_base import (
     CandidateMatcher,
     safe_get_event,
@@ -648,7 +648,14 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                         source_person_handle=handle,
                         target_person_handle=target_handle,
                     )
-                    if any(r.status != "match" for r in rows):
+                    # An alternate name, attribute, address or note that only
+                    # the tree has leaves nothing to merge, so it does not make
+                    # the person a difference to step to.
+                    if any(
+                        r.status != "match"
+                        and not (r.status == "target_only" and r.field_type in EXTRA_KINDS)
+                        for r in rows
+                    ):
                         self.diff_list.append(
                             {
                                 "source_handle": handle,
