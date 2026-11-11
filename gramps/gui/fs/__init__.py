@@ -23,12 +23,14 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-# Lazy loading of the session module, which depends on the optional 'gi' library.
-# Importing it in environments without 'gi' (e.g., CI) raises ModuleNotFoundError.
-# To keep the package importable, we guard the lazy import and provide fallbacks.
-_LAZY_MODULES = {}
+_LAZY_MODULES = {
+    "session": ".session",
+}
 
-_LAZY_ATTRS = {}
+_LAZY_ATTRS = {
+    "Session": (".session", "Session"),
+    "get_active_session": (".session", "get_active_session"),
+}
 
 
 def __getattr__(name: str) -> Any:
