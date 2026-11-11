@@ -1,0 +1,19 @@
+
+Image Audit for: C:\workspace\gramps\featuredocs\gwizard_mediafix.mediawiki
+Checking folder: C:\workspace\gramps\featuredocs\images
+--------------------------------------------------------------------
+  [MISSING] <PluginName>-main.png
+             Capture: <Plugin Display Name> main interface
+  [MISSING] gwizard_mediafix-main.png
+             Capture: GWizard Media Fix main dialog
+  [MISSING] gwizard_mediafix-find_missing.png
+             Capture: Find missing media dialog
+  [MISSING] gwizard_mediafix-fix_references.png
+             Capture: Fix media references dialog
+  [MISSING] gwizard_mediafix-consolidate.png
+             Capture: Consolidate media location dialog
+  [MISSING] gwizard_mediafix-report.png
+             Capture: Generated report preview
+--------------------------------------------------------------------
+Summary: 0/6 present, 6 missing.
+
