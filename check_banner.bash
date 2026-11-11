@@ -18,6 +18,11 @@
 
 # ---- Configuration -------------------------------------------------------
 CHANGED_FILE="${CHANGED_FILE:-changed_files.txt}"
+# Remember whether the file existed before we started so we can clean up later.
+INITIAL_EXISTS=0
+if [[ -f "$CHANGED_FILE" ]]; then
+    INITIAL_EXISTS=1
+fi
 BANNER_FILE="banner_template.txt"
 BANNER_TMP=$(mktemp)
 
@@ -42,6 +47,10 @@ fi
 if [[ ! -s "$CHANGED_FILE" ]]; then
     echo "No changed Python files to check."
     rm -f "$BANNER_TMP"
+    # Clean up the generated list file if it did not exist beforehand.
+    if [[ $INITIAL_EXISTS -eq 0 ]]; then
+        rm -f "$CHANGED_FILE"
+    fi
     exit 0
 fi
 
@@ -74,6 +83,10 @@ while IFS= read -r pyfile; do
 done < "$CHANGED_FILE"
 
 rm -f "$BANNER_TMP"
+# Clean up the generated list file if it was created by this script.
+if [[ $INITIAL_EXISTS -eq 0 ]]; then
+    rm -f "$CHANGED_FILE"
+fi
 
 if [[ $FAIL -eq 0 ]]; then
     echo "All changed Python files contain the correct banner."
