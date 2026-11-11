@@ -994,9 +994,41 @@ class HTMLView(PageView):
         Builds the container widget for the interface.
         Returns a gtk container widget.
         """
-        top = PageView.build_interface(self)
-        top.show_all()
-        return top
+        # Build the standard page view interface (a ``Gtk.Paned`` container).
+        paned = PageView.build_interface(self)
+
+        # Determine which rendering engine is in use – ``curl_cffi`` if available,
+        # otherwise the fallback ``urllib`` implementation.
+        import importlib.util
+
+        spec = importlib.util.find_spec("curl_cffi")
+        if spec is not None:
+            engine = "curl_cffi"
+        else:  # pragma: no cover – exercised when curl_cffi missing
+            engine = "pango"
+        # Create a label that mirrors the styling used in the playwright branch.
+        info_label = Gtk.Label(label=_("Rendering engine: {}").format(engine))
+        info_label.set_xalign(0.0)  # left‑align text
+        info_label.set_margin_start(6)
+        info_label.set_margin_end(6)
+        info_label.set_margin_top(4)
+        info_label.set_margin_bottom(4)
+        info_label.set_selectable(True)
+
+        # ``Gtk.Paned`` does not support ``pack_start``; we create a vertical
+        # ``Gtk.Box`` that holds a horizontal box for the label (right‑aligned)
+        # and the original paned below it.
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        # Horizontal container for the label aligned to the right.
+        top_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        # Pack the label at the end so it sits on the right without adding a
+        # spacer that pushes other content down.
+        top_hbox.pack_end(info_label, False, False, 0)
+        outer.pack_start(top_hbox, False, False, 0)
+        outer.pack_start(paned, True, True, 0)
+        outer.show_all()
+        return outer
 
     def get_default_gramplets(self):
         """

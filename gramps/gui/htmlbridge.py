@@ -214,8 +214,21 @@ class HtmlBridge:
         :returns: The decoded content, or None on failure.
         :rtype: str | None
         """
+        import importlib.util
+
+        spec = importlib.util.find_spec("curl_cffi")
+        if spec is not None:
+            try:
+                from curl_cffi import requests as curl_requests  # type: ignore
+            except Exception:  # pragma: no cover
+                LOG.debug(
+                    "curl_cffi found but could not be imported; falling back to urllib"
+                )
+                curl_requests = None
+        else:  # pragma: no cover
+            curl_requests = None
+
         import urllib.parse
-        import urllib.request
 
         headers = {
             "User-Agent": (
@@ -234,10 +247,46 @@ class HtmlBridge:
             url = urllib.parse.quote(url, safe=";/?:@&=+$,~*!'()#%[]")
         except Exception:
             pass
-        try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as response:
-                return response.read().decode("utf-8", errors="ignore")
-        except Exception as err:
-            LOG.warning("Failed to fetch URL for HTMLView: %s", err)
-            return None
+
+        if curl_requests is not None:
+            try:
+                resp = curl_requests.get(url, headers=headers, timeout=10)
+                content = resp.content.decode("utf-8", errors="ignore")
+                js_indicators = [
+                    "Javascript is required for this site",
+                    "It looks like you're offline",
+                    "Please click here if you are not redirected",
+                    "Your web browser is not fully supported",
+                ]
+                needs_js = any(ind in content for ind in js_indicators)
+                if needs_js:
+                    LOG.info(
+                        "Page appears to require JavaScript – attempting Playwright fallback"
+                    )
+                    try:
+                        from playwright.sync_api import sync_playwright  # type: ignore
+
+                        with sync_playwright() as p:
+                            browser = p.chromium.launch(headless=True)
+                            page = browser.new_page()
+                            page.goto(url, timeout=10000)
+                            page.wait_for_load_state("networkidle", timeout=10000)
+                            js_content = page.content()
+                            browser.close()
+                            return js_content
+                    except Exception as pw_err:
+                        LOG.warning("Playwright fallback failed: %s", pw_err)
+                return content
+            except Exception as err:
+                LOG.warning("Failed to fetch URL with curl_cffi for HTMLView: %s", err)
+                return None
+        else:
+            import urllib.request
+
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    return response.read().decode("utf-8", errors="ignore")
+            except Exception as err:
+                LOG.warning("Failed to fetch URL for HTMLView: %s", err)
+                return None
