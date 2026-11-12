@@ -975,7 +975,10 @@ class GWizardMergeDialog(Gtk.Dialog):
             ev = safe_get_event(db, handle)
             if not ev:
                 return (0, 0, "", "", "", 0)
-            return (*event_match_key(db, handle), ev.get_date_object().get_sort_key())
+            date = ev.get_date_object()
+            # Older Gramps versions have no Date.get_sort_key.
+            sort_key = getattr(date, "get_sort_key", date.get_sort_value)
+            return (*event_match_key(db, handle), sort_key())
 
         # Match and order on event data, not rendered text: date quality can
         # change the display string without changing the underlying event.

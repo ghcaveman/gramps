@@ -346,19 +346,25 @@ class GedGWizard(GWizardBase):
         db = make_database("sqlite")
         db.load(":memory:")
         db.set_feature("skip-import-additions", True)
-        db.set_prefixes(
-            config.get("preferences.iprefix"),
-            config.get("preferences.oprefix"),
-            config.get("preferences.fprefix"),
-            config.get("preferences.sprefix"),
-            config.get("preferences.cprefix"),
-            config.get("preferences.pprefix"),
-            config.get("preferences.eprefix"),
-            config.get("preferences.rprefix"),
-            config.get("preferences.nprefix"),
-            config.get("preferences.tprefix"),
-            config.get("preferences.mprefix"),
-        )
+        # This database only reads objects, so its ID prefixes hardly matter.
+        # Older Gramps versions lack the tag prefix setting and take fewer
+        # arguments, so use the defaults there instead of failing to load.
+        try:
+            db.set_prefixes(
+                config.get("preferences.iprefix"),
+                config.get("preferences.oprefix"),
+                config.get("preferences.fprefix"),
+                config.get("preferences.sprefix"),
+                config.get("preferences.cprefix"),
+                config.get("preferences.pprefix"),
+                config.get("preferences.eprefix"),
+                config.get("preferences.rprefix"),
+                config.get("preferences.nprefix"),
+                config.get("preferences.tprefix"),
+                config.get("preferences.mprefix"),
+            )
+        except (AttributeError, TypeError):
+            LOG.debug("ID prefixes not set: this Gramps version differs")
         pmgr = BasePluginManager.get_instance()
         for pdata in pmgr.get_reg_importers():
             if pdata.extension == "gramps":
