@@ -266,6 +266,7 @@ AUTO_STEP_LAYERS = (
     "unpack_citations",
     "citations",
     "citation_attributes",
+    "link_citation_media",
     "notes",
 )
 
@@ -343,6 +344,14 @@ def run_auto_layer(layer: str, db: Any) -> str:
         return str(_("Updated attributes on %d citations.")) % auto_citation_attributes(
             db
         )
+    if layer == "link_citation_media":
+        from gramps.plugins.tool.gw_linkcitationmediadialog import (
+            auto_link_citation_media,
+        )
+
+        return str(
+            _("Linked %d media objects to citations.")
+        ) % auto_link_citation_media(db)
     if layer == "notes":
         from gramps.plugins.tool.gw_notesfixdialog import auto_fix_notes
 
@@ -473,6 +482,26 @@ def find_items_needing_review(db: Any) -> list[str]:
                     "citations have no characteristic keywords (e.g. census, certificate) to infer attributes from."
                 )
             ),
+        )
+    except Exception as error:  # pylint: disable=broad-except
+        failed(label, error)
+
+    label = str(_("Link Citation Media"))
+    try:
+        from gramps.plugins.tool.gw_linkcitationmediadialog import (
+            build_link_citation_media_rows,
+        )
+
+        add(
+            label,
+            len(
+                [
+                    row
+                    for row in build_link_citation_media_rows(db)
+                    if row.get("status") in ("ambiguous", "conflict")
+                ]
+            ),
+            str(_("candidate media links require review or have potential conflicts.")),
         )
     except Exception as error:  # pylint: disable=broad-except
         failed(label, error)
@@ -976,8 +1005,9 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                     "5. Unpack Conflated Citation: extract dates and URLs from volume/page fields, without duplicating notes.\n"
                     "6. Fix Citations: lower the confidence of user-tree citations and fill in volume/page and date from the hints.\n"
                     "7. Citation Attributes: assign Genealogical Proof Standard attributes (Source Type, Information Type, Evidence Type) and QUAY confidence.\n"
-                    "8. Fix Notes: delete import debris and empty notes, trim whitespace, and remove notes that only repeat a web address already in the citation page.\n\n"
-                    "Each step is one transaction: Edit > Undo reverses one step at a time (up to 8 undos)."
+                    "8. Link Citation Media: link safe documentary scans from galleries and sources to citations.\n"
+                    "9. Fix Notes: delete import debris and empty notes, trim whitespace, and remove notes that only repeat a web address already in the citation page.\n\n"
+                    "Each step is one transaction: Edit > Undo reverses one step at a time (up to 9 undos)."
                 )
             ),
             str(_("_Accept all")),

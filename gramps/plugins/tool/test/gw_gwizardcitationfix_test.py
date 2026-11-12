@@ -439,7 +439,8 @@ class GWizardCitationFixTest(unittest.TestCase):
             self.assertIn("5. Unpack Conflated Citation", msg)
             self.assertIn("6. Fix Citations", msg)
             self.assertIn("7. Citation Attributes", msg)
-            self.assertIn("8. Fix Notes", msg)
+            self.assertIn("8. Link Citation Media", msg)
+            self.assertIn("9. Fix Notes", msg)
             self.assertEqual(btn_ok, "_Accept all")
 
     def test_cb_auto_all_execution_and_human_intervention_report(self) -> None:
@@ -485,7 +486,8 @@ class GWizardCitationFixTest(unittest.TestCase):
             self.assertIn("5. Unpack Conflated Citation:", report)
             self.assertIn("6. Fix Citations:", report)
             self.assertIn("7. Citation Attributes:", report)
-            self.assertIn("8. Fix Notes:", report)
+            self.assertIn("8. Link Citation Media:", report)
+            self.assertIn("9. Fix Notes:", report)
             # Without unresolved items in an empty DB, reports no human intervention needed
             self.assertIn("No human intervention required", report)
 

@@ -618,6 +618,41 @@ class GWizardCitationReport:
             base: count for base, count in basenames.items() if base and count > 1
         }
 
+        # Media & Citation hygiene -------------------------------------
+        try:
+            from gramps.plugins.tool.gwizardcitationmediaengine import (
+                audit_existing_citation_media_links,
+                find_promotable_gallery_media,
+                find_unpackable_source_media,
+            )
+
+            promotable = find_promotable_gallery_media(db)
+            unpackable = find_unpackable_source_media(db)
+            suspect_links = audit_existing_citation_media_links(db)
+
+            stats["media_in_galleries_promotable"] = len(promotable)
+            stats["media_on_sources_unpackable"] = len(unpackable)
+            stats["suspect_citation_media"] = [
+                {
+                    "citation_handle": s["citation_handle"],
+                    "media_handle": s["media_handle"],
+                    "cit_display": s["citation_identity"].source_title
+                    + (
+                        " " + s["citation_identity"].page
+                        if s["citation_identity"].page
+                        else ""
+                    ),
+                    "media_name": s["media_identity"].filename,
+                    "conflicts": s["compatibility"].conflicts,
+                }
+                for s in suspect_links
+            ]
+        except Exception as exc:  # pylint: disable=broad-except
+            self._errors.record("media: citation linking scan", exc, None)
+            stats["media_in_galleries_promotable"] = 0
+            stats["media_on_sources_unpackable"] = 0
+            stats["suspect_citation_media"] = []
+
         # Events -------------------------------------------------------
         custom = 0
         for event in events:
@@ -906,10 +941,39 @@ class GWizardCitationReport:
 
         # Media absolute layout warnings
         abs_count = get("media_absolute_count", 0)
+        cits_with = get("citations_with_media", 0)
+        total_cits = get("citations", 0)
         lines.append(
-            "- Media objects carrying absolute hardcoded file paths: %d (Citations with attached media: %d)."
-            % (abs_count, get("citations_with_media", 0))
+            "- Media objects carrying absolute hardcoded file paths: %d (Citations with attached media: %d of %d)."
+            % (abs_count, cits_with, total_cits)
         )
+
+        promotable_count = get("media_in_galleries_promotable", 0)
+        if promotable_count:
+            lines.append(
+                "  ↳ Document scans in Person/Event galleries matching citations: %d items."
+                % promotable_count
+            )
+
+        unpackable_count = get("media_on_sources_unpackable", 0)
+        if unpackable_count:
+            lines.append(
+                "  ↳ Media on top-level Sources unpackable to specific citations: %d items."
+                % unpackable_count
+            )
+
+        suspect = get("suspect_citation_media", [])
+        if suspect:
+            lines.append(
+                "- Suspect media attachments on citations: %d conflicts detected."
+                % len(suspect)
+            )
+            for item in suspect[:5]:
+                conf_str = "; ".join(item.get("conflicts", []))
+                lines.append(
+                    "  ⚠ Citation '%s' <-> Media '%s': %s"
+                    % (item.get("cit_display"), item.get("media_name"), conf_str)
+                )
 
         # Duplicate filename warning blocks
         dup_media = get("media_dup_basenames", {})
@@ -946,8 +1010,12 @@ class GWizardCitationReport:
         lines.append(
             "5. Run 'Fix Citations' to auto-downgrade online user tree confidence metrics."
         )
+        lines.append("6. Run 'Citation Attributes' to assign GPS quality ratings.")
         lines.append(
-            "6. Run 'Fix Notes' to permanently scrub legacy automated migration log files."
+            "7. Run 'Link Citation Media' to link safe documentary evidence scans to citations."
+        )
+        lines.append(
+            "8. Run 'Fix Notes' to permanently scrub legacy automated migration log files."
         )
         step = 7
         if (
