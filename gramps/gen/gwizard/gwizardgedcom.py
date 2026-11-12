@@ -288,6 +288,37 @@ def pair_extra_items(
     return paired + source_only + [(None, None, i, item) for i, item in unused]
 
 
+def event_signature(db: Any, handle: str) -> tuple[str, int, str] | None:
+    """Return what makes two events the same event: type, date and text."""
+    event = safe_get_event(db, handle)
+    if event is None:
+        return None
+    return (
+        str(event.get_type()),
+        event.get_date_object().get_sort_value(),
+        (event.get_description() or "").strip(),
+    )
+
+
+def family_summary(db: Any, family: Any) -> str:
+    """Return a one-line description of a family: partners, type, events."""
+    names = []
+    for handle in (family.get_father_handle(), family.get_mother_handle()):
+        person = safe_get_person(db, handle) if handle else None
+        if person is not None:
+            names.append(name_displayer.display(person))
+    details = []
+    if family.get_relationship() != FamilyRelType.UNKNOWN:
+        details.append(str(family.get_relationship()))
+    for ref in family.get_event_ref_list():
+        event = safe_get_event(db, ref.ref)
+        if event is not None:
+            date = glocale.date_displayer.display(event.get_date_object())
+            details.append(("%s %s" % (event.get_type(), date)).strip())
+    text = _(" and ").join(names) or _("(no partners)")
+    return "%s: %s" % (text, "; ".join(details) if details else _("(no details)"))
+
+
 class GedGWizard(GWizardBase):
     """
     Concrete GWizard implementation for importing data from GEDCOM (.ged)
@@ -931,6 +962,24 @@ class GedGWizard(GWizardBase):
                     )
                 )
 
+        # 9. Families the incoming person heads: a family the tree lacks, a
+        # different relationship type, events or members the tree's family
+        # lacks. Only what can be merged is listed.
+        for entry in self.family_compare(s_person.handle, t_person.handle):
+            if entry["differences"]:
+                rows.append(
+                    GWizardCompareRow(
+                        status=(
+                            "source_only" if entry["tf_handle"] is None else "differ"
+                        ),
+                        field=_("Family"),
+                        source_val=entry["source_text"],
+                        target_val=entry["target_text"],
+                        field_type="family",
+                        extra_data={"family_handle": entry["sf_handle"]},
+                    )
+                )
+
         return rows
 
     def _best_target_person(self, s_handle: str) -> str | None:
@@ -966,6 +1015,160 @@ class GedGWizard(GWizardBase):
             return None
         matches.sort(key=lambda m: m[1], reverse=True)
         return matches[0][0]
+
+    def _find_target_family(
+        self,
+        t_father: str | None,
+        t_mother: str | None,
+        t_children: list[str],
+        has_father: bool,
+        has_mother: bool,
+    ) -> Family | None:
+        """
+        Return the family in the tree that best fits these people.
+
+        Candidates are the families the parents already head and the
+        families the children already belong to. A family is ruled out
+        when a parent slot holds someone other than the person the
+        incoming parent maps to (or, when that parent is not in the tree
+        yet, anyone at all).
+        """
+        candidates: dict[str, Family] = {}
+
+        def consider(handles: Any) -> None:
+            for family_handle in handles:
+                if family_handle not in candidates:
+                    found = safe_get_family(self.db, family_handle)
+                    if found is not None:
+                        candidates[family_handle] = found
+
+        for parent_handle in (t_father, t_mother):
+            parent = safe_get_person(self.db, parent_handle) if parent_handle else None
+            if parent is not None:
+                consider(parent.get_family_handle_list())
+        for child_handle in t_children:
+            child = safe_get_person(self.db, child_handle)
+            if child is not None:
+                consider(child.get_parent_family_handle_list())
+
+        best: Family | None = None
+        best_score = 0
+        for fam in candidates.values():
+            father_h = fam.get_father_handle()
+            mother_h = fam.get_mother_handle()
+            if has_father and father_h and father_h != t_father:
+                continue
+            if has_mother and mother_h and mother_h != t_mother:
+                continue
+            score = 0
+            if t_father and father_h == t_father:
+                score += 2
+            if t_mother and mother_h == t_mother:
+                score += 2
+            members = {ref.ref for ref in fam.get_child_ref_list()}
+            score += sum(1 for handle in t_children if handle in members)
+            if score > best_score:
+                best, best_score = fam, score
+        return best
+
+    def family_compare(
+        self, source_person_handle: str, target_person_handle: str | None
+    ) -> list[dict[str, Any]]:
+        """
+        Compare each family the incoming person heads with its counterpart
+        in the tree, for a person who is already paired with a tree person.
+
+        Returns one entry per incoming family: ``sf_handle``, ``tf_handle``
+        (None when the tree has no such family), ``source_text`` and
+        ``target_text`` (one-line descriptions), ``differences`` (any of
+        "family", "relationship", "events", "members"; empty when there is
+        nothing to merge), ``actionable`` (False while the family has fewer
+        than two members in the tree, so merging would do nothing) and
+        ``event_handles`` (incoming events the tree's family lacks).
+        """
+        source_db = self.context.get("source_db")
+        s_person = (
+            safe_get_person(source_db, source_person_handle) if source_db else None
+        )
+        if s_person is None or not target_person_handle:
+            return []
+
+        def mapped(handle: str | None) -> str | None:
+            if not handle:
+                return None
+            if handle == source_person_handle:
+                return target_person_handle
+            return self._best_target_person(handle)
+
+        entries: list[dict[str, Any]] = []
+        for sf_handle in s_person.get_family_handle_list():
+            s_family = safe_get_family(source_db, sf_handle)
+            if s_family is None:
+                continue
+            s_father = s_family.get_father_handle()
+            s_mother = s_family.get_mother_handle()
+            t_father = mapped(s_father)
+            t_mother = mapped(s_mother)
+            if t_father and t_father == t_mother:
+                t_mother = None
+            claimed = {handle for handle in (t_father, t_mother) if handle}
+            t_children: list[str] = []
+            for ref in s_family.get_child_ref_list():
+                t_child = mapped(ref.ref)
+                if t_child and t_child not in claimed:
+                    t_children.append(t_child)
+                    claimed.add(t_child)
+            t_family = self._find_target_family(
+                t_father, t_mother, t_children, bool(s_father), bool(s_mother)
+            )
+
+            differences: list[str] = []
+            event_handles: list[str] = []
+            known = (
+                {event_signature(self.db, r.ref) for r in t_family.get_event_ref_list()}
+                if t_family is not None
+                else set()
+            )
+            for ref in s_family.get_event_ref_list():
+                signature = event_signature(source_db, ref.ref)
+                if signature is not None and signature not in known:
+                    event_handles.append(ref.ref)
+                    known.add(signature)
+            if t_family is None:
+                differences.append("family")
+            else:
+                relationship = s_family.get_relationship()
+                if (
+                    relationship != FamilyRelType.UNKNOWN
+                    and relationship != t_family.get_relationship()
+                ):
+                    differences.append("relationship")
+                if event_handles:
+                    differences.append("events")
+                children = {ref.ref for ref in t_family.get_child_ref_list()}
+                if (
+                    (t_father and t_family.get_father_handle() != t_father)
+                    or (t_mother and t_family.get_mother_handle() != t_mother)
+                    or any(handle not in children for handle in t_children)
+                ):
+                    differences.append("members")
+            actionable = t_family is not None or len(claimed) >= 2
+            entries.append(
+                {
+                    "sf_handle": sf_handle,
+                    "tf_handle": t_family.handle if t_family is not None else None,
+                    "source_text": family_summary(source_db, s_family),
+                    "target_text": (
+                        family_summary(self.db, t_family)
+                        if t_family is not None
+                        else ""
+                    ),
+                    "differences": differences if actionable else [],
+                    "actionable": actionable,
+                    "event_handles": event_handles,
+                }
+            )
+        return entries
 
     def link_preview(self, source_person_handle: str) -> list[dict[str, Any]]:
         """
@@ -1059,6 +1262,7 @@ class GedGWizard(GWizardBase):
         link_summary: list[dict[str, str]] = []
         self.context["link_summary"] = link_summary
         best_target_person = self._best_target_person
+        family_keys: list[str] = []
 
         def fresh_gramps_id(obj: Any, has_gramps_id: Any) -> None:
             """Clear a Gramps ID the target already uses so a new one is assigned."""
@@ -1642,73 +1846,11 @@ class GedGWizard(GWizardBase):
             refs.insert(position, child_ref)
             fam.set_child_ref_list(refs)
 
-        def event_signature(db: Any, handle: str) -> tuple[str, int, str] | None:
-            event = safe_get_event(db, handle)
-            if event is None:
-                return None
-            return (
-                str(event.get_type()),
-                event.get_date_object().get_sort_value(),
-                (event.get_description() or "").strip(),
-            )
+        find_target_family = self._find_target_family
 
-        def find_target_family(
-            t_father: str | None,
-            t_mother: str | None,
-            t_children: list[str],
-            has_father: bool,
-            has_mother: bool,
-        ) -> Family | None:
-            """
-            Return the family in the tree that best fits these people.
-
-            Candidates are the families the parents already head and the
-            families the children already belong to. A family is ruled out
-            when a parent slot holds someone other than the person the
-            incoming parent maps to (or, when that parent is not in the tree
-            yet, anyone at all).
-            """
-            candidates: dict[str, Family] = {}
-
-            def consider(handles: Any) -> None:
-                for family_handle in handles:
-                    if family_handle not in candidates:
-                        found = safe_get_family(self.db, family_handle)
-                        if found is not None:
-                            candidates[family_handle] = found
-
-            for parent_handle in (t_father, t_mother):
-                parent = (
-                    safe_get_person(self.db, parent_handle) if parent_handle else None
-                )
-                if parent is not None:
-                    consider(parent.get_family_handle_list())
-            for child_handle in t_children:
-                child = safe_get_person(self.db, child_handle)
-                if child is not None:
-                    consider(child.get_parent_family_handle_list())
-
-            best: Family | None = None
-            best_score = 0
-            for fam in candidates.values():
-                father_h = fam.get_father_handle()
-                mother_h = fam.get_mother_handle()
-                if has_father and father_h and father_h != t_father:
-                    continue
-                if has_mother and mother_h and mother_h != t_mother:
-                    continue
-                score = 0
-                if t_father and father_h == t_father:
-                    score += 2
-                if t_mother and mother_h == t_mother:
-                    score += 2
-                members = {ref.ref for ref in fam.get_child_ref_list()}
-                score += sum(1 for handle in t_children if handle in members)
-                if score > best_score:
-                    best, best_score = fam, score
-            return best
-
-        def reconcile_family(sf_handle: str, trans: Any) -> None:
+        def reconcile_family(
+            sf_handle: str, trans: Any, override: bool = False
+        ) -> None:
             s_family = safe_get_family(source_db, sf_handle)
             if s_family is None:
                 return
@@ -1826,7 +1968,11 @@ class GedGWizard(GWizardBase):
                 fam.set_privacy(s_family.get_privacy())
             else:
                 copy_new_citations(fam, s_family, trans)
-            if created or fam.get_relationship() == FamilyRelType.UNKNOWN:
+            if (
+                created
+                or fam.get_relationship() == FamilyRelType.UNKNOWN
+                or (override and s_family.get_relationship() != FamilyRelType.UNKNOWN)
+            ):
                 fam.set_relationship(s_family.get_relationship())
 
             known = {
@@ -2114,6 +2260,10 @@ class GedGWizard(GWizardBase):
 
                     # Alternate names, attributes, addresses and notes: the key
                     # is "<kind>:<index in the incoming person's list>".
+                    if key.startswith("family:"):
+                        family_keys.append(key.partition(":")[2])
+                        continue
+
                     kind, _separator, raw_index = key.partition(":")
                     if kind in EXTRA_KINDS and raw_index.isdigit():
                         copy_extra_item(kind, int(raw_index), t_person, trans)
@@ -2260,5 +2410,21 @@ class GedGWizard(GWizardBase):
                 person_map[s_person.handle] = t_person.handle
                 if resolutions.get("link_families") == "source":
                     link_families_for(s_person, trans)
+                # Families chosen one by one in the merge dialog; the person
+                # is saved first so the families see their current record.
+                for sf_handle in family_keys:
+                    try:
+                        reconcile_family(sf_handle, trans, override=True)
+                    except Exception:  # pylint: disable=broad-except
+                        LOG.warning(
+                            "Could not merge family %s", sf_handle, exc_info=True
+                        )
+                        link_summary.append(
+                            {
+                                "status": "conflict",
+                                "family": sf_handle,
+                                "detail": _("could not be merged (see the log)"),
+                            }
+                        )
 
         return True

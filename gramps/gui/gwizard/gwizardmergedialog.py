@@ -1048,6 +1048,30 @@ class GWizardMergeDialog(Gtk.Dialog):
                 right_obj=t_item if kind not in ("note", "url") else None,
             )
 
+        # ---------- Families ----------
+        # The families the incoming person heads, set against the tree's
+        # counterparts. An arrow merges one family: it adds a family the
+        # tree lacks, fills in missing events and members, and takes the
+        # incoming relationship type.
+        family_entries = (
+            self.gwizard.family_compare(left.handle, right.handle)
+            if right.handle
+            else []
+        )
+        if family_entries:
+            section(_("Families"))
+        for entry in family_entries:
+            add_row(
+                (
+                    "family:%s" % entry["sf_handle"]
+                    if entry["differences"] and entry["actionable"]
+                    else None
+                ),
+                _("Family"),
+                entry["source_text"],
+                entry["target_text"],
+            )
+
     # ------------------------------------------------------------------
     # Data helpers
     # ------------------------------------------------------------------
@@ -1410,6 +1434,37 @@ class GWizardMergeDialog(Gtk.Dialog):
                 scan_notes(chosen.get_note_list())
                 for ch in chosen.get_citation_list():
                     scan_citation(ch)
+
+        # Families chosen in the "Families" section: the events they would
+        # bring and, for a family the tree lacks, the family's own notes and
+        # citations.
+        chosen_families = [
+            key.partition(":")[2]
+            for key, val in self._resolutions.items()
+            if key.startswith("family:") and val == "source"
+        ]
+        if chosen_families and self.target_handle:
+            entries = {
+                entry["sf_handle"]: entry
+                for entry in self.gwizard.family_compare(
+                    self.source_handle, self.target_handle
+                )
+            }
+            for sf_handle in chosen_families:
+                entry = entries.get(sf_handle)
+                if entry is None:
+                    continue
+                for event_handle in entry["event_handles"]:
+                    event = safe_get_event(self.source_db, event_handle)
+                    if event is not None:
+                        scan_notes(event.get_note_list())
+                        for ch in event.get_citation_list():
+                            scan_citation(ch)
+                if entry["tf_handle"] is None:
+                    s_family = self.source_db.get_family_from_handle(sf_handle)
+                    scan_notes(s_family.get_note_list())
+                    for ch in s_family.get_citation_list():
+                        scan_citation(ch)
 
         return {k: list(v) for k, v in missing.items()}
 
