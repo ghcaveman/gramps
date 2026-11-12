@@ -66,3 +66,10 @@ git checkout origin/functionality_base -- <path/to/file>
 
 To disable the "paging" in git:
 git config --global core.pager cat
+
+git config user.name "Kevin White"
+git config user.email "gocaveman@gmail.com"
+
+I see merge conflicts and I can't tell if I should accept ours or theirs.  Can you help me understand which one has newer features?
+
+git rebase -X theirs origin/functionality_base
