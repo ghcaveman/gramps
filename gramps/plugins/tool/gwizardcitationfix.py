@@ -568,6 +568,7 @@ def get_button_specs() -> list[tuple[str, str, bool]]:
         ("unpack_citations", str(_("Unpack Conflated Citation")), True),
         ("fix_citations", str(_("Fix Citations")), True),
         ("citation_attributes", str(_("Citation Attributes")), True),
+        ("link_citation_media", str(_("Link Citation Media")), True),
         ("fix_notes", str(_("Fix Notes")), True),
         ("auto_all", str(_("Accept all hints")), True),
     ]
@@ -704,11 +705,11 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
             ),
         ),
         (
-            "citation_attributes",
-            str(_("Citation Attributes")),
+            "link_citation_media",
+            str(_("Link Citation Media")),
             str(
                 _(
-                    "Assign Genealogical Proof Standard (GPS) quality attributes and confidence ratings to citations."
+                    "Discover and link documentary media from galleries, sources, or orphan files to citations."
                 )
             ),
         ),
@@ -830,6 +831,8 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             self.cb_fix_layer("citations")
         elif key == "citation_attributes":
             self.cb_fix_layer("citation_attributes")
+        elif key == "link_citation_media":
+            self.cb_fix_layer("link_citation_media")
         elif key == "fix_notes":
             self.cb_fix_layer("notes")
         elif key == "auto_all":
@@ -901,6 +904,17 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                 title=title,
                 dbstate=self.dbstate,
                 description=get_fix_description("citation_attributes"),
+                transient_for=self.window,
+            ).show_dialog()
+            return
+        if layer == "link_citation_media":
+            from gramps.plugins.tool.gw_linkcitationmediadialog import (
+                GWLinkCitationMediaDialog,
+            )
+
+            GWLinkCitationMediaDialog(
+                title=title,
+                dbstate=self.dbstate,
                 transient_for=self.window,
             ).show_dialog()
             return

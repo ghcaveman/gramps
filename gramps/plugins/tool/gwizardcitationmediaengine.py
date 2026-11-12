@@ -839,14 +839,13 @@ def find_orphan_media_matches(db: Any) -> list[dict[str, Any]]:
 
     for media in db.iter_media():
         m_handle = str(media.get_handle() or "")
-        # Check if media is unreferenced or orphan
+        # Check if media is unreferenced or orphan (no backlinks to any object)
         backlinks = (
             list(db.find_backlink_handles(m_handle))
             if hasattr(db, "find_backlink_handles")
             else []
         )
-        has_citation_backlink = any(cname == "Citation" for cname, _ in backlinks)
-        if has_citation_backlink:
+        if backlinks:
             continue
 
         m_id = extract_media_identity(media, db)

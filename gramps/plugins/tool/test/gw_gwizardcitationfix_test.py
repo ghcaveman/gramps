@@ -302,6 +302,7 @@ class GWizardCitationFixTest(unittest.TestCase):
         self.assertIn("unpack_citations", tool_instance.buttons)
         self.assertIn("fix_citations", tool_instance.buttons)
         self.assertIn("citation_attributes", tool_instance.buttons)
+        self.assertIn("link_citation_media", tool_instance.buttons)
         self.assertIn("fix_notes", tool_instance.buttons)
         self.assertIn("auto_all", tool_instance.buttons)
 
