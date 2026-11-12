@@ -202,34 +202,12 @@ def suggest_citation_attributes(
             ),
         }
 
-    # Fallback based on confidence level
-    if curr_conf >= 4:
-        return {
-            "source_type": "Original",
-            "info_type": "Primary",
-            "evidence_type": "Direct",
-            "quay": "4(3)",
-            "hint_text": _(
-                "High confidence evidence (suggest Original, Primary, Direct)"
-            ),
-        }
-    elif curr_conf == 3:
-        return {
-            "source_type": "Original",
-            "info_type": "Primary",
-            "evidence_type": "Direct",
-            "quay": "3(2)",
-            "hint_text": _(
-                "High confidence evidence (suggest Original, Primary, Direct)"
-            ),
-        }
-
     return {
-        "source_type": "Derivative",
-        "info_type": "Secondary",
-        "evidence_type": "Direct",
-        "quay": "2(-)",
-        "hint_text": _("Derivative source (suggest Derivative, Secondary, Direct)"),
+        "source_type": "",
+        "info_type": "",
+        "evidence_type": "",
+        "quay": "",
+        "hint_text": _("No keywords matched to infer GPS attributes"),
     }
 
 

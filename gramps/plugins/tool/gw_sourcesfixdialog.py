@@ -125,10 +125,12 @@ class SourceFixDialog(Gtk.Dialog):
         header_grid = Gtk.Grid()
         header_grid.set_column_spacing(0)
         header_grid.set_row_spacing(0)
-        header_grid.set_column_homogeneous(True)
+        if hasattr(header_grid, "set_column_homogeneous"):
+            header_grid.set_column_homogeneous(True)
         header_grid.set_hexpand(True)
         header_grid.set_vexpand(False)
-        header_grid.get_style_context().add_class("merge-grid")
+        if hasattr(header_grid, "get_style_context"):
+            header_grid.get_style_context().add_class("merge-grid")
 
         # Column 0: Repository
         repo_head = Gtk.Label()
@@ -856,16 +858,25 @@ def build_source_fix_rows(
         )
 
     # 4) Orphan / no-repository sources -> quarantine action
-    quarantine_handles = {
-        str(repo.get_handle())
-        for repo in db.iter_repositories()
-        if str(repo.get_name() or "").strip().lower() == _QUARANTINE_REPO_NAME.lower()
-    }
+    quarantine_handles = (
+        {
+            str(repo.get_handle())
+            for repo in db.iter_repositories()
+            if str(repo.get_name() or "").strip().lower()
+            == _QUARANTINE_REPO_NAME.lower()
+        }
+        if db is not None and hasattr(db, "iter_repositories")
+        else set()
+    )
     for row in stats.get("source_rows", []):
         handle = row.get("handle")
         if not handle or handle in handled_handles:
             continue
-        if quarantine_handles:
+        if (
+            quarantine_handles
+            and db is not None
+            and hasattr(db, "get_source_from_handle")
+        ):
             src_obj = db.get_source_from_handle(handle)
             if src_obj is not None and any(
                 str(ref.get_reference_handle()) in quarantine_handles

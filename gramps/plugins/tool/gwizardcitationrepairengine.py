@@ -620,3 +620,80 @@ class GWizardCitationRepairEngine:
                 db.remove_note(note_handle, trans)
                 purged += 1
         return purged
+
+    # ------------------------------------------------------------
+    # Step: media to citation linking & auditing
+    # ------------------------------------------------------------
+    def plan_link_citation_media(self, db: Any) -> list[dict[str, Any]]:
+        """Collect all candidate media-to-citation link operations across all sources."""
+        from .gwizardcitationmediaengine import (
+            find_promotable_gallery_media,
+            find_unpackable_source_media,
+            find_orphan_media_matches,
+        )
+
+        plan: list[dict[str, Any]] = []
+        plan.extend(find_promotable_gallery_media(db))
+        plan.extend(find_unpackable_source_media(db))
+        plan.extend(find_orphan_media_matches(db))
+        return plan
+
+    def auto_link_citation_media(self, db: Any, min_score: int = 70) -> int:
+        """Automatically link high-confidence, non-conflicting media to citations.
+
+        Only links with score >= min_score and zero conflicts are applied.
+        One DbTxn, single undo.
+        """
+        from .gwizardcitationmediaengine import (
+            apply_promote_media_to_citation,
+            apply_unpack_source_media,
+            apply_link_media_to_citation,
+        )
+
+        plan = self.plan_link_citation_media(db)
+        linked_count = 0
+        with DbTxn(_("Link Media to Citations"), db) as trans:
+            for item in plan:
+                compat = item.get("compatibility")
+                if not compat or not compat.is_match or compat.conflicts:
+                    continue
+                if compat.score < min_score:
+                    continue
+
+                action = item.get("action", "")
+                c_h = item.get("citation_handle", "")
+                m_h = item.get("media_handle", "")
+                success = False
+
+                if action in ("promote_from_person", "promote_from_event"):
+                    success = apply_promote_media_to_citation(
+                        db,
+                        trans,
+                        c_h,
+                        m_h,
+                        detach_from_owner=False,
+                        owner_type=item.get("owner_type", ""),
+                        owner_handle=item.get("owner_handle", ""),
+                    )
+                elif action == "unpack_from_source":
+                    success = apply_unpack_source_media(
+                        db,
+                        trans,
+                        source_handle=item.get("owner_handle", ""),
+                        citation_handle=c_h,
+                        media_handle=m_h,
+                        detach_from_source=False,
+                    )
+                elif action == "link_orphan":
+                    success = apply_link_media_to_citation(db, trans, c_h, m_h)
+
+                if success:
+                    linked_count += 1
+
+        return linked_count
+
+    def audit_citation_media_links(self, db: Any) -> list[dict[str, Any]]:
+        """Audit existing citation media links for potential mismatches or conflicts."""
+        from .gwizardcitationmediaengine import audit_existing_citation_media_links
+
+        return audit_existing_citation_media_links(db)

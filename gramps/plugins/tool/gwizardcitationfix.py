@@ -400,9 +400,23 @@ def find_items_needing_review(db: Any) -> list[str]:
 
     label = str(_("Fix Repositories"))
     try:
+        orphan_count = 0
+        for src in db.iter_sources():
+            refs = src.get_reporef_list()
+            if not refs:
+                orphan_count += 1
+            else:
+                for ref in refs:
+                    repo = db.get_repository_from_handle(ref.get_reference_handle())
+                    if (
+                        repo
+                        and str(repo.get_name() or "").strip().lower() == "quarantine"
+                    ):
+                        orphan_count += 1
+                        break
         add(
             label,
-            len([src for src in db.iter_sources() if not src.get_reporef_list()]),
+            orphan_count,
             str(_("sources could not be linked to any known repository.")),
         )
     except Exception as error:  # pylint: disable=broad-except
@@ -995,209 +1009,14 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             modal=True,
             destroy_with_parent=True,
         )
-        if not confirm.run():
-            return
-        engine = GWizardCitationRepairEngine()
-        db = self.dbstate.db
-        steps = [
-            (
-                str(_("Unpacked %d mixed source titles.")),
-                engine.unpack_conflated_sources,
-            ),
-            (
-                str(_("Merged %d duplicate repository records.")),
-                engine.consolidate_duplicate_repositories,
-            ),
-            (
-                str(_("Merged %d duplicate source records.")),
-                engine.consolidate_duplicate_sources,
-            ),
-            (str(_("Refined %d citations.")), engine.clean_and_rate_citations),
-            (
-                str(_("Fix Citations: Refined %d citations.")),
-                engine.clean_and_rate_citations,
-            ),
-            (
-                str(_("Citation Attributes: Assigned attributes on %d citations.")),
-                self._auto_citation_attributes,
-            ),
-            (
-                str(_("Fix Notes: Purged %d import debris notes.")),
-                engine.purge_import_debris_notes,
-            ),
-        ]
-        lines = []
-        for number, (message, func) in enumerate(steps, 1):
-            try:
-                lines.append("  %d. %s" % (number, message % func(db)))
-            except Exception as error:  # pylint: disable=broad-except
-                LOG.exception("Auto step %d failed", number)
-                lines.append("  %d. %s" % (number, str(_("FAILED: %s")) % error))
-
-        # Check for items that could not be resolved without human intervention
-        manual_items: list[str] = []
-
-        # 1. Unpack Conflated Sources needing manual review
-        try:
-            remaining_unpack = engine.plan_unpack_conflated_sources(db)
-            if remaining_unpack:
-                manual_items.append(
-                    str(
-                        _(
-                            "  • Unpack Conflated Source (%d): source titles contain complex or ambiguous mixed text requiring manual review."
-                        )
-                    )
-                    % len(remaining_unpack)
-                )
-        except Exception:
-            pass
-
-        # 2. Repositories with ambiguous consolidation
-        try:
-            from gramps.plugins.tool.gw_repoconsolidatedialog import (
-                build_repo_consolidate_rows,
-            )
-
-            remaining_repos = [
-                r
-                for r in build_repo_consolidate_rows(db)
-                if not r.get("hint_target") or r["handle"] != r.get("hint_target")
-            ]
-            if remaining_repos:
-                manual_items.append(
-                    str(
-                        _(
-                            "  • Repository Consolidate (%d): repositories have ambiguous matches or multiple candidates requiring manual keeper selection."
-                        )
-                    )
-                    % len(remaining_repos)
-                )
-        except Exception:
-            pass
-
-        # 3. Orphan sources with no identifiable repository
-        try:
-            orphan_sources = [s for s in db.iter_sources() if not s.get_reporef_list()]
-            if orphan_sources:
-                manual_items.append(
-                    str(
-                        _(
-                            "  • Fix Repositories (%d): orphan sources could not be automatically linked to any known repository."
-                        )
-                    )
-                    % len(orphan_sources)
-                )
-        except Exception:
-            pass
-
-        # 4. Near-duplicate sources requiring manual merge review
-        try:
-            from gramps.plugins.tool.gw_sourcesfixdialog import (
-                build_source_fix_rows,
-            )
-
-            remaining_sources = [
-                r
-                for r in build_source_fix_rows(db)
-                if r.get("hint_target") and r["handle"] != r.get("hint_target")
-            ]
-            if remaining_sources:
-                manual_items.append(
-                    str(
-                        _(
-                            "  • Fix Sources (%d): potential duplicate sources have conflicting data requiring manual review."
-                        )
-                    )
-                    % len(remaining_sources)
-                )
-        except Exception:
-            pass
-
-        # 5. Unpack conflated citations requiring manual field editing
-        try:
-            from gramps.plugins.tool.gw_unpackcitationsdialog import (
-                plan_unpack_conflated_citations,
-            )
-
-            remaining_citations = plan_unpack_conflated_citations(db)
-            if remaining_citations:
-                manual_items.append(
-                    str(
-                        _(
-                            "  • Unpack Conflated Citation (%d): citations have complex volume/page strings requiring manual field separation."
-                        )
-                    )
-                    % len(remaining_citations)
-                )
-        except Exception:
-            pass
-
-        # 6. Citations lacking keywords for GPS attributes
-        try:
-            from gramps.plugins.tool.gw_citationattributesdialog import (
-                build_citation_attribute_rows,
-            )
-
-            remaining_attrs = [
-                r
-                for r in build_citation_attribute_rows(db)
-                if not r.get("suggested_src_type")
-                and not r.get("suggested_info_type")
-                and not r.get("suggested_ev_type")
-                and not r.get("suggested_quay")
-            ]
-            if remaining_attrs:
-                manual_items.append(
-                    str(
-                        _(
-                            "  • Citation Attributes (%d): citations lack characteristic keywords (e.g. census, certificate) to infer GPS attributes automatically."
-                        )
-                    )
-                    % len(remaining_attrs)
-                )
-        except Exception:
-            pass
-
-        # 7. Notes with remaining debris or bare URLs
-        try:
-            from gramps.plugins.tool.gw_notesfixdialog import build_note_fix_rows
-
-            remaining_notes = build_note_fix_rows(db)
-            if remaining_notes:
-                manual_items.append(
-                    str(
-                        _(
-                            "  • Fix Notes (%d): notes contain mixed text with URLs or partial debris requiring manual cleanup."
-                        )
-                    )
-                    % len(remaining_notes)
-                )
-        except Exception:
-            pass
-
-        report_sections = [
-            str(_("AUTOMATED CHANGES PERFORMED:")),
-            *lines,
-            "",
-        ]
-
-        if manual_items:
-            report_sections.append(str(_("CHANGES REQUIRING HUMAN INTERVENTION:")))
-            report_sections.extend(manual_items)
-        else:
-            report_sections.append(
-                str(
-                    _(
-                        "No human intervention required. All cleanup layers are fully resolved."
-                    )
-                )
-            )
-
-        OkDialog(
-            str(_("Accept All Hints Complete")),
-            "\n".join(report_sections),
-            parent=self.window,
-        )
+        report_dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
+        content = report_dialog.get_content_area()
+        report_text = "\n".join(report_sections)
+        label = SelectableLabel(label=report_text)
+        content.add(label)
+        report_dialog.show_all()
+        report_dialog.run()
+        report_dialog.destroy()
 
     def update_view_button(self) -> None:
         """Kept for backward compatibility if called; view button is removed."""
