@@ -20,9 +20,10 @@ name: Gramps CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, 'goatgramps/**' ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -78,6 +79,18 @@ jobs:
         export GDK_BACKEND=-
         export GRAMPS_RESOURCES=build/share
         python3 -m unittest discover -p "*_test.py"
+    - name: Upload built Python wheels
+      uses: actions/upload-artifact@v4
+      with:
+        name: gramps-built-wheels
+        path: dist/
+    - name: Upload unit test files
+      uses: actions/upload-artifact@v4
+      if: always() # CRITICAL: Captures files even if a test fails and aborts early
+      with:
+        name: test-generated-data
+        path: test/data/ # Trailing slash ensures the folder contents are archived
+        retention-days: 14
     - name: POTFILES check
       run: |
         cd po
