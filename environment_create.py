@@ -37,9 +37,11 @@ from pathlib import Path
 LOG = logging.getLogger(__name__)
 
 # Default MSYS2 location – can be overridden via a command‑line argument.
-DEFAULT_MSYS_ROOT = Path(r"C:\Program Files\Msys64")
+# Updated to use the typical MSYS2 installation path on Windows.
+DEFAULT_MSYS_ROOT = Path(r"C:\msys64")
 MSYS_ROOT = DEFAULT_MSYS_ROOT
-MSYS_PYTHON = MSYS_ROOT / "mingw64" / "bin" / "python3.exe"
+# MSYS2 provides "python.exe" in the mingw64 bin directory.
+MSYS_PYTHON = MSYS_ROOT / "mingw64" / "bin" / "python.exe"
 MSYS_PATHS = [
     str(MSYS_ROOT / "mingw64" / "bin"),
     str(MSYS_ROOT / "ucrt64" / "bin"),
@@ -89,13 +91,18 @@ SETTINGS_JSON = {
 #
 # ------------------------------------------------------------
 def find_msys_python() -> Path:
-    """Return MSYS2 mingw64 python, falling back to PATH."""
+    """Return MSYS2 mingw64 python, falling back to the current interpreter.
+
+    The original implementation fell back to ``shutil.which('python3')`` which
+    on Windows may resolve to the Microsoft Store stub that aborts with an
+    error.  To make the script robust in environments where MSYS2 is not
+    installed, we now fall back to ``sys.executable`` – the interpreter that
+    is running this script.
+    """
     if MSYS_PYTHON.is_file():
         return MSYS_PYTHON
-    found = shutil.which("python3")
-    if found:
-        return Path(found)
-    raise FileNotFoundError("MSYS2 python not found at %s." % MSYS_PYTHON)
+    # Fallback to the interpreter executing this script.
+    return Path(sys.executable)
 
 
 def write_vscode(target: Path) -> None:
@@ -113,12 +120,29 @@ def resources_ok(target: Path) -> bool:
 
 
 def build_resources(target: Path, msys_python: Path) -> None:
-    """Run wheel build whose hook generates build/share."""
+    """Run wheel build whose hook generates ``build/share``.
+
+    If the ``build`` module is not available, attempt to install it using the
+    same interpreter and retry the build. This avoids the common Windows Store
+    stub issue where ``python -m build`` fails because the module is missing.
+    """
     env = os.environ.copy()
     env["PATH"] = os.pathsep.join(MSYS_PATHS + [env.get("PATH", "")])
     cmd = [str(msys_python), "-m", "build", "--wheel", "--no-isolation"]
     LOG.info("Building resources in %s ...", target)
-    subprocess.run(cmd, cwd=str(target), env=env, check=True)
+    try:
+        subprocess.run(cmd, cwd=str(target), env=env, check=True)
+    except subprocess.CalledProcessError as exc:
+        # If the failure is due to a missing ``build`` module, install it and retry.
+        if "No module named build" in str(exc):
+            LOG.warning("'build' module not found; attempting to install it.")
+            install_cmd = [str(msys_python), "-m", "pip", "install", "build"]
+            LOG.info("Installing 'build' module via pip: %s", " ".join(install_cmd))
+            subprocess.run(install_cmd, cwd=str(target), env=env, check=True)
+            LOG.info("Retrying resource build after installing 'build'.")
+            subprocess.run(cmd, cwd=str(target), env=env, check=True)
+        else:
+            raise
 
 
 def create_environment(target: Path, no_build: bool = False) -> None:
@@ -165,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     global MSYS_ROOT, MSYS_PYTHON, MSYS_PATHS, LAUNCH_JSON
     if args.mode:
         MSYS_ROOT = Path(r"C:\msys64")
-        MSYS_PYTHON = MSYS_ROOT / "mingw64" / "bin" / "python3.exe"
+        MSYS_PYTHON = MSYS_ROOT / "mingw64" / "bin" / "python.exe"
         MSYS_PATHS = [
             str(MSYS_ROOT / "mingw64" / "bin"),
             str(MSYS_ROOT / "ucrt64" / "bin"),
