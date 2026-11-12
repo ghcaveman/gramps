@@ -26,6 +26,7 @@
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import logging
 import os
 import shutil
 from typing import Any
@@ -36,6 +37,18 @@ from typing import Any
 #
 # -------------------------------------------------------------------------
 from gi.repository import Gtk, Pango
+
+# -------------------------------------------------------------------------
+#
+# Gramps modules
+#
+# -------------------------------------------------------------------------
+from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.db import DbTxn
+from gramps.gen.lib import Tag
+
+_ = glocale.translation.sgettext
+LOG = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------
@@ -281,3 +294,238 @@ def build_basename_index(base_dir: str, limit: int = 50000) -> dict[str, list[st
             if seen >= limit:
                 return index
     return index
+
+
+# ------------------------------------------------------------
+#
+# GWizard Standard Tags and Locking Helpers
+#
+# ------------------------------------------------------------
+TAG_MEDIA_FIXED = "GWizard: MediaFixed"
+TAG_MEDIA_FIXED_COLOR = "#2E8B57"
+
+TAG_LOCKED = "GWizard: Locked"
+TAG_LOCKED_COLOR = "#B22222"
+
+
+def create_gwizard_tag(name: str, color: str = "") -> Tag:
+    """Create a new Tag instance configured with the specified name and color."""
+    tag = Tag()
+    tag.set_name(name)
+    if color:
+        tag.set_color(color)
+    return tag
+
+
+def ensure_tag(
+    db: Any,
+    name: str,
+    color: str = "",
+    txn: Any = None,
+) -> Tag | None:
+    """Ensure a Tag with name and color exists in the database.
+
+    If it exists, return it. If not, create, add, and commit it, then return it.
+    """
+    if not db or not hasattr(db, "get_tag_from_name"):
+        return None
+    try:
+        tag = db.get_tag_from_name(name)
+        if tag:
+            return tag
+    except Exception:
+        pass
+
+    if not hasattr(db, "add_tag"):
+        return None
+
+    tag = create_gwizard_tag(name, color)
+    if hasattr(db, "get_number_of_tags"):
+        try:
+            tag.set_priority(db.get_number_of_tags())
+        except Exception:
+            pass
+
+    try:
+        if txn is not None:
+            db.add_tag(tag, txn)
+            if hasattr(db, "commit_tag"):
+                db.commit_tag(tag, txn)
+        else:
+            with DbTxn(_("Create GWizard Tag"), db) as trans:
+                db.add_tag(tag, trans)
+                if hasattr(db, "commit_tag"):
+                    db.commit_tag(tag, trans)
+        return tag
+    except Exception as err:
+        LOG.warning("Failed to create tag '%s': %s", name, err)
+        return None
+
+
+def ensure_gwizard_tags(db: Any, txn: Any = None) -> tuple[Tag | None, Tag | None]:
+    """Ensure both standard GWizard tags ('GWizard: MediaFixed' and 'GWizard: Locked') exist."""
+    t_fixed = ensure_tag(db, TAG_MEDIA_FIXED, TAG_MEDIA_FIXED_COLOR, txn=txn)
+    t_locked = ensure_tag(db, TAG_LOCKED, TAG_LOCKED_COLOR, txn=txn)
+    return t_fixed, t_locked
+
+
+def is_media_locked(db: Any, media: Any) -> bool:
+    """Return True if media has the 'GWizard: Locked' tag."""
+    if not db or not media or not hasattr(media, "get_tag_list"):
+        return False
+    tag_list = media.get_tag_list()
+    if not tag_list:
+        return False
+
+    if hasattr(db, "get_tag_from_name"):
+        try:
+            lock_tag = db.get_tag_from_name(TAG_LOCKED)
+            if lock_tag and lock_tag.get_handle() in tag_list:
+                return True
+        except Exception:
+            pass
+
+    if hasattr(db, "get_tag_from_handle"):
+        for th in tag_list:
+            try:
+                t = db.get_tag_from_handle(th)
+                if t and getattr(t, "name", None) == TAG_LOCKED:
+                    return True
+            except Exception:
+                pass
+
+    return False
+
+
+def has_media_fixed_tag(db: Any, media: Any) -> bool:
+    """Return True if media has the 'GWizard: MediaFixed' tag."""
+    if not db or not media or not hasattr(media, "get_tag_list"):
+        return False
+    tag_list = media.get_tag_list()
+    if not tag_list:
+        return False
+
+    if hasattr(db, "get_tag_from_name"):
+        try:
+            fixed_tag = db.get_tag_from_name(TAG_MEDIA_FIXED)
+            if fixed_tag and fixed_tag.get_handle() in tag_list:
+                return True
+        except Exception:
+            pass
+
+    if hasattr(db, "get_tag_from_handle"):
+        for th in tag_list:
+            try:
+                t = db.get_tag_from_handle(th)
+                if t and getattr(t, "name", None) == TAG_MEDIA_FIXED:
+                    return True
+            except Exception:
+                pass
+
+    return False
+
+
+def add_media_fixed_tag(
+    db: Any,
+    media: Any,
+    txn: Any = None,
+    commit: bool = False,
+) -> bool:
+    """Add the 'GWizard: MediaFixed' tag to media if not already tagged.
+
+    Returns True if the tag was newly added, False otherwise.
+    """
+    if not db or not media or not hasattr(media, "add_tag"):
+        return False
+    tag = ensure_tag(db, TAG_MEDIA_FIXED, TAG_MEDIA_FIXED_COLOR, txn=txn)
+    if not tag or not tag.get_handle():
+        return False
+    tag_list = media.get_tag_list() or []
+    if tag.get_handle() in tag_list:
+        return False
+
+    media.add_tag(tag.get_handle())
+    if commit and hasattr(db, "commit_media"):
+        if txn is not None:
+            db.commit_media(media, txn)
+        else:
+            with DbTxn(_("Tag Media Fixed"), db) as trans:
+                db.commit_media(media, trans)
+    return True
+
+
+def lock_media(
+    db: Any,
+    media: Any,
+    txn: Any = None,
+    commit: bool = False,
+) -> bool:
+    """Add the 'GWizard: Locked' tag to media if not already tagged.
+
+    Returns True if the tag was newly added, False otherwise.
+    """
+    if not db or not media or not hasattr(media, "add_tag"):
+        return False
+    tag = ensure_tag(db, TAG_LOCKED, TAG_LOCKED_COLOR, txn=txn)
+    if not tag or not tag.get_handle():
+        return False
+    tag_list = media.get_tag_list() or []
+    if tag.get_handle() in tag_list:
+        return False
+
+    media.add_tag(tag.get_handle())
+    if commit and hasattr(db, "commit_media"):
+        if txn is not None:
+            db.commit_media(media, txn)
+        else:
+            with DbTxn(_("Lock Media"), db) as trans:
+                db.commit_media(media, trans)
+    return True
+
+
+def unlock_media(
+    db: Any,
+    media: Any,
+    txn: Any = None,
+    commit: bool = False,
+) -> bool:
+    """Remove the 'GWizard: Locked' tag from media.
+
+    Returns True if the tag was removed, False otherwise.
+    """
+    if not db or not media or not hasattr(media, "remove_tag"):
+        return False
+    tag_list = list(media.get_tag_list() or [])
+    if not tag_list:
+        return False
+
+    tag_handle = None
+    if hasattr(db, "get_tag_from_name"):
+        try:
+            tag = db.get_tag_from_name(TAG_LOCKED)
+            if tag and tag.get_handle() in tag_list:
+                tag_handle = tag.get_handle()
+        except Exception:
+            pass
+
+    if not tag_handle and hasattr(db, "get_tag_from_handle"):
+        for th in tag_list:
+            try:
+                t = db.get_tag_from_handle(th)
+                if t and getattr(t, "name", None) == TAG_LOCKED:
+                    tag_handle = th
+                    break
+            except Exception:
+                pass
+
+    if not tag_handle:
+        return False
+
+    media.remove_tag(tag_handle)
+    if commit and hasattr(db, "commit_media"):
+        if txn is not None:
+            db.commit_media(media, txn)
+        else:
+            with DbTxn(_("Unlock Media"), db) as trans:
+                db.commit_media(media, trans)
+    return True
