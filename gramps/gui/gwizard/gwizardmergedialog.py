@@ -57,6 +57,7 @@ from gramps.gen.lib import EventType, Person
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.errors import HandleError
+from gramps.gui.dialog import ErrorDialog
 from gramps.gen.gwizard.gwizardgedcom import (
     EXTRA_KINDS,
     GedGWizard,
@@ -1467,14 +1468,29 @@ class GWizardMergeDialog(Gtk.Dialog):
                 return
 
         try:
-            self.gwizard.run_step(
+            applied = self.gwizard.run_step(
                 "apply",
                 source_person_handle=self.source_handle,
                 target_person_handle=self.target_handle,
                 resolutions=self._resolutions,
             )
         except Exception as e:  # pragma: no cover
+            # The apply runs in one database transaction that is rolled
+            # back when an exception escapes, so nothing was changed.
             LOG.exception("Apply failed: %s", e)
+            ErrorDialog(
+                _("Merge failed"),
+                _("No changes were made to your family tree.\n\n%s") % e,
+                parent=self,
+            )
+            return
+        if applied is False:
+            ErrorDialog(
+                _("Merge failed"),
+                _("The selected person could not be found in your family tree."),
+                parent=self,
+            )
+            return
         self.response(Gtk.ResponseType.OK)
 
     def cb_cancel(self, _button: Gtk.Button) -> None:
