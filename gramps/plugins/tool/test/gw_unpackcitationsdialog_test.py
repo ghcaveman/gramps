@@ -122,6 +122,68 @@ class UnpackCitationsDialogTest(unittest.TestCase):
         self.assertIn("Clean Volume/Page", entry["hint_text"])
         self.assertIn("Extract date", entry["hint_text"])
 
+    def test_plan_bare_url_in_page_moves_to_note(self) -> None:
+        """A bare URL in Volume/Page should be moved to Citation Note and cleared from page."""
+        with DbTxn("Create citation with bare URL", self.db) as trans:
+            src = Source()
+            src.set_title("1900 US Federal Census")
+            s_handle = self.db.add_source(src, trans)
+
+            cit = Citation()
+            cit.set_reference_handle(s_handle)
+            cit.set_page("https://example.com/record")
+            c_handle = self.db.add_citation(cit, trans)
+
+        plan = plan_unpack_conflated_citations(self.db)
+        self.assertEqual(len(plan), 1)
+        entry = plan[0]
+        self.assertEqual(entry["citation_handle"], c_handle)
+        self.assertEqual(entry["suggested_page"], "")
+        self.assertTrue(entry["clear_page"])
+        self.assertEqual(entry["suggested_notes"], "https://example.com/record")
+
+        with DbTxn("Apply unpack bare URL", self.db) as trans:
+            from gramps.plugins.tool.gw_unpackcitationsdialog import (
+                apply_unpack_citation,
+            )
+
+            applied = apply_unpack_citation(
+                self.db,
+                trans,
+                c_handle,
+                page=entry["suggested_page"],
+                notes=entry["suggested_notes"],
+                clear_page=entry["clear_page"],
+            )
+            self.assertTrue(applied)
+
+        updated_cit = self.db.get_citation_from_handle(c_handle)
+        self.assertEqual(updated_cit.get_page(), "")
+        self.assertEqual(len(updated_cit.get_note_list()), 1)
+        note = self.db.get_note_from_handle(updated_cit.get_note_list()[0])
+        self.assertEqual(note.get(), "https://example.com/record")
+
+    def test_url_in_note_not_moved_to_page_and_not_dropped(self) -> None:
+        """A URL in Citation Note must stay in the note and not be moved to Volume/Page."""
+        with DbTxn("Create citation with note URL", self.db) as trans:
+            src = Source()
+            src.set_title("1900 US Federal Census")
+            s_handle = self.db.add_source(src, trans)
+
+            note = Note()
+            note.set("https://example.com/record")
+            n_handle = self.db.add_note(note, trans)
+
+            cit = Citation()
+            cit.set_reference_handle(s_handle)
+            cit.set_page("")
+            cit.add_note(n_handle)
+            c_handle = self.db.add_citation(cit, trans)
+
+        plan = plan_unpack_conflated_citations(self.db)
+        # Should not flag this citation as conflated just because note has a URL
+        self.assertEqual(len(plan), 0)
+
     def test_build_rows_and_accept_hints(self) -> None:
         """build_rows creates empty target entries and accept_hints populates them."""
         dlg = UnpackCitationsDialog.__new__(UnpackCitationsDialog)

@@ -137,24 +137,27 @@ def plan_unpack_conflated_citations(db: Any) -> list[dict[str, Any]]:
         suggested_page = ""
         suggested_date = extracted_date
         suggested_notes = ""
+        clear_page = False
 
         if raw_page:
             url_in_page = _extract_url(raw_page)
             date_in_page = _extract_access_date(raw_page)
             if url_in_page or date_in_page:
                 cleaned = _clean_page_field(raw_page, url_in_page, date_in_page)
-                if cleaned:
+                if url_in_page:
                     is_conflated = True
                     suggested_page = cleaned
-                    if url_in_page and not any(
-                        url_in_page in text for text in notes_list
-                    ):
-                        # Only move the URL to a note if no note has it yet.
+                    if not cleaned:
+                        clear_page = True
+                    if not any(url_in_page in text for text in notes_list):
+                        # Move the URL to a Citation Note if no note has it yet.
                         suggested_notes = url_in_page
-                elif url_in_page and date_in_page and not curr_date:
-                    # Page is purely a URL, but has access date in it
+                elif cleaned != raw_page:
                     is_conflated = True
-                    suggested_page = url_in_page
+                    suggested_page = cleaned
+                if date_in_page and not curr_date:
+                    is_conflated = True
+                    suggested_date = date_in_page
 
         # Check if source pub info contains citation-style volume/page fragments
         if not raw_page and src_pub:
@@ -166,21 +169,16 @@ def plan_unpack_conflated_citations(db: Any) -> list[dict[str, Any]]:
                 is_conflated = True
                 suggested_page = src_pub
 
-        # Also flag citations where the page is empty but a note holds the URL
-        # (or a whole citation), or where only the access date is missing
+        # Also flag citations where an archival entry or access date is embedded in notes
         if not is_conflated and (not raw_page or not curr_date):
-            if (not raw_page and extracted_url) or (not curr_date and extracted_date):
+            if not raw_page:
+                entry_in_notes = _extract_note_entry(notes_text)
+                if entry_in_notes:
+                    is_conflated = True
+                    suggested_page = entry_in_notes
+            if not curr_date and extracted_date:
                 is_conflated = True
-                if not raw_page and extracted_url:
-                    suggested_page = _extract_note_entry(notes_text) or extracted_url
-                    if suggested_page == extracted_url:
-                        # The URL moves into the page, so a note that is
-                        # only that URL would become a duplicate. Drop it.
-                        drop_note_handles = [
-                            handle
-                            for handle, text in note_entries
-                            if is_bare_url_text(text) and text == extracted_url
-                        ]
+                suggested_date = extracted_date
 
         if not is_conflated:
             continue
@@ -190,6 +188,8 @@ def plan_unpack_conflated_citations(db: Any) -> list[dict[str, Any]]:
             hint_parts.append(_("Clean Volume/Page to '%s'") % suggested_page)
         elif not raw_page and suggested_page:
             hint_parts.append(_("Set Volume/Page to '%s'") % suggested_page)
+        elif clear_page:
+            hint_parts.append(_("Move URL from Volume/Page to notes"))
         if suggested_date and suggested_date != curr_date:
             hint_parts.append(_("Extract date '%s'") % suggested_date)
         if suggested_notes:
@@ -225,6 +225,7 @@ def plan_unpack_conflated_citations(db: Any) -> list[dict[str, Any]]:
                 "source_display": source_display,
                 "citation_display": citation_display,
                 "suggested_page": suggested_page,
+                "clear_page": clear_page,
                 "suggested_date": suggested_date,
                 "suggested_notes": suggested_notes,
                 "drop_note_handles": drop_note_handles,
@@ -509,7 +510,12 @@ class UnpackCitationsDialog(Gtk.Dialog):
                 new_date = target["date_entry"].get_text().strip()
                 new_notes = target["notes_entry"].get_text().strip()
 
-                if not new_page and not new_date and not new_notes:
+                if (
+                    not new_page
+                    and not new_date
+                    and not new_notes
+                    and not item.get("clear_page")
+                ):
                     continue
 
                 # The URL-only note is dropped only when its URL really
@@ -527,6 +533,7 @@ class UnpackCitationsDialog(Gtk.Dialog):
                     date=new_date,
                     notes=new_notes,
                     drop_note_handles=drop,
+                    clear_page=bool(item.get("clear_page") and not new_page),
                 ):
                     applied_count += 1
                     # Clear the row so pressing Apply again cannot add the
@@ -576,6 +583,7 @@ def apply_unpack_citation(
     date: str = "",
     notes: str = "",
     drop_note_handles: list[str] | tuple[str, ...] = (),
+    clear_page: bool = False,
 ) -> bool:
     """Write unpacked page, date and note values into one citation.
 
@@ -596,6 +604,9 @@ def apply_unpack_citation(
     page = (page or "").strip()
     if page and page != str(cit.get_page() or ""):
         cit.set_page(page)
+        modified = True
+    elif clear_page and cit.get_page():
+        cit.set_page("")
         modified = True
     date_obj = parse_citation_date(date)
     if date_obj is not None:
@@ -636,6 +647,7 @@ def auto_unpack_citations(db: Any) -> int:
                 date=item["suggested_date"],
                 notes=item["suggested_notes"],
                 drop_note_handles=item["drop_note_handles"],
+                clear_page=bool(item.get("clear_page")),
             ):
                 changed += 1
     return changed

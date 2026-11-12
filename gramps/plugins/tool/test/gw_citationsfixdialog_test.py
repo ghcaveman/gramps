@@ -278,28 +278,48 @@ class CitationFixDialogTest(unittest.TestCase):
         self.assertNotIn("Confidence", row["citation_display"])
 
     def test_extract_date_and_url_from_citation_data(self) -> None:
-        """Date and URL should be extracted from citation data when page/date are empty."""
+        """Date should be extracted and URL in page moved to notes."""
         src = FakeSource(handle="s1", title="Parish Register")
         cit = FakeCitation(
             handle="c4",
             ref_handle="s1",
             gramps_id="C0004",
-            page="",
+            page="Page 10, https://www.example.org/records/1234",
             confidence=2,
         )
         cit.get_note_list = lambda: ["n2"]  # type: ignore[assignment]
-        note = FakeNote(
-            text="Marriage on 15 June 1895 accessed 15 June 1895 at https://www.example.org/records/1234"
-        )
+        note = FakeNote(text="Marriage on 15 June 1895 accessed 15 June 1895")
         db = FakeDb(sources=[src], citations=[cit], notes={"n2": note})
 
         rows = build_citation_fix_rows(db)
         self.assertEqual(len(rows), 1)
         row = rows[0]
         self.assertEqual(row["suggested_date"], "15 June 1895")
-        self.assertEqual(row["suggested_page"], "https://www.example.org/records/1234")
+        self.assertEqual(row["suggested_page"], "Page 10")
+        self.assertEqual(row["suggested_notes"], "https://www.example.org/records/1234")
         self.assertIn("Extract date", row["hint_text"])
-        self.assertIn("Extract URL", row["hint_text"])
+        self.assertIn("Move URL to notes", row["hint_text"])
+
+    def test_url_in_note_not_extracted_to_page(self) -> None:
+        """URLs in notes must stay in notes and not be extracted to Volume/Page."""
+        src = FakeSource(handle="s1", title="Parish Register")
+        cit = FakeCitation(
+            handle="c5",
+            ref_handle="s1",
+            gramps_id="C0005",
+            page="",
+            confidence=2,
+        )
+        cit.get_note_list = lambda: ["n3"]  # type: ignore[assignment]
+        note = FakeNote(text="See https://www.example.org/records/5678")
+        db = FakeDb(sources=[src], citations=[cit], notes={"n3": note})
+
+        rows = build_citation_fix_rows(db)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["suggested_page"], "")
+        self.assertEqual(row["suggested_notes"], "")
+        self.assertNotIn("Extract URL", row["hint_text"])
 
     def test_build_header_columns(self) -> None:
         """Header should attach 7 columns aligned to data columns."""
@@ -404,17 +424,16 @@ class CitationFixDialogTest(unittest.TestCase):
             page="",
             confidence=2,
         )
-        # Citation with extractable URL
+        # Citation with URL in page that should be moved to notes
         cit2 = FakeCitation(
             handle="c2",
             ref_handle="s1",
             gramps_id="C0002",
-            page="",
+            page="https://example.com/record",
             confidence=2,
         )
-        cit2.get_note_list = lambda: ["n1"]  # type: ignore[assignment]
-        note = FakeNote(text="See https://example.com/record")
-        db = FakeDb(sources=[src], citations=[cit1, cit2], notes={"n1": note})
+        cit2.get_note_list = lambda: []  # type: ignore[assignment]
+        db = FakeDb(sources=[src], citations=[cit1, cit2], notes={})
 
         rows = build_citation_fix_rows(db)
         self.assertEqual(len(rows), 2)
@@ -425,10 +444,10 @@ class CitationFixDialogTest(unittest.TestCase):
         self.assertEqual(r1["suggested_page"], "")
         self.assertEqual(r1["suggested_date"], "")
 
-        # cit2 has an actionable hint (URL extracted)
+        # cit2 has an actionable hint (URL moved to notes)
         r2 = next(r for r in rows if r["citation_handle"] == "c2")
-        self.assertIn("Extract URL", r2["hint_text"])
-        self.assertEqual(r2["suggested_page"], "https://example.com/record")
+        self.assertIn("Move URL", r2["hint_text"])
+        self.assertEqual(r2["suggested_notes"], "https://example.com/record")
 
         dlg = CitationFixDialog.__new__(CitationFixDialog)
         dlg.row_targets = [{"row": r1}, {"row": r2}]

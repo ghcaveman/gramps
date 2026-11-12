@@ -544,47 +544,23 @@ class CitationFixDialog(Gtk.Dialog):
         dlg.run()
         dlg.destroy()
 
-    def cb_show_notes(self, _button: Gtk.Button, notes_text: str) -> None:
-        """Show the full citation notes in a dialog (selectable for copy)."""
-        dlg = Gtk.Dialog(
-            title=str(_("Citation notes")),
-            transient_for=self,
-            modal=True,
-            destroy_with_parent=True,
-        )
-        dlg.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        dlg.connect("response", lambda d, r: d.destroy())
-        content = dlg.get_content_area()
-        content.set_border_width(12)
-        content.set_spacing(6)
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_min_content_height(150)
-        scrolled.set_min_content_width(420)
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        textview = Gtk.TextView()
-        textview.set_editable(False)
-        textview.set_wrap_mode(Gtk.WrapMode.WORD)
-        buffer_ = textview.get_buffer()
-        buffer_.set_text(notes_text)
-        scrolled.add(textview)
-        content.add(scrolled)
-        dlg.show_all()
-        dlg.run()
-        dlg.destroy()
-
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply target column data directly into citation records in the database."""
         applied_count = 0
         with DbTxn(_("Fix Citations"), self.dbstate.db) as trans:
             for target in self.row_targets:
+                new_page = target["page_entry"].get_text()
                 if apply_citation_values(
                     self.dbstate.db,
                     trans,
                     target["row"]["citation_handle"],
-                    page=target["page_entry"].get_text(),
+                    page=new_page,
                     conf=target["conf_entry"].get_text(),
                     date=target["date_entry"].get_text(),
                     notes=target["notes_entry"].get_text(),
+                    clear_page=bool(
+                        target["row"].get("clear_page") and not new_page.strip()
+                    ),
                 ):
                     applied_count += 1
 
@@ -825,112 +801,6 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
             except Exception:
                 pass
 
-            # Resolve citation notes to text for Citation and Notes columns.
-            notes_text = ""
-            citation_text = ""
-            try:
-                from gramps.gen.lib import NoteType
-
-                note_handles = list(cit.get_note_list() or [])
-                cit_note_texts: list[str] = []
-                other_note_texts: list[str] = []
-                for nh in note_handles:
-                    try:
-                        note = db.get_note_from_handle(nh)
-                        if note is not None:
-                            ntxt = str(
-                                note.get_styledtext() or note.get() or ""
-                            ).strip()
-                            if ntxt:
-                                ntype = getattr(note, "type", None)
-                                if ntype == NoteType.CITATION:
-                                    cit_note_texts.append(ntxt)
-                                else:
-                                    other_note_texts.append(ntxt)
-                    except Exception:
-                        pass
-                all_notes = cit_note_texts + other_note_texts
-                notes_text = "\n\n".join(all_notes)
-                preferred = cit_note_texts or other_note_texts
-                if preferred:
-                    first_line = preferred[0].splitlines()[0].strip()
-                    citation_text = " ".join(first_line.split())
-                    if len(citation_text) > 120:
-                        citation_text = citation_text[:117] + "..."
-            except Exception:
-                pass
-
-            # Check source attributes on the citation if no note text
-            if not citation_text:
-                try:
-                    for attr in cit.get_attribute_list() or []:
-                        val = str(attr.get_value() or "").strip()
-                        if val:
-                            citation_text = " ".join(val.split())
-                            if len(citation_text) > 120:
-                                citation_text = citation_text[:117] + "..."
-                            break
-                except Exception:
-                    pass
-
-            notes_preview = notes_text.replace("\n", " ")
-            if len(notes_preview) > 40:
-                notes_preview = notes_preview[:40] + "\u2026"
-
-            details = []
-            if citation_text:
-                c_part = f"{citation_text} ({gid})" if gid else citation_text
-            elif gid:
-                c_part = f"({gid})"
-            else:
-                c_part = "(no details)"
-            line1 = f"{c_part} |"
-
-            page_val = page if page else "—"
-            date_val = date_str if date_str else "—"
-            line2 = f"{page_val} | {date_val} |"
-
-            notes_val = notes_preview if notes_preview else "—"
-            line3 = notes_val
-
-            citation_display = f"{line1}\n{line2}\n{line3}"
-
-            # QUAY value mirrors the GEDCOM export mapping
-            # (exportgedcom.QUALITY_MAP): CONF_VERY_HIGH/4 -> Q3,
-            # CONF_HIGH/3 -> Q2, CONF_LOW/1 -> Q1,
-            # CONF_VERY_LOW/0 -> Q0.
-            if conf >= 4:
-                quay = 3
-            elif conf == 3:
-                quay = 2
-            elif conf == 1:
-                quay = 1
-            elif conf == 0:
-                quay = 0
-            else:
-                quay = None
-            if quay is None:
-                confidence_display = f"{conf}(-)"
-            else:
-                confidence_display = f"{conf}({quay})"
-
-            if citation_text:
-                c_part = f"{citation_text} ({gid})" if gid else citation_text
-            elif gid:
-                c_part = f"({gid})"
-            else:
-                c_part = "(no details)"
-            line1 = f"{c_part} |"
-
-            page_val = page if page else "—"
-            date_val = date_str if date_str else "—"
-            line2 = f"{page_val} | conf:  {confidence_display} | {date_val} |"
-
-            notes_val = notes_preview if notes_preview else "—"
-            line3 = notes_val
-
-            citation_display = f"{line1}\n{line2}\n{line3}"
-
             # Determine suggested actions
             options: list[str] = []
             best_guess = ""
@@ -941,17 +811,24 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
             suggested_page = ""
             suggested_date = ""
             suggested_notes = ""
+            clear_page = False
 
-            if not page or not date_str:
+            if page:
+                url_in_page = _extract_url_from_text(page)
+                if url_in_page:
+                    if url_in_page not in notes_text:
+                        suggested_notes = url_in_page
+                    cleaned_page = page.replace(url_in_page, " ").strip(" ,;.")
+                    if cleaned_page:
+                        suggested_page = cleaned_page
+                    else:
+                        clear_page = True
+
+            if not date_str:
                 corpus = f"{citation_text} {notes_text}"
-                if not page:
-                    extracted_url = _extract_url_from_text(corpus)
-                    if extracted_url:
-                        suggested_page = extracted_url
-                if not date_str:
-                    extracted_date = _extract_date_from_text(corpus)
-                    if extracted_date:
-                        suggested_date = extracted_date
+                extracted_date = _extract_date_from_text(corpus)
+                if extracted_date:
+                    suggested_date = extracted_date
 
             hint_actions: list[str] = []
             if is_tree and conf >= 3:
@@ -969,8 +846,13 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
                 best_guess = ""
                 problem = PROBLEM_NONE
 
+            if suggested_notes and clear_page:
+                hint_actions.append(_("Move URL from Volume/Page to notes"))
+            elif suggested_notes:
+                hint_actions.append(_("Move URL to notes"))
+
             if suggested_page:
-                hint_actions.append(_("Extract URL to Page"))
+                hint_actions.append(_("Clean Volume/Page"))
 
             if suggested_date:
                 hint_actions.append(_("Extract date: %s") % suggested_date)
@@ -1008,6 +890,7 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
                     "suggested_page": suggested_page,
                     "suggested_date": suggested_date,
                     "suggested_notes": suggested_notes,
+                    "clear_page": clear_page,
                     "problem": problem,
                 }
             )
@@ -1086,6 +969,7 @@ def apply_citation_values(
     conf: str = "",
     date: str = "",
     notes: str = "",
+    clear_page: bool = False,
 ) -> bool:
     """Write the given values into one citation; blank values are skipped.
 
@@ -1105,6 +989,9 @@ def apply_citation_values(
     page = (page or "").strip()
     if page and page != str(cit.get_page() or ""):
         cit.set_page(page)
+        modified = True
+    elif clear_page and cit.get_page():
+        cit.set_page("")
         modified = True
     conf = (conf or "").strip()
     if conf:
@@ -1146,6 +1033,7 @@ def auto_fix_citations(db: Any) -> int:
                 conf=row.get("suggested_conf", ""),
                 date=row.get("suggested_date", ""),
                 notes=row.get("suggested_notes", ""),
+                clear_page=bool(row.get("clear_page")),
             ):
                 applied += 1
     return applied
