@@ -56,6 +56,8 @@ try:
         clean_path,
         unique_destination,
         relocate_file,
+        is_media_locked,
+        add_media_fixed_tag,
     )
 except (ImportError, ValueError):
     from gwizard_common import (  # type: ignore[import-not-found,no-redef]
@@ -65,6 +67,8 @@ except (ImportError, ValueError):
         clean_path,
         unique_destination,
         relocate_file,
+        is_media_locked,
+        add_media_fixed_tag,
     )
 
 _ = glocale.translation.sgettext
@@ -462,6 +466,16 @@ class FixMediaReferencesDialog(Gtk.Dialog):
             if g_type == "unreferenced":
                 if choice == 0:
                     h = group["keeper"]["handle"]
+                    cand = self.dbstate.db.get_media_from_handle(h)
+                    if cand and is_media_locked(self.dbstate.db, cand):
+                        errors.append(
+                            "[%s] %s"
+                            % (
+                                group["keeper"].get("gramps_id", ""),
+                                _("media is locked; cannot delete"),
+                            )
+                        )
+                        continue
                     try:
                         with DbTxn(
                             _("Remove Unreferenced Media"), self.dbstate.db
@@ -484,6 +498,15 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                 keeper_media = self.dbstate.db.get_media_from_handle(keeper["handle"])
                 if not keeper_media:
                     continue
+                if is_media_locked(self.dbstate.db, keeper_media):
+                    errors.append(
+                        "[%s] %s"
+                        % (
+                            keeper.get("gramps_id", ""),
+                            _("keeper media is locked; cannot merge"),
+                        )
+                    )
+                    continue
                 for other in records:
                     if other["handle"] == keeper["handle"]:
                         continue
@@ -492,10 +515,22 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                             other["handle"]
                         )
                         if other_media:
+                            if is_media_locked(self.dbstate.db, other_media):
+                                errors.append(
+                                    "[%s] %s"
+                                    % (
+                                        other.get("gramps_id", ""),
+                                        _("media is locked; cannot merge"),
+                                    )
+                                )
+                                continue
                             query = MergeMediaQuery(
                                 self.dbstate, keeper_media, other_media
                             )
                             query.execute()
+                            add_media_fixed_tag(
+                                self.dbstate.db, keeper_media, commit=True
+                            )
                             merged_count += 1
                     except Exception as err:
                         LOG.exception("Failed to merge media record: %s", err)
@@ -513,6 +548,18 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                 claimed: set[str] = set()
                 with DbTxn(_("Split Media References"), self.dbstate.db) as trans:
                     for r in records[1:]:
+                        other_media = self.dbstate.db.get_media_from_handle(r["handle"])
+                        if other_media and is_media_locked(
+                            self.dbstate.db, other_media
+                        ):
+                            errors.append(
+                                "[%s] %s"
+                                % (
+                                    r.get("gramps_id", ""),
+                                    _("media is locked; cannot modify path"),
+                                )
+                            )
+                            continue
                         new_rel = f"{base}_{r['gramps_id']}{ext}"
                         try:
                             expected = media_path_full(self.dbstate.db, new_rel)
@@ -536,9 +583,9 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                             errors.append("[%s] %s" % (r["gramps_id"], copy_err))
                             continue
                         copied_count += 1
-                        other_media = self.dbstate.db.get_media_from_handle(r["handle"])
                         if other_media:
                             other_media.set_path(new_rel)
+                            add_media_fixed_tag(self.dbstate.db, other_media, txn=trans)
                             self.dbstate.db.commit_media(other_media, trans)
 
         if merged_count == 0 and copied_count == 0 and deleted_count == 0:

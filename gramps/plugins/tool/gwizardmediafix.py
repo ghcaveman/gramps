@@ -95,17 +95,28 @@ try:
         TableLabel,
         HeaderLabel,
         create_table_grid,
+        clean_path,
+        is_absolute_path,
+        path_key,
+        to_db_path,
+        unique_destination,
+        relocate_file,
+        build_basename_index,
+        TAG_MEDIA_FIXED,
+        TAG_MEDIA_FIXED_COLOR,
+        TAG_LOCKED,
+        TAG_LOCKED_COLOR,
+        create_gwizard_tag,
+        ensure_tag,
+        ensure_gwizard_tags,
+        is_media_locked,
+        has_media_fixed_tag,
+        add_media_fixed_tag,
+        lock_media,
+        unlock_media,
     )
 except (ImportError, ValueError):
     from gwizard_common import (  # type: ignore[import-not-found,no-redef]
-        SelectableLabel,
-        TableLabel,
-        HeaderLabel,
-        create_table_grid,
-    )
-
-try:
-    from .gwizard_common import (
         SelectableLabel,
         TableLabel,
         HeaderLabel,
@@ -117,35 +128,18 @@ try:
         unique_destination,
         relocate_file,
         build_basename_index,
-    )
-except (ImportError, ValueError):
-    from gwizard_common import (  # type: ignore[import-not-found,no-redef]
-        SelectableLabel,
-        TableLabel,
-        HeaderLabel,
-        create_table_grid,
-        clean_path,
-        is_absolute_path,
-        path_key,
-        to_db_path,
-        unique_destination,
-        relocate_file,
-        build_basename_index,
-    )
-
-try:
-    from .gwizard_common import (
-        SelectableLabel,
-        TableLabel,
-        HeaderLabel,
-        create_table_grid,
-    )
-except (ImportError, ValueError):
-    from gwizard_common import (  # type: ignore[import-not-found,no-redef]
-        SelectableLabel,
-        TableLabel,
-        HeaderLabel,
-        create_table_grid,
+        TAG_MEDIA_FIXED,
+        TAG_MEDIA_FIXED_COLOR,
+        TAG_LOCKED,
+        TAG_LOCKED_COLOR,
+        create_gwizard_tag,
+        ensure_tag,
+        ensure_gwizard_tags,
+        is_media_locked,
+        has_media_fixed_tag,
+        add_media_fixed_tag,
+        lock_media,
+        unlock_media,
     )
 
 try:
@@ -205,83 +199,6 @@ FILENAME_PRESETS: list[tuple[str, str]] = [
 # Helper utilities for media analysis
 #
 # ------------------------------------------------------------
-def get_path_ancestors(path: str) -> list[str]:
-    """Return all ancestors of a path from root down to the target path."""
-    clean_p = clean_path(path)
-    if not clean_p:
-        return []
-    norm = os.path.normpath(os.path.abspath(clean_p))
-    parts: list[str] = []
-    curr = norm
-    while True:
-        parts.append(curr)
-        parent = os.path.dirname(curr)
-        if parent == curr:
-            break
-        curr = parent
-    parts.reverse()
-    return parts
-
-
-def check_path_permission(path: str) -> tuple[bool, str | None]:
-    """Check if a path or any of its parent directories has permission denied.
-
-    Walks from the root directory downwards to identify the highest-level directory
-    which cannot be read.
-
-    Returns:
-        (has_permission_issue: bool, highest_inaccessible_dir_or_file: str | None)
-    """
-    clean_p = clean_path(path)
-    if not clean_p:
-        return False, None
-
-    ancestors = get_path_ancestors(clean_p)
-    for comp in ancestors:
-        try:
-            try:
-                st = os.stat(comp)
-            except PermissionError:
-                return True, comp
-            except FileNotFoundError:
-                continue
-            except OSError as err:
-                if getattr(err, "winerror", None) == 5 or err.errno in (13, 1):
-                    return True, comp
-                continue
-
-            # Stat succeeded, so comp exists on disk. Now verify read access:
-            if not os.access(comp, os.R_OK):
-                return True, comp
-
-            import stat as _stat
-
-            if _stat.S_ISDIR(st.st_mode):
-                try:
-                    with os.scandir(comp):
-                        pass
-                except PermissionError:
-                    return True, comp
-                except OSError as err:
-                    if getattr(err, "winerror", None) == 5 or err.errno in (13, 1):
-                        return True, comp
-            else:
-                try:
-                    with open(comp, "rb") as f:
-                        f.read(1)
-                except PermissionError:
-                    return True, comp
-                except OSError as err:
-                    if getattr(err, "winerror", None) == 5 or err.errno in (13, 1):
-                        return True, comp
-        except PermissionError:
-            return True, comp
-        except (OSError, ValueError):
-            pass
-
-    return False, None
-
-
 def get_path_ancestors(path: str) -> list[str]:
     """Return all ancestors of a path from root down to the target path."""
     clean_p = clean_path(path)
@@ -1373,7 +1290,7 @@ def remove_import_notes(db: Any, items: list[tuple[str, str, str, str]]) -> int:
     with DbTxn(_("Remove stale import notes"), db) as trans:
         for mh, _mgid, nh, _ngid in items:
             media = db.get_media_from_handle(mh)
-            if media is None:
+            if media is None or is_media_locked(db, media):
                 continue
             media.remove_note(nh)
             db.commit_media(media, trans)
@@ -1417,11 +1334,13 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
         raw = clean_path(str(media.get_path() or ""))
         if not raw:
             continue
+        effective[handle] = raw
+        if is_media_locked(db, media):
+            continue
         try:
             full = media_path_full(db, raw)
         except Exception:
             full = raw
-        effective[handle] = raw
         if os.path.exists(full) or (is_absolute_path(raw) and os.path.exists(raw)):
             continue
         rel = find_in_media_dir(
@@ -1437,8 +1356,29 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
     merged_gids: set[str] = set()
     for group in find_duplicate_media_groups(db):
         keeper = group["keeper"]
+        keeper_media = (
+            db.get_media_from_handle(keeper["handle"])
+            if hasattr(db, "get_media_from_handle")
+            else keeper.get("media")
+        )
         if group.get("type", "duplicate") == "duplicate":
-            others = [r for r in group["records"] if r["handle"] != keeper["handle"]]
+            if is_media_locked(db, keeper_media):
+                continue
+            others = [
+                r
+                for r in group["records"]
+                if r["handle"] != keeper["handle"]
+                and not is_media_locked(
+                    db,
+                    (
+                        db.get_media_from_handle(r["handle"])
+                        if hasattr(db, "get_media_from_handle")
+                        else r.get("media")
+                    ),
+                )
+            ]
+            if not others:
+                continue
             gone |= {r["handle"] for r in others}
             merged_gids |= {r["gramps_id"] for r in others}
             plan["merges"].append(
@@ -1449,7 +1389,9 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
                 )
             )
         else:
-            if GWizardMediaFix._is_bare_media(keeper["media"]):
+            if is_media_locked(db, keeper_media):
+                plan["keep_unref"].append((keeper["gramps_id"], group["raw_path"]))
+            elif GWizardMediaFix._is_bare_media(keeper["media"]):
                 plan["delete"].append((keeper["gramps_id"], group["raw_path"]))
                 gone.add(keeper["handle"])
             else:
@@ -1465,7 +1407,7 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
         for media in list(db.iter_media()):
             handle = str(media.get_handle() or "")
             raw = effective.get(handle, "")
-            if not raw or handle in gone:
+            if not raw or handle in gone or is_media_locked(db, media):
                 continue
             if handle in found_handles:
                 src_full = os.path.join(base_dir, raw)
@@ -1675,18 +1617,26 @@ class FindMissingMediaDialog(Gtk.Dialog):
                 basename = os.path.basename(clean_raw.replace("\\", "/"))
                 sug_path = ""
                 hint = _("File not found on disk")
+                locked = is_media_locked(dbstate.db, media)
+                perm_issue = False
+                inaccess_dir = None
 
-                # Check for permission denied along the directory path
-                perm_issue, inaccess_dir = check_path_permission(full_path)
-                if not perm_issue and is_absolute_path(clean_raw):
-                    perm_issue, inaccess_dir = check_path_permission(clean_raw)
-
-                if perm_issue and inaccess_dir:
-                    hint = _("Permission denied: cannot read '%s'") % inaccess_dir
+                if locked:
+                    hint = _("Media is locked (GWizard: Locked)")
                 else:
-                    sug_path = find_in_media_dir(base_dir, basename, name_index)
-                    if sug_path:
-                        hint = _("Found in media directory: suggest '%s'") % sug_path
+                    # Check for permission denied along the directory path
+                    perm_issue, inaccess_dir = check_path_permission(full_path)
+                    if not perm_issue and is_absolute_path(clean_raw):
+                        perm_issue, inaccess_dir = check_path_permission(clean_raw)
+
+                    if perm_issue and inaccess_dir:
+                        hint = _("Permission denied: cannot read '%s'") % inaccess_dir
+                    else:
+                        sug_path = find_in_media_dir(base_dir, basename, name_index)
+                        if sug_path:
+                            hint = (
+                                _("Found in media directory: suggest '%s'") % sug_path
+                            )
 
                 self.rows.append(
                     {
@@ -1699,6 +1649,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
                         "hint_text": hint,
                         "perm_denied": perm_issue,
                         "inaccess_dir": inaccess_dir,
+                        "locked": locked,
                     }
                 )
 
@@ -1824,6 +1775,8 @@ class FindMissingMediaDialog(Gtk.Dialog):
             path_entry.set_width_chars(70)
             path_entry.set_hexpand(True)
             path_entry.set_text("")
+            if entry.get("locked") and hasattr(path_entry, "set_sensitive"):
+                path_entry.set_sensitive(False)
             grid.attach(path_entry, 2, row_index, 1, 1)
 
             # Column 3: Hint label
@@ -1859,6 +1812,8 @@ class FindMissingMediaDialog(Gtk.Dialog):
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
         count = 0
         for target in self.row_targets:
+            if target["entry"].get("locked"):
+                continue
             sug = target["entry"].get("suggested_path", "")
             if sug and not target["path_entry"].get_text():
                 target["path_entry"].set_text(sug)
@@ -2001,6 +1956,9 @@ class FindMissingMediaDialog(Gtk.Dialog):
                     media = None
                 if media is None:
                     continue
+                if is_media_locked(self.dbstate.db, media):
+                    skipped.append("%s (%s)" % (new_path, _("locked")))
+                    continue
                 store_path = new_path
                 copy_src = target.get("copy_src")
                 if copy_src:
@@ -2027,6 +1985,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
                         skipped.append(new_path)
                         continue
                 media.set_path(store_path)
+                add_media_fixed_tag(self.dbstate.db, media, txn=trans)
                 self.dbstate.db.commit_media(media, trans)
                 applied += 1
 
@@ -2206,6 +2165,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             desc = str(media.get_description() or "")
             raw_path = str(media.get_path() or "")
 
+            locked = is_media_locked(dbstate.db, media)
             hint_val = self._compute_hint(raw_path, media)
             norm_raw = raw_path.replace("\\", "/")
             if norm_raw != hint_val or is_absolute_path(raw_path):
@@ -2222,9 +2182,14 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                         "desc": desc,
                         "raw_path": raw_path,
                         "src_full": src_full,
-                        "suggested_path": hint_val,
-                        "hint_text": hint_val,
+                        "suggested_path": "" if locked else hint_val,
+                        "hint_text": (
+                            _("Locked: will not modify (GWizard: Locked)")
+                            if locked
+                            else hint_val
+                        ),
                         "media": media,
+                        "locked": locked,
                     }
                 )
 
@@ -2328,6 +2293,8 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             path_entry.set_width_chars(50)
             path_entry.set_hexpand(True)
             path_entry.set_text("")
+            if entry.get("locked") and hasattr(path_entry, "set_sensitive"):
+                path_entry.set_sensitive(False)
             grid.attach(path_entry, 2, row_index, 1, 1)
 
             # Column 3: Hint label
@@ -2487,6 +2454,8 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         """Recompute suggested paths when base directory, template, or naming style changes."""
         for target in self.row_targets:
             entry = target["entry"]
+            if entry.get("locked"):
+                continue
             raw_path = entry.get("raw_path", "")
             media = entry.get("media")
             hint_val = self._compute_hint(raw_path, media)
@@ -2505,6 +2474,8 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
         count = 0
         for target in self.row_targets:
+            if target["entry"].get("locked"):
+                continue
             sug = target["entry"].get("suggested_path", "")
             if sug:
                 target["path_entry"].set_text(sug)
@@ -2589,6 +2560,12 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                 media = self.dbstate.db.get_media_from_handle(entry.get("handle"))
                 if media is None:
                     continue
+                if is_media_locked(self.dbstate.db, media):
+                    failures.append(
+                        "[%s] %s: %s"
+                        % (gid, entry.get("raw_path", ""), _("locked: skipping"))
+                    )
+                    continue
 
                 src_full = entry.get("src_full", "")
                 dest_full = (
@@ -2619,6 +2596,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
 
                 # Only now, with the file safely in place, repoint the record.
                 media.set_path(to_db_path(dest_full, base))
+                add_media_fixed_tag(self.dbstate.db, media, txn=trans)
                 self.dbstate.db.commit_media(media, trans)
                 applied += 1
 
@@ -2802,6 +2780,8 @@ def generate_media_fix_report(db: Any, progress_parent: Any = None) -> str:
     outside_default_list: list[tuple[str, str, str]] = []
     multi_ref_media: list[tuple[str, str, str, int, list[tuple[str, str]]]] = []
     zero_ref_media: list[tuple[str, str, str]] = []
+    locked_media: list[tuple[str, str, str]] = []
+    fixed_media: list[tuple[str, str, str]] = []
 
     # Detect duplicate media records pointing to the same file
     ctx_cache: dict[str, dict[str, str]] = {}
@@ -2833,12 +2813,11 @@ def generate_media_fix_report(db: Any, progress_parent: Any = None) -> str:
         ctx = resolve_media_reference_context(db, media, ctx_cache)
 
         first_raw = raw_paths[0] if raw_paths else ""
-        if len(backlinks) > 1:
-            multi_ref_media.append((m_gid, desc, first_raw, len(backlinks), backlinks))
-        elif len(backlinks) == 0:
-            zero_ref_media.append((m_gid, desc, first_raw))
+        if is_media_locked(db, media):
+            locked_media.append((m_gid, desc, first_raw))
+        if has_media_fixed_tag(db, media):
+            fixed_media.append((m_gid, desc, first_raw))
 
-        first_raw = raw_paths[0] if raw_paths else ""
         if len(backlinks) > 1:
             multi_ref_media.append((m_gid, desc, first_raw, len(backlinks), backlinks))
         elif len(backlinks) == 0:
@@ -2952,6 +2931,8 @@ def generate_media_fix_report(db: Any, progress_parent: Any = None) -> str:
         + (" (scan truncated)" if scan_stats.get("truncated") else ""),
         f"  Unreferenced image tags:   {len(zero_ref_media)}",
         f"  Shared media records:      {len(multi_ref_media)} (info)",
+        f"  Locked media records:      {len(locked_media)}",
+        f"  Fixed media records:       {len(fixed_media)}",
         f"  Name mismatches:           {len(name_mismatches)}",
         f"  Duplicate file references: {len(dup_files)} files ({dup_media_count} media records)",
         f"  Naming template:           {curr_tmpl}",
@@ -3083,6 +3064,17 @@ def generate_media_fix_report(db: Any, progress_parent: Any = None) -> str:
             lines.append(f"    Standard:    {std_p}")
         lines.append("")
 
+    if locked_media:
+        lines.append("-" * 72)
+        lines.append(
+            f"LOCKED MEDIA RECORDS ({len(locked_media)} items skipped from modifications):"
+        )
+        lines.append("-" * 72)
+        for gid, desc, path in locked_media:
+            lines.append(f"  [{gid}] {desc or '(unnamed)'}")
+            lines.append(f"    Path: {path}")
+        lines.append("")
+
     return "\n".join(lines)
 
 
@@ -3114,6 +3106,11 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         ManagedWindow.__init__(self, uistate, [], self.__class__, modal=True)
         self.dbstate = dbstate
         self.report_path: str | None = None
+        if self.dbstate and self.dbstate.db:
+            try:
+                ensure_gwizard_tags(self.dbstate.db)
+            except Exception:
+                pass
         self._build_window(uistate)
         self.show()
 
@@ -3310,6 +3307,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         name_index = media_dir_index(db, base_dir)
         with DbTxn(_("Auto Find Missing Media"), db) as trans:
             for media in list(db.iter_media()):
+                if is_media_locked(db, media):
+                    continue
                 m_gid = str(media.get_gramps_id() or "")
                 desc = str(media.get_description() or "")
                 raw_path = str(media.get_path() or "")
@@ -3331,6 +3330,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                     found_rel = find_in_media_dir(base_dir, basename, name_index)
                     if found_rel:
                         media.set_path(found_rel)
+                        add_media_fixed_tag(db, media, txn=trans)
                         db.commit_media(media, trans)
                         resolved_count += 1
                     else:
@@ -3380,11 +3380,21 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 h = group["keeper"]["handle"]
                 try:
                     cand = db.get_media_from_handle(h)
-                    if cand is None or not self._is_bare_media(cand):
-                        errors.append(
-                            "[%s] unreferenced, but has notes/attributes/tags/date - kept; review manually"
-                            % group["keeper"].get("gramps_id", "")
-                        )
+                    if (
+                        cand is None
+                        or not self._is_bare_media(cand)
+                        or is_media_locked(db, cand)
+                    ):
+                        if cand is not None and is_media_locked(db, cand):
+                            errors.append(
+                                "[%s] unreferenced, but tagged GWizard: Locked - kept"
+                                % group["keeper"].get("gramps_id", "")
+                            )
+                        else:
+                            errors.append(
+                                "[%s] unreferenced, but has notes/attributes/tags/date - kept; review manually"
+                                % group["keeper"].get("gramps_id", "")
+                            )
                         continue
                     with DbTxn(_("Remove Unreferenced Media"), db) as trans:
                         db.remove_media(h, trans)
@@ -3397,16 +3407,29 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 keeper_media = db.get_media_from_handle(keeper["handle"])
                 if not keeper_media:
                     continue
+                if is_media_locked(db, keeper_media):
+                    errors.append(
+                        "[%s] duplicate keeper is tagged GWizard: Locked - skipped merge"
+                        % keeper.get("gramps_id", "")
+                    )
+                    continue
                 for other in group["records"]:
                     if other["handle"] == keeper["handle"]:
                         continue
                     try:
                         other_media = db.get_media_from_handle(other["handle"])
                         if other_media:
+                            if is_media_locked(db, other_media):
+                                errors.append(
+                                    "[%s] duplicate record is tagged GWizard: Locked - skipped merge"
+                                    % other.get("gramps_id", "")
+                                )
+                                continue
                             query = MergeMediaQuery(
                                 self.dbstate, keeper_media, other_media
                             )
                             query.execute()
+                            add_media_fixed_tag(db, keeper_media, commit=True)
                             merged_count += 1
                     except Exception as err:
                         LOG.exception("Auto merge media record failed: %s", err)
@@ -3456,6 +3479,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         claimed: set[str] = set()
         with DbTxn(_("Auto Consolidate Media Locations"), db) as trans:
             for media in list(db.iter_media()):  # snapshot: we commit while looping
+                if is_media_locked(db, media):
+                    continue
                 m_gid = str(media.get_gramps_id() or "")
                 desc = str(media.get_description() or "")
                 raw_path = str(media.get_path() or "")
@@ -3487,6 +3512,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                     unconsolidated.append((m_gid, desc, "%s (%s)" % (raw_path, err)))
                     continue
                 media.set_path(to_db_path(dest_full, base_dir))
+                add_media_fixed_tag(db, media, txn=trans)
                 db.commit_media(media, trans)
                 consolidated_count += 1
 

@@ -162,6 +162,9 @@ Gtk.Grid = _FakeGrid
 # Gramps modules
 #
 # -------------------------------------------------------------------------
+from gramps.gen.db import DbTxn
+from gramps.gen.db.utils import make_database
+from gramps.gen.lib import Media, Tag
 from gramps.plugins.tool.gwizard_common import (
     SelectableLabel,
     TableLabel,
@@ -174,6 +177,18 @@ from gramps.plugins.tool.gwizard_common import (
     unique_destination,
     relocate_file,
     build_basename_index,
+    TAG_MEDIA_FIXED,
+    TAG_MEDIA_FIXED_COLOR,
+    TAG_LOCKED,
+    TAG_LOCKED_COLOR,
+    create_gwizard_tag,
+    ensure_tag,
+    ensure_gwizard_tags,
+    is_media_locked,
+    has_media_fixed_tag,
+    add_media_fixed_tag,
+    lock_media,
+    unlock_media,
 )
 
 
@@ -335,6 +350,101 @@ class GWizardCommonTest(unittest.TestCase):
             self.assertIn("doc.pdf", idx)
             self.assertNotIn(".hidden", idx)
             self.assertEqual(len(idx["photo.jpg"]), 1)
+
+    def test_gwizard_tags_constants(self) -> None:
+        """Standard tag names and colors match specifications."""
+        self.assertEqual(TAG_MEDIA_FIXED, "GWizard: MediaFixed")
+        self.assertEqual(TAG_MEDIA_FIXED_COLOR, "#2E8B57")
+        self.assertEqual(TAG_LOCKED, "GWizard: Locked")
+        self.assertEqual(TAG_LOCKED_COLOR, "#B22222")
+
+    def test_create_gwizard_tag(self) -> None:
+        """create_gwizard_tag creates a Tag object with name and color."""
+        tag = create_gwizard_tag("TestTag", "#123456")
+        self.assertIsInstance(tag, Tag)
+        self.assertEqual(tag.get_name(), "TestTag")
+        self.assertEqual(tag.get_color(), "#123456")
+
+    def test_ensure_tag_and_ensure_gwizard_tags(self) -> None:
+        """ensure_tag and ensure_gwizard_tags create tags in DB and are idempotent."""
+        db = make_database("sqlite")
+        db.load(":memory:")
+        try:
+            t_fixed, t_locked = ensure_gwizard_tags(db)
+            self.assertIsNotNone(t_fixed)
+            self.assertIsNotNone(t_locked)
+            assert t_fixed is not None and t_locked is not None
+            self.assertEqual(t_fixed.get_name(), TAG_MEDIA_FIXED)
+            self.assertEqual(t_fixed.get_color(), TAG_MEDIA_FIXED_COLOR)
+            self.assertEqual(t_locked.get_name(), TAG_LOCKED)
+            self.assertEqual(t_locked.get_color(), TAG_LOCKED_COLOR)
+
+            # Calling again returns existing tags without duplicating
+            t_fixed2, t_locked2 = ensure_gwizard_tags(db)
+            assert t_fixed2 is not None and t_locked2 is not None
+            self.assertEqual(t_fixed.get_handle(), t_fixed2.get_handle())
+            self.assertEqual(t_locked.get_handle(), t_locked2.get_handle())
+        finally:
+            db.close()
+
+    def test_is_media_locked_and_lock_unlock(self) -> None:
+        """is_media_locked, lock_media, and unlock_media correctly toggle locked state."""
+        db = make_database("sqlite")
+        db.load(":memory:")
+        try:
+            with DbTxn("Create media", db) as trans:
+                media = Media()
+                media.set_path("test.jpg")
+                h = db.add_media(media, trans)
+
+            self.assertFalse(is_media_locked(db, media))
+
+            # Lock media
+            locked_ok = lock_media(db, media, commit=True)
+            self.assertTrue(locked_ok)
+            self.assertTrue(is_media_locked(db, media))
+
+            # Calling lock again returns False (already locked)
+            self.assertFalse(lock_media(db, media, commit=True))
+            self.assertTrue(is_media_locked(db, media))
+
+            # Unlock media
+            unlocked_ok = unlock_media(db, media, commit=True)
+            self.assertTrue(unlocked_ok)
+            self.assertFalse(is_media_locked(db, media))
+
+            # Calling unlock again returns False (not locked)
+            self.assertFalse(unlock_media(db, media, commit=True))
+        finally:
+            db.close()
+
+    def test_add_media_fixed_tag_and_has_media_fixed_tag(self) -> None:
+        """add_media_fixed_tag adds GWizard: MediaFixed tag and is idempotent."""
+        db = make_database("sqlite")
+        db.load(":memory:")
+        try:
+            with DbTxn("Create media", db) as trans:
+                media = Media()
+                media.set_path("test.jpg")
+                h = db.add_media(media, trans)
+
+            self.assertFalse(has_media_fixed_tag(db, media))
+
+            # Add fixed tag
+            added = add_media_fixed_tag(db, media, commit=True)
+            self.assertTrue(added)
+            self.assertTrue(has_media_fixed_tag(db, media))
+
+            # Verify tag in db
+            tag = db.get_tag_from_name(TAG_MEDIA_FIXED)
+            self.assertIsNotNone(tag)
+            self.assertEqual(tag.get_color(), TAG_MEDIA_FIXED_COLOR)
+            self.assertIn(tag.get_handle(), media.get_tag_list())
+
+            # Second call is a no-op
+            self.assertFalse(add_media_fixed_tag(db, media, commit=True))
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":
