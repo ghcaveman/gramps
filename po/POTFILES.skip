@@ -703,6 +703,10 @@ gramps/plugins/thumbnailer/imagethumb.py
 # Development tools
 #
 gramps/plugins/tool/__init__.py
+gramps/plugins/tool/gwizard_common.py
+gramps/plugins/tool/test/gwizard_common_test.py
+gramps/plugins/tool/test/gwizardmediafix_test.py
+gramps/plugins/tool/test/gwizardmediafix_ex_test.py
 #
 # plugins/view directory
 #
@@ -726,6 +730,7 @@ gramps/test/test_util.py
 #
 # test/test
 #
+gramps/test/test/gitattributes_test.py
 gramps/test/test/test_util_test.py
 #
 #   Glade files
