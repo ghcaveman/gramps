@@ -97,6 +97,9 @@ class PopulateSources(tool.Tool, ManagedWindow):
         dialog.add_buttons(
             _("_Cancel"), Gtk.ResponseType.REJECT, _("_OK"), Gtk.ResponseType.ACCEPT
         )
+        dialog.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.ACCEPT, Gtk.ResponseType.REJECT]
+        )
         label = Gtk.Label(
             label="Enter a valid number of sources and citations."
             " This will create the requested number of sources,"

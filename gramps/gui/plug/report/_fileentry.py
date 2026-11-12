@@ -66,6 +66,9 @@ class FileEntry(Gtk.Box):
         dialog.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Open"), Gtk.ResponseType.OK
         )
+        dialog.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+        )
 
         name = os.path.basename(self.entry.get_text())
         if self.dir:

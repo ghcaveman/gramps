@@ -315,6 +315,9 @@ class Session(fs_session_core.Session):
         )
         dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
         dlg.add_button("Continue", Gtk.ResponseType.OK)
+        dlg.set_alternative_button_order_from_array(
+            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
+        )
 
         box = dlg.get_content_area()
         box.set_border_width(10)
