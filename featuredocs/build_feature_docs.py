@@ -236,6 +236,23 @@ def build_wiki_and_audit(feature_name: str) -> int:
         "\n" + footer_path.read_text(encoding="utf-8") if footer_path.is_file() else ""
     )
 
+    # Resolve plugin-metadata placeholders in the shared templates so the
+    # generated MediaWiki references real filenames instead of literal tags.
+    # <PluginName> and <PluginDirectory> map to the feature slug (used for
+    # image filenames and source-code links); <Plugin Display Name> is a
+    # human-readable form derived from the feature slug.
+    plugin_name = feature_name
+    plugin_directory = feature_name
+    plugin_display_name = " ".join(
+        part.capitalize() for part in feature_name.split("_")
+    )
+    header_text = header_text.replace("<PluginName>", plugin_name)
+    header_text = header_text.replace("<Plugin Display Name>", plugin_display_name)
+    header_text = header_text.replace("<PluginDirectory>", plugin_directory)
+    footer_text = footer_text.replace("<PluginName>", plugin_name)
+    footer_text = footer_text.replace("<Plugin Display Name>", plugin_display_name)
+    footer_text = footer_text.replace("<PluginDirectory>", plugin_directory)
+
     if not header_text:
         print(f"Warning: {header_path} not found; building without header template.")
     if not footer_text:
