@@ -772,10 +772,10 @@ class GWizardMergeDialog(Gtk.Dialog):
             if key is not None:
                 if is_nullable_identity:
                     if ls and not rs:
-                        btn = self._make_arrow(key, label)
+                        btn = self._make_arrow(key, label or _("Child"))
                         self._mergeable_count += 1
                 elif not same and ls:
-                    btn = self._make_arrow(key, label)
+                    btn = self._make_arrow(key, label or _("Child"))
                     self._mergeable_count += 1
             gap = btn if btn is not None else Gtk.Label(label="")
             grid.attach(left_cell, 0, self._row_index, 1, 1)
