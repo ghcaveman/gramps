@@ -4,16 +4,22 @@ Checking folder: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_med
 --------------------------------------------------------------------
   [EXISTS]  gwizard_mediafix-main.png
              Capture: GWizard Media Fix main interface
-  [EXISTS]  gwizard_mediafix-main-menu.png
-             Capture: Open GWizard Media Fix from the Tools menu
-  [EXISTS]  gwizard_mediafix-find-missing.png
-             Capture: Find missing media dialog
-  [EXISTS]  gwizard_mediafix-fix-references.png
-             Capture: Fix media references dialog
-  [EXISTS]  gwizard_mediafix-consolidate.png
-             Capture: Consolidate media location dialog
+  [EXISTS]  gwizard_mediafix-report-save.png
+             Capture: Save Media Fix Report: choose the folder and filename for the report
   [EXISTS]  gwizard_mediafix-report.png
-             Capture: Generated report
+             Capture: GWizard Media Fix Report: review the generated plain-text report listing all media issues
+  [EXISTS]  gwizard_mediafix-find-missing.png
+             Capture: Find Missing Media: review each missing record and its suggested replacement path
+  [EXISTS]  gwizard_mediafix-fix-references.png
+             Capture: Fix Media References: pick Merge, Create copies, or Delete for each duplicate or unreferenced record
+  [EXISTS]  gwizard_mediafix-consolidate.png
+             Capture: Consolidate Media Location: set the base media path, naming template, and file operation
+  [EXISTS]  gwizard_mediafix-clean-import-notes.png
+             Capture: Clean import notes: confirm deletion of leftover import-failure notes
+  [EXISTS]  gwizard_mediafix-accept-all-hints.png
+             Capture: Accept all hints - preview: review the planned automatic changes before accepting
+  [EXISTS]  gwizard_mediafix-accept-all-hints-complete.png
+             Capture: Accept All Hints Complete: summary of automated changes and items needing human intervention
 --------------------------------------------------------------------
-Summary: 6/6 present, 0 missing.
+Summary: 9/9 present, 0 missing.
 

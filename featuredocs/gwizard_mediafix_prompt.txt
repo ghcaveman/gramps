@@ -24,6 +24,8 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
      `-save` or `-complete` when one button opens more than one window
      (e.g. `gwizard_mediafix-generate-report-save.png`, `gwizard_mediafix-generate-report.png`).
    - Captions must name the window by its title from the UI Inventory and say what to capture.
+   - Screenshots that already exist are listed under "Existing Screenshots" below. When one of them shows the window
+     you are illustrating (judge by its name), use that exact filename instead of making up a new one.
    - Reference each image exactly once. Do NOT add a gallery or repeat images at the end of the page.
 7. Write button labels without the GTK mnemonic underscore (**Close**, not **_Close**).
 8. Do not invent menu paths, buttons, or options not present in the diff or UI Inventory. If a menu path is inherited and unclear, mark it `[VERIFY MENU PATH]`.
@@ -39,12 +41,6 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 - featuredocs/gwizard_mediafix.mediawiki
 - featuredocs/gwizard_mediafix_image_audit.txt
 - featuredocs/gwizard_mediafix_prompt.txt
-- featuredocs/images/AcceptAllHints.png
-- featuredocs/images/AcceptAllHintsComplete.png
-- featuredocs/images/FixMediaHintsAccepted.png
-- featuredocs/images/NoStaleImportNotes.png
-- featuredocs/images/ReportSaveDialog.png
-- featuredocs/images/SelectMediaDirectory.png
 - featuredocs/images/gwizard_mediafix-accept-all-hints-complete.png
 - featuredocs/images/gwizard_mediafix-accept-all-hints.png
 - featuredocs/images/gwizard_mediafix-clean-import-notes.png
@@ -63,6 +59,7 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 - gramps/plugins/tool/test/gwizard_gtk_fakes.py
 - gramps/plugins/tool/test/gwizardmediafix_ex_test.py
 - gramps/plugins/tool/test/gwizardmediafix_fixes_test.py
+- gramps/plugins/tool/test/gwizardmediafix_pickfile_test.py
 - gramps/plugins/tool/test/gwizardmediafix_test.py
 - gramps/plugins/tool/tools.gpr.py
 - gramps/version.py
@@ -760,6 +757,17 @@ GWizardMediaFix.cb_clean_notes:
 GWizardMediaFix.cb_auto_all:
   line 4458: message title: Nothing to change automatically
   line 4612: window title: Accept All Hints Complete
+
+### Existing Screenshots (already captured in featuredocs/images/; the header's gwizard_mediafix-main.png is not listed):
+- images/gwizard_mediafix-accept-all-hints-complete.png
+- images/gwizard_mediafix-accept-all-hints.png
+- images/gwizard_mediafix-clean-import-notes.png
+- images/gwizard_mediafix-consolidate.png
+- images/gwizard_mediafix-find-missing.png
+- images/gwizard_mediafix-fix-references.png
+- images/gwizard_mediafix-main-menu.png
+- images/gwizard_mediafix-report-save.png
+- images/gwizard_mediafix-report.png
 
 ### Isolated Feature Diff (against functionality_base):
 (git diff warning: fatal: bad revision 'functionality_base...HEAD')
