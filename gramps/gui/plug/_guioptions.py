@@ -60,6 +60,7 @@ from gramps.gen.display.place import displayer as _pd
 from gramps.gen.filters import GenericFilterFactory, GenericFilter, rules
 from gramps.gen.constfunc import get_curr_dir
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gui.buttonorder import apply_button_order
 
 _ = glocale.translation.gettext
 
@@ -81,9 +82,6 @@ class LastNameDialog(ManagedWindow):
         )
         self.__dlg.add_buttons(
             _("_Cancel"), Gtk.ResponseType.REJECT, _("_OK"), Gtk.ResponseType.ACCEPT
-        )
-        self.__dlg.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.ACCEPT, Gtk.ResponseType.REJECT]
         )
         self.set_window(self.__dlg, None, _("Select surname"))
         self.setup_configs("interface.lastnamedialog", 400, 400)
@@ -1216,15 +1214,9 @@ class GuiPersonListOption(Gtk.Box):
         self.__del_person = widgets.SimpleButton(
             "list-remove", self.__del_person_clicked
         )
-        settings = Gtk.Settings.get_default()
-        alt_order = settings.get_property("gtk-alternative-button-order")
         self.__vbbox = Gtk.ButtonBox(orientation=Gtk.Orientation.VERTICAL)
-        if alt_order:
-            self.__vbbox.add(self.__del_person)
-            self.__vbbox.add(self.__add_person)
-        else:
-            self.__vbbox.add(self.__add_person)
-            self.__vbbox.add(self.__del_person)
+        self.__vbbox.add(self.__add_person)
+        self.__vbbox.add(self.__del_person)
         self.__vbbox.set_layout(Gtk.ButtonBoxStyle.SPREAD)
         self.pack_end(self.__vbbox, False, False, 0)
 
@@ -1403,15 +1395,9 @@ class GuiPlaceListOption(Gtk.Box):
         # the container
         self.__add_place = widgets.SimpleButton("list-add", self.__add_place_clicked)
         self.__del_place = widgets.SimpleButton("list-remove", self.__del_place_clicked)
-        settings = Gtk.Settings.get_default()
-        alt_order = settings.get_property("gtk-alternative-button-order")
         self.__vbbox = Gtk.ButtonBox(orientation=Gtk.Orientation.VERTICAL)
-        if alt_order:
-            self.__vbbox.add(self.__del_place)
-            self.__vbbox.add(self.__add_place)
-        else:
-            self.__vbbox.add(self.__add_place)
-            self.__vbbox.add(self.__del_place)
+        self.__vbbox.add(self.__add_place)
+        self.__vbbox.add(self.__del_place)
         self.__vbbox.set_layout(Gtk.ButtonBoxStyle.SPREAD)
         self.pack_end(self.__vbbox, False, False, 0)
 
@@ -1555,15 +1541,9 @@ class GuiSurnameColorOption(Gtk.Box):
 
         self.add_surname = widgets.SimpleButton("list-add", self.__add_clicked)
         self.del_surname = widgets.SimpleButton("list-remove", self.__del_clicked)
-        settings = Gtk.Settings.get_default()
-        alt_order = settings.get_property("gtk-alternative-button-order")
         self.vbbox = Gtk.ButtonBox(orientation=Gtk.Orientation.VERTICAL)
-        if alt_order:
-            self.vbbox.add(self.del_surname)
-            self.vbbox.add(self.add_surname)
-        else:
-            self.vbbox.add(self.add_surname)
-            self.vbbox.add(self.del_surname)
+        self.vbbox.add(self.add_surname)
+        self.vbbox.add(self.del_surname)
         self.vbbox.set_layout(Gtk.ButtonBoxStyle.SPREAD)
         self.pack_end(self.vbbox, False, False, 0)
 
@@ -1781,9 +1761,7 @@ class GuiDestinationOption(Gtk.Box):
         fcd.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Open"), Gtk.ResponseType.OK
         )
-        fcd.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-        )
+        apply_button_order(fcd)
 
         name = os.path.abspath(self.__option.get_value())
         if self.__option.get_directory_entry():

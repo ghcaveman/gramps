@@ -18,6 +18,20 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
+"""
+Audit the button order of every Gramps dialog, as written in the source
+(Glade files and a curated list of Python-built dialogs), against the
+Windows and/or Linux (GNOME HIG) convention.
+
+This is a static scan: it reports the order the buttons are declared in,
+before gramps/gui/buttonorder.py reorders them at run time.
+
+Usage (from the repository root):
+    python featuredocs/devnotes/buttonswap/generate_dialog_placement.py \
+        [--platform windows|linux|both] [--outdir DIR]
+"""
+
+import argparse
 import glob
 import os
 import re
@@ -234,7 +248,9 @@ def classify_action(lbl):
     return "Unknown"
 
 
-def check_windows_adherence(btn_names):
+def check_adherence(btn_names, platform):
+    """Return Yes/No/N/A: does the declared order follow ``platform``'s
+    convention? windows = [OK] [Cancel]; linux = [Cancel] [OK]."""
     if not btn_names:
         return "N/A"
     if len(btn_names) == 1:
@@ -249,8 +265,11 @@ def check_windows_adherence(btn_names):
     if pos_indices and neg_indices:
         first_pos = min(pos_indices)
         first_neg = min(neg_indices)
-        # Windows standard: Positive on the left of Negative ([ OK ] [ Cancel ])
-        if first_pos < first_neg:
+        if platform == "windows":
+            follows = first_pos < first_neg  # [ OK ] [ Cancel ]
+        else:
+            follows = first_neg < first_pos  # [ Cancel ] [ OK ]
+        if follows:
             return "Yes"
         else:
             return "No"
@@ -410,14 +429,11 @@ def extract_glade_dialogs():
                         buttons.append(clean_label(label))
 
             if buttons:
-                adheres = check_windows_adherence(buttons)
                 dialogs.append(
                     {
                         "Dialog Name": dialog_name,
                         "Filename": norm_path,
-                        "Button Names": ":".join(buttons),
-                        "Adheres to Windows Standard": adheres,
-                        "Order Changes on Linux": "No",
+                        "Buttons": buttons,
                     }
                 )
 
@@ -615,43 +631,56 @@ def extract_python_dialogs():
 
     dialogs = []
     for dname, fname, btns in raw_list:
-        adheres = check_windows_adherence(btns)
-        dialogs.append(
-            {
-                "Dialog Name": dname,
-                "Filename": fname,
-                "Button Names": ":".join(btns),
-                "Adheres to Windows Standard": adheres,
-                "Order Changes on Linux": "No",
-            }
-        )
+        dialogs.append({"Dialog Name": dname, "Filename": fname, "Buttons": btns})
 
     return dialogs
 
 
+def write_csv(dialogs, platform, outdir):
+    """Write DialogPlacement_<Platform>.csv for one platform."""
+    name = platform.capitalize()
+    column = f"Adheres to {name} Standard"
+    out_file = os.path.join(outdir, f"DialogPlacement_{name}.csv")
+    with open(out_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f, fieldnames=["Dialog Name", "Filename", "Button Names", column]
+        )
+        writer.writeheader()
+        for d in dialogs:
+            writer.writerow(
+                {
+                    "Dialog Name": d["Dialog Name"],
+                    "Filename": d["Filename"],
+                    "Button Names": ":".join(d["Buttons"]),
+                    column: check_adherence(d["Buttons"], platform),
+                }
+            )
+    return out_file
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    parser.add_argument(
+        "--platform", choices=["windows", "linux", "both"], default="both"
+    )
+    parser.add_argument(
+        "--outdir",
+        default=os.path.dirname(os.path.abspath(__file__)),
+        help="where to write the CSV files (default: next to this script)",
+    )
+    args = parser.parse_args()
+
     glade_dlgs = extract_glade_dialogs()
     py_dlgs = extract_python_dialogs()
     all_dlgs = glade_dlgs + py_dlgs
 
-    out_file = "DialogPlacement_Windows.csv"
-    fieldnames = [
-        "Dialog Name",
-        "Filename",
-        "Button Names",
-        "Adheres to Windows Standard",
-        "Order Changes on Linux",
-    ]
-
-    with open(out_file, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for d in all_dlgs:
-            writer.writerow(d)
-
-    print(
-        f"Generated {out_file} with {len(all_dlgs)} dialogs/windows (Glade: {len(glade_dlgs)}, Python: {len(py_dlgs)})"
-    )
+    platforms = ["windows", "linux"] if args.platform == "both" else [args.platform]
+    for platform in platforms:
+        out_file = write_csv(all_dlgs, platform, args.outdir)
+        print(
+            f"Generated {out_file} with {len(all_dlgs)} dialogs/windows "
+            f"(Glade: {len(glade_dlgs)}, Python: {len(py_dlgs)})"
+        )
 
 
 if __name__ == "__main__":
