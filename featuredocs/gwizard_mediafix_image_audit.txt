@@ -1,19 +1,19 @@
 
-Image Audit for: C:\workspace\gramps\featuredocs\gwizard_mediafix.mediawiki
-Checking folder: C:\workspace\gramps\featuredocs\images
+Image Audit for: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_mediafix/featuredocs/gwizard_mediafix.mediawiki
+Checking folder: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_mediafix/featuredocs/images
 --------------------------------------------------------------------
-  [MISSING] <PluginName>-main.png
-             Capture: <Plugin Display Name> main interface
-  [MISSING] gwizard_mediafix-main.png
-             Capture: GWizard Media Fix main dialog
-  [MISSING] gwizard_mediafix-find_missing.png
+  [EXISTS]  gwizard_mediafix-main.png
+             Capture: Gwizard Mediafix main interface
+  [EXISTS]  gwizard_mediafix-main-menu.png
+             Capture: Open GWizard Media Fix from the Tools menu
+  [EXISTS]  gwizard_mediafix-find-missing.png
              Capture: Find missing media dialog
-  [MISSING] gwizard_mediafix-fix_references.png
+  [EXISTS]  gwizard_mediafix-fix-references.png
              Capture: Fix media references dialog
-  [MISSING] gwizard_mediafix-consolidate.png
+  [EXISTS]  gwizard_mediafix-consolidate.png
              Capture: Consolidate media location dialog
-  [MISSING] gwizard_mediafix-report.png
-             Capture: Generated report preview
+  [EXISTS]  gwizard_mediafix-report.png
+             Capture: Generated report
 --------------------------------------------------------------------
-Summary: 0/6 present, 6 missing.
+Summary: 6/6 present, 0 missing.
 
