@@ -41,14 +41,7 @@ from typing import Any
 # GTK modules
 #
 # -------------------------------------------------------------------------
-try:
-    from gi.repository import Gtk, Pango
-except (ImportError, AttributeError):
-    from unittest.mock import MagicMock
-
-    Gtk = MagicMock()  # type: ignore[assignment]
-    Pango = MagicMock()  # type: ignore[assignment]
-
+from gi.repository import Gtk, Pango
 
 # -------------------------------------------------------------------------
 #

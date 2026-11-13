@@ -80,6 +80,9 @@ from gramps.gen.db.generic import DbWriteBase
 from gramps.gen.db import DbTxn
 from gramps.gen.lib import Source, Repository
 from gramps.plugins.tool.gw_unpacksourcesdialog import UnpackSourcesDialog
+from gramps.plugins.tool.gwizardcitationrepairengine import (
+    GWizardCitationRepairEngine,
+)
 
 
 class FakeDbState:
@@ -164,8 +167,8 @@ class UnpackSourcesDialogTest(unittest.TestCase):
 
         dlg = UnpackSourcesDialog.__new__(UnpackSourcesDialog)
         dlg.dbstate = self.dbstate
-        dlg.engine = MagicMock()
-        dlg.engine._create_repository.return_value = "repo_h"
+        # The real engine: cb_apply hands the work to apply_unpack_entries.
+        dlg.engine = GWizardCitationRepairEngine()
         dlg.destroy = MagicMock()
 
         mock_repo = MagicMock()

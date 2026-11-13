@@ -308,35 +308,6 @@ class RepoMergeDialog(Gtk.Dialog):
         )
         self._grid_css_installed = True
 
-    def _install_grid_css(self) -> None:
-        """Install CSS that draws borders around every grid cell.
-
-        Gtk.Grid has no native "show grid lines" option, so each cell
-        widget gets a thin border so columns and rows are visually
-        separated and line up with the header above them.
-        """
-        if getattr(self, "_grid_css_installed", False):
-            return
-        css = b"""
-        .merge-grid {
-            border: 1px solid #555555;
-            margin: 0;
-        }
-        .merge-cell {
-            border: none;
-            margin: 0;
-            padding: 2px;
-        }
-        """
-        provider = Gtk.CssProvider()
-        provider.load_from_data(css)
-        Gtk.StyleContext.add_provider_for_screen(
-            screen,
-            provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
-        self._grid_css_installed = True
-
     def _make_combo(self, row: dict[str, Any]) -> Gtk.ComboBox:
         """Create a golden-target dropdown for a repository row.
 

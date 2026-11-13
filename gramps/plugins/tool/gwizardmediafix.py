@@ -112,88 +112,6 @@ except (ImportError, ValueError):
     )
 
 try:
-    from .gwizard_common import (
-        SelectableLabel,
-        TableLabel,
-        HeaderLabel,
-        create_table_grid,
-        clean_path,
-        is_absolute_path,
-        path_key,
-        to_db_path,
-        unique_destination,
-        relocate_file,
-        build_basename_index,
-    )
-except (ImportError, ValueError):
-    from gwizard_common import (  # type: ignore[import-not-found,no-redef]
-        SelectableLabel,
-        TableLabel,
-        HeaderLabel,
-        create_table_grid,
-        clean_path,
-        is_absolute_path,
-        path_key,
-        to_db_path,
-        unique_destination,
-        relocate_file,
-        build_basename_index,
-    )
-
-try:
-    from .gwizard_common import (
-        SelectableLabel,
-        TableLabel,
-        HeaderLabel,
-        create_table_grid,
-        clean_path,
-        is_absolute_path,
-        path_key,
-        to_db_path,
-        unique_destination,
-        relocate_file,
-        build_basename_index,
-        TAG_MEDIA_FIXED,
-        TAG_MEDIA_FIXED_COLOR,
-        TAG_LOCKED,
-        TAG_LOCKED_COLOR,
-        create_gwizard_tag,
-        ensure_tag,
-        ensure_gwizard_tags,
-        is_media_locked,
-        has_media_fixed_tag,
-        add_media_fixed_tag,
-        lock_media,
-        unlock_media,
-    )
-except (ImportError, ValueError):
-    from gwizard_common import (  # type: ignore[import-not-found,no-redef]
-        SelectableLabel,
-        TableLabel,
-        HeaderLabel,
-        create_table_grid,
-        clean_path,
-        is_absolute_path,
-        path_key,
-        to_db_path,
-        unique_destination,
-        relocate_file,
-        build_basename_index,
-        TAG_MEDIA_FIXED,
-        TAG_MEDIA_FIXED_COLOR,
-        TAG_LOCKED,
-        TAG_LOCKED_COLOR,
-        create_gwizard_tag,
-        ensure_tag,
-        ensure_gwizard_tags,
-        is_media_locked,
-        has_media_fixed_tag,
-        add_media_fixed_tag,
-        lock_media,
-        unlock_media,
-    )
-
-try:
     from .gw_fixmediareferencesdialog import (
         FixMediaReferencesDialog,
         find_duplicate_media_groups,
@@ -327,85 +245,9 @@ def check_path_permission(path: str) -> tuple[bool, str | None]:
     return False, None
 
 
-def get_path_ancestors(path: str) -> list[str]:
-    """Return all ancestors of a path from root down to the target path."""
-    clean_p = clean_path(path)
-    if not clean_p:
-        return []
-    norm = os.path.normpath(os.path.abspath(clean_p))
-    parts: list[str] = []
-    curr = norm
-    while True:
-        parts.append(curr)
-        parent = os.path.dirname(curr)
-        if parent == curr:
-            break
-        curr = parent
-    parts.reverse()
-    return parts
-
-
-def check_path_permission(path: str) -> tuple[bool, str | None]:
-    """Check if a path or any of its parent directories has permission denied.
-
-    Walks from the root directory downwards to identify the highest-level directory
-    which cannot be read.
-
-    Returns:
-        (has_permission_issue: bool, highest_inaccessible_dir_or_file: str | None)
+def expand_base_path(mpath: str | None, db: DbReadBase | None = None) -> str:
     """
-    clean_p = clean_path(path)
-    if not clean_p:
-        return False, None
-
-    ancestors = get_path_ancestors(clean_p)
-    for comp in ancestors:
-        try:
-            try:
-                st = os.stat(comp)
-            except PermissionError:
-                return True, comp
-            except FileNotFoundError:
-                continue
-            except OSError as err:
-                if getattr(err, "winerror", None) == 5 or err.errno in (13, 1):
-                    return True, comp
-                continue
-
-            # Stat succeeded, so comp exists on disk. Now verify read access:
-            if not os.access(comp, os.R_OK):
-                return True, comp
-
-            import stat as _stat
-
-            if _stat.S_ISDIR(st.st_mode):
-                try:
-                    with os.scandir(comp):
-                        pass
-                except PermissionError:
-                    return True, comp
-                except OSError as err:
-                    if getattr(err, "winerror", None) == 5 or err.errno in (13, 1):
-                        return True, comp
-            else:
-                try:
-                    with open(comp, "rb") as f:
-                        f.read(1)
-                except PermissionError:
-                    return True, comp
-                except OSError as err:
-                    if getattr(err, "winerror", None) == 5 or err.errno in (13, 1):
-                        return True, comp
-        except PermissionError:
-            return True, comp
-        except (OSError, ValueError):
-            pass
-
-    return False, None
-
-
-def get_media_base_path(db: Any) -> str:
-    """Return the base path for relative media files.
+    Resolve a base media path string exactly the way Gramps does.
 
     This mirrors ``gramps.gen.utils.file.expand_media_path`` so the folder the
     tool shows, searches and moves files into is the folder Gramps will use
@@ -3343,12 +3185,6 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                         % (gid, entry.get("raw_path", ""), _("locked: skipping"))
                     )
                     continue
-                if is_media_locked(self.dbstate.db, media):
-                    failures.append(
-                        "[%s] %s: %s"
-                        % (gid, entry.get("raw_path", ""), _("locked: skipping"))
-                    )
-                    continue
 
                 src_full = entry.get("src_full", "")
                 dest_full = (
@@ -3632,11 +3468,6 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
             locked_media.append((m_gid, desc, first_raw))
         if has_media_fixed_tag(db, media):
             fixed_media.append((m_gid, desc, first_raw))
-
-        if len(backlinks) > 1:
-            multi_ref_media.append((m_gid, desc, first_raw, len(backlinks), backlinks))
-        elif len(backlinks) == 0:
-            zero_ref_media.append((m_gid, desc, first_raw))
 
         if len(backlinks) > 1:
             multi_ref_media.append((m_gid, desc, first_raw, len(backlinks), backlinks))
@@ -3927,17 +3758,6 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
         for gid, desc, path in locked_media:
             lines.append(f"  [{gid}] {desc or unnamed}")
             lines.append(field(_("Path:"), path))
-        lines.append("")
-
-    if locked_media:
-        lines.append("-" * 72)
-        lines.append(
-            f"LOCKED MEDIA RECORDS ({len(locked_media)} items skipped from modifications):"
-        )
-        lines.append("-" * 72)
-        for gid, desc, path in locked_media:
-            lines.append(f"  [{gid}] {desc or '(unnamed)'}")
-            lines.append(f"    Path: {path}")
         lines.append("")
 
     return "\n".join(lines)
