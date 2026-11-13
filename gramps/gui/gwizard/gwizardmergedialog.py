@@ -845,6 +845,14 @@ class GWizardMergeDialog(Gtk.Dialog):
             left_prefix,
             right_prefix,
         )
+        for key, label, getter in (
+            ("nickname", _("Nickname"), "get_nick_name"),
+            ("call_name", _("Call Name"), "get_call_name"),
+        ):
+            left_value = getattr(left_name, getter)()
+            right_value = getattr(right_name, getter)()
+            if left_value or right_value:
+                add_row(key, label, left_value, right_value)
         add_row(
             "name_sources" if left_name.get_citation_list() else None,
             _("Name Sources"),
@@ -1043,9 +1051,9 @@ class GWizardMergeDialog(Gtk.Dialog):
                 extra_label(kind),
                 extra_text(kind, s_item) if s_item is not None else "",
                 extra_text(kind, t_item) if t_item is not None else "",
-                # Notes carry no citations of their own to show.
-                left_obj=s_item if kind not in ("note", "url") else None,
-                right_obj=t_item if kind not in ("note", "url") else None,
+                # Notes, links and media carry no citations of their own to show.
+                left_obj=s_item if kind not in ("note", "url", "media") else None,
+                right_obj=t_item if kind not in ("note", "url", "media") else None,
             )
 
         # ---------- Families ----------
@@ -1269,6 +1277,9 @@ class GWizardMergeDialog(Gtk.Dialog):
         matched_sources: set[str] = set()
         self._matched_sources = matched_sources
         extra_citations: list[str] = []
+        # Objects (LDS ordinances, media references) whose own notes and
+        # citations are scanned once the helpers below exist.
+        scan_later: list[Any] = []
 
         if not self.target_handle:  # Adding as new person
             people_to_scan.append(self.source_person)
@@ -1282,6 +1293,10 @@ class GWizardMergeDialog(Gtk.Dialog):
             extra_citations.extend(
                 self.source_person.get_primary_name().get_citation_list()
             )
+            for ordinance in self.source_person.get_lds_ord_list():
+                scan_later.append(ordinance)
+            for mref in self.source_person.get_media_list():
+                scan_later.append(mref)
         else:
             # Merging
             # Check birth_event
@@ -1346,13 +1361,15 @@ class GWizardMergeDialog(Gtk.Dialog):
         def scan_media(mref_list):
             for mref in mref_list:
                 mh = mref.get_reference_handle()
-                if mh and not target_has_media(mh):
+                if mh and mh not in missing["media"] and not target_has_media(mh):
                     missing["media"].add(mh)
                     # Scan media notes
                     try:
                         s_med = self.source_db.get_media_from_handle(mh)
                         if s_med:
                             scan_notes(s_med.get_note_list())
+                            for ch in s_med.get_citation_list():
+                                scan_citation(ch)
                     except Exception:
                         pass
 
@@ -1386,7 +1403,7 @@ class GWizardMergeDialog(Gtk.Dialog):
                 pass
 
         def scan_citation(ch):
-            if ch and not target_has_citation(ch):
+            if ch and ch not in missing["citation"] and not target_has_citation(ch):
                 missing["citation"].add(ch)
                 try:
                     s_cit = self.source_db.get_citation_from_handle(ch)
@@ -1430,10 +1447,25 @@ class GWizardMergeDialog(Gtk.Dialog):
                 continue
             if kind == "note":
                 scan_notes([self.source_person.get_note_list()[int(raw_index)]])
+            elif kind == "media":
+                scan_later.append(self.source_person.get_media_list()[int(raw_index)])
             elif kind != "url":
                 scan_notes(chosen.get_note_list())
                 for ch in chosen.get_citation_list():
                     scan_citation(ch)
+
+        for obj in scan_later:
+            scan_notes(obj.get_note_list())
+            for ch in obj.get_citation_list():
+                scan_citation(ch)
+            if hasattr(obj, "get_reference_handle"):
+                # A media reference: the media itself, and the references'
+                # attributes, may bring notes and citations too.
+                scan_media([obj])
+                for attribute in obj.get_attribute_list():
+                    scan_notes(attribute.get_note_list())
+                    for ch in attribute.get_citation_list():
+                        scan_citation(ch)
 
         # Families chosen in the "Families" section: the events they would
         # bring and, for a family the tree lacks, the family's own notes and

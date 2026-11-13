@@ -74,6 +74,7 @@ from .gwizard_base import (
     GWizardBase,
     GWizardCompareRow,
     CandidateMatcher,
+    safe_get,
     surname_prefix_text,
     surname_text,
     safe_get_event,
@@ -140,7 +141,7 @@ def format_link_summary(
 # Person items that are compared one by one and only ever added, never
 # replaced: alternate names, attributes, addresses and notes. The merge
 # dialog keys them "<kind>:<index in the incoming person's list>".
-EXTRA_KINDS = ("altname", "attribute", "address", "note", "url")
+EXTRA_KINDS = ("altname", "attribute", "address", "note", "url", "media", "lds")
 
 # Notes the GEDCOM importer writes about itself ("Records not imported...")
 # describe the import, not the person, so they are left out.
@@ -160,6 +161,8 @@ def extra_label(kind: str) -> str:
         "address": _("Address"),
         "note": _("Note"),
         "url": _("Web Link"),
+        "media": _("Media"),
+        "lds": _("LDS Ordinance"),
     }[kind]
 
 
@@ -183,6 +186,19 @@ def extra_items(kind: str, person: Any, db: Any) -> list[tuple[int, Any]]:
         return list(enumerate(person.get_address_list()))
     if kind == "url":
         return list(enumerate(person.get_url_list()))
+    if kind == "lds":
+        return list(enumerate(person.get_lds_ord_list()))
+    if kind == "media":
+        # The items are the Media objects; the index is the position of
+        # the person's reference to the media.
+        items = []
+        for index, mref in enumerate(person.get_media_list()):
+            media = safe_get(
+                db, mref.get_reference_handle(), "get_media_from_handle", "media"
+            )
+            if media is not None:
+                items.append((index, media))
+        return items
     items = []
     for index, handle in enumerate(person.get_note_list()):
         try:
@@ -229,6 +245,15 @@ def extra_signature(kind: str, item: Any) -> tuple[Any, ...]:
             _norm_text(item.get_postal_code()),
             _norm_text(item.get_phone()),
         )
+    if kind == "media":
+        return (_norm_text(item.get_path().replace("\\", "/")),)
+    if kind == "lds":
+        return (
+            _norm_text(item.type2str()),
+            _norm_text(glocale.date_displayer.display(item.get_date_object())),
+            _norm_text(item.get_temple()),
+            _norm_text(item.status2str()),
+        )
     return (_norm_text(item.get_type()), _norm_text(item.get()))
 
 
@@ -256,6 +281,20 @@ def extra_text(kind: str, item: Any) -> str:
         text = ", ".join(part for part in parts if part)
         date = glocale.date_displayer.display(item.get_date_object())
         return "%s (%s)" % (text, date) if date and text else text or date
+    if kind == "media":
+        text = item.get_path()
+        if item.get_description():
+            text += " (%s)" % item.get_description()
+        return text
+    if kind == "lds":
+        parts = [
+            item.type2str(),
+            glocale.date_displayer.display(item.get_date_object()),
+            item.get_temple(),
+        ]
+        text = ", ".join(part for part in parts if part)
+        status = item.status2str()
+        return "%s (%s)" % (text, status) if status else text
     body = " ".join(item.get().split())
     if len(body) > 100:
         body = body[:100].rstrip() + "\u2026"
@@ -620,6 +659,26 @@ class GedGWizard(GWizardBase):
                 field_type="surname_prefix",
             )
         )
+
+        # 2c. Compare nickname and call name. They are listed only when the
+        # incoming person has one, so a value only the tree has is not a
+        # difference to step to.
+        for field_type, label, getter in (
+            ("nickname", _("Nickname"), "get_nick_name"),
+            ("call_name", _("Call Name"), "get_call_name"),
+        ):
+            s_value = getattr(s_person.get_primary_name(), getter)()
+            t_value = getattr(t_person.get_primary_name(), getter)()
+            if s_value:
+                rows.append(
+                    GWizardCompareRow(
+                        status=get_status(s_value, t_value),
+                        field=label,
+                        source_val=s_value,
+                        target_val=t_value,
+                        field_type=field_type,
+                    )
+                )
 
         # 3. Compare Gender
         def format_gender(gender_val: int) -> str:
@@ -2049,9 +2108,28 @@ class GedGWizard(GWizardBase):
                 if new_handle and new_handle not in t_person_obj.get_note_list():
                     t_person_obj.add_note(new_handle)
                 return
+            if kind == "media":
+                s_ref = s_person.get_media_list()[index]
+                new_handle = copy_media(s_ref.get_reference_handle(), trans)
+                if new_handle:
+                    new_ref = copy.deepcopy(s_ref)
+                    new_ref.set_reference_handle(new_handle)
+                    remap_citations_notes(new_ref)
+                    for attribute in new_ref.get_attribute_list():
+                        remap_citations_notes(attribute)
+                    t_person_obj.add_media_reference(new_ref)
+                return
             new_item = copy.deepcopy(wanted)
             remap_citations_notes(new_item)
-            if kind == "altname":
+            if kind == "lds":
+                # An ordinance of a person's own; the sealing-to-parents
+                # family is not carried over.
+                new_item.set_place_handle(
+                    get_or_create_place(new_item.get_place_handle(), trans) or ""
+                )
+                new_item.set_family_handle(None)
+                t_person_obj.add_lds_ord(new_item)
+            elif kind == "altname":
                 t_person_obj.add_alternate_name(new_item)
             elif kind == "attribute":
                 t_person_obj.add_attribute(new_item)
@@ -2101,11 +2179,20 @@ class GedGWizard(GWizardBase):
                     remap_citations_notes(attribute)
                 for address in new_person.get_address_list():
                     remap_citations_notes(address)
+                for mref in new_person.get_media_list():
+                    remap_citations_notes(mref)
+                    for attribute in mref.get_attribute_list():
+                        remap_citations_notes(attribute)
+                for ordinance in new_person.get_lds_ord_list():
+                    remap_citations_notes(ordinance)
+                    ordinance.set_place_handle(
+                        get_or_create_place(ordinance.get_place_handle(), trans) or ""
+                    )
+                    ordinance.set_family_handle(None)
 
                 new_person.set_family_handle_list([])
                 new_person.set_parent_family_handle_list([])
                 new_person.set_person_ref_list([])
-                new_person.set_lds_ord_list([])
                 new_person.set_tag_list([])
 
                 self.db.add_person(new_person, trans)
@@ -2147,7 +2234,17 @@ class GedGWizard(GWizardBase):
                         if idx < len(s_list):
                             t_surn.set_prefix(s_list[idx].get_prefix())
 
-                # 2c. Citations on the primary name and on the person
+                # 2c. Nickname and call name
+                if resolutions.get("nickname") == "source":
+                    t_person.get_primary_name().set_nick_name(
+                        s_person.get_primary_name().get_nick_name()
+                    )
+                if resolutions.get("call_name") == "source":
+                    t_person.get_primary_name().set_call_name(
+                        s_person.get_primary_name().get_call_name()
+                    )
+
+                # 2d. Citations on the primary name and on the person
                 if resolutions.get("name_sources") == "source":
                     copy_new_citations(
                         t_person.get_primary_name(), s_person.get_primary_name(), trans

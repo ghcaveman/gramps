@@ -19,12 +19,13 @@
 #
 
 """
-Tests for comparing and merging alternate names, attributes, addresses and
-notes of a person.
+Tests for comparing and merging alternate names, attributes, addresses,
+notes, web links, media and LDS ordinances of a person.
 
 The incoming Kid Doe has an alternate name, three attributes (one of them
 the FamilySearch ID), two notes and an address. The tree's Kid Doe has the
-Social Security attribute and the first note already.
+Social Security attribute and the first note already. Web links, media and
+LDS ordinances are added by the tests that need them.
 """
 
 # -------------------------------------------------------------------------
@@ -52,7 +53,18 @@ from gramps.gen.gwizard.gwizardgedcom import (
     extra_signature,
     pair_extra_items,
 )
-from gramps.gen.lib import Address, Note, NoteType, Url, UrlType
+from gramps.gen.lib import (
+    Address,
+    Date,
+    LdsOrd,
+    Media,
+    MediaRef,
+    Note,
+    NoteType,
+    Place,
+    Url,
+    UrlType,
+)
 from gramps.gen.user import User
 
 HEADER = "0 HEAD\n1 CHAR UTF-8\n"
@@ -147,6 +159,31 @@ class GWizardExtraItemsTest(unittest.TestCase):
         with DbTxn("url", db) as trans:
             db.commit_person(person, trans)
 
+    def _add_media(
+        self, db: Any, person: Any, path: str, description: str = ""
+    ) -> None:
+        media = Media()
+        media.set_path(path)
+        media.set_description(description)
+        media.set_mime_type("image/png")
+        mref = MediaRef()
+        with DbTxn("media", db) as trans:
+            db.add_media(media, trans)
+            mref.set_reference_handle(media.handle)
+            person.add_media_reference(mref)
+            db.commit_person(person, trans)
+
+    def _add_lds(self, db: Any, person: Any, temple: str = "SLAKE") -> LdsOrd:
+        ordinance = LdsOrd()
+        ordinance.set_type(LdsOrd.BAPTISM)
+        ordinance.set_temple(temple)
+        ordinance.set_status(LdsOrd.STATUS_COMPLETED)
+        ordinance.set_date_object(Date(1930, 5, 6))
+        person.add_lds_ord(ordinance)
+        with DbTxn("lds", db) as trans:
+            db.commit_person(person, trans)
+        return ordinance
+
     def _rows(self) -> list[Any]:
         rows = self.gwizard.run_step(
             "compare",
@@ -175,6 +212,10 @@ class GWizardExtraItemsTest(unittest.TestCase):
         self._add_url(
             self.source_db, self._kid(self.source_db), "http://example.com/kid"
         )
+        self._add_media(
+            self.source_db, self._kid(self.source_db), "kid.png", "Portrait"
+        )
+        self._add_lds(self.source_db, self._kid(self.source_db))
 
         rows = {row.field_type: row for row in self._rows()}
 
@@ -185,6 +226,9 @@ class GWizardExtraItemsTest(unittest.TestCase):
         self.assertIn("12 Main St", rows["address"].source_val)
         self.assertIn("Second note text", rows["note"].source_val)
         self.assertIn("http://example.com/kid", rows["url"].source_val)
+        self.assertEqual(rows["media"].source_val, "kid.png (Portrait)")
+        self.assertIn("Baptism", rows["lds"].source_val)
+        self.assertIn("SLAKE", rows["lds"].source_val)
 
     def test_matching_items_are_not_listed(self) -> None:
         """Same social security number and first note: no rows for them."""
@@ -275,8 +319,10 @@ class GWizardExtraItemsTest(unittest.TestCase):
         self._add_url(
             self.source_db, self._kid(self.source_db), "http://example.com/kid"
         )
+        self._add_media(self.source_db, self._kid(self.source_db), "kid.png")
+        self._add_lds(self.source_db, self._kid(self.source_db))
         keys = self._keys()
-        self.assertEqual(len(keys), 5)
+        self.assertEqual(len(keys), 7)
 
         self._merge(keys)
         self._merge(keys)
@@ -299,6 +345,17 @@ class GWizardExtraItemsTest(unittest.TestCase):
         )
         self.assertEqual(
             [u.get_path() for u in kid.get_url_list()], ["http://example.com/kid"]
+        )
+        self.assertEqual(
+            [
+                self.db.get_media_from_handle(m.ref).get_path()
+                for m in kid.get_media_list()
+            ],
+            ["kid.png"],
+        )
+        self.assertEqual(
+            [(o.type2str(), o.get_temple()) for o in kid.get_lds_ord_list()],
+            [("Baptism", "SLAKE")],
         )
         self.assertEqual(self._rows(), [])
 
@@ -340,6 +397,101 @@ class GWizardExtraItemsTest(unittest.TestCase):
         self.assertEqual(citation.get_page(), "p. 3")
         source = self.db.get_source_from_handle(citation.get_reference_handle())
         self.assertEqual(source.get_title(), "Book")
+
+    # ------------------------------------------------------------------
+    # media
+    # ------------------------------------------------------------------
+    def test_same_media_file_matches_whatever_the_slashes_and_case(self) -> None:
+        """The same picture under a differently written path is the same."""
+        self._open()
+        self._add_media(self.source_db, self._kid(self.source_db), "Pics\\Kid.PNG")
+        self._add_media(self.db, self._kid(self.db), "pics/kid.png")
+        self.assertEqual([r for r in self._rows() if r.field_type == "media"], [])
+
+    def test_media_only_in_the_tree_is_reported(self) -> None:
+        """A picture only the tree has is a target_only row."""
+        self._open()
+        self._add_media(self.db, self._kid(self.db), "elsewhere.png")
+        (row,) = [r for r in self._rows() if r.field_type == "media"]
+        self.assertEqual(row.status, "target_only")
+        self.assertEqual(row.target_val, "elsewhere.png")
+
+    def test_media_reference_keeps_its_details_and_media_is_reused(self) -> None:
+        """The copied reference keeps its region and citations; no duplicate."""
+        self._open()
+        kid = self._kid(self.source_db)
+        self._add_media(self.source_db, kid, "kid.png", "Portrait")
+        kid = self._kid(self.source_db)
+        kid.get_media_list()[0].set_rectangle((1, 2, 30, 40))
+        with DbTxn("rect", self.source_db) as trans:
+            self.source_db.commit_person(kid, trans)
+        (row,) = [r for r in self._rows() if r.field_type == "media"]
+        media_before = self.db.get_number_of_media()
+
+        self._merge(["media:%d" % row.extra_data["source_index"]])
+        self._merge(["media:%d" % row.extra_data["source_index"]])
+
+        self.assertEqual(self.db.get_number_of_media(), media_before + 1)
+        (mref,) = self._kid(self.db).get_media_list()
+        self.assertEqual(mref.get_rectangle(), (1, 2, 30, 40))
+        media = self.db.get_media_from_handle(mref.ref)
+        self.assertEqual(media.get_description(), "Portrait")
+
+    # ------------------------------------------------------------------
+    # LDS ordinances
+    # ------------------------------------------------------------------
+    def test_ordinance_differing_in_temple_is_a_different_ordinance(self) -> None:
+        """Same type and date at another temple is listed on both sides."""
+        self._open()
+        self._add_lds(self.source_db, self._kid(self.source_db), "SLAKE")
+        self._add_lds(self.db, self._kid(self.db), "LOGAN")
+        rows = [r for r in self._rows() if r.field_type == "lds"]
+        self.assertEqual(sorted(r.status for r in rows), ["source_only", "target_only"])
+
+    def test_same_ordinance_is_not_listed(self) -> None:
+        """An ordinance the tree has, ignoring case, is not listed."""
+        self._open()
+        self._add_lds(self.source_db, self._kid(self.source_db), "SLAKE")
+        self._add_lds(self.db, self._kid(self.db), "slake")
+        self.assertEqual([r for r in self._rows() if r.field_type == "lds"], [])
+
+    def test_copied_ordinance_gets_the_place_and_drops_the_family(self) -> None:
+        """The temple place is created in the tree; no family link is kept."""
+        self._open()
+        kid = self._kid(self.source_db)
+        self._add_lds(self.source_db, kid)
+        place = Place()
+        place.get_name().set_value("Salt Lake Temple")
+        with DbTxn("place", self.source_db) as trans:
+            self.source_db.add_place(place, trans)
+            kid = self._kid(self.source_db)
+            kid.get_lds_ord_list()[0].set_place_handle(place.handle)
+            kid.get_lds_ord_list()[0].set_family_handle("stale-family")
+            self.source_db.commit_person(kid, trans)
+        (row,) = [r for r in self._rows() if r.field_type == "lds"]
+
+        self._merge(["lds:%d" % row.extra_data["source_index"]])
+
+        (copied,) = self._kid(self.db).get_lds_ord_list()
+        self.assertIsNone(copied.get_family_handle())
+        target_place = self.db.get_place_from_handle(copied.get_place_handle())
+        self.assertEqual(target_place.get_name().get_value(), "Salt Lake Temple")
+
+    def test_add_as_new_person_keeps_lds_ordinances(self) -> None:
+        """Adding the incoming person as new brings the ordinances along."""
+        self._open()
+        self._add_lds(self.source_db, self._kid(self.source_db))
+        self.assertTrue(
+            self.gwizard.run_step(
+                "apply",
+                source_person_handle=self._kid(self.source_db).handle,
+                target_person_handle=None,
+                resolutions={},
+            )
+        )
+        added = [p for p in self.db.iter_people() if p.get_lds_ord_list()]
+        self.assertEqual(len(added), 1)
+        self.assertEqual(added[0].get_lds_ord_list()[0].get_temple(), "SLAKE")
 
     def test_merged_note_is_a_new_note_for_the_person(self) -> None:
         """A merged note is added next to the tree's own note."""
