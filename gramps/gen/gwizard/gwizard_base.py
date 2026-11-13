@@ -34,6 +34,7 @@ implementation in ``gwizardgedcom.py``).
 from __future__ import annotations
 import abc
 import difflib
+import functools
 import logging
 import re
 import unicodedata
@@ -350,6 +351,11 @@ def score_given_names(source_given: str, target_given: str) -> float:
     return 0.0
 
 
+# Given names repeat constantly across a tree, so scoring the same pair of
+# names again and again is wasted work. The score depends only on the two texts.
+_cached_given_score = functools.lru_cache(maxsize=1 << 16)(score_given_names)
+
+
 # ------------------------------------------------------------
 # Name part helpers (unchanged)
 # ------------------------------------------------------------
@@ -368,6 +374,23 @@ def surname_prefix_text(name: Name) -> str:
 # ------------------------------------------------------------
 # CandidateMatcher (unchanged)
 # ------------------------------------------------------------
+class PersonProfile(NamedTuple):
+    """
+    What matching needs to know about a person, read from the database once.
+
+    Scoring many candidates against each other from profiles avoids reading
+    both people and their birth events again for every pair.
+    """
+
+    gender: int
+    given: str  # first name, stripped
+    surnames: str  # all surnames as one lower-case text
+    soundex: str | None  # soundex of ``surnames``; None when it fails
+    first_surname: str  # first surname, lower case
+    first_name: str  # first name, stripped, lower case
+    birth: tuple[int, int, int] | None  # (year, month, day) of the birth
+
+
 class CandidateMatcher:
     def __init__(self, db: DbWriteBase) -> None:
         self.db = db
@@ -378,79 +401,91 @@ class CandidateMatcher:
     def get_prefixes(self, name: Name) -> str:
         return surname_prefix_text(name)
 
-    def score_match(
-        self, source: Person, target: Person, source_db: Any | None = None
-    ) -> float:
+    def profile(self, person: Person, db: Any | None = None) -> PersonProfile:
+        """Return the PersonProfile of ``person`` (read from ``db``)."""
+        lookup_db = db if db is not None else self.db
+        name = person.get_primary_name()
+        surnames = self.get_surnames(name).strip().lower()
+        try:
+            sx: str | None = soundex(surnames) if surnames else None
+        except Exception:  # pylint: disable=broad-except
+            sx = None
+        first_surname = ""
+        if name.surname_list:
+            first_surname = (name.surname_list[0].surname or "").lower()
+        birth = None
+        try:
+            birth_ref = vital_event_ref(lookup_db, person, "birth")
+            if birth_ref:
+                event = safe_get_event(lookup_db, birth_ref.ref)
+                if event is not None:
+                    date = event.get_date_object()
+                    birth = (date.get_year(), date.get_month(), date.get_day())
+        except Exception:  # pylint: disable=broad-except
+            birth = None
+        return PersonProfile(
+            gender=person.get_gender(),
+            given=name.first_name.strip(),
+            surnames=surnames,
+            soundex=sx,
+            first_surname=first_surname,
+            first_name=(name.first_name or "").strip().lower(),
+            birth=birth,
+        )
+
+    @staticmethod
+    def score_profiles(source: PersonProfile, target: PersonProfile) -> float:
+        """Score how likely two people are the same person (see score_match)."""
         # Gender must match, or be unknown/other in either
-        s_gender = source.get_gender()
-        t_gender = target.get_gender()
-        if s_gender in (Person.MALE, Person.FEMALE) and t_gender in (
+        if source.gender in (Person.MALE, Person.FEMALE) and target.gender in (
             Person.MALE,
             Person.FEMALE,
         ):
-            if s_gender != t_gender:
+            if source.gender != target.gender:
                 return -1.0
         score = 0.0
-        s_name = source.get_primary_name()
-        t_name = target.get_primary_name()
-        s_surnames = self.get_surnames(s_name).strip()
-        t_surnames = self.get_surnames(t_name).strip()
-        s_lookup_db = source_db if source_db is not None else self.db
-        s_given = s_name.first_name.strip()
-        t_given = t_name.first_name.strip()
         given_score = 0.0
-        if s_given and t_given:
-            given_score = score_given_names(s_given, t_given)
+        if source.given and target.given:
+            given_score = _cached_given_score(source.given, target.given)
             score += given_score
-        surname_score = 0.0
-        if s_surnames and t_surnames:
-            if s_surnames.lower() == t_surnames.lower():
+        if source.surnames and target.surnames:
+            surname_score = 0.0
+            if source.surnames == target.surnames:
                 surname_score = 1.0
-            else:
-                try:
-                    if soundex(s_surnames) == soundex(t_surnames):
-                        surname_score = 0.75
-                except Exception:
-                    pass
-            if given_score == 0.0 and s_given and t_given:
+            elif source.soundex is not None and source.soundex == target.soundex:
+                surname_score = 0.75
+            if given_score == 0.0 and source.given and target.given:
                 surname_score = min(surname_score, 0.25)
             score += surname_score
-        s_birth_ref = vital_event_ref(s_lookup_db, source, "birth")
-        t_birth_ref = vital_event_ref(self.db, target, "birth")
-        if s_birth_ref and t_birth_ref:
-            try:
-                s_birth = safe_get_event(s_lookup_db, s_birth_ref.ref)
-                t_birth = safe_get_event(self.db, t_birth_ref.ref)
-                if s_birth is not None and t_birth is not None:
-                    s_date = s_birth.get_date_object()
-                    t_date = t_birth.get_date_object()
-                    s_year = s_date.get_year()
-                    t_year = t_date.get_year()
-                    if s_year > 0 and t_year > 0:
-                        diff = abs(s_year - t_year)
-                        if diff != 0:
-                            if diff <= 2:
-                                score += 0.5
-                            elif diff <= 5:
-                                score += 0.25
-                        else:
-                            s_mon = s_date.get_month()
-                            t_mon = t_date.get_month()
-                            s_day = s_date.get_day()
-                            t_day = t_date.get_day()
-                            if s_mon <= 0 or t_mon <= 0:
-                                score += 0.75
-                            elif s_mon != t_mon:
-                                score += 0.5
-                            elif s_day <= 0 or t_day <= 0:
-                                score += 0.85
-                            elif s_day != t_day:
-                                score += 0.75
-                            else:
-                                score += 1.0
-            except Exception:
-                pass
+        if source.birth and target.birth:
+            s_year, s_mon, s_day = source.birth
+            t_year, t_mon, t_day = target.birth
+            if s_year > 0 and t_year > 0:
+                diff = abs(s_year - t_year)
+                if diff != 0:
+                    if diff <= 2:
+                        score += 0.5
+                    elif diff <= 5:
+                        score += 0.25
+                elif s_mon <= 0 or t_mon <= 0:
+                    score += 0.75
+                elif s_mon != t_mon:
+                    score += 0.5
+                elif s_day <= 0 or t_day <= 0:
+                    score += 0.85
+                elif s_day != t_day:
+                    score += 0.75
+                else:
+                    score += 1.0
         return score
+
+    def score_match(
+        self, source: Person, target: Person, source_db: Any | None = None
+    ) -> float:
+        source_lookup_db = source_db if source_db is not None else self.db
+        return self.score_profiles(
+            self.profile(source, source_lookup_db), self.profile(target, self.db)
+        )
 
     def find_matches(
         self, source: Person, threshold: float = 1.0, source_db: Any | None = None

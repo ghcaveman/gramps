@@ -574,22 +574,31 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         target_db = self.dbstate.db
         source_db = self.source_db
         matcher = CandidateMatcher(target_db)
+        self._source_profiles: dict[str, Any] = {}
 
-        for handle in source_db.iter_person_handles():
-            person = safe_get_person(source_db, handle)
-            if not person:
-                continue
-            name_str = name_displayer.display(person)
-            self._add_person_row(left_store, source_db, person, name_str)
-            self.source_index[handle] = name_str
-
-        for handle in target_db.iter_person_handles():
-            person = safe_get_person(target_db, handle)
-            if not person:
-                continue
-            name_str = name_displayer.display(person)
-            self._add_person_row(right_store, target_db, person, name_str)
-            self.target_index.setdefault(handle, name_str)
+        # Remember each store's surname group rows and person rows while
+        # filling it, so adding a person and marking differences do not have
+        # to search every row. A TreeStore's iters stay valid while it is
+        # sorted and expanded.
+        for store, db, index, overwrite in (
+            (left_store, source_db, self.source_index, True),
+            (right_store, target_db, self.target_index, False),
+        ):
+            group_cache: dict[str, Gtk.TreeIter] = {}
+            row_iters: dict[str, Gtk.TreeIter] = {}
+            for handle in db.iter_person_handles():
+                person = safe_get_person(db, handle)
+                if not person:
+                    continue
+                name_str = name_displayer.display(person)
+                row_iters[handle] = self._add_person_row(
+                    store, db, person, name_str, group_cache
+                )
+                if overwrite:
+                    index[handle] = name_str
+                else:
+                    index.setdefault(handle, name_str)
+            store._gwizard_row_iters = row_iters
 
         for store, tree in (
             (left_store, self.left_panel["tree"]),
@@ -683,7 +692,17 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
     def _mark_row(store: Gtk.TreeStore, handle: str, value: str = "*") -> None:
         """
         Set the Diff column (index 7) of the row with the given handle.
+
+        Uses the iters remembered while the store was filled; searches the
+        whole tree only for a row that was not remembered.
         """
+
+        iters = getattr(store, "_gwizard_row_iters", None)
+        if iters:
+            row_iter = iters.get(handle)
+            if row_iter is not None and store.iter_is_valid(row_iter):
+                store.set_value(row_iter, 7, value)
+                return
 
         def visit(parent: Gtk.TreeIter | None = None) -> bool:
             iter_ = store.iter_children(parent) if parent else store.get_iter_first()
@@ -704,12 +723,18 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         that candidate lookup avoids scanning the whole database.
         """
         self._target_index: dict[tuple[str, str], list[PersonHandle]] = {}
+        # What scoring needs to know about each target person, read once so
+        # that candidates are compared without reading the database again.
+        self._target_profiles: dict[PersonHandle, Any] = {}
         for handle in self.dbstate.db.iter_person_handles():
             person = safe_get_person(self.dbstate.db, handle)
             if not person:
                 continue
             key = self._match_key(person)
             self._target_index.setdefault(key, []).append(PersonHandle(handle))
+            self._target_profiles[PersonHandle(handle)] = matcher.profile(
+                person, self.dbstate.db
+            )
         self._matcher = matcher
 
     @staticmethod
@@ -750,67 +775,48 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             ]
         best_handle: PersonHandle | None = None
         best_score = self.match_threshold
+        source_profile = self._source_profile(matcher, source)
         for handle in candidate_handles:
-            target = safe_get_person(self.dbstate.db, handle)
-            if not target:
+            target_profile = self._target_profiles.get(handle)
+            if target_profile is None:
                 continue
             # Basic guard: require at least one strong similarity signal before
             # considering the numeric score. This prevents a pair that only
-            # shares a Soundex surname and first‑initial from being accepted.
+            # shares a Soundex surname and first-initial from being accepted.
             # Signals:
-            #   * Exact surname match (case‑insensitive)
-            #   * Exact first name match (case‑insensitive)
+            #   * Exact surname match (case-insensitive)
+            #   * Exact first name match (case-insensitive)
             #   * Birth year match when both have a birth date
-            source_name = source.get_primary_name()
-            target_name = target.get_primary_name()
-            source_surname = (
-                source_name.surname_list[0].surname if source_name.surname_list else ""
-            ).lower()
-            target_surname = (
-                target_name.surname_list[0].surname if target_name.surname_list else ""
-            ).lower()
-            source_first = (source_name.first_name or "").strip().lower()
-            target_first = (target_name.first_name or "").strip().lower()
-            surname_match = source_surname and source_surname == target_surname
-            first_match = source_first and source_first == target_first
-
-            # Birth year comparison
-            def _birth_year(person: Person) -> str | None:
-                """Return the birth year of *person* as a string.
-
-                The original implementation accessed ``ev.get_date()`` on an
-                ``EventRef`` object, which no longer exists.  We now use the
-                safe helper ``_get_event_year`` that retrieves the referenced
-                ``Event`` and extracts the year via ``get_date_object()``.
-                """
-                # Choose the correct database for the person whose birth year
-                # we are extracting. ``source`` lives in ``self.source_db``
-                # while ``target`` lives in the destination database
-                # ``self.dbstate.db``.
-                db_for_person = self.source_db if person is source else self.dbstate.db
-                ev = vital_event_ref(db_for_person, person, "birth")
-                if ev:
-                    # ``_get_event_year`` returns an empty string when the
-                    # event or its date is missing, so we treat that as None.
-                    year = GWizardCompareWindow._get_event_year(ev, db_for_person)
-                    if year:
-                        return year
-                return None
-
-            birth_match = False
-            src_year = _birth_year(source)
-            tgt_year = _birth_year(target)
-            if src_year and tgt_year and src_year == tgt_year:
-                birth_match = True
+            surname_match = (
+                source_profile.first_surname
+                and source_profile.first_surname == target_profile.first_surname
+            )
+            first_match = (
+                source_profile.first_name
+                and source_profile.first_name == target_profile.first_name
+            )
+            source_year = source_profile.birth[0] if source_profile.birth else 0
+            target_year = target_profile.birth[0] if target_profile.birth else 0
+            birth_match = bool(source_year and source_year == target_year)
             if not (surname_match or first_match or birth_match):
-                # Skip this candidate – not enough evidence despite a high
+                # Skip this candidate - not enough evidence despite a high
                 # numeric score.
                 continue
-            score = matcher.score_match(source, target, source_db=self.source_db)
+            score = matcher.score_profiles(source_profile, target_profile)
             if score > best_score:
                 best_score = score
                 best_handle = handle
         return best_handle, best_score
+
+    def _source_profile(self, matcher: Any, source: Person) -> Any:
+        """
+        Return the matching profile of an incoming person, read only once.
+        """
+        profile = self._source_profiles.get(source.handle)
+        if profile is None:
+            profile = matcher.profile(source, self.source_db)
+            self._source_profiles[source.handle] = profile
+        return profile
 
     def _best_match(self, matcher: Any, source: Any) -> PersonHandle | None:
         handle, _ = self._best_match_with_score(matcher, source)
@@ -818,8 +824,12 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
     @staticmethod
     def _add_person_row(
-        store: Gtk.TreeStore, db: Any, person: Person, name_str: str
-    ) -> None:
+        store: Gtk.TreeStore,
+        db: Any,
+        person: Person,
+        name_str: str,
+        group_cache: dict[str, Gtk.TreeIter] | None = None,
+    ) -> Gtk.TreeIter:
         """
         Add a person row under its "Group As" surname group row, the same
         way the main Gramps People view groups people.
@@ -828,6 +838,10 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         :param db: Database the person belongs to.
         :param person: The person object.
         :param name_str: Display name of the person.
+        :param group_cache: Surname group rows already added, by group name.
+            Pass the same dict for every person of one store to avoid
+            searching all the group rows for each person.
+        :return: The iter of the new person row.
         """
         try:
             group = name_displayer.name_grouping_data(db, person.primary_name)
@@ -843,13 +857,18 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
         # Find or create the group row (group rows carry handle '')
         group_iter = None
-        for row in store:
-            if row[0] == "" and row[1] == group:
-                group_iter = store.get_iter(row.path)
-                break
+        if group_cache is not None:
+            group_iter = group_cache.get(group)
+        else:
+            for row in store:
+                if row[0] == "" and row[1] == group:
+                    group_iter = store.get_iter(row.path)
+                    break
         if group_iter is None:
             group_iter = store.append(None, ["", group, "", "", "", "", "", ""])
-        store.append(
+            if group_cache is not None:
+                group_cache[group] = group_iter
+        return store.append(
             group_iter,
             [
                 person.handle,
