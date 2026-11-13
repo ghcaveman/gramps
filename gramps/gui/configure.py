@@ -82,6 +82,7 @@ from gramps.gen.constfunc import win
 _ = glocale.translation.gettext
 from gramps.gen.utils.symbols import Symbols
 from gramps.gen.constfunc import get_env_var
+from gramps.gui.buttonorder import apply_button_order
 
 # -------------------------------------------------------------------------
 #
@@ -2736,9 +2737,7 @@ class GrampsPreferences(ConfigureDialog):
                 Gtk.ResponseType.OK,
             ),
         )
-        f.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-        )
+        apply_button_order(f)
         mpath = media_path(self.dbstate.db)
         f.set_current_folder(os.path.dirname(mpath))
 
@@ -2765,9 +2764,7 @@ class GrampsPreferences(ConfigureDialog):
         f.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Apply"), Gtk.ResponseType.OK
         )
-        f.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-        )
+        apply_button_order(f)
         dbpath = config.get("database.path")
         if not dbpath:
             dbpath = os.path.join(USER_DATA, "grampsdb")
@@ -2799,9 +2796,7 @@ class GrampsPreferences(ConfigureDialog):
                 Gtk.ResponseType.OK,
             ),
         )
-        f.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-        )
+        apply_button_order(f)
         backup_path = config.get("database.backup-path")
         if not backup_path:
             backup_path = config.get("database.path")

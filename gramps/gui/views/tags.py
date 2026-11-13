@@ -55,6 +55,7 @@ import gramps.gui.widgets.progressdialog as progressdlg
 from ..uimanager import ActionGroup
 from ..managedwindow import ManagedWindow
 from gramps.gen.config import config
+from gramps.gui.buttonorder import apply_button_order
 
 # -------------------------------------------------------------------------
 #
@@ -726,7 +727,5 @@ class EditTag(ManagedWindow):
         top.add_button(_("_Help"), Gtk.ResponseType.HELP)
         top.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
         top.add_button(_("_OK"), Gtk.ResponseType.OK)
-        top.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL, Gtk.ResponseType.HELP]
-        )
+        apply_button_order(top)
         return top

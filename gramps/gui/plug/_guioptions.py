@@ -60,6 +60,7 @@ from gramps.gen.display.place import displayer as _pd
 from gramps.gen.filters import GenericFilterFactory, GenericFilter, rules
 from gramps.gen.constfunc import get_curr_dir
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gui.buttonorder import apply_button_order
 
 _ = glocale.translation.gettext
 
@@ -81,9 +82,6 @@ class LastNameDialog(ManagedWindow):
         )
         self.__dlg.add_buttons(
             _("_Cancel"), Gtk.ResponseType.REJECT, _("_OK"), Gtk.ResponseType.ACCEPT
-        )
-        self.__dlg.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.ACCEPT, Gtk.ResponseType.REJECT]
         )
         self.set_window(self.__dlg, None, _("Select surname"))
         self.setup_configs("interface.lastnamedialog", 400, 400)
@@ -1763,9 +1761,7 @@ class GuiDestinationOption(Gtk.Box):
         fcd.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Open"), Gtk.ResponseType.OK
         )
-        fcd.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-        )
+        apply_button_order(fcd)
 
         name = os.path.abspath(self.__option.get_value())
         if self.__option.get_directory_entry():
