@@ -102,6 +102,7 @@ try:
         unique_destination,
         relocate_file,
         build_basename_index,
+        escape_markup,
         full_media_path,
         is_bare_media,
         TAG_MEDIA_FIXED,
@@ -130,6 +131,7 @@ except (ImportError, ValueError):
         unique_destination,
         relocate_file,
         build_basename_index,
+        escape_markup,
         full_media_path,
         is_bare_media,
         TAG_MEDIA_FIXED,
@@ -1656,7 +1658,15 @@ def find_stale_import_notes(
 
 
 def remove_import_notes(db: Any, items: list[tuple[str, str, str, str]]) -> int:
-    """Detach the notes from their media and delete notes nothing else uses."""
+    """
+    Detach the notes from their media and delete notes nothing else uses.
+
+    :param db: The database.
+    :param items: Result of :func:`find_stale_import_notes`.
+    :returns: Number of notes removed from media (locked media are skipped).
+        A note still used elsewhere is detached but not deleted; it is
+        counted, since the user asked for it to be removed from the media.
+    """
     removed = 0
     with DbTxn(_("Remove stale import notes"), db) as trans:
         for mh, _mgid, nh, _ngid in items:
@@ -1665,12 +1675,12 @@ def remove_import_notes(db: Any, items: list[tuple[str, str, str, str]]) -> int:
                 continue
             media.remove_note(nh)
             db.commit_media(media, trans)
+            removed += 1
             others = [
                 b for b in db.find_backlink_handles(nh) if tuple(b) != ("Media", mh)
             ]
             if not others:
                 db.remove_note(nh, trans)
-                removed += 1
     return removed
 
 
@@ -2323,7 +2333,8 @@ class FindMissingMediaDialog(Gtk.Dialog):
         content.add(path_box)
 
         self.base_path_label = SelectableLabel(
-            label="<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir),
+            label="<b>%s</b> %s"
+            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir)),
             markup=True,
         )
         content.add(self.base_path_label)
@@ -2452,7 +2463,8 @@ class FindMissingMediaDialog(Gtk.Dialog):
         else:
             self.base_dir = os.path.normpath(os.path.abspath(USER_HOME))
         self.base_path_label.set_markup(
-            "<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir)
+            "<b>%s</b> %s"
+            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir))
         )
 
     def cb_select_mediapath(self, *_args: Any) -> None:
@@ -2597,12 +2609,10 @@ class FindMissingMediaDialog(Gtk.Dialog):
                     store_path = to_db_path(dest, base)
                     copied += 1
                 else:
-                    try:
-                        exists = os.path.exists(
-                            media_path_full(self.dbstate.db, new_path)
-                        ) or os.path.exists(new_path)
-                    except Exception:
-                        exists = False
+                    # A relative path is checked against the base media path
+                    # only (it used to fall back to the working directory, so
+                    # a path Gramps cannot open could be stored).
+                    exists = os.path.exists(full_media_path(self.dbstate.db, new_path))
                     if not exists:  # never repoint a record at a missing file
                         skipped.append(new_path)
                         continue
@@ -2732,7 +2742,8 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         content.add(path_box)
 
         self.base_path_label = SelectableLabel(
-            label="<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir),
+            label="<b>%s</b> %s"
+            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir)),
             markup=True,
         )
         content.add(self.base_path_label)
@@ -2983,7 +2994,8 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             self.base_dir = os.path.normpath(os.path.abspath(USER_HOME))
         if hasattr(self, "base_path_label"):
             self.base_path_label.set_markup(
-                "<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir)
+                "<b>%s</b> %s"
+                % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir))
             )
         self._recompute_hints()
 
@@ -3348,7 +3360,8 @@ class MediaFixReportDialog(Gtk.Dialog):
         self.report_text = report_text
         self.set_default_size(800, 500)
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        self.connect("response", lambda dlg, resp: dlg.destroy())
+        # Destroyed by the caller after run(); a response handler that also
+        # destroyed it caused a second destroy on an already-destroyed dialog.
 
         content = self.get_content_area()
         content.set_border_width(12)
@@ -3360,7 +3373,8 @@ class MediaFixReportDialog(Gtk.Dialog):
             else os.path.normpath(os.path.abspath(USER_HOME))
         )
         self.base_path_label = SelectableLabel(
-            label="<b>%s</b> %s" % (_("Media Base Path:"), self.base_dir),
+            label="<b>%s</b> %s"
+            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir)),
             markup=True,
         )
         content.pack_start(self.base_path_label, False, False, 0)
@@ -3789,11 +3803,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         ManagedWindow.__init__(self, uistate, [], self.__class__, modal=True)
         self.dbstate = dbstate
         self.report_path: str | None = None
-        if self.dbstate and self.dbstate.db:
-            try:
-                ensure_gwizard_tags(self.dbstate.db)
-            except Exception:
-                pass
+        # GWizard tags are created when first applied; opening the tool no
+        # longer writes to the tree (it used to add an undo entry).
         self._build_window(uistate)
         self.show()
 
@@ -4196,7 +4207,16 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         removed = remove_import_notes(db, items)
         OkDialog(
             str(_("Import notes cleaned")),
-            str(_("Removed %d note(s).")) % removed,
+            (
+                str(_("Removed %d note(s) from media.")) % removed
+                + (
+                    "\n\n"
+                    + str(_("%d note(s) on locked media were left alone."))
+                    % (len(items) - removed)
+                    if removed < len(items)
+                    else ""
+                )
+            ),
             parent=self.window,
         )
 
