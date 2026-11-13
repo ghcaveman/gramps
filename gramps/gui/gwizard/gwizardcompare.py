@@ -29,6 +29,7 @@ side with the existing Gramps tree (destination on the right).
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import difflib
 import os
 import logging
 from typing import Any
@@ -131,6 +132,40 @@ CATEGORIES = [
 
 # ------------------------------------------------------------
 #
+# Progress meter (no-op if Gramps' ProgressMeter is unavailable)
+#
+# ------------------------------------------------------------
+class _Progress:
+    """Show a Gramps progress meter for one pass over ``total`` items."""
+
+    def __init__(self, title: str, total: int, parent: Any = None) -> None:
+        self.meter: Any = None
+        try:
+            from gramps.gui.utils import ProgressMeter
+
+            self.meter = ProgressMeter(title, can_cancel=False, parent=parent)
+            self.meter.set_pass(title, max(int(total), 1), ProgressMeter.MODE_FRACTION)
+        except Exception:
+            self.meter = None
+
+    def step(self) -> None:
+        if self.meter is not None:
+            try:
+                self.meter.step()
+            except Exception:
+                pass
+
+    def close(self) -> None:
+        if self.meter is not None:
+            try:
+                self.meter.close()
+            except Exception:
+                pass
+            self.meter = None
+
+
+# ------------------------------------------------------------
+#
 # GWizardCompareWindow
 #
 # ------------------------------------------------------------
@@ -174,6 +209,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
         self.dbstate = dbstate
         self.gwizard = gwizard
+        self._progress_parent = parent
         self.source_db: Any = source_db
         self.current_category = "person"
         self.diff_list: list[dict[str, Any]] = []
@@ -580,25 +616,34 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         # filling it, so adding a person and marking differences do not have
         # to search every row. A TreeStore's iters stay valid while it is
         # sorted and expanded.
-        for store, db, index, overwrite in (
-            (left_store, source_db, self.source_index, True),
-            (right_store, target_db, self.target_index, False),
-        ):
-            group_cache: dict[str, Gtk.TreeIter] = {}
-            row_iters: dict[str, Gtk.TreeIter] = {}
-            for handle in db.iter_person_handles():
-                person = safe_get_person(db, handle)
-                if not person:
-                    continue
-                name_str = name_displayer.display(person)
-                row_iters[handle] = self._add_person_row(
-                    store, db, person, name_str, group_cache
-                )
-                if overwrite:
-                    index[handle] = name_str
-                else:
-                    index.setdefault(handle, name_str)
-            store._gwizard_row_iters = row_iters
+        n_source = source_db.get_number_of_people()
+        n_target = target_db.get_number_of_people()
+        progress = _Progress(
+            str(_("Loading people")), n_source + n_target, self._progress_parent
+        )
+        try:
+            for store, db, index, overwrite in (
+                (left_store, source_db, self.source_index, True),
+                (right_store, target_db, self.target_index, False),
+            ):
+                group_cache: dict[str, Gtk.TreeIter] = {}
+                row_iters: dict[str, Gtk.TreeIter] = {}
+                for handle in db.iter_person_handles():
+                    progress.step()
+                    person = safe_get_person(db, handle)
+                    if not person:
+                        continue
+                    name_str = name_displayer.display(person)
+                    row_iters[handle] = self._add_person_row(
+                        store, db, person, name_str, group_cache
+                    )
+                    if overwrite:
+                        index[handle] = name_str
+                    else:
+                        index.setdefault(handle, name_str)
+                store._gwizard_row_iters = row_iters
+        finally:
+            progress.close()
 
         for store, tree in (
             (left_store, self.left_panel["tree"]),
@@ -609,7 +654,19 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
         # Build a surname index over target people so that matching is
         # near-linear instead of a full scan per source person.
-        self._build_target_index(matcher)
+        progress = _Progress(
+            str(_("Matching people")), n_target + n_source, self._progress_parent
+        )
+        try:
+            self._build_target_index(matcher, progress)
+            self._match_people(matcher, progress)
+        finally:
+            progress.close()
+        self._compare_people(left_store, right_store)
+
+    def _match_people(self, matcher: CandidateMatcher, progress: _Progress) -> None:
+        """Pair each incoming person with the best person in the tree."""
+        source_db = self.source_db
 
         # Compute records with differences: matched pairs where compare
         # produces non-matching rows, plus source-only (new) people.
@@ -622,6 +679,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         # have already been claimed.
         candidates: list[tuple[float, str, PersonHandle]] = []
         for handle in source_db.iter_person_handles():
+            progress.step()
             person = safe_get_person(source_db, handle)
             if not person:
                 continue
@@ -646,47 +704,64 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         # It is the same dict object, so later "Not a Match" updates
         # (see _reject_pair) are seen too.
         self.gwizard.context["pair_map"] = self._pair_map
-        for handle in source_db.iter_person_handles():
-            person = safe_get_person(source_db, handle)
-            if not person:
-                continue
-            target_handle = self._pair_map.get(handle)
-            try:
-                if target_handle is None:
-                    self.diff_list.append(
-                        {"source_handle": handle, "target_handle": None}
-                    )
-                else:
-                    rows = self.gwizard.run_step(
-                        "compare",
-                        source_person_handle=handle,
-                        target_person_handle=target_handle,
-                    )
-                    # An alternate name, attribute, address or note that only
-                    # the tree has leaves nothing to merge, so it does not make
-                    # the person a difference to step to.
-                    if any(
-                        r.status != "match"
-                        and not (
-                            r.status == "target_only" and r.field_type in EXTRA_KINDS
-                        )
-                        for r in rows
-                    ):
-                        self.diff_list.append(
-                            {
-                                "source_handle": handle,
-                                "target_handle": target_handle,
-                            }
-                        )
-            except Exception as e:
-                LOG.warning("Comparison failed for %s: %s", handle, e)
 
-        # Mark people that have differences with '*' in the Diff column;
-        # rows left at 'o' have not been identified as different.
-        for entry in self.diff_list:
-            if entry["target_handle"]:
-                self._mark_row(right_store, entry["target_handle"])
-            self._mark_row(left_store, entry["source_handle"])
+    def _compare_people(
+        self, left_store: Gtk.TreeStore, right_store: Gtk.TreeStore
+    ) -> None:
+        """Compute the difference list and mark the differing people."""
+        source_db = self.source_db
+        progress = _Progress(
+            str(_("Comparing people")),
+            source_db.get_number_of_people(),
+            self._progress_parent,
+        )
+        try:
+            for handle in source_db.iter_person_handles():
+                progress.step()
+                person = safe_get_person(source_db, handle)
+                if not person:
+                    continue
+                target_handle = self._pair_map.get(handle)
+                try:
+                    if target_handle is None:
+                        self.diff_list.append(
+                            {"source_handle": handle, "target_handle": None}
+                        )
+                    else:
+                        rows = self.gwizard.run_step(
+                            "compare",
+                            source_person_handle=handle,
+                            target_person_handle=target_handle,
+                        )
+                        # An alternate name, attribute, address or note that only
+                        # the tree has leaves nothing to merge, so it does not make
+                        # the person a difference to step to.
+                        if any(
+                            r.status != "match"
+                            and not (
+                                r.status == "target_only"
+                                and r.field_type in EXTRA_KINDS
+                            )
+                            for r in rows
+                        ):
+                            self.diff_list.append(
+                                {
+                                    "source_handle": handle,
+                                    "target_handle": target_handle,
+                                }
+                            )
+                except Exception as e:
+                    LOG.warning("Comparison failed for %s: %s", handle, e)
+
+            # Mark people that have differences with '*' in the Diff column;
+            # rows left at 'o' have not been identified as different.
+            for entry in self.diff_list:
+                if entry["target_handle"]:
+                    self._mark_row(right_store, entry["target_handle"])
+                self._mark_row(left_store, entry["source_handle"])
+
+        finally:
+            progress.close()
 
     @staticmethod
     def _mark_row(store: Gtk.TreeStore, handle: str, value: str = "*") -> None:
@@ -717,7 +792,9 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
         visit()
 
-    def _build_target_index(self, matcher: CandidateMatcher) -> None:
+    def _build_target_index(
+        self, matcher: CandidateMatcher, progress: _Progress | None = None
+    ) -> None:
         """
         Index target people by soundex of surname plus first initial so
         that candidate lookup avoids scanning the whole database.
@@ -727,6 +804,8 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         # that candidates are compared without reading the database again.
         self._target_profiles: dict[PersonHandle, Any] = {}
         for handle in self.dbstate.db.iter_person_handles():
+            if progress is not None:
+                progress.step()
             person = safe_get_person(self.dbstate.db, handle)
             if not person:
                 continue
@@ -1609,15 +1688,29 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             return "\n".join(escaped)
         other_cleaned = [" ".join(line.split()) for line in other_lines if line.strip()]
         other_set = set(other_cleaned)
+        # Lines the other side has no equal for: the candidates a differing
+        # line is compared with, word by word.
+        candidates = [line for line in other_cleaned if line not in set(cleaned)]
         out = []
-        for i, (line, esc) in enumerate(zip(cleaned, escaped)):
+        for line, esc in zip(cleaned, escaped):
             if line in other_set or any(
                 line.startswith(prefix) for prefix in skip_prefixes
             ):
                 out.append(esc)
             else:
-                # Find the counterpart line at the same position, if available
-                other_line = other_cleaned[i] if i < len(other_cleaned) else None
+                # The most similar line the other side has, whatever its
+                # position, so a reordered list is not compared out of step.
+                other_line = None
+                if candidates:
+                    best = max(
+                        candidates,
+                        key=lambda cand: difflib.SequenceMatcher(
+                            None, line, cand
+                        ).ratio(),
+                    )
+                    if difflib.SequenceMatcher(None, line, best).ratio() >= 0.5:
+                        other_line = best
+                        candidates.remove(best)
                 # Entire line is italic, but only the differing words are bold
                 out.append(
                     GWizardCompareWindow._italicize_with_bold_diffs(
@@ -1836,8 +1929,18 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         lines = []
         for label, relateds in (
-            (_("Father"), self._get_parent_persons(person, db, family_role="father")),
-            (_("Mother"), self._get_parent_persons(person, db, family_role="mother")),
+            (
+                _("Father"),
+                self._sorted_relatives(
+                    self._get_parent_persons(person, db, family_role="father"), db
+                ),
+            ),
+            (
+                _("Mother"),
+                self._sorted_relatives(
+                    self._get_parent_persons(person, db, family_role="mother"), db
+                ),
+            ),
         ):
             for related in relateds:
                 lines.append(
@@ -1847,7 +1950,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                         "details": self._related_name_with_vitals(related, db),
                     }
                 )
-        spouses = self._get_spouse_persons(person, db)
+        spouses = self._sorted_relatives(self._get_spouse_persons(person, db), db)
         if spouses:
             lines.append(
                 _("Spouse: %s")
@@ -1856,6 +1959,24 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                 )
             )
         return lines
+
+    def _sorted_relatives(self, persons: list[Person], db: Any) -> list[Person]:
+        """
+        Return relatives in one order that does not depend on how either
+        tree happens to store them (by name, then birth year), so the same
+        people line up in the two detail panels.
+        """
+
+        def sort_key(related: Person) -> tuple[str, str]:
+            try:
+                birth_year = GWizardCompareWindow._get_event_year(
+                    related.get_birth_ref(), db
+                )
+            except Exception:
+                birth_year = ""
+            return (name_displayer.display(related).casefold(), birth_year)
+
+        return sorted(persons, key=sort_key)
 
     def _get_parent_persons(
         self, person: Person, db: Any, family_role: str | None = None
@@ -1949,19 +2070,26 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         Build the Children section lines: children of each of the person's
         families, one per line with their vital years.
         """
-        lines = []
+        children: list[Person] = []
+        seen: set[str] = set()
         try:
             for family_handle in person.get_family_handle_list():
                 family = safe_get_family(db, family_handle)
                 if not family:
                     continue
                 for child_ref in family.get_child_ref_list():
+                    if child_ref.ref in seen:
+                        continue
+                    seen.add(child_ref.ref)
                     child = safe_get_person(db, child_ref.ref)
                     if child:
-                        lines.append(self._related_name_with_vitals(child, db))
+                        children.append(child)
         except Exception as e:
             LOG.warning("Children lookup failed: %s", e)
-        return lines
+        return [
+            self._related_name_with_vitals(child, db)
+            for child in self._sorted_relatives(children, db)
+        ]
 
     def _related_name_with_vitals(self, related: Person, db: Any) -> str:
         """
