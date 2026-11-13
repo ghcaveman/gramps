@@ -17,19 +17,34 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 
 ### Feature Files (from changed_files.txt):
 - WikiTree_ImprovementList.md
-- environment_create.py
 - featuredocs/README_gwizard_mediafix.md
-- featuredocs/build_gwizard_mediafix_wiki.bash
+- featuredocs/ToolComparison.md
+- featuredocs/create_gwizard_mediafix_wiki.bash
 - featuredocs/devnotes/environment/install.md
 - featuredocs/devnotes/mediafix/MediaArrangementInAGedcomFile.md
 - featuredocs/gwizard_mediafix.mediawiki
 - featuredocs/gwizard_mediafix_image_audit.txt
 - featuredocs/gwizard_mediafix_prompt.txt
+- featuredocs/images/AcceptAllHints.png
+- featuredocs/images/AcceptAllHintsComplete.png
+- featuredocs/images/FixMediaHintsAccepted.png
+- featuredocs/images/NoStaleImportNotes.png
+- featuredocs/images/ReportSaveDialog.png
+- featuredocs/images/SelectMediaDirectory.png
+- featuredocs/images/gwizard_mediafix-consolidate.png
+- featuredocs/images/gwizard_mediafix-find-missing.png
+- featuredocs/images/gwizard_mediafix-fix-references.png
+- featuredocs/images/gwizard_mediafix-main-menu.png
+- featuredocs/images/gwizard_mediafix-main.png
+- featuredocs/images/gwizard_mediafix-report.png
 - gramps/plugins/tool/gw_fixmediareferencesdialog.py
 - gramps/plugins/tool/gwizard_common.py
 - gramps/plugins/tool/gwizardmediafix.py
+- gramps/plugins/tool/test/__init__.py
 - gramps/plugins/tool/test/gwizard_common_test.py
+- gramps/plugins/tool/test/gwizard_gtk_fakes.py
 - gramps/plugins/tool/test/gwizardmediafix_ex_test.py
+- gramps/plugins/tool/test/gwizardmediafix_fixes_test.py
 - gramps/plugins/tool/test/gwizardmediafix_test.py
 - gramps/plugins/tool/tools.gpr.py
 - gramps/version.py

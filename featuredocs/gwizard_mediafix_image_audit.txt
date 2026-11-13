@@ -3,7 +3,7 @@ Image Audit for: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_med
 Checking folder: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_mediafix/featuredocs/images
 --------------------------------------------------------------------
   [EXISTS]  gwizard_mediafix-main.png
-             Capture: Gwizard Mediafix main interface
+             Capture: GWizard Media Fix main interface
   [EXISTS]  gwizard_mediafix-main-menu.png
              Capture: Open GWizard Media Fix from the Tools menu
   [EXISTS]  gwizard_mediafix-find-missing.png

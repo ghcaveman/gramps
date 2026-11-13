@@ -2,7 +2,7 @@
 {{Languages|Addon:gwizard_mediafix}}
 
 {| class="wikitable" style="float:right; margin-left: 1em; width: 280px;"
-! colspan="2" style="background:#e8eef5; text-align:center;" | Gwizard Mediafix
+! colspan="2" style="background:#e8eef5; text-align:center;" | GWizard Media Fix
 |-
 
 | '''Addon ID''' || <code><plugin_id></code>
@@ -17,12 +17,12 @@
 | '''Target Version''' || Gramps 6.1
 |-
 
-| '''Source Code''' || {{github_url|gwizard_mediafix}}
+| '''Source Code''' || {{github_url|<PluginDirectory>}}
 |}
 
-'''Gwizard Mediafix''' is a third-party [[Addons|addon]] that <one-sentence summary of the genealogical problem it solves>.
+'''GWizard Media Fix''' is a third-party [[Addons|addon]] that <one-sentence summary of the genealogical problem it solves>.
 
-[[File:gwizard_mediafix-main.png|thumb|right|350px|Gwizard Mediafix main interface]]
+[[File:gwizard_mediafix-main.png|thumb|right|350px|GWizard Media Fix main interface]]
 
 == Overview ==
 
