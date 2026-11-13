@@ -62,9 +62,7 @@ def apply_platform_button_order():
     settings.props.gtk_alternative_button_order = alternative
 
     if win():
-        settings.props.gtk_decoration_layout = config.get(
-            "interface.window-controls"
-        )
+        settings.props.gtk_decoration_layout = config.get("interface.window-controls")
 
 
 def alternative_order_enabled():
@@ -73,13 +71,21 @@ def alternative_order_enabled():
     return bool(settings and settings.props.gtk_alternative_button_order)
 
 
-def apply_button_order(dialog, order=None, help_last=False):
-    """Reorder the action buttons of ``dialog`` for the Windows convention.
+def _move_help_last(area, help_btn):
+    """Windows convention: Help at the far right, after Cancel."""
+    if help_btn is not None and help_btn.get_parent() is area:
+        if isinstance(area, Gtk.ButtonBox):
+            area.set_child_secondary(help_btn, False)
+        area.reorder_child(help_btn, -1)
+
+
+def apply_button_order(dialog, order=None, help_last=None):
+    """Reorder the action buttons of ``dialog`` for the Windows convention:
+    [OK] [Cancel] [Help] instead of [Help] ... [Cancel] [OK].
 
     :param order: optional explicit list of response ids, for dialogs that
                   use custom responses (e.g. MultiSelectDialog's 1/2/3).
-    :param help_last: also move a Help button from the far left to the far
-                      right ([OK] [Cancel] [Help]).
+    :param help_last: move Help to the far right. Default (None): yes.
 
     Idempotent, and a no-op unless gtk-alternative-button-order is True.
     """
@@ -109,20 +115,27 @@ def apply_button_order(dialog, order=None, help_last=False):
         for pos, btn in enumerate(buttons):
             area.reorder_child(btn, pos)
 
-    if help_last:
-        help_btn = dialog.get_widget_for_response(Gtk.ResponseType.HELP)
-        if help_btn is not None and isinstance(area, Gtk.ButtonBox):
-            area.set_child_secondary(help_btn, False)
-            area.reorder_child(help_btn, -1)
+    if help_last is not False:
+        _move_help_last(area, dialog.get_widget_for_response(Gtk.ResponseType.HELP))
+
+
+def apply_window_button_order(primary, help_button=None):
+    """Same convention for windows that are not Gtk.Dialogs (their buttons
+    sit in an ordinary button box, so they carry no response ids): move
+    ``primary`` to the front and ``help_button`` to the end.
+    """
+    if primary is None or not alternative_order_enabled():
+        return
+    area = primary.get_parent()
+    area.reorder_child(primary, 0)
+    _move_help_last(area, help_button)
 
 
 def apply_on_realize(dialog, order=None, help_last=False):
     """For dialogs built in Python: reorder when the dialog is first
     realized, i.e. after every add_button() call but before it is drawn."""
     if isinstance(dialog, Gtk.Dialog):
-        dialog.connect(
-            "realize", lambda d: apply_button_order(d, order, help_last)
-        )
+        dialog.connect("realize", lambda d: apply_button_order(d, order, help_last))
 
 
 def apply_to_builder(builder):
