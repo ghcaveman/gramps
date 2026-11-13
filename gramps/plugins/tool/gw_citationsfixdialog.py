@@ -44,7 +44,7 @@ from gi.repository import Gtk, Pango
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
 from gramps.plugins.tool.gwizard_common import reports_apply_errors
-from gramps.gen.db import DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.plugins.tool.gwizardcitationshared import (
     add_note_once,
@@ -590,7 +590,7 @@ def _extract_date_from_text(text: str) -> str:
     return extract_access_date(text, allow_timestamp=True)
 
 
-def build_citation_fix_rows(db: Any) -> list[dict[str, Any]]:
+def build_citation_fix_rows(db: DbReadBase) -> list[dict[str, Any]]:
     """Build per-citation rows from the database, sorted by source name.
 
     Citations with no source reference are listed last under ``(no source)``.
@@ -885,7 +885,7 @@ def build_citation_fix_rows(db: Any) -> list[dict[str, Any]]:
 
 
 def apply_citation_values(
-    db: Any,
+    db: DbWriteBase,
     trans: Any,
     citation_handle: str,
     page: str = "",
@@ -937,7 +937,7 @@ def apply_citation_values(
     return modified
 
 
-def auto_fix_citations(db: Any) -> int:
+def auto_fix_citations(db: DbWriteBase) -> int:
     """Accept every hint and apply it in one transaction (one undo).
 
     Applies the suggested confidence, Volume/Page and date that the Fix

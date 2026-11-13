@@ -45,7 +45,7 @@ from gi.repository import Gtk, Pango
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
 from gramps.plugins.tool.gwizard_common import reports_apply_errors
-from gramps.gen.db import DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.plugins.tool.gwizardcitationshared import (
     add_note_once,
@@ -76,7 +76,7 @@ def _clean_page_field(raw_page: str, url: str, date_val: str) -> str:
     return cleaned
 
 
-def plan_unpack_conflated_citations(db: Any) -> list[dict[str, Any]]:
+def plan_unpack_conflated_citations(db: DbReadBase) -> list[dict[str, Any]]:
     """Scan database for citations with conflated page/date/URL/note text."""
     source_titles: dict[str, tuple[str, str, str]] = {}
     for src in db.iter_sources():
@@ -594,7 +594,7 @@ class UnpackCitationsDialog(Gtk.Dialog):
 
 
 def apply_unpack_citation(
-    db: Any,
+    db: DbWriteBase,
     trans: Any,
     citation_handle: str,
     page: str = "",
@@ -647,7 +647,7 @@ def apply_unpack_citation(
     return modified
 
 
-def auto_unpack_citations(db: Any) -> int:
+def auto_unpack_citations(db: DbWriteBase) -> int:
     """Accept every hint and apply it in one transaction (one undo).
 
     Errors are raised, not swallowed, so a failed step is reported as

@@ -45,7 +45,7 @@ from gi.repository import Gtk, Pango
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
 from gramps.plugins.tool.gwizard_common import reports_apply_errors
-from gramps.gen.db import DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.gen.lib import SrcAttribute
 from gramps.gui.plug import tool
@@ -214,7 +214,7 @@ def suggest_citation_attributes(
     }
 
 
-def build_citation_attribute_rows(db: Any) -> list[dict[str, Any]]:
+def build_citation_attribute_rows(db: DbReadBase) -> list[dict[str, Any]]:
     """Build citation rows for GPS attribute review and assignment."""
     source_info: dict[str, tuple[str, str]] = {}
     for src in db.iter_sources():
@@ -754,7 +754,7 @@ _ATTRIBUTE_NAMES = (
 
 
 def apply_citation_attributes(
-    db: Any,
+    db: DbWriteBase,
     trans: Any,
     citation_handle: str,
     src_type: str = "",
@@ -805,7 +805,7 @@ def apply_citation_attributes(
     return modified
 
 
-def auto_citation_attributes(db: Any) -> int:
+def auto_citation_attributes(db: DbWriteBase) -> int:
     """Accept every hint and apply it in one transaction (one undo).
 
     Returns the number of citations that changed.

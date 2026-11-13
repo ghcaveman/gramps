@@ -39,6 +39,7 @@ from typing import Any
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.db import DbReadBase
 from gramps.plugins.tool.gwizardcitationshared import (
     detect_title_elements,
     is_debris_text,
@@ -257,7 +258,9 @@ class GWizardCitationReport:
         return normalize_source_title(title)
 
     @staticmethod
-    def _person_has_citation(person: Any, db: Any = None, errors: Any = None) -> bool:
+    def _person_has_citation(
+        person: Any, db: DbReadBase | None = None, errors: Any = None
+    ) -> bool:
         """True when the person, a name, or one of their events has a citation."""
         try:
             if person.get_citation_list():
@@ -466,7 +469,7 @@ class GWizardCitationReport:
         out["repos_packed_address"] = repo_packed_name
         return out
 
-    def collect_db_stats(self, db: Any) -> dict[str, Any]:
+    def collect_db_stats(self, db: DbReadBase) -> dict[str, Any]:
         """Scan repositories, sources, citations, notes, people and media."""
         self._errors = _ScanErrors()
 
@@ -1193,6 +1196,6 @@ class GWizardCitationReport:
         return "\n".join(lines)
 
 
-def collect_db_stats(db: Any) -> dict[str, Any]:
+def collect_db_stats(db: DbReadBase) -> dict[str, Any]:
     """Module-level convenience wrapper used by the fix dialogs."""
     return GWizardCitationReport().collect_db_stats(db)

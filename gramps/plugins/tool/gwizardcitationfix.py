@@ -51,6 +51,7 @@ from gi.repository import Gtk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.db import DbReadBase, DbWriteBase
 from gramps.gui.dialog import ErrorDialog, OkDialog, QuestionDialog2
 from gramps.gui.managedwindow import ManagedWindow
 from gramps.gui.plug import tool
@@ -216,7 +217,7 @@ def plan_repo_merges(
 UNATTACHED_REPO_KEY = "(no repository)"
 
 
-def collect_sources_by_repo(db: Any) -> dict[str, list[str]]:
+def collect_sources_by_repo(db: DbReadBase) -> dict[str, list[str]]:
     """Return repository name mapped to sorted source titles referencing it.
 
     Sources with no repository reference are collected under the
@@ -304,7 +305,7 @@ def repository_change_summary(changed: int, created: int) -> str:
     return text
 
 
-def run_auto_layer(layer: str, db: Any) -> str:
+def run_auto_layer(layer: str, db: DbWriteBase) -> str:
     """Accept all hints for one step and return a one-line result.
 
     Every step calls the same headless function its dialog uses to apply
@@ -395,7 +396,7 @@ def run_auto_layer(layer: str, db: Any) -> str:
     raise ValueError("Unknown step: %s" % layer)
 
 
-def find_items_needing_review(db: Any) -> list[str]:
+def find_items_needing_review(db: DbReadBase) -> list[str]:
     """Return one line per step that still has items a person must decide.
 
     Runs after the automatic steps, so any row a step's builder still
@@ -571,7 +572,7 @@ def find_items_needing_review(db: Any) -> list[str]:
 
 
 # ------------------------------------------------------------
-def build_repo_fix_changes(db: Any) -> list[dict[str, str]]:
+def build_repo_fix_changes(db: DbReadBase) -> list[dict[str, str]]:
     """Return the repository change the Fix Repositories hints suggest per source.
 
     One entry per source/repository pair that has a hint, using the same
@@ -625,7 +626,7 @@ def build_repo_fix_changes(db: Any) -> list[dict[str, str]]:
 
 
 def auto_assign_source_repositories(
-    engine: Any, db: Any, trans: Any = None
+    engine: Any, db: DbWriteBase, trans: Any = None
 ) -> tuple[int, int]:
     """Accept every Fix Repositories hint and apply it in one transaction.
 
@@ -696,7 +697,7 @@ def parse_report_header(text: str) -> tuple[str, str]:
     return (first.strip(), "")
 
 
-def _safe_iter(db: Any, name: str) -> list[Any]:
+def _safe_iter(db: DbReadBase, name: str) -> list[Any]:
     """Return list(db.<name>()) or an empty list when unavailable."""
     try:
         method = getattr(db, name, None)

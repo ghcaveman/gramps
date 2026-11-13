@@ -44,6 +44,7 @@ from typing import Any
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.db import DbReadBase, DbWriteBase
 from gramps.gen.lib import MediaRef
 from gramps.plugins.tool.gwizard_common import is_locked
 
@@ -278,7 +279,7 @@ def clean_name_token(text: str) -> str:
 # Extractors
 #
 # -------------------------------------------------------------------------
-def extract_media_identity(media: Any, db: Any = None) -> MediaIdentity:
+def extract_media_identity(media: Any, db: DbReadBase | None = None) -> MediaIdentity:
     """Extract identity tokens from a Media primary object."""
     if media is None:
         return MediaIdentity()
@@ -349,7 +350,7 @@ def extract_media_identity(media: Any, db: Any = None) -> MediaIdentity:
     )
 
 
-def extract_citation_identity(db: Any, citation: Any) -> CitationIdentity:
+def extract_citation_identity(db: DbReadBase, citation: Any) -> CitationIdentity:
     """Extract identity tokens from a Citation object and its Source."""
     if citation is None:
         return CitationIdentity()
@@ -658,7 +659,7 @@ def compute_citation_media_compatibility(
 # Scanner routines
 #
 # -------------------------------------------------------------------------
-def find_promotable_gallery_media(db: Any) -> list[dict[str, Any]]:
+def find_promotable_gallery_media(db: DbReadBase) -> list[dict[str, Any]]:
     """Find document media in Person or Event galleries that match an attached Citation."""
     if not db:
         return []
@@ -783,7 +784,7 @@ def find_promotable_gallery_media(db: Any) -> list[dict[str, Any]]:
     return results
 
 
-def find_unpackable_source_media(db: Any) -> list[dict[str, Any]]:
+def find_unpackable_source_media(db: DbReadBase) -> list[dict[str, Any]]:
     """Find media attached at the Source level that should be unpacked to Citations."""
     if not db or not hasattr(db, "iter_sources"):
         return []
@@ -849,7 +850,7 @@ def find_unpackable_source_media(db: Any) -> list[dict[str, Any]]:
     return results
 
 
-def find_orphan_media_matches(db: Any) -> list[dict[str, Any]]:
+def find_orphan_media_matches(db: DbReadBase) -> list[dict[str, Any]]:
     """Match orphan or unlinked media files to media-less citations."""
     if not db or not hasattr(db, "iter_media") or not hasattr(db, "iter_citations"):
         return []
@@ -906,7 +907,7 @@ def find_orphan_media_matches(db: Any) -> list[dict[str, Any]]:
     return results
 
 
-def audit_existing_citation_media_links(db: Any) -> list[dict[str, Any]]:
+def audit_existing_citation_media_links(db: DbReadBase) -> list[dict[str, Any]]:
     """Audit citations currently referencing media to identify suspect attachments."""
     if not db or not hasattr(db, "iter_citations"):
         return []
@@ -953,7 +954,7 @@ def audit_existing_citation_media_links(db: Any) -> list[dict[str, Any]]:
 #
 # -------------------------------------------------------------------------
 def apply_link_media_to_citation(
-    db: Any, trans: Any, citation_handle: str, media_handle: str
+    db: DbWriteBase, trans: Any, citation_handle: str, media_handle: str
 ) -> bool:
     """Attach a Media object to a Citation via a MediaRef."""
     if not db or not citation_handle or not media_handle:
@@ -982,7 +983,7 @@ def apply_link_media_to_citation(
 
 
 def apply_unlink_media_from_citation(
-    db: Any, trans: Any, citation_handle: str, media_handle: str
+    db: DbWriteBase, trans: Any, citation_handle: str, media_handle: str
 ) -> bool:
     """Detach a Media object from a Citation."""
     if not db or not citation_handle or not media_handle:
@@ -1008,7 +1009,7 @@ def apply_unlink_media_from_citation(
 
 
 def apply_promote_media_to_citation(
-    db: Any,
+    db: DbWriteBase,
     trans: Any,
     citation_handle: str,
     media_handle: str,
@@ -1051,7 +1052,7 @@ def apply_promote_media_to_citation(
 
 
 def apply_unpack_source_media(
-    db: Any,
+    db: DbWriteBase,
     trans: Any,
     source_handle: str,
     citation_handle: str,

@@ -44,7 +44,7 @@ from gi.repository import Gtk, Pango
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
 from gramps.plugins.tool.gwizard_common import reports_apply_errors
-from gramps.gen.db import DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.plugins.tool.gwizardcitationshared import (
     is_bare_url_text,
@@ -57,7 +57,9 @@ ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
-def _url_already_in_every_citation_page(db: Any, note_handle: str, url: str) -> bool:
+def _url_already_in_every_citation_page(
+    db: DbReadBase, note_handle: str, url: str
+) -> bool:
     """True when every user of the note is a citation whose page holds ``url``."""
     users = list(db.find_backlink_handles(note_handle))
     if not users:
@@ -71,7 +73,7 @@ def _url_already_in_every_citation_page(db: Any, note_handle: str, url: str) -> 
     return True
 
 
-def build_note_fix_rows(db: Any) -> list[dict[str, Any]]:
+def build_note_fix_rows(db: DbReadBase) -> list[dict[str, Any]]:
     """Find notes with problems: import debris, empty, padded, or a repeated URL."""
     rows: list[dict[str, Any]] = []
     for note in db.iter_notes():
@@ -432,7 +434,7 @@ class NotesFixDialog(Gtk.Dialog):
 
 
 def apply_note_fix(
-    db: Any,
+    db: DbWriteBase,
     trans: Any,
     note_handle: str,
     action: str = "",
@@ -477,7 +479,7 @@ def apply_note_fix(
     return False
 
 
-def auto_fix_notes(db: Any) -> int:
+def auto_fix_notes(db: DbWriteBase) -> int:
     """Accept every hint and apply it in one transaction (one undo).
 
     Returns the number of notes changed or removed.

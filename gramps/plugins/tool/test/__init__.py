@@ -18,4 +18,17 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""GWizard tool tests."""
+"""GWizard tool tests.
+
+To test an add-on copy of the GWizard tools instead of the ones in this
+tree, set ``GWIZARD_PLUGIN_DIR`` to the folder that holds the add-on's
+``.py`` files. Its modules are then found first as ``gramps.plugins.tool.*``.
+"""
+
+import os
+
+import gramps.plugins.tool as _tool_package
+
+_PLUGIN_DIR = os.environ.get("GWIZARD_PLUGIN_DIR", "")
+if _PLUGIN_DIR and _PLUGIN_DIR not in _tool_package.__path__:
+    _tool_package.__path__.insert(0, _PLUGIN_DIR)

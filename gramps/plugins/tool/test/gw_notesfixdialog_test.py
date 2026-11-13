@@ -27,48 +27,28 @@
 # -------------------------------------------------------------------------
 import sys
 import unittest
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 # -------------------------------------------------------------------------
 #
-# GTK mock fallback when running without display or PyGObject
+# GTK test doubles (shared with the Media Fix tests)
 #
 # -------------------------------------------------------------------------
-if "gi" not in sys.modules:
-    gi_mock = MagicMock()
+from gramps.plugins.tool.test import gwizard_gtk_fakes
 
-    class _FakeDialog:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
+# Install before importing a GWizard module, so its dialogs subclass the fakes.
+Gtk = gwizard_gtk_fakes.install()
 
-        def get_content_area(self) -> MagicMock:
-            return MagicMock()
 
-        def add_button(self, *args: Any, **kwargs: Any) -> None:
-            pass
+def setUpModule() -> None:  # pylint: disable=invalid-name
+    """Put the fake widgets back on Gtk for this module's tests."""
+    gwizard_gtk_fakes.install()
 
-        def add_action_widget(self, *args: Any, **kwargs: Any) -> None:
-            pass
 
-        def connect(self, *args: Any, **kwargs: Any) -> None:
-            pass
+def tearDownModule() -> None:  # pylint: disable=invalid-name
+    """Restore Gtk so other Gramps tests see the real widgets."""
+    gwizard_gtk_fakes.uninstall()
 
-        def set_default_size(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def show_all(self) -> None:
-            pass
-
-        def destroy(self) -> None:
-            pass
-
-        def run(self) -> int:
-            return 0
-
-    gi_mock.repository.Gtk.Dialog = _FakeDialog
-    sys.modules["gi"] = gi_mock
-    sys.modules["gi.repository"] = gi_mock.repository
 
 # -------------------------------------------------------------------------
 #

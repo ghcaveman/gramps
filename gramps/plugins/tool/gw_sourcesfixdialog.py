@@ -46,7 +46,7 @@ from gi.repository import Gdk, Gtk, Pango
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
 from gramps.plugins.tool.gwizard_common import reports_apply_errors
-from gramps.gen.db import DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.lib import Repository, RepoRef
 from gramps.plugins.tool.gwizardcitationreport import (
     collect_db_stats,
@@ -463,7 +463,7 @@ def _pick_keeper(group: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def build_source_fix_rows(
-    stats: dict[str, Any], db: Any = None
+    stats: dict[str, Any], db: DbReadBase | None = None
 ) -> list[dict[str, Any]]:
     """Build per-source fix rows from collected database stats."""
     rows: list[dict[str, Any]] = []
@@ -952,7 +952,7 @@ def plan_source_fixes(
     return plan
 
 
-def _get_or_create_quarantine_repo(db: Any, trans: Any) -> str:
+def _get_or_create_quarantine_repo(db: DbWriteBase, trans: Any) -> str:
     """Return the handle of an existing or newly created Quarantine repository."""
     for repo in db.iter_repositories():
         if str(repo.get_name() or "").strip().lower() == "quarantine":
@@ -1078,7 +1078,7 @@ def source_fix_summary(merged: int, quarantined: int, trimmed: int) -> str:
     return " ".join(sentences)
 
 
-def auto_fix_sources(db: Any) -> tuple[int, int, int]:
+def auto_fix_sources(db: DbWriteBase) -> tuple[int, int, int]:
     """Accept every hint and apply it, exactly as the Fix Sources dialog does.
 
     This is the single no-review implementation, shared by the per-step

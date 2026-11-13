@@ -26,215 +26,30 @@
 #
 # -------------------------------------------------------------------------
 import os
-import sys
 import tempfile
 import unittest
-from typing import Any
 from unittest.mock import MagicMock, patch
 
-
 # -------------------------------------------------------------------------
 #
-# GTK mock fallback when running without display or PyGObject
+# GTK test doubles (shared with the Media Fix tests)
 #
 # -------------------------------------------------------------------------
-class _FakeDialog:
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        pass
+from gramps.plugins.tool.test import gwizard_gtk_fakes
 
-    def get_content_area(self) -> MagicMock:
-        return MagicMock()
-
-    def add_button(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def add_action_widget(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def connect(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def set_default_size(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def show_all(self) -> None:
-        pass
-
-    def destroy(self) -> None:
-        pass
-
-    def run(self) -> int:
-        return 0
+# Install before importing a GWizard module, so its dialogs subclass the fakes.
+Gtk = gwizard_gtk_fakes.install()
 
 
-class _FakeFileChooserDialog(_FakeDialog):
-    def set_current_name(self, name: str) -> None:
-        pass
-
-    def set_current_folder(self, folder: str) -> None:
-        pass
-
-    def get_filename(self) -> str | None:
-        return None
+def setUpModule() -> None:  # pylint: disable=invalid-name
+    """Put the fake widgets back on Gtk for this module's tests."""
+    gwizard_gtk_fakes.install()
 
 
-class _FakeBox:
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        pass
+def tearDownModule() -> None:  # pylint: disable=invalid-name
+    """Restore Gtk so other Gramps tests see the real widgets."""
+    gwizard_gtk_fakes.uninstall()
 
-    def pack_start(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def add(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def set_homogeneous(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-
-class _FakeButton:
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self.sensitive = True
-
-    def set_sensitive(self, val: bool) -> None:
-        self.sensitive = val
-
-    def set_hexpand(self, val: bool) -> None:
-        pass
-
-    def connect(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-
-if "gi" not in sys.modules:
-    gi_mock = MagicMock()
-    gi_mock.repository.Gtk.Dialog = _FakeDialog
-    gi_mock.repository.Gtk.FileChooserDialog = _FakeFileChooserDialog
-    gi_mock.repository.Gtk.Box = _FakeBox
-    gi_mock.repository.Gtk.Button = _FakeButton
-    gi_mock.repository.Gtk.ResponseType.OK = 1
-    gi_mock.repository.Gtk.ResponseType.CANCEL = 2
-    gi_mock.repository.Gtk.ResponseType.CLOSE = 3
-    gi_mock.repository.Gtk.ResponseType.NONE = 4
-    gi_mock.repository.Gtk.FileChooserAction.SAVE = 1
-    gi_mock.repository.Gtk.Orientation.VERTICAL = 1
-    gi_mock.repository.Gtk.Orientation.HORIZONTAL = 2
-    gi_mock.repository.Gtk.events_pending.return_value = False
-    sys.modules["gi"] = gi_mock
-    sys.modules["gi.repository"] = gi_mock.repository
-else:
-    gtk_mod = sys.modules["gi.repository"].Gtk
-    gtk_mod.FileChooserDialog = _FakeFileChooserDialog
-    gtk_mod.ResponseType.OK = 1
-    gtk_mod.ResponseType.CANCEL = 2
-    gtk_mod.ResponseType.CLOSE = 3
-    gtk_mod.ResponseType.NONE = 4
-    gtk_mod.FileChooserAction.SAVE = 1
-    gtk_mod.Orientation.VERTICAL = 1
-    gtk_mod.Orientation.HORIZONTAL = 2
-    gtk_mod.events_pending.return_value = False
-
-
-# -------------------------------------------------------------------------
-#
-# GTK mock fallback when running without display or PyGObject
-#
-# -------------------------------------------------------------------------
-class _FakeDialog:
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def get_content_area(self) -> MagicMock:
-        return MagicMock()
-
-    def add_button(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def add_action_widget(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def connect(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def set_default_size(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def show_all(self) -> None:
-        pass
-
-    def destroy(self) -> None:
-        pass
-
-    def run(self) -> int:
-        return 0
-
-
-class _FakeFileChooserDialog(_FakeDialog):
-    def set_current_name(self, name: str) -> None:
-        pass
-
-    def set_current_folder(self, folder: str) -> None:
-        pass
-
-    def get_filename(self) -> str | None:
-        return None
-
-
-class _FakeBox:
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def pack_start(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def add(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def set_homogeneous(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-
-class _FakeButton:
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self.sensitive = True
-
-    def set_sensitive(self, val: bool) -> None:
-        self.sensitive = val
-
-    def set_hexpand(self, val: bool) -> None:
-        pass
-
-    def connect(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-
-if "gi" not in sys.modules:
-    gi_mock = MagicMock()
-    gi_mock.repository.Gtk.Dialog = _FakeDialog
-    gi_mock.repository.Gtk.FileChooserDialog = _FakeFileChooserDialog
-    gi_mock.repository.Gtk.Box = _FakeBox
-    gi_mock.repository.Gtk.Button = _FakeButton
-    gi_mock.repository.Gtk.ResponseType.OK = 1
-    gi_mock.repository.Gtk.ResponseType.CANCEL = 2
-    gi_mock.repository.Gtk.ResponseType.CLOSE = 3
-    gi_mock.repository.Gtk.ResponseType.NONE = 4
-    gi_mock.repository.Gtk.FileChooserAction.SAVE = 1
-    gi_mock.repository.Gtk.Orientation.VERTICAL = 1
-    gi_mock.repository.Gtk.Orientation.HORIZONTAL = 2
-    gi_mock.repository.Gtk.events_pending.return_value = False
-    sys.modules["gi"] = gi_mock
-    sys.modules["gi.repository"] = gi_mock.repository
-else:
-    gtk_mod = sys.modules["gi.repository"].Gtk
-    gtk_mod.FileChooserDialog = _FakeFileChooserDialog
-    gtk_mod.ResponseType.OK = 1
-    gtk_mod.ResponseType.CANCEL = 2
-    gtk_mod.ResponseType.CLOSE = 3
-    gtk_mod.ResponseType.NONE = 4
-    gtk_mod.FileChooserAction.SAVE = 1
-    gtk_mod.Orientation.VERTICAL = 1
-    gtk_mod.Orientation.HORIZONTAL = 2
-    gtk_mod.events_pending.return_value = False
 
 # -------------------------------------------------------------------------
 #
@@ -249,7 +64,6 @@ from gramps.plugins.tool.gwizardcitationfix import (
     REPORT_FILENAME,
 )
 
-REPORT_FILENAME = "CitationFixReport.txt"
 REPORT_TITLE = "Citation analysis file"
 REPORT_LINE_WIDTH = 78
 
@@ -314,7 +128,7 @@ class GWizardCitationFixTest(unittest.TestCase):
         tool_instance.report_path = None
 
         mock_chooser = MagicMock()
-        mock_chooser.run.return_value = 2  # Gtk.ResponseType.CANCEL
+        mock_chooser.run.return_value = Gtk.ResponseType.CANCEL
 
         with (
             patch(
@@ -341,7 +155,7 @@ class GWizardCitationFixTest(unittest.TestCase):
             target_path = os.path.join(tmpdir, REPORT_FILENAME)
 
             mock_chooser = MagicMock()
-            mock_chooser.run.return_value = 1  # Gtk.ResponseType.OK
+            mock_chooser.run.return_value = Gtk.ResponseType.OK
             mock_chooser.get_filename.return_value = target_path
 
             mock_engine = MagicMock()

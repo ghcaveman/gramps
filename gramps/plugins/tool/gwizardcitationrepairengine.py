@@ -37,7 +37,7 @@ from typing import Any
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.db import DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.gen.lib import (
     Note,
@@ -93,7 +93,7 @@ class GWizardCitationRepairEngine:
     # ------------------------------------------------------------
     # Step 1: unpack conflated source titles
     # ------------------------------------------------------------
-    def plan_unpack_conflated_sources(self, db: Any) -> list[dict[str, Any]]:
+    def plan_unpack_conflated_sources(self, db: DbReadBase) -> list[dict[str, Any]]:
         """Return the proposed splits without touching the database."""
         plan: list[dict[str, Any]] = []
         for source in db.iter_sources():
@@ -139,14 +139,14 @@ class GWizardCitationRepairEngine:
             )
         return plan
 
-    def apply_unpack_plan(self, db: Any, plan: list[dict[str, Any]]) -> int:
+    def apply_unpack_plan(self, db: DbWriteBase, plan: list[dict[str, Any]]) -> int:
         """Apply the entries of an unpack plan that are marked ``apply``."""
         return self.apply_unpack_entries(
             db, [entry for entry in plan if entry.get("apply", True)]
         )
 
     def apply_unpack_entries(
-        self, db: Any, entries: list[dict[str, Any]], trans: Any = None
+        self, db: DbWriteBase, entries: list[dict[str, Any]], trans: Any = None
     ) -> int:
         """Apply unpack entries; the one implementation used by every caller.
 
@@ -214,12 +214,12 @@ class GWizardCitationRepairEngine:
             count += 1
         return count
 
-    def unpack_conflated_sources(self, db: Any) -> int:
+    def unpack_conflated_sources(self, db: DbWriteBase) -> int:
         """Plan and apply the unpack step with no review."""
         return self.apply_unpack_plan(db, self.plan_unpack_conflated_sources(db))
 
     @staticmethod
-    def _create_repository(db: Any, name: str, trans: Any) -> str:
+    def _create_repository(db: DbWriteBase, name: str, trans: Any) -> str:
         """Add a repository, filling type and URL for gold-standard names."""
         repo = Repository()
         repo.set_name(name)
@@ -240,7 +240,11 @@ class GWizardCitationRepairEngine:
     # Step 2: repositories
     # ------------------------------------------------------------
     def merge_repositories(
-        self, db: Any, keeper_handle: str, discard_handle: str, trans: Any = None
+        self,
+        db: DbWriteBase,
+        keeper_handle: str,
+        discard_handle: str,
+        trans: Any = None,
     ) -> bool:
         """Merge one repository into another, re-pointing every source."""
         if trans is None:
@@ -266,7 +270,7 @@ class GWizardCitationRepairEngine:
         db.remove_repository(discard_handle, trans)
         return True
 
-    def consolidate_duplicate_repositories(self, db: Any) -> int:
+    def consolidate_duplicate_repositories(self, db: DbWriteBase) -> int:
         """Merge repositories whose names normalize to the same text.
 
         Name-only scripting helper. The GUI steps use the hint-based
@@ -303,7 +307,7 @@ class GWizardCitationRepairEngine:
             self.apply_gold_standard_details(db, trans)
         return merged
 
-    def apply_gold_standard_details(self, db: Any, trans: Any = None) -> int:
+    def apply_gold_standard_details(self, db: DbWriteBase, trans: Any = None) -> int:
         """Give repositories matching the golden list its type and web address.
 
         GEDCOM carries no repository type, so imported repositories all start
@@ -344,7 +348,7 @@ class GWizardCitationRepairEngine:
         return changed
 
     def reassign_source_repositories(
-        self, db: Any, changes: list[dict[str, str]], trans: Any = None
+        self, db: DbWriteBase, changes: list[dict[str, str]], trans: Any = None
     ) -> tuple[int, int]:
         """Point individual sources at the repositories chosen for them.
 
@@ -400,7 +404,11 @@ class GWizardCitationRepairEngine:
     # Step 3: sources
     # ------------------------------------------------------------
     def merge_sources(
-        self, db: Any, keeper_handle: str, discard_handle: str, trans: Any = None
+        self,
+        db: DbWriteBase,
+        keeper_handle: str,
+        discard_handle: str,
+        trans: Any = None,
     ) -> bool:
         """Merge one source into another, re-pointing every citation."""
         if trans is None:
@@ -456,7 +464,7 @@ class GWizardCitationRepairEngine:
 
     @staticmethod
     def _keep_conflicting_source_text(
-        db: Any, keeper: Any, discard: Any, trans: Any
+        db: DbWriteBase, keeper: Any, discard: Any, trans: Any
     ) -> bool:
         """Add a note to ``keeper`` holding discarded text that differs.
 
@@ -506,7 +514,7 @@ class GWizardCitationRepairEngine:
         keeper.add_note(db.add_note(note, trans))
         return True
 
-    def consolidate_duplicate_sources(self, db: Any) -> int:
+    def consolidate_duplicate_sources(self, db: DbWriteBase) -> int:
         """Merge sources whose titles normalize to the same text.
 
         Title-only scripting helper. The GUI steps use the hint-based
@@ -546,7 +554,7 @@ class GWizardCitationRepairEngine:
     # ------------------------------------------------------------
     # Step 4: citations
     # ------------------------------------------------------------
-    def clean_and_rate_citations(self, db: Any) -> int:
+    def clean_and_rate_citations(self, db: DbWriteBase) -> int:
         """Downrate user-tree citations and tidy the Volume/Page text.
 
         Scripting helper. The GUI steps use ``auto_fix_citations`` in
@@ -583,7 +591,7 @@ class GWizardCitationRepairEngine:
     # ------------------------------------------------------------
     # Step 5: notes
     # ------------------------------------------------------------
-    def purge_import_debris_notes(self, db: Any) -> int:
+    def purge_import_debris_notes(self, db: DbWriteBase) -> int:
         """Remove import-debris notes and every reference to them.
 
         Scripting helper. The GUI steps use ``auto_fix_notes`` in
@@ -614,7 +622,7 @@ class GWizardCitationRepairEngine:
     # ------------------------------------------------------------
     # Step: media to citation linking & auditing
     # ------------------------------------------------------------
-    def plan_link_citation_media(self, db: Any) -> list[dict[str, Any]]:
+    def plan_link_citation_media(self, db: DbReadBase) -> list[dict[str, Any]]:
         """Collect all candidate media-to-citation link operations across all sources."""
         from .gwizardcitationmediaengine import (
             find_promotable_gallery_media,
@@ -628,7 +636,7 @@ class GWizardCitationRepairEngine:
         plan.extend(find_orphan_media_matches(db))
         return plan
 
-    def auto_link_citation_media(self, db: Any, min_score: int = 70) -> int:
+    def auto_link_citation_media(self, db: DbWriteBase, min_score: int = 70) -> int:
         """Automatically link high-confidence, non-conflicting media to citations.
 
         Only links with score >= min_score and zero conflicts are applied.
@@ -682,7 +690,7 @@ class GWizardCitationRepairEngine:
 
         return linked_count
 
-    def audit_citation_media_links(self, db: Any) -> list[dict[str, Any]]:
+    def audit_citation_media_links(self, db: DbReadBase) -> list[dict[str, Any]]:
         """Audit existing citation media links for potential mismatches or conflicts."""
         from .gwizardcitationmediaengine import audit_existing_citation_media_links
 

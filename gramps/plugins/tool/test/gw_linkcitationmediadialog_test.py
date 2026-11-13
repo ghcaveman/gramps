@@ -27,29 +27,29 @@ from __future__ import annotations
 # Standard Python modules
 #
 # -------------------------------------------------------------------------
-import os
-import sys
 import unittest
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 # -------------------------------------------------------------------------
 #
-# GTK mock fallback when running without display or PyGObject
+# GTK test doubles (shared with the Media Fix tests)
 #
 # -------------------------------------------------------------------------
-if "gi" not in sys.modules:
-    gi_mock = MagicMock()
+from gramps.plugins.tool.test import gwizard_gtk_fakes
 
-    class _FakeDialog:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
+# Install before importing a GWizard module, so its dialogs subclass the fakes.
+Gtk = gwizard_gtk_fakes.install()
 
-    gi_mock.repository.Gtk.Dialog = _FakeDialog
-    sys.modules["gi"] = gi_mock
-    sys.modules["gi.repository"] = gi_mock.repository
 
-from gi.repository import Gtk
+def setUpModule() -> None:  # pylint: disable=invalid-name
+    """Put the fake widgets back on Gtk for this module's tests."""
+    gwizard_gtk_fakes.install()
+
+
+def tearDownModule() -> None:  # pylint: disable=invalid-name
+    """Restore Gtk so other Gramps tests see the real widgets."""
+    gwizard_gtk_fakes.uninstall()
+
 
 # -------------------------------------------------------------------------
 #
@@ -61,7 +61,6 @@ from gramps.gen.db.base import DbWriteBase
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import (
     Citation,
-    Date,
     Media,
     MediaRef,
     Name,

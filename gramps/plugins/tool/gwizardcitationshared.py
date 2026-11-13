@@ -39,6 +39,7 @@ from urllib.parse import urlparse
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.db import DbReadBase, DbWriteBase
 from gramps.gen.lib import Date, Note, NoteType
 from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
 
@@ -771,7 +772,7 @@ def same_collection_titles(title_a: str, title_b: str) -> bool:
 def suggest_source_merge_target(
     selected_handle: str,
     candidate_handles: list[str],
-    db: Any,
+    db: DbReadBase,
     cites_by_source: dict[str, int] | Counter[str] | None = None,
 ) -> tuple[str, str] | None:
     """Suggest a merge target source with a reason, using fuzzy & heuristic matching."""
@@ -927,7 +928,7 @@ def parse_citation_date(text: str) -> Any:
 
 
 def add_note_once(
-    db: Any,
+    db: DbWriteBase,
     trans: Any,
     obj: Any,
     text: str,
@@ -965,7 +966,7 @@ def add_note_once(
     return True
 
 
-def delete_note_if_unused(db: Any, trans: Any, note_handle: str) -> bool:
+def delete_note_if_unused(db: DbWriteBase, trans: Any, note_handle: str) -> bool:
     """Delete a note when no object refers to it any more.
 
     Call this after committing the objects the note was detached from, so

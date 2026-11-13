@@ -27,21 +27,28 @@ from __future__ import annotations
 # Standard Python modules
 #
 # -------------------------------------------------------------------------
-import os
-import sys
 import unittest
-from typing import Any
-from unittest.mock import MagicMock
 
 # -------------------------------------------------------------------------
 #
-# GTK mock fallback when running without display or PyGObject
+# GTK test doubles (shared with the Media Fix tests)
 #
 # -------------------------------------------------------------------------
-if "gi" not in sys.modules:
-    gi_mock = MagicMock()
-    sys.modules["gi"] = gi_mock
-    sys.modules["gi.repository"] = gi_mock.repository
+from gramps.plugins.tool.test import gwizard_gtk_fakes
+
+# Install before importing a GWizard module, so its dialogs subclass the fakes.
+Gtk = gwizard_gtk_fakes.install()
+
+
+def setUpModule() -> None:  # pylint: disable=invalid-name
+    """Put the fake widgets back on Gtk for this module's tests."""
+    gwizard_gtk_fakes.install()
+
+
+def tearDownModule() -> None:  # pylint: disable=invalid-name
+    """Restore Gtk so other Gramps tests see the real widgets."""
+    gwizard_gtk_fakes.uninstall()
+
 
 # -------------------------------------------------------------------------
 #
@@ -54,8 +61,6 @@ from gramps.gen.db.utils import make_database
 from gramps.gen.lib import (
     Citation,
     Date,
-    Event,
-    EventType,
     Media,
     MediaRef,
     Name,
@@ -69,8 +74,6 @@ from gramps.plugins.tool.gwizardcitationmediaengine import (
     MediaIdentity,
     apply_link_media_to_citation,
     apply_promote_media_to_citation,
-    apply_unlink_media_from_citation,
-    apply_unpack_source_media,
     audit_existing_citation_media_links,
     compute_citation_media_compatibility,
     detect_category,

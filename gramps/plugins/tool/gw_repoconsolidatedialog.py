@@ -44,7 +44,7 @@ from gi.repository import Gdk, Gtk, Pango
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.db import DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.lib import Note, NoteType
 from gramps.gui.dialog import ErrorDialog, OkDialog
 from gramps.plugins.tool.gwizard_common import reports_apply_errors
@@ -102,7 +102,7 @@ def classify_repo_street(repo_name: str, street: str) -> tuple[str, str]:
 
 
 def _find_or_create_golden(
-    db: Any,
+    db: DbWriteBase,
     golden_name: str,
     engine: GWizardCitationRepairEngine | None,
     trans: Any,
@@ -120,7 +120,7 @@ def _find_or_create_golden(
 
 
 def _tidy_keeper_address(
-    db: Any, keeper_handle: str, trans: Any = None
+    db: DbWriteBase, keeper_handle: str, trans: Any = None
 ) -> tuple[int, int]:
     """Clean address lines on the surviving repository.
 
@@ -191,7 +191,7 @@ def _resolve_chain(handle: str, targets: dict[str, str]) -> str:
 
 
 def apply_repo_consolidations(
-    db: Any,
+    db: DbWriteBase,
     changes: list[tuple[str, str]],
     engine: GWizardCitationRepairEngine | None = None,
     trans: Any = None,
@@ -313,7 +313,7 @@ def consolidation_summary(result: dict[str, Any]) -> str:
 
 
 def auto_consolidate_repositories(
-    db: Any, engine: GWizardCitationRepairEngine | None = None
+    db: DbWriteBase, engine: GWizardCitationRepairEngine | None = None
 ) -> dict[str, Any]:
     """Accept every hint and apply it, as the Repository Consolidate dialog does.
 
@@ -334,7 +334,7 @@ def auto_consolidate_repositories(
     return apply_repo_consolidations(db, changes, engine, tidy_handles=tidy)
 
 
-def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
+def build_repo_consolidate_rows(db: DbReadBase) -> list[dict[str, Any]]:
     """Build per-repository consolidation rows from database."""
     if db is None:
         return []

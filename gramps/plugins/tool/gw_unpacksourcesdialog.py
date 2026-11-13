@@ -45,6 +45,7 @@ from gi.repository import Gtk, Pango
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.db import DbReadBase
 from gramps.gui.dialog import OkDialog
 from gramps.plugins.tool.gwizard_common import reports_apply_errors
 from gramps.plugins.tool.gwizardcitationrepairengine import (
@@ -57,7 +58,9 @@ ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
-def _plan_title_cleanups(db: Any, planned_handles: set[str]) -> list[dict[str, Any]]:
+def _plan_title_cleanups(
+    db: DbReadBase, planned_handles: set[str]
+) -> list[dict[str, Any]]:
     """Return plan rows for sources whose titles have markup or quotes.
 
     Sources the engine already planned are skipped, so nothing appears twice.

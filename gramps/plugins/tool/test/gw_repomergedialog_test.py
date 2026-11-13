@@ -29,184 +29,28 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # -------------------------------------------------------------------------
 #
-# GTK mock fallback when running without display or PyGObject
+# GTK test doubles (shared with the Media Fix tests)
 #
 # -------------------------------------------------------------------------
-if "gi" not in sys.modules:
-    gi_mock = MagicMock()
+from gramps.plugins.tool.test import gwizard_gtk_fakes
 
-    class _FakeDialog:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
+# Install before importing a GWizard module, so its dialogs subclass the fakes.
+Gtk = gwizard_gtk_fakes.install()
 
-        def get_content_area(self) -> MagicMock:
-            return MagicMock()
 
-        def add_button(self, *args: Any, **kwargs: Any) -> None:
-            pass
+def setUpModule() -> None:  # pylint: disable=invalid-name
+    """Put the fake widgets back on Gtk for this module's tests."""
+    gwizard_gtk_fakes.install()
 
-        def add_action_widget(self, *args: Any, **kwargs: Any) -> None:
-            pass
 
-        def connect(self, *args: Any, **kwargs: Any) -> None:
-            pass
+def tearDownModule() -> None:  # pylint: disable=invalid-name
+    """Restore Gtk so other Gramps tests see the real widgets."""
+    gwizard_gtk_fakes.uninstall()
 
-        def set_default_size(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def show_all(self) -> None:
-            pass
-
-        def destroy(self) -> None:
-            pass
-
-        def run(self) -> int:
-            return 0
-
-    class _FakeLabel:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_markup(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_halign(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_hexpand(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_line_wrap(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_line_wrap_mode(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_max_width_chars(self, *args: Any, **kwargs: Any) -> None:
-            if args:
-                self._max_width_chars = args[0]
-
-        def get_max_width_chars(self) -> int:
-            return getattr(self, "_max_width_chars", -1)
-
-        def set_xalign(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_size_request(self, *args: Any, **kwargs: Any) -> None:
-            if len(args) >= 2:
-                self._size_request = (args[0], args[1])
-
-        def get_size_request(self) -> tuple[int, int]:
-            return getattr(self, "_size_request", (-1, -1))
-
-        def get_style_context(self) -> MagicMock:
-            return MagicMock()
-
-    class _FakeGrid:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_column_spacing(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_row_spacing(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_column_homogeneous(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_hexpand(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_vexpand(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def get_style_context(self) -> MagicMock:
-            return MagicMock()
-
-        def attach(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-    class _FakeComboBox:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self._model: list[Any] = []
-            self._active = 0
-
-        @classmethod
-        def new_with_model(cls, model: Any) -> _FakeComboBox:
-            cb = cls()
-            cb._model = list(model)
-            return cb
-
-        def set_hexpand(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_size_request(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def pack_start(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def add_attribute(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_active(self, val: int) -> None:
-            self._active = val
-
-        def get_active(self) -> int:
-            return self._active
-
-        def get_active_iter(self) -> Any:
-            return self._active if 0 <= self._active < len(self._model) else None
-
-        def get_model(self) -> Any:
-            return self._model
-
-        def connect(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def get_style_context(self) -> MagicMock:
-            return MagicMock()
-
-    class _FakeScrolledWindow:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_min_content_height(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_min_content_width(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_policy(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_hexpand(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def set_vexpand(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def add(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-    gi_mock.repository.Gtk.Dialog = _FakeDialog
-    gi_mock.repository.Gtk.Label = _FakeLabel
-    gi_mock.repository.Gtk.Grid = _FakeGrid
-    gi_mock.repository.Gtk.ComboBox = _FakeComboBox
-    gi_mock.repository.Gtk.ScrolledWindow = _FakeScrolledWindow
-    gi_mock.repository.Gtk.ListStore = lambda *types: []
-    gi_mock.repository.Gtk.ResponseType.OK = 1
-    gi_mock.repository.Gtk.ResponseType.CANCEL = 2
-    gi_mock.repository.Gtk.ResponseType.CLOSE = 3
-    gi_mock.repository.Gtk.ResponseType.NONE = 4
-    sys.modules["gi"] = gi_mock
-    sys.modules["gi.repository"] = gi_mock.repository
 
 # -------------------------------------------------------------------------
 #

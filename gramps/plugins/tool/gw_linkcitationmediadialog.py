@@ -44,7 +44,7 @@ from gi.repository import Gtk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.db import DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.utils.file import media_path_full
 from gramps.gen.utils.thumbnails import get_thumbnail_image
 from gramps.gui.dialog import OkDialog
@@ -69,7 +69,7 @@ LOG = logging.getLogger(__name__)
 #
 # -------------------------------------------------------------------------
 def build_link_citation_media_rows(
-    db: Any, stats: dict[str, int] | None = None
+    db: DbReadBase, stats: dict[str, int] | None = None
 ) -> list[dict[str, Any]]:
     """Scan the database and build candidate rows for media-to-citation linking.
 
@@ -284,7 +284,9 @@ def apply_citation_media_fixes(
     return linked, detached
 
 
-def auto_link_citation_media(db: Any, stats: dict[str, int] | None = None) -> int:
+def auto_link_citation_media(
+    db: DbWriteBase, stats: dict[str, int] | None = None
+) -> int:
     """Headless auto-linker for 'Accept all hints'.
 
     Applies only safe (🟢) candidates with zero conflicts in one transaction.
