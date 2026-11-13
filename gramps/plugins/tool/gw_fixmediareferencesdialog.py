@@ -53,6 +53,7 @@ try:
         TableLabel,
         HeaderLabel,
         create_table_grid,
+        MoveLog,
         clean_path,
         full_media_path,
         is_bare_media,
@@ -67,6 +68,7 @@ except (ImportError, ValueError):
         TableLabel,
         HeaderLabel,
         create_table_grid,
+        MoveLog,
         clean_path,
         full_media_path,
         is_bare_media,
@@ -81,7 +83,25 @@ _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
 
 
-def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
+def media_base_path(db: Any) -> str:
+    """
+    Return the base media folder (where the file-move log is kept).
+
+    :param db: The database.
+    :returns: The folder, resolved as Gramps does.
+    """
+    try:
+        from .gwizardmediafix import get_media_base_path
+    except (ImportError, ValueError):
+        from gwizardmediafix import (  # type: ignore[import-not-found,no-redef]
+            get_media_base_path,
+        )
+    return get_media_base_path(db)
+
+
+def find_duplicate_media_groups(
+    db: Any, cache: dict[str, dict[str, str]] | None = None
+) -> list[dict[str, Any]]:
     """Scan database for media files referenced by multiple media records.
 
     Returns a list of dicts describing each shared file and its referencing media records.
@@ -117,14 +137,19 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
 
         assoc_str = ""
         try:
-            ctx = resolve_media_reference_context(db, media)
+            ctx = resolve_media_reference_context(db, media, cache)
             assoc_str = ctx.get("assoc", "")
         except Exception:
             pass
 
-        perm_issue, inaccess_dir = check_path_permission(full_path)
-        if not perm_issue and os.path.isabs(raw_path):
-            perm_issue, inaccess_dir = check_path_permission(raw_path)
+        # The permission walk lists every parent folder and reads the file, so
+        # only run it for files that are missing or unreadable (os.access is
+        # one cheap system call).
+        perm_issue, inaccess_dir = False, None
+        if not os.access(full_path, os.R_OK):
+            perm_issue, inaccess_dir = check_path_permission(full_path)
+            if not perm_issue and os.path.isabs(raw_path):
+                perm_issue, inaccess_dir = check_path_permission(raw_path)
 
         backlinks = []
         if hasattr(db, "find_backlink_handles") and m_handle:
@@ -563,6 +588,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
 
                 base, ext = os.path.splitext(src_path)
                 claimed: set[str] = set()
+                move_log = MoveLog(media_base_path(self.dbstate.db), "Split media")
                 with DbTxn(_("Split Media References"), self.dbstate.db) as trans:
                     for r in records[1:]:
                         other_media = self.dbstate.db.get_media_from_handle(r["handle"])
@@ -601,9 +627,24 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                             continue
                         copied_count += 1
                         if other_media:
+                            move_log.record(
+                                "copy",
+                                other_media,
+                                clean_path(str(other_media.get_path() or "")),
+                                new_rel,
+                                src_full,
+                                dest_full,
+                            )
                             other_media.set_path(new_rel)
                             add_media_fixed_tag(self.dbstate.db, other_media, txn=trans)
                             self.dbstate.db.commit_media(other_media, trans)
+                if len(move_log):
+                    log_err = move_log.write()
+                    if log_err:
+                        errors.append(
+                            str(_("The file-move log could not be written: %s"))
+                            % log_err
+                        )
 
         if merged_count == 0 and copied_count == 0 and deleted_count == 0:
             if errors:

@@ -26,12 +26,14 @@
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import csv
 import html
 import logging
 import os
 import re
 import shutil
 import sys
+from datetime import datetime
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -709,3 +711,265 @@ def unlock_media(
 ) -> bool:
     """Unlock *media* (see unlock_object)."""
     return unlock_object(db, media, txn=txn, commit=commit)
+
+
+# ------------------------------------------------------------
+#
+# File-move log and "Undo last file moves"
+#
+# Edit > Undo reverts database changes only.  After files have been moved,
+# undoing the database leaves every moved record pointing at the old location,
+# where the file no longer is.  Every file operation is therefore logged, and
+# undo_logged_run() moves the files back *and* repoints the records.
+#
+# ------------------------------------------------------------
+MOVE_LOG_NAME = "GWizardMediaFix-moves.csv"
+MOVE_LOG_FIELDS = [
+    "run_id",
+    "time",
+    "action",
+    "handle",
+    "gramps_id",
+    "old_db_path",
+    "new_db_path",
+    "old_full",
+    "new_full",
+]
+# action values: "move", "copy", "repoint" (same file, new stored path) and
+# "undone" (a marker row: gramps_id holds the run_id that was reversed).
+
+
+# ------------------------------------------------------------
+#
+# MoveLog
+#
+# ------------------------------------------------------------
+class MoveLog:
+    """Collects the file operations of one run and appends them to the CSV log."""
+
+    def __init__(self, log_dir: str, label: str = "") -> None:
+        """
+        Start a new run.
+
+        :param log_dir: Folder for the log (the base media folder).
+        :param label: Short description of the run, e.g. "Consolidate".
+        """
+        self.path = os.path.join(log_dir, MOVE_LOG_NAME)
+        self.label = label
+        self.run_id = datetime.now().strftime("%Y%m%dT%H%M%S%f")
+        self.rows: list[dict[str, str]] = []
+
+    def __len__(self) -> int:
+        """Return the number of logged record changes."""
+        return len(self.rows)
+
+    def record(
+        self,
+        action: str,
+        media: Any,
+        old_db_path: str,
+        new_db_path: str,
+        old_full: str,
+        new_full: str,
+    ) -> None:
+        """
+        Log one record's change.
+
+        :param action: ``"move"``, ``"copy"`` or ``"repoint"``.
+        :param media: The media record.
+        :param old_db_path: The stored path before the change.
+        :param new_db_path: The stored path after the change.
+        :param old_full: The file's full path before the change.
+        :param new_full: The file's full path after the change.
+        """
+        self.rows.append(
+            {
+                "run_id": self.run_id,
+                "time": datetime.now().isoformat(timespec="seconds"),
+                "action": action,
+                "handle": str(media.get_handle() or ""),
+                "gramps_id": str(media.get_gramps_id() or ""),
+                "old_db_path": old_db_path,
+                "new_db_path": new_db_path,
+                "old_full": old_full,
+                "new_full": new_full,
+            }
+        )
+
+    def write(self) -> str:
+        """
+        Append the run to the log file.
+
+        :returns: ``""`` on success, otherwise an error message.
+        """
+        if not self.rows:
+            return ""
+        return _append_log_rows(self.path, self.rows)
+
+
+def _append_log_rows(path: str, rows: list[dict[str, str]]) -> str:
+    """
+    Append rows to the CSV log, writing the header for a new file.
+
+    :param path: The log file.
+    :param rows: Rows keyed by :data:`MOVE_LOG_FIELDS`.
+    :returns: ``""`` on success, otherwise an error message.
+    """
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        new_file = not os.path.exists(path)
+        with open(path, "a", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=MOVE_LOG_FIELDS)
+            if new_file:
+                writer.writeheader()
+            writer.writerows(rows)
+        return ""
+    except OSError as err:
+        LOG.warning("Could not write move log %s: %s", path, err)
+        return str(err)
+
+
+def read_move_log(path: str) -> list[dict[str, str]]:
+    """
+    Read the CSV move log.
+
+    :param path: The log file.
+    :returns: All rows, oldest first (empty if the file is missing).
+    """
+    if not os.path.exists(path):
+        return []
+    with open(path, newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def last_logged_run(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """
+    Return the rows of the most recent run that has not been undone.
+
+    :param rows: Result of :func:`read_move_log`.
+    :returns: That run's rows, oldest first (empty if there is none).
+    """
+    undone = {r["gramps_id"] for r in rows if r.get("action") == "undone"}
+    runs: list[str] = []
+    for row in rows:
+        rid = row.get("run_id", "")
+        if row.get("action") != "undone" and rid not in undone and rid not in runs:
+            runs.append(rid)
+    if not runs:
+        return []
+    last = runs[-1]
+    return [r for r in rows if r.get("run_id") == last and r.get("action") != "undone"]
+
+
+def _move_back(
+    gid: str, new_full: str, old_full: str, problems: list[str]
+) -> tuple[bool, bool]:
+    """
+    Move one logged file back to its old location, never overwriting.
+
+    :param gid: Gramps ID for messages.
+    :param new_full: Where the run put the file.
+    :param old_full: Where the file was before the run.
+    :param problems: Messages are appended here.
+    :returns: ``(file is now at old_full, this call moved it)``.
+    """
+    new_there = os.path.exists(new_full)
+    old_there = os.path.exists(old_full)
+    same = False
+    if new_there and old_there:
+        try:
+            same = os.path.samefile(new_full, old_full)  # case-only rename
+        except OSError:
+            same = False
+    if new_there and (not old_there or same):
+        ok, err = relocate_file(new_full, old_full)
+        if not ok:
+            problems.append("[%s] %s: %s" % (gid, new_full, err))
+        return ok, ok
+    if old_there and not new_there:
+        return True, False  # already moved back by hand
+    if old_there:
+        problems.append(
+            "[%s] %s"
+            % (gid, _("another file is now at %s; left at %s") % (old_full, new_full))
+        )
+    else:
+        problems.append(
+            "[%s] %s" % (gid, _("file is in neither location: %s") % new_full)
+        )
+    return False, False
+
+
+def undo_logged_run(db: Any, log_path: str) -> tuple[int, int, list[str]]:
+    """
+    Reverse the most recent logged run: move files back, repoint records.
+
+    Safe by design:
+
+    - a moved file is moved back only if it is still at its new location and
+      nothing has taken its old one; a file is never overwritten or deleted
+      (copies are left in place; only the records are repointed);
+    - a record is repointed only if its path is still the one the run stored
+      (or already the old one, e.g. after Edit > Undo); a record changed
+      since, or locked, is left alone and reported.
+
+    The run is then marked as undone in the log, so the next call reverses
+    the run before it.
+
+    :param db: The database.
+    :param log_path: The move log file.
+    :returns: ``(files moved back, records repointed, problems)``.
+    """
+    run = last_logged_run(read_move_log(log_path))
+    if not run:
+        return 0, 0, []
+    files_back = 0
+    records_back = 0
+    problems: list[str] = []
+    # For each moved file: is it (back) at its old location?  A record is only
+    # repointed to the old location when its file is really there.
+    file_back: dict[str, bool] = {}
+    with DbTxn(_("Undo GWizard file moves"), db) as trans:
+        for row in reversed(run):
+            gid = row.get("gramps_id", "")
+            old_full, new_full = row.get("old_full", ""), row.get("new_full", "")
+            is_move = row.get("action") == "move"
+            key = path_key(new_full)
+            if is_move and key not in file_back:
+                file_back[key], moved = _move_back(gid, new_full, old_full, problems)
+                files_back += int(moved)
+            if is_move and not file_back.get(key, False):
+                continue  # keep the record on the file's actual location
+            try:
+                media = db.get_media_from_handle(row.get("handle", ""))
+            except Exception:
+                media = None
+            if media is None:
+                problems.append("[%s] %s" % (gid, _("record no longer exists")))
+                continue
+            current = clean_path(str(media.get_path() or ""))
+            old_db = row.get("old_db_path", "")
+            if path_key(current) == path_key(old_db):
+                continue  # already back (e.g. Edit > Undo was used)
+            if path_key(current) != path_key(row.get("new_db_path", "")):
+                problems.append("[%s] %s" % (gid, _("path changed since; left alone")))
+                continue
+            if is_locked(db, media):
+                problems.append("[%s] %s" % (gid, _("locked; left alone")))
+                continue
+            media.set_path(old_db)
+            commit_object(db, media, trans)
+            records_back += 1
+    marker = {field: "" for field in MOVE_LOG_FIELDS}
+    marker.update(
+        {
+            "run_id": datetime.now().strftime("%Y%m%dT%H%M%S%f"),
+            "time": datetime.now().isoformat(timespec="seconds"),
+            "action": "undone",
+            "gramps_id": run[0].get("run_id", ""),
+        }
+    )
+    err = _append_log_rows(log_path, [marker])
+    if err:
+        problems.append(_("could not mark the run as undone in the log: %s") % err)
+    return files_back, records_back, problems

@@ -47,7 +47,7 @@ from gi.repository import Gtk, Pango
 #
 # -------------------------------------------------------------------------
 from gramps.gen.config import config
-from gramps.gen.const import GRAMPS_LOCALE as glocale, USER_HOME
+from gramps.gen.const import GRAMPS_LOCALE as glocale, USER_HOME, USER_PICTURES
 from gramps.gui.dialog import OkDialog, QuestionDialog2
 from gramps.gen.db import DbTxn
 from gramps.gen.utils.file import (
@@ -102,6 +102,11 @@ try:
         unique_destination,
         relocate_file,
         build_basename_index,
+        MoveLog,
+        MOVE_LOG_NAME,
+        undo_logged_run,
+        last_logged_run,
+        read_move_log,
         escape_markup,
         full_media_path,
         is_bare_media,
@@ -131,6 +136,11 @@ except (ImportError, ValueError):
         unique_destination,
         relocate_file,
         build_basename_index,
+        MoveLog,
+        MOVE_LOG_NAME,
+        undo_logged_run,
+        last_logged_run,
+        read_move_log,
         escape_markup,
         full_media_path,
         is_bare_media,
@@ -527,38 +537,59 @@ def check_path_permission(path: str) -> tuple[bool, str | None]:
 def get_media_base_path(db: Any) -> str:
     """Return the base path for relative media files.
 
-    Examines the database preference for media path ("Base path for relative media paths").
-    If configured, expands and normalizes the path. If empty or not set, returns the
-    user's primary OS user profile directory (USER_HOME).
+    This mirrors ``gramps.gen.utils.file.expand_media_path`` so the folder the
+    tool shows, searches and moves files into is the folder Gramps will use
+    to open relative media paths:
+
+    - not set (``None``): the user's Pictures folder (``USER_PICTURES``);
+    - ``{VAR}`` placeholders are expanded (Gramps' ``expand_path``); ``~`` and
+      ``$VAR`` are *not*, because Gramps does not expand them either;
+    - a relative path is relative to the family tree's own folder.
+
+    The one difference: surrounding quotes are stripped, as the tool already
+    strips them when it saves a base path.  Unlike Gramps the result keeps its
+    letter case (compare paths with :func:`path_key`).
+
+    :param mpath: The base media path setting (``db.get_mediapath()``).
+    :param db: The database, for the family tree's folder.
+    :returns: An absolute, normalised directory path.
+    """
+    if mpath is None:
+        return os.path.normpath(os.path.abspath(USER_PICTURES))
+    path = clean_path(mpath)
+    try:
+        path = expand_path(path, False)
+    except Exception:  # a stray "{" in the path; Gramps would fail too
+        pass
+    if not os.path.isabs(path):
+        basepath = None
+        if db is not None and hasattr(db, "get_save_path"):
+            try:
+                basepath = db.get_save_path()
+            except Exception:
+                basepath = None
+        path = os.path.join(os.path.abspath(basepath or USER_HOME), path)
+    return os.path.normpath(os.path.abspath(path))
+
+
+def get_media_base_path(db: Any) -> str:
+    """
+    Return the folder Gramps resolves relative media paths against.
+
+    See :func:`expand_base_path`.  (This used to fall back to the home folder
+    while Gramps falls back to Pictures, so the tool could store a relative
+    path that Gramps could not open.)
+
+    :param db: The database (or ``None``).
+    :returns: The base media directory.
     """
     mpath: str | None = None
-    if db and hasattr(db, "get_mediapath"):
+    if db is not None and hasattr(db, "get_mediapath"):
         try:
-            raw = db.get_mediapath()
-            if raw and str(raw).strip():
-                mpath = clean_path(raw)
+            mpath = db.get_mediapath()
         except Exception:
             mpath = None
-
-    if mpath:
-        mpath = os.path.expandvars(os.path.expanduser(mpath))
-        try:
-            mpath = expand_path(mpath, False)
-        except Exception:
-            pass
-        if not os.path.isabs(mpath):
-            basepath = None
-            if hasattr(db, "get_save_path"):
-                try:
-                    basepath = db.get_save_path()
-                except Exception:
-                    basepath = None
-            if not basepath:
-                basepath = USER_HOME
-            mpath = os.path.join(str(basepath), mpath)
-        return os.path.normpath(os.path.abspath(mpath))
-
-    return os.path.normpath(os.path.abspath(USER_HOME))
+    return expand_base_path(mpath, db)
 
 
 def is_in_default_path(raw_path: str, base_dir: str) -> bool:
@@ -1755,6 +1786,39 @@ def keep_records_pointing_at_files(
     return fixed, locked
 
 
+def move_log_summary(move_log: MoveLog) -> str:
+    """
+    Write a run's move log and describe where it went.
+
+    :param move_log: The run's log (nothing is written when it is empty).
+    :returns: Text to append to a result message ("" when nothing was logged).
+    """
+    if not len(move_log):
+        return ""
+    err = move_log.write()
+    if err:
+        return (
+            "\n\n"
+            + str(
+                _(
+                    "WARNING: the file-move log could not be written (%s), so "
+                    "'Undo last file moves' cannot reverse this run."
+                )
+            )
+            % err
+        )
+    return (
+        "\n\n"
+        + str(
+            _(
+                "File operations were logged in %s. Use 'Undo last file moves' to "
+                "reverse them (Edit > Undo would only revert the database)."
+            )
+        )
+        % move_log.path
+    )
+
+
 def base_change_summary(fixed: int, locked: list[str]) -> str:
     """
     Describe what a base-path change did to records outside the batch.
@@ -1964,7 +2028,7 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
     # Step 2: references
     gone: set[str] = set()
     merged_gids: set[str] = set()
-    for group in find_duplicate_media_groups(db):
+    for group in find_duplicate_media_groups(db, cache):
         keeper = group["keeper"]
         keeper_media = (
             db.get_media_from_handle(keeper["handle"])
@@ -2123,8 +2187,9 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
         str(
             _(
                 "Notes: names in step 3 are recomputed after merging, so shared files "
-                "may be named slightly differently. Database changes can be undone "
-                "with Edit > Undo; file moves cannot."
+                "may be named slightly differently. File moves are logged: use "
+                "'Undo last file moves' to reverse them. Edit > Undo alone would "
+                "revert the database but leave the files moved."
             )
         )
     )
@@ -2197,7 +2262,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
         base_dir = (
             get_media_base_path(dbstate.db)
             if dbstate and dbstate.db
-            else os.path.normpath(os.path.abspath(USER_HOME))
+            else get_media_base_path(None)
         )
         self.base_dir = base_dir
         name_index = media_dir_index(dbstate.db, base_dir)
@@ -2457,11 +2522,8 @@ class FindMissingMediaDialog(Gtk.Dialog):
         """Track the base path to use for copies and save it when changes are applied."""
         text = clean_path(self.path_entry.get_text())
         self._mediapath_text = text
-        if text:
-            expanded = os.path.expandvars(os.path.expanduser(text))
-            self.base_dir = os.path.normpath(os.path.abspath(expanded))
-        else:
-            self.base_dir = os.path.normpath(os.path.abspath(USER_HOME))
+        # Saved as None when emptied; resolved exactly as Gramps will.
+        self.base_dir = expand_base_path(text or None, self.dbstate.db)
         self.base_path_label.set_markup(
             "<b>%s</b> %s"
             % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir))
@@ -2574,6 +2636,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
         snapshot = snapshot_resolved_paths(self.dbstate.db) if base_changed else {}
         rebased = 0
         rebase_locked: list[str] = []
+        move_log = MoveLog(base, "Find missing media")
         with DbTxn(_("Update Missing Media Paths"), self.dbstate.db) as trans:
             if base_changed:
                 self.dbstate.db.set_mediapath(self._mediapath_text or None)
@@ -2607,6 +2670,14 @@ class FindMissingMediaDialog(Gtk.Dialog):
                         skipped.append("%s (%s)" % (new_path, err))
                         continue
                     store_path = to_db_path(dest, base)
+                    move_log.record(
+                        "copy",
+                        media,
+                        clean_path(str(media.get_path() or "")),
+                        store_path,
+                        copy_src,
+                        dest,
+                    )
                     copied += 1
                 else:
                     # A relative path is checked against the base media path
@@ -2646,6 +2717,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
             )
         if extra:
             msg += "\n\n" + extra
+        msg += move_log_summary(move_log)
         OkDialog(str(_("Media Paths Updated")), msg, parent=self)
 
     def show_dialog(self) -> None:
@@ -2685,12 +2757,16 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.rows: list[dict[str, Any]] = []
         self.row_targets: list[dict[str, Any]] = []
+        # Reference contexts do not depend on the template, so one cache serves
+        # every hint recompute (template edits used to redo every backlink
+        # traversal on each keystroke).
+        self._ctx_cache: dict[str, dict[str, str]] = {}
         self.set_default_size(1360, 560)
 
         self.base_dir = (
             get_media_base_path(dbstate.db)
             if dbstate and dbstate.db
-            else os.path.normpath(os.path.abspath(USER_HOME))
+            else get_media_base_path(None)
         )
 
         content = self.get_content_area()
@@ -2987,11 +3063,8 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             return
         text = clean_path(self.path_entry.get_text())
         self._mediapath_text = text
-        if text:
-            expanded = os.path.expandvars(os.path.expanduser(text))
-            self.base_dir = os.path.normpath(os.path.abspath(expanded))
-        else:
-            self.base_dir = os.path.normpath(os.path.abspath(USER_HOME))
+        # Saved as None when emptied; resolved exactly as Gramps will.
+        self.base_dir = expand_base_path(text or None, self.dbstate.db)
         if hasattr(self, "base_path_label"):
             self.base_path_label.set_markup(
                 "<b>%s</b> %s"
@@ -3085,6 +3158,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                 db=self.dbstate.db if self.dbstate else None,
                 media=media,
                 template=curr_tmpl,
+                cache=getattr(self, "_ctx_cache", None),
             )
             fname = os.path.basename(std)
         else:
@@ -3214,6 +3288,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
 
         rebased = 0
         rebase_locked: list[str] = []
+        move_log = MoveLog(base, "Consolidate")
         with DbTxn(_("Consolidate Media Locations"), db) as trans:
             for target in self.row_targets:
                 new_path = clean_path(target["path_entry"].get_text())
@@ -3267,7 +3342,19 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
 
                 # Only now, with the file safely in place, repoint the records.
                 new_rel = to_db_path(dest_full, base)
+                if path_key(src_full) == path_key(dest_full):
+                    action = "repoint"
+                else:
+                    action = "copy" if is_copy else "move"
                 for media in records:
+                    move_log.record(
+                        action,
+                        media,
+                        clean_path(str(media.get_path() or "")),
+                        new_rel,
+                        src_full,
+                        dest_full,
+                    )
                     media.set_path(new_rel)
                     add_media_fixed_tag(db, media, txn=trans)
                     db.commit_media(media, trans)
@@ -3302,6 +3389,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         extra = base_change_summary(rebased, rebase_locked)
         if extra:
             summary += "\n\n" + extra
+        summary += move_log_summary(move_log)
 
         if failures:
             summary += "\n\n" + str(_("Not changed (%d):")) % len(failures) + "\n"
@@ -3370,7 +3458,7 @@ class MediaFixReportDialog(Gtk.Dialog):
         self.base_dir = (
             get_media_base_path(dbstate.db)
             if dbstate and dbstate.db
-            else os.path.normpath(os.path.abspath(USER_HOME))
+            else get_media_base_path(None)
         )
         self.base_path_label = SelectableLabel(
             label="<b>%s</b> %s"
@@ -3451,9 +3539,7 @@ class AcceptAllHintsReportDialog(Gtk.Dialog):
 
 def generate_media_fix_report(db: Any, progress_parent: Any = None) -> str:
     """Scan all media objects in database, check existence with os.path.exists(), and return formatted report."""
-    base_dir = (
-        get_media_base_path(db) if db else os.path.normpath(os.path.abspath(USER_HOME))
-    )
+    base_dir = get_media_base_path(db) if db else get_media_base_path(None)
     curr_tmpl = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
     total = 0
     found = 0
@@ -3840,6 +3926,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             ("fix_references", str(_("Fix media references"))),
             ("consolidate_location", str(_("Consolidate media location"))),
             ("clean_notes", str(_("Clean import notes"))),
+            ("undo_moves", str(_("Undo last file moves"))),
         ]
 
         self.buttons: dict[str, Gtk.Button] = {}
@@ -3886,7 +3973,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         base_dir = (
             get_media_base_path(self.dbstate.db)
             if self.dbstate and self.dbstate.db
-            else os.path.normpath(os.path.abspath(USER_HOME))
+            else get_media_base_path(None)
         )
         if base_dir and os.path.isdir(base_dir):
             chooser.set_current_folder(base_dir)
@@ -3963,6 +4050,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             self.cb_auto_all()
         elif key == "clean_notes":
             self.cb_clean_notes()
+        elif key == "undo_moves":
+            self.cb_undo_moves()
 
     def _auto_find_missing(
         self, db: Any
@@ -4154,6 +4243,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         for gids, raw, reason in held:
             unconsolidated.append((gids, "", "%s (%s)" % (raw, reason)))
 
+        move_log = MoveLog(base_dir, "Accept all hints")
         with DbTxn(_("Auto Consolidate Media Locations"), db) as trans:
             for move in moves:
                 ok, err = relocate_file(move["src_full"], move["dest_full"])
@@ -4163,13 +4253,73 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                     )
                     continue
                 new_rel = to_db_path(move["dest_full"], base_dir)
+                action = (
+                    "repoint"
+                    if path_key(move["src_full"]) == path_key(move["dest_full"])
+                    else "move"
+                )
                 for media in move["media"]:
+                    move_log.record(
+                        action,
+                        media,
+                        clean_path(str(media.get_path() or "")),
+                        new_rel,
+                        move["src_full"],
+                        move["dest_full"],
+                    )
                     media.set_path(new_rel)
                     add_media_fixed_tag(db, media, txn=trans)
                     db.commit_media(media, trans)
                 consolidated_count += 1
 
+        self.last_move_log_note = move_log_summary(move_log)
         return consolidated_count, unconsolidated
+
+    def cb_undo_moves(self) -> None:
+        """
+        Reverse the most recent logged run of file moves, after confirmation.
+
+        Files are moved back and records repointed; anything changed since the
+        run, or locked, is left alone and listed.
+        """
+        db = self.dbstate.db
+        log_path = os.path.join(get_media_base_path(db), MOVE_LOG_NAME)
+        run = last_logged_run(read_move_log(log_path))
+        if not run:
+            OkDialog(
+                str(_("No file moves to undo")),
+                str(_("No logged file moves were found in %s.")) % log_path,
+                parent=self.window,
+            )
+            return
+        n_files = len(
+            {r["new_full"] for r in run if r.get("action") in ("move", "copy")}
+        )
+        confirm = QuestionDialog2(
+            str(_("Undo last file moves")),
+            str(
+                _(
+                    "Reverse the file operations from %(time)s?\n\n"
+                    "%(files)d file(s) will be moved back (copies are kept) and "
+                    "%(records)d media record(s) repointed. Records changed since "
+                    "then are left alone."
+                )
+            )
+            % {"time": run[0].get("time", ""), "files": n_files, "records": len(run)},
+            str(_("_Undo moves")),
+            str(_("_Cancel")),
+            parent=self.window,
+        )
+        if not confirm.run():
+            return
+        files_back, records_back, problems = undo_logged_run(db, log_path)
+        msg = str(
+            _("Moved %(files)d file(s) back and repointed %(records)d record(s).")
+        ) % {"files": files_back, "records": records_back}
+        if problems:
+            msg += "\n\n" + str(_("Needs review (%d):")) % len(problems)
+            msg += "\n" + "\n".join(problems[:15])
+        OkDialog(str(_("File moves undone")), msg, parent=self.window)
 
     def cb_clean_notes(self) -> None:
         """Remove 'Records not imported into OBJE' notes whose problem is fixed."""
@@ -4253,6 +4403,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         prog.step()
 
         # Step 3: Consolidate media locations
+        self.last_move_log_note = ""
         consolidated_count, unconsolidated = self._auto_consolidate_location(db)
         prog.step()
         prog.close()
@@ -4288,6 +4439,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             consolidate_line,
             "",
         ]
+        if self.last_move_log_note:
+            lines += [self.last_move_log_note.strip(), ""]
 
         manual_items: list[str] = []
         if unresolved_missing:

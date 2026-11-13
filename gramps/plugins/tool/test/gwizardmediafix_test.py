@@ -858,25 +858,37 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertIn("Referenced by 3 media records", report)
 
     def test_get_media_base_path(self) -> None:
-        """get_media_base_path retrieves configured database media path or falls back to USER_HOME."""
-        # Unconfigured / None fallback to USER_HOME
+        """get_media_base_path resolves the base path exactly as Gramps does."""
+        from gramps.gen.const import USER_PICTURES
+        from gramps.gen.utils.file import media_path
+        from gramps.plugins.tool.gwizard_common import path_key
+
+        # Unset: Gramps (and so the tool) uses the Pictures folder
         self.db.set_mediapath(None)
         self.assertEqual(
-            get_media_base_path(self.db), os.path.normpath(os.path.abspath(USER_HOME))
+            get_media_base_path(self.db),
+            os.path.normpath(os.path.abspath(USER_PICTURES)),
         )
 
-        # Empty string fallback to USER_HOME
-        self.db.set_mediapath("   ")
+        # No database at all: same fallback
         self.assertEqual(
-            get_media_base_path(self.db), os.path.normpath(os.path.abspath(USER_HOME))
+            get_media_base_path(None), os.path.normpath(os.path.abspath(USER_PICTURES))
         )
 
-        # None db fallback to USER_HOME
-        self.assertEqual(
-            get_media_base_path(None), os.path.normpath(os.path.abspath(USER_HOME))
-        )
+        # Absolute, relative and blank settings all agree with media_path()
+        for setting in (
+            os.path.join(USER_HOME, "CustomFamilyMedia"),
+            "relative/media",
+            "   ",
+        ):
+            with self.subTest(setting=setting):
+                self.db.set_mediapath(setting)
+                self.assertEqual(
+                    path_key(get_media_base_path(self.db)),
+                    path_key(media_path(self.db)),
+                )
 
-        # Configured path is returned normalized
+        # Configured absolute path keeps its case
         custom_path = os.path.join(USER_HOME, "CustomFamilyMedia")
         self.db.set_mediapath(custom_path)
         self.assertEqual(

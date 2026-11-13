@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Regression tests for the GWizard Media Fix review fixes (batches 1-3).
+"""Regression tests for the GWizard Media Fix review fixes (batches 1-4).
 
 1. Accept hints in Fix media references never suggests deleting a record that
    has notes, attributes, tags, citations or a date.
@@ -47,6 +47,13 @@ Batch 3:
   never validated against the working directory.
 - 13: paths and titles are escaped before going into markup.
 - 14: removing import notes reports what was actually removed.
+
+Batch 4:
+
+- 5: every file operation is logged; "Undo last file moves" moves files back
+  and repoints records, safely and one run at a time.
+- 10: the base media path is resolved exactly as Gramps resolves it.
+- Performance: the duplicate scan only walks permissions for unreadable files.
 """
 
 # -------------------------------------------------------------------------
@@ -776,6 +783,213 @@ class SmallFixesTest(_DbTestCase):
         self.assertEqual(mf.remove_import_notes(self.db, items), 1)
         self.assertEqual(self.db.get_media_from_handle(m_h).get_note_list(), [])
         self.assertIsNotNone(self.db.get_note_from_handle(n_h))  # still used
+
+
+# ------------------------------------------------------------
+#
+# Batch 4, fix 10: base path resolved as Gramps does
+#
+# ------------------------------------------------------------
+class BasePathResolutionTest(_DbTestCase):
+    """The tool's base folder is the folder Gramps opens relative paths from."""
+
+    def test_settings_match_gramps(self) -> None:
+        """'~', '{VAR}', relative and absolute settings agree with media_path()."""
+        from gramps.gen.utils.file import media_path
+
+        for setting in ("~/Media", "{GRAMPSHOME}/Media", "rel", self.base):
+            with self.subTest(setting=setting):
+                self.db.set_mediapath(setting)
+                self.assertEqual(
+                    gc.path_key(mf.get_media_base_path(self.db)),
+                    gc.path_key(media_path(self.db)),
+                )
+
+    def test_dialog_entry_uses_same_rules(self) -> None:
+        """Typing a base path in a dialog resolves like the saved setting."""
+        from gramps.gen.const import USER_PICTURES
+
+        dlg = mf.FindMissingMediaDialog(dbstate=self.dbstate)
+        dlg.path_entry.set_text("")
+        dlg.cb_set_mediapath()
+        self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(USER_PICTURES)))
+        dlg.path_entry.set_text(self.base)
+        dlg.cb_set_mediapath()
+        self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(self.base)))
+
+
+# ------------------------------------------------------------
+#
+# Batch 4, fix 5: file-move log and undo
+#
+# ------------------------------------------------------------
+class MoveLogUndoTest(_DbTestCase):
+    """Logged runs can be reversed: files back, records repointed."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.db.set_mediapath(self.base)
+        self.log = os.path.join(self.base, gc.MOVE_LOG_NAME)
+
+    def consolidate(self, *paths: str) -> list[str]:
+        """Add one record per path and run automatic consolidation."""
+        handles = [self.add_media(p, "Photo %d" % i) for i, p in enumerate(paths)]
+        tool = mf.GWizardMediaFix.__new__(mf.GWizardMediaFix)
+        tool.dbstate = self.dbstate
+        count, _problems = tool._auto_consolidate_location(self.db)
+        self.assertEqual(count, len(paths))
+        self.assertIn(gc.MOVE_LOG_NAME, tool.last_move_log_note)
+        return handles
+
+    def test_undo_moves_files_back_and_repoints(self) -> None:
+        """One run is reversed completely, then there is nothing left to undo."""
+        src = self.touch("old", "a.jpg")
+        (handle,) = self.consolidate(src)
+        moved = self.db.get_media_from_handle(handle).get_path()
+        self.assertFalse(os.path.exists(src))
+
+        files, records, problems = gc.undo_logged_run(self.db, self.log)
+        self.assertEqual((files, records, problems), (1, 1, []))
+        self.assertTrue(os.path.exists(src))
+        self.assertFalse(os.path.exists(os.path.join(self.base, moved)))
+        self.assertEqual(self.db.get_media_from_handle(handle).get_path(), src)
+        self.assertEqual(gc.undo_logged_run(self.db, self.log), (0, 0, []))
+
+    def test_undo_goes_back_one_run_at_a_time(self) -> None:
+        """Two runs: the first undo reverses the second run only."""
+        (h1,) = self.consolidate(self.touch("old", "one.jpg"))
+        (h2,) = self.consolidate(self.touch("old", "two.jpg"))
+        gc.undo_logged_run(self.db, self.log)
+        self.assertTrue(os.path.isabs(self.db.get_media_from_handle(h2).get_path()))
+        self.assertFalse(os.path.isabs(self.db.get_media_from_handle(h1).get_path()))
+        gc.undo_logged_run(self.db, self.log)
+        self.assertTrue(os.path.isabs(self.db.get_media_from_handle(h1).get_path()))
+
+    def test_undo_after_edit_undo_still_moves_file(self) -> None:
+        """If Edit > Undo already restored the path, the file is still moved back."""
+        src = self.touch("old", "a.jpg")
+        (handle,) = self.consolidate(src)
+        media = self.db.get_media_from_handle(handle)
+        with DbTxn("simulate Edit > Undo", self.db) as trans:
+            media.set_path(src)
+            self.db.commit_media(media, trans)
+        files, records, problems = gc.undo_logged_run(self.db, self.log)
+        self.assertEqual((files, records, problems), (1, 0, []))
+        self.assertTrue(os.path.exists(src))
+
+    def test_changed_or_locked_records_are_left_alone(self) -> None:
+        """Records repointed since, or locked, are reported, not touched."""
+        h_changed, h_locked = self.consolidate(
+            self.touch("old", "a.jpg"), self.touch("old", "b.jpg")
+        )
+        changed = self.db.get_media_from_handle(h_changed)
+        with DbTxn("user edit", self.db) as trans:
+            changed.set_path("somewhere/else.jpg")
+            self.db.commit_media(changed, trans)
+        gc.lock_media(self.db, self.db.get_media_from_handle(h_locked), commit=True)
+        _files, records, problems = gc.undo_logged_run(self.db, self.log)
+        self.assertEqual(records, 0)
+        self.assertEqual(len(problems), 2)
+        self.assertEqual(
+            self.db.get_media_from_handle(h_changed).get_path(), "somewhere/else.jpg"
+        )
+
+    def test_never_overwrites_old_location(self) -> None:
+        """If something now occupies the old location, the file stays put."""
+        src = self.touch("old", "a.jpg")
+        (handle,) = self.consolidate(src)
+        with open(src, "w", encoding="utf-8") as f:
+            f.write("a different file")
+        _files, _records, problems = gc.undo_logged_run(self.db, self.log)
+        self.assertTrue(problems)
+        with open(src, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "a different file")
+        moved = self.db.get_media_from_handle(handle).get_path()
+        self.assertTrue(os.path.exists(gc.full_media_path(self.db, moved)))
+
+    def test_copy_is_kept_on_undo(self) -> None:
+        """Undoing a copy repoints the record but never deletes the copy."""
+        src = self.touch("old", "c.jpg")
+        handle = self.add_media(src, "Copy me")
+        dlg = mf.ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+        dlg.radio_copy.set_active(True)
+        with patch(_MF_DLG) as ok_dialog:
+            dlg.cb_accept_hints(MagicMock())
+            dlg.cb_apply(MagicMock())
+        self.assertIn("Undo last file moves", ok_dialog.call_args[0][1])
+        copy_path = gc.full_media_path(
+            self.db, self.db.get_media_from_handle(handle).get_path()
+        )
+        gc.undo_logged_run(self.db, self.log)
+        self.assertEqual(self.db.get_media_from_handle(handle).get_path(), src)
+        self.assertTrue(os.path.exists(copy_path))
+        self.assertTrue(os.path.exists(src))
+
+    def test_unwritable_log_is_reported(self) -> None:
+        """If the log cannot be written the user is warned."""
+        os.makedirs(self.log)  # a folder where the log file should be
+        tool = mf.GWizardMediaFix.__new__(mf.GWizardMediaFix)
+        tool.dbstate = self.dbstate
+        self.add_media(self.touch("old", "a.jpg"), "A")
+        tool._auto_consolidate_location(self.db)
+        self.assertIn("could not be written", tool.last_move_log_note)
+
+    def test_split_copies_are_logged(self) -> None:
+        """Fix media references 'Create separate file copies' is logged."""
+        shared = self.touch("old", "shared.jpg")
+        self.add_media(shared, "One")
+        h2 = self.add_media(shared, "Two")
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        combo = MagicMock()
+        combo.get_active.return_value = 1
+        dlg.row_targets = [{"group": dlg.groups[0], "action_combo": combo}]
+        with patch(_DLG):
+            dlg.cb_apply(MagicMock())
+        run = gc.last_logged_run(gc.read_move_log(self.log))
+        self.assertEqual([r["action"] for r in run], ["copy"])
+        gc.undo_logged_run(self.db, self.log)
+        self.assertEqual(self.db.get_media_from_handle(h2).get_path(), shared)
+
+    def test_main_window_undo_button(self) -> None:
+        """The main window button confirms, undoes and reports."""
+        src = self.touch("old", "a.jpg")
+        self.consolidate(src)
+        tool = mf.GWizardMediaFix.__new__(mf.GWizardMediaFix)
+        tool.dbstate = self.dbstate
+        tool.window = MagicMock()
+        question = MagicMock()
+        question.return_value.run.return_value = True
+        with (
+            patch("gramps.plugins.tool.gwizardmediafix.QuestionDialog2", question),
+            patch(_MF_DLG) as ok_dialog,
+        ):
+            tool.cb_button(MagicMock(), "undo_moves")
+        question.assert_called_once()
+        self.assertIn("Moved 1 file(s) back", ok_dialog.call_args[0][1])
+        self.assertTrue(os.path.exists(src))
+
+
+# ------------------------------------------------------------
+#
+# Batch 4: performance
+#
+# ------------------------------------------------------------
+class DuplicateScanPerformanceTest(_DbTestCase):
+    """The permission walk runs only for files that cannot be read."""
+
+    def test_permission_walk_only_for_missing_files(self) -> None:
+        """Existing files are not walked; missing ones are."""
+        present = self.touch("old", "here.jpg")
+        self.add_media(present, "Present")
+        self.add_media(os.path.join(self.tmp, "gone.jpg"), "Missing")
+        with patch(
+            "gramps.plugins.tool.gwizardmediafix.check_path_permission",
+            return_value=(False, None),
+        ) as walk:
+            find_duplicate_media_groups(self.db)
+        walked = [c.args[0] for c in walk.call_args_list]
+        self.assertNotIn(present, walked)
+        self.assertIn(os.path.join(self.tmp, "gone.jpg"), walked)
 
 
 if __name__ == "__main__":
