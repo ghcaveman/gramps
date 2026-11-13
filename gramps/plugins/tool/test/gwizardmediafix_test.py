@@ -1478,20 +1478,20 @@ class GWizardMediaFixTest(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_consolidate_location_blocked_by_duplicate_references(self) -> None:
-        """Consolidate media location requires resolving duplicate references first."""
+    def test_consolidate_location_groups_duplicate_references(self) -> None:
+        """Shared files no longer block Consolidate: they become one grouped row."""
         with DbTxn("Create duplicate media references", self.db) as trans:
             m1 = Media()
             m1.set_description("Census 1")
             m1.set_path(r"C:\photos\shared_census.jpg")
-            self.db.add_media(m1, trans)
+            h1 = self.db.add_media(m1, trans)
 
             m2 = Media()
             m2.set_description("Census 2")
             m2.set_path(r"C:\photos\shared_census.jpg")
-            self.db.add_media(m2, trans)
+            h2 = self.db.add_media(m2, trans)
 
-        # 1. Main window button callback blocks consolidation when dups exist
+        # 1. Main window button opens the dialog (no "resolve first" refusal)
         tool_instance = GWizardMediaFix.__new__(GWizardMediaFix)
         tool_instance.dbstate = self.dbstate
         tool_instance.window = MagicMock()
@@ -1503,23 +1503,16 @@ class GWizardMediaFixTest(unittest.TestCase):
             ) as mock_dlg_class,
         ):
             tool_instance.cb_button(MagicMock(), "consolidate_location")
-            mock_dialog.assert_called_once()
-            self.assertIn(
-                "Resolve Duplicate References First",
-                mock_dialog.call_args[0][0],
-            )
-            mock_dlg_class.assert_not_called()
+            mock_dialog.assert_not_called()
+            mock_dlg_class.assert_called_once()
 
-        # 2. ConsolidateMediaLocationDialog disables action buttons when duplicate files exist
+        # 2. The dialog shows ONE row for the shared file, covering both records
         dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
-        self.assertTrue(len(dlg.dup_files) > 0)
-        self.assertFalse(dlg.apply_button.get_sensitive())
-        self.assertFalse(dlg.accept_button.get_sensitive())
-
-        with patch("gramps.plugins.tool.gwizardmediafix.OkDialog") as mock_dialog:
-            dlg.cb_apply(MagicMock())
-            mock_dialog.assert_called_once()
-            self.assertIn("Cannot Consolidate Files", mock_dialog.call_args[0][0])
+        self.assertEqual(len(dlg.rows), 1)
+        self.assertEqual(set(dlg.rows[0]["handles"]), {h1, h2})
+        self.assertEqual(dlg.shared_count, 1)
+        self.assertTrue(dlg.apply_button.get_sensitive())
+        self.assertTrue(dlg.accept_button.get_sensitive())
 
         # 3. Sanity check in cb_apply: duplicate source files in row_targets blocks move
         dlg.dup_files = []  # Bypass initial check to test batch conflict detection
