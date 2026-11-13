@@ -54,6 +54,9 @@ try:
         HeaderLabel,
         create_table_grid,
         clean_path,
+        full_media_path,
+        is_bare_media,
+        path_key,
         unique_destination,
         relocate_file,
         is_media_locked,
@@ -65,6 +68,9 @@ except (ImportError, ValueError):
         HeaderLabel,
         create_table_grid,
         clean_path,
+        full_media_path,
+        is_bare_media,
+        path_key,
         unique_destination,
         relocate_file,
         is_media_locked,
@@ -104,11 +110,10 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
         if not raw_path:
             continue
 
-        try:
-            full_path = media_path_full(db, raw_path)
-            key = os.path.normcase(os.path.normpath(full_path))
-        except Exception:
-            key = os.path.normcase(os.path.normpath(raw_path))
+        # full_media_path never raises, so full_path is always bound (it used
+        # to be left unset when media_path_full() failed -> UnboundLocalError).
+        full_path = full_media_path(db, raw_path)
+        key = path_key(full_path)
 
         assoc_str = ""
         try:
@@ -143,6 +148,7 @@ def find_duplicate_media_groups(db: Any) -> list[dict[str, Any]]:
                 "perm_issue": perm_issue,
                 "inaccess_dir": inaccess_dir,
                 "media": media,
+                "bare": is_bare_media(media),
             }
         )
 
@@ -342,9 +348,21 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                 grid.attach(action_combo, 2, row_index, 1, 1)
 
                 # Column 3: Hint label
-                hint_str = str(
-                    _("Unreferenced image tag: safe to remove from database")
-                )
+                # Only suggest deleting a record that carries nothing worth
+                # keeping (no notes, attributes, tags, citations or date).
+                bare = bool(keeper.get("bare"))
+                suggested_action = 0 if bare else 1
+                if bare:
+                    hint_str = str(
+                        _("Unreferenced media object with no notes or other data")
+                    )
+                else:
+                    hint_str = str(
+                        _(
+                            "Unreferenced, but has notes, attributes, tags, "
+                            "citations or a date: keep, or review manually"
+                        )
+                    )
                 if group.get("perm_issue") and group.get("inaccess_dir"):
                     hint_str = (
                         str(_("Permission denied at '%s'")) % group["inaccess_dir"]
@@ -393,6 +411,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                 action_combo.set_active(0)
                 action_combo.set_hexpand(True)
                 grid.attach(action_combo, 2, row_index, 1, 1)
+                suggested_action = 0
 
                 # Column 3: Hint label
                 hint_str = str(_("Merge duplicate records into keeper [%(gid)s]")) % {
@@ -413,7 +432,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                     "group": group,
                     "action_combo": action_combo,
                     "hint_label": hint_label,
-                    "suggested_action": 0,
+                    "suggested_action": suggested_action,
                 }
             )
             row_index += 1
@@ -437,9 +456,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         OkDialog(
             str(_("Hints accepted")),
             str(
-                _(
-                    "Populated merge suggestions for %d shared media files. Review and press Apply."
-                )
+                _("Set the suggested action for %d row(s). Review and press Apply.")
                 % count
             ),
             parent=self,

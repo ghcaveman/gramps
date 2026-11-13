@@ -28,7 +28,9 @@
 from __future__ import annotations
 import logging
 import os
+import re
 import shutil
+import sys
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -46,9 +48,13 @@ from gi.repository import Gtk, Pango
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbTxn
 from gramps.gen.lib import Tag
+from gramps.gen.utils.file import media_path_full
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
+
+# "C:\..." or "C:/..." - a Windows drive path, recognised on every platform
+_WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 # ------------------------------------------------------------
@@ -198,12 +204,70 @@ def is_absolute_path(path: str | None) -> bool:
     p = clean_path(path)
     if not p:
         return False
-    return os.path.isabs(p) or p[0] in ("/", "\\")
+    return os.path.isabs(p) or p[0] in ("/", "\\") or bool(_WIN_DRIVE_RE.match(p))
+
+
+def is_windows_style_path(path: str | None) -> bool:
+    """Return True for a drive path ("C:\\x", "C:/x") or a UNC path ("\\\\srv\\x").
+
+    Such paths come from Windows (often via a GEDCOM import) and are compared
+    case-insensitively on every platform.
+    """
+    p = clean_path(path)
+    return bool(_WIN_DRIVE_RE.match(p)) or p.startswith("\\\\")
 
 
 def path_key(path: str) -> str:
-    """Normalised, case-folded key for comparing two paths."""
-    return os.path.normcase(os.path.normpath(clean_path(path)))
+    """Normalised key for comparing two paths.
+
+    Backslashes are treated as separators on every platform.  Case is folded
+    where the file system is case-insensitive (Windows, macOS default) and for
+    Windows-style paths everywhere, so "C:\\Pic.JPG" and "c:/pic.jpg" match on
+    Linux and macOS too.
+    """
+    p = clean_path(path)
+    fold = is_windows_style_path(p) or sys.platform == "darwin"
+    key = os.path.normcase(os.path.normpath(p.replace("\\", "/")))
+    return key.casefold() if fold else key
+
+
+def full_media_path(db: Any, raw_path: str | None) -> str:
+    """Return the on-disk path for a stored media path ("" for an empty path).
+
+    Absolute paths (including Windows drive paths on Linux/macOS) are returned
+    as-is; relative paths are resolved against the media base path.  Never
+    raises.
+    """
+    p = clean_path(raw_path)
+    if not p:
+        return ""
+    if is_absolute_path(p):
+        return p
+    try:
+        return media_path_full(db, p)
+    except Exception:  # noqa: BLE001 - fall back to the stored path
+        return p
+
+
+def is_bare_media(media: Any) -> bool:
+    """Return True when a media record carries nothing worth keeping.
+
+    A record with notes, attributes, tags, citations or a date is not bare and
+    must never be deleted automatically.
+    """
+
+    def _has(name: str) -> bool:
+        fn = getattr(media, name, None)
+        return bool(fn()) if callable(fn) else False
+
+    date = media.get_date_object() if hasattr(media, "get_date_object") else None
+    return not (
+        _has("get_note_list")
+        or _has("get_attribute_list")
+        or _has("get_tag_list")
+        or _has("get_citation_list")
+        or (date is not None and not date.is_empty())
+    )
 
 
 def to_db_path(full_path: str, base_dir: str) -> str:
