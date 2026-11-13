@@ -1,101 +1,77 @@
-# GUI Verification Instructions for Button Placement Changes (Commit 1)
+# Button order (buttonswap): verification
 
-This document provides step-by-step instructions to navigate to each of the changed windows and widgets in Gramps to validate the button ordering differences between Linux and Windows.
+How to check that dialog buttons follow the platform convention.
 
----
+| Order   | Main buttons                   | Used when                                   |
+|---------|--------------------------------|---------------------------------------------|
+| GNOME   | `[Help] ...  [Cancel] [OK]`    | Linux/macOS by default                      |
+| Windows | `[OK] [Cancel] [Help]`         | Windows by default                          |
 
-## 1. Column Order Configuration (`ColumnOrder`)
+## How it works
 
-* **File**: `gramps/gui/columnorder.py`
-* **How to Navigate**:
-  1. Open Gramps and navigate to the **People** category on the left sidebar (select **People List View**).
-  2. Select **View → Configure View...** from the top menu (or click the **Configure View** button in the toolbar, or press `Ctrl+Shift+C`).
-  3. Select the **Columns** tab in the configuration dialog.
-* **What to Observe**:
-  * Check the bottom-right corner of the tab for the **Apply** button.
-  * In Commit 1, it uses `btns.set_layout(Gtk.ButtonBoxStyle.END)` and honors Windows button ordering conventions, placing `[Apply]` at the bottom-right on both platforms (`Windows/Linux`).
+* `gramps/gui/buttonorder.py` holds all the logic.
+  * `apply_platform_button_order()` sets GTK's `gtk-alternative-button-order`
+    from the preference (called at startup and when the preference changes).
+  * `apply_button_order(dialog)` moves the affirmative button (OK, Accept,
+    Yes, Apply) first and Help last when that setting is on.
+  * `apply_window_button_order(ok, help)` does the same for plain windows
+    whose buttons carry no response ids.
+* Hooks that apply it:
+  * `Glade.__init__` (`gramps/gui/glade.py`): every dialog loaded from a
+    `.glade` file.
+  * `ManagedWindow.set_window()`: every Python-built ManagedWindow dialog,
+    when the dialog is realized.
+  * One-line `apply_button_order(dialog)` calls for file choosers and other
+    dialogs that are not ManagedWindows.
+  * `apply_window_button_order()` in the Book window, Change Names and
+    Owner Editor.
+* Only the main OK/Cancel row of a dialog is reordered. Other button rows
+  (Add/Remove, Up/Down, sidebar Find/Clear, Plugin Manager) keep their
+  order on every platform.
 
----
+## Preference
 
-## 2. Sidebar Search Filter (`SidebarFilter`)
+**Edit → Preferences → General → Dialog button order**
 
-* **File**: `gramps/gui/filters/sidebar/_sidebarfilter.py`
-* **How to Navigate**:
-  1. Open any main category view (e.g., **People**, **Families**, or **Events**).
-  2. Ensure the sidebar is visible (**View → Sidebar** or press `Ctrl+Alt+S`).
-  3. Click the top **Filter** tab on the sidebar.
-* **What to Observe**:
-  * Inspect the action buttons located directly below the filter search entry fields:
-    * **Linux**: `[Find]` is on the left, `[Reset]` is on the right.
-    * **Windows**: `[Reset]` is on the left, `[Find]` is on the right.
+* *Automatic* (default): Windows order on Windows, GNOME order elsewhere.
+* *OK on the right (GNOME)* / *OK on the left (Windows)*: force one order.
 
----
+Config key `interface.dialog-button-order` (0 = Automatic, 1 = GNOME,
+2 = Windows). The change applies to dialogs opened afterwards; no restart.
+On Windows the title-bar layout comes from `interface.window-controls`.
 
-## 3. Organize Bookmarks Dialog (`BookmarksDialog`)
+## Checks
 
-* **File**: `gramps/gui/views/bookmarks.py`
-* **How to Navigate**:
-  1. From the top menu bar, select **Bookmarks → Organize Bookmarks...**
-* **What to Observe**:
-  * Look at the vertical button stack directly to the right of the bookmarks list:
-    * **Linux**: Top-to-bottom order is `[Up]`, `[Down]`, `[Remove]`.
-    * **Windows**: Top-to-bottom order is `[Remove]`, `[Down]`, `[Up]`.
-  * The bottom dialog action buttons remain `[Close]` and `[Help]`.
+Do each check twice: once with *OK on the left (Windows)* and once with
+*OK on the right (GNOME)*. A Linux machine can test both orders.
 
----
+| # | Open | Windows order | GNOME order |
+|---|------|---------------|-------------|
+| 1 | Edit → Add (any person): **Edit Person** | OK · Cancel · Help | [Help] … Cancel · OK |
+| 2 | Any event → **Edit Event** | OK · Cancel · Help | [Help] … Cancel · OK |
+| 3 | Edit → Remove a person → confirmation (**QuestionDialog**) | Yes/Delete first | Yes/Delete last |
+| 4 | Edit a person, change a field, press Esc (**Save** dialog) | Save first | Save last |
+| 5 | Reports → any text report (**ReportDialog**) | OK · Cancel · Help | [Help] … Cancel · OK |
+| 6 | Preferences → Family Tree → media path **…** (file chooser) | Open/Select first | Open/Select last |
+| 7 | Reports → Books (**Book window**) | OK · Close · Help | [Help] … Close · OK |
+| 8 | Tools → Family Tree Processing → Fix Capitalization (**Change Names**) | Accept · Cancel · Help | Help · Cancel · Accept |
+| 9 | Tools → Family Tree Processing → Edit Database Owner Information (**Owner Editor**) | OK · Cancel · Help | [Help] … Cancel · OK |
+| 10 | Edit → Undo History (no OK button) | unchanged | unchanged |
 
-## 4. Organize Tags Dialog (`OrganizeTagsDialog`)
+Must **not** change between the two orders:
 
-* **File**: `gramps/gui/views/tags.py`
-* **How to Navigate**:
-  1. From the top menu bar, select **Edit → Organize Tags...** (or click the **Tag** dropdown icon in the toolbar and select **Organize Tags...**).
-* **What to Observe**:
-  * Inspect the vertical button stack directly to the right of the tags list:
-    * **Linux**: Top-to-bottom order is `[Up]`, `[Down]`, `[Add]`, `[Edit]`, `[Remove]`.
-    * **Windows**: Top-to-bottom order is reversed: `[Remove]`, `[Edit]`, `[Add]`, `[Down]`, `[Up]`.
-  * The bottom dialog action buttons remain `[Close]` and `[Help]`.
+* Organize Tags and Bookmarks: Up / Down / Add / Edit / Remove
+* Report options person/place lists: Add / Remove
+* Sidebar filter: Find / Clear
+* Plugin Manager: Info / Hide, Install / Refresh
+* Tip of the Day: Forward / Close
 
----
+Switch the preference while Gramps is running, then open a new dialog: it
+should use the new order straight away.
 
-## 5. Plugin Manager (`PluginStatus`)
+## Static audit
 
-* **File**: `gramps/gui/plug/_windows.py`
-* **How to Navigate**:
-  1. From the top menu bar, select **Help → Plugin Manager**.
-* **What to Observe**:
-  * **"Registered Plugins" and "Loaded Plugins" tabs**: Look at the button box below the list:
-    * **Linux**: `[Info]` on the left, `[Hide/Unhide]` on the right.
-    * **Windows**: `[Hide/Unhide]` on the left, `[Info]` on the right.
-  * **"Install Addons" tab**: Look at the button box at the bottom of the page:
-    * **Linux**: `[Install Addon]`, `[Install All Addons]`, `[Refresh Addon List]`.
-    * **Windows**: `[Refresh Addon List]`, `[Install All Addons]`, `[Install Addon]`.
-
----
-
-## 6. Report List Options (`_guioptions.py`: Person, Place, and Surname Color Lists)
-
-* **File**: `gramps/gui/plug/_guioptions.py`
-* **How to Navigate**:
-  * **Place List Option**:
-    1. Select **Reports → Text Reports → Place Report...** from the top menu.
-    2. Locate the **"Select places individually"** section.
-  * **Person List & Surname Color Options**:
-    1. Select **Reports → Graphs → Family Lines Graph...** from the top menu.
-    2. Locate the **"People of interest"** and **"Family colors"** sections.
-* **What to Observe**:
-  * Inspect the vertical button boxes alongside the item lists:
-    * **Linux**: `[+]` (Add) on top, `[-]` (Remove) below it.
-    * **Windows**: `[-]` (Remove) on top, `[+]` (Add) below it.
-
----
-
-## 7. Error Report Assistant (`ErrorReportAssistant`)
-
-* **File**: `gramps/gui/logger/_errorreportassistant.py`
-* **How to Navigate**:
-  1. When a warning or error occurs in Gramps, click the notification icon on the statusbar to open the **Error View** dialog.
-  2. In the Error View dialog, click the **Report** button to launch the **Error Report Assistant**.
-* **What to Observe**:
-  * On Page 1 (*Error Details*) and Page 2 (*System Information*), examine the button box at the bottom right of the text area:
-    * **Linux**: `[Clear]` on the left, `[Reset]` on the right.
-    * **Windows**: `[Reset]` on the left, `[Clear]` on the right.
+`generate_dialog_placement.py` scans the source and writes
+`DialogPlacement_Windows.csv` and `DialogPlacement_Linux.csv`
+(`--platform windows|linux|both`). It reports the order the buttons are
+declared in, i.e. before `buttonorder.py` reorders them at run time.
