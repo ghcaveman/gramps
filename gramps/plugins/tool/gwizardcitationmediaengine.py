@@ -48,6 +48,7 @@ from gramps.gen.lib import MediaRef
 from gramps.plugins.tool.gwizard_common import is_locked
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 # -------------------------------------------------------------------------
@@ -490,12 +491,21 @@ def compute_citation_media_compatibility(
     if media.category and citation.category:
         if media.category == citation.category:
             score += 35
-            reasons.append(_("Category match: %s (+35)") % media.category.title())
+            reasons.append(
+                _("Category match: {category} (+35)").format(
+                    category=media.category.title()
+                )
+            )
         elif citation.category in INCOMPATIBLE_CATEGORIES.get(media.category, set()):
             score -= 50
             conflicts.append(
-                _("Severe category conflict: image is '%s' but citation is '%s'")
-                % (media.category.title(), citation.category.title())
+                _(
+                    "Severe category conflict: image is '{media_category}' but "
+                    "citation is '{citation_category}'"
+                ).format(
+                    media_category=media.category.title(),
+                    citation_category=citation.category.title(),
+                )
             )
     elif media.is_portrait:
         # Portraits attached to documentary citations (like census or wills) are suspect
@@ -503,7 +513,8 @@ def compute_citation_media_compatibility(
             score -= 20
             conflicts.append(
                 _(
-                    "Type conflict: personal portrait matched with archival document citation"
+                    "Type conflict: personal portrait matched with archival document "
+                    "citation"
                 )
             )
 
@@ -515,20 +526,29 @@ def compute_citation_media_compatibility(
             diff = abs(m_yr - c_yr)
             if diff == 0:
                 score += 30
-                reasons.append(_("Exact year match: %s (+30)") % media.year)
+                reasons.append(
+                    _("Exact year match: {year} (+30)").format(year=media.year)
+                )
             elif diff == 1:
                 score += 20
                 reasons.append(
-                    _("Contemporary year match: %s vs %s (+20)")
-                    % (media.year, citation.year)
+                    _(
+                        "Contemporary year match: {media_year} vs {citation_year} (+20)"
+                    ).format(media_year=media.year, citation_year=citation.year)
                 )
             elif diff > 1:
                 # Severity scales with distance
                 penalty = min(60, 20 + diff * 5)
                 score -= penalty
                 conflicts.append(
-                    _("Year mismatch: image is %s vs citation is %s (diff %d)")
-                    % (media.year, citation.year, diff)
+                    _(
+                        "Year mismatch: image is {media_year} vs citation is "
+                        "{citation_year} (diff {difference})"
+                    ).format(
+                        media_year=media.year,
+                        citation_year=citation.year,
+                        difference=diff,
+                    )
                 )
         except ValueError:
             pass
@@ -537,15 +557,21 @@ def compute_citation_media_compatibility(
     if media.surname and citation.surnames:
         if media.surname in citation.surnames:
             score += 25
-            reasons.append(_("Surname match: %s (+25)") % media.surname.title())
+            reasons.append(
+                _("Surname match: {surname} (+25)").format(
+                    surname=media.surname.title()
+                )
+            )
         else:
             # Surnames exist in both but none match
             score -= 25
             conflicts.append(
-                _("Surname mismatch: image specifies '%s' but citation references [%s]")
-                % (
-                    media.surname.title(),
-                    ", ".join(s.title() for s in citation.surnames),
+                _(
+                    "Surname mismatch: image specifies '{media_surname}' but citation "
+                    "references [{citation_surnames}]"
+                ).format(
+                    media_surname=media.surname.title(),
+                    citation_surnames=", ".join(s.title() for s in citation.surnames),
                 )
             )
 
@@ -553,18 +579,24 @@ def compute_citation_media_compatibility(
     if media.given and citation.givens:
         if media.given in citation.givens:
             score += 10
-            reasons.append(_("Given name match: %s (+10)") % media.given.title())
+            reasons.append(
+                _("Given name match: {given} (+10)").format(given=media.given.title())
+            )
 
     # 5. Page / Sheet / Line Number Matching
     if media.sheet_page and citation.sheet_page:
         if media.sheet_page == citation.sheet_page:
             score += 25
-            reasons.append(_("Sheet/Page match: %s (+25)") % media.sheet_page)
+            reasons.append(
+                _("Sheet/Page match: {page} (+25)").format(page=media.sheet_page)
+            )
         else:
             score -= 30
             conflicts.append(
-                _("Sheet/Page mismatch: image mentions %s vs citation specifies %s")
-                % (media.sheet_page, citation.sheet_page)
+                _(
+                    "Sheet/Page mismatch: image mentions {media_page} vs citation "
+                    "specifies {citation_page}"
+                ).format(media_page=media.sheet_page, citation_page=citation.sheet_page)
             )
 
     # 6. Keyword overlap bonus
@@ -591,7 +623,9 @@ def compute_citation_media_compatibility(
             pts = min(15, len(meaningful) * 5)
             score += pts
             reasons.append(
-                _("Keyword overlap [%s] (+%d)") % (", ".join(meaningful), pts)
+                _("Keyword overlap [{keywords}] (+{points})").format(
+                    keywords=", ".join(meaningful), points=pts
+                )
             )
 
     # Normalization & Status Assignment

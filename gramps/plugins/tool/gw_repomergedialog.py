@@ -59,8 +59,8 @@ from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
 from gramps.plugins.tool.gwizardcitationfix import (
+    repository_change_summary,
     UNATTACHED_REPO_KEY,
-    auto_assign_source_repositories,
     build_repo_merge_rows,
     collect_sources_by_repo,
     get_fix_description,
@@ -69,6 +69,7 @@ from gramps.plugins.tool.gwizardcitationfix import (
 )
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
@@ -126,7 +127,9 @@ class RepoMergeDialog(Gtk.Dialog):
         count_label.set_markup(
             "<b>%s</b>"
             % str(
-                _("Repositories (%d total), Sources (%d total)") % (n_repos, n_sources)
+                _(
+                    "Repositories ({repositories} total), Sources ({sources} total)"
+                ).format(repositories=n_repos, sources=n_sources)
             )
         )
         count_label.set_halign(Gtk.Align.START)
@@ -139,7 +142,9 @@ class RepoMergeDialog(Gtk.Dialog):
             )
             done.set_halign(Gtk.Align.START)
             content.add(done)
-            self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % 0)
+            self.accept_button = Gtk.Button(
+                label=_("Accept hints ({number_of})").format(number_of=0)
+            )
             self.accept_button.set_sensitive(False)
             self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
 
@@ -184,7 +189,9 @@ class RepoMergeDialog(Gtk.Dialog):
         content.pack_start(hint_footer, False, False, 0)
 
         n_hints = sum(1 for info, _combo in self.row_targets if info.get("hint_target"))
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button = Gtk.Button(
+            label=_("Accept hints ({number_of})").format(number_of=n_hints)
+        )
         self.accept_button.set_sensitive(n_hints > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
@@ -528,20 +535,6 @@ class RepoMergeDialog(Gtk.Dialog):
         scrolled.add(grid)
         return scrolled
 
-    def build_buttons(self) -> Gtk.Box:
-        """Return the repository action button row."""
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        buttons.set_homogeneous(True)
-        n_hints = sum(1 for info, _combo in self.row_targets if info.get("hint_target"))
-        accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
-        accept_button.set_sensitive(n_hints > 0)
-        accept_button.connect("clicked", self.cb_accept_hints)
-        apply_button = Gtk.Button(label=str(_("Apply")))
-        apply_button.connect("clicked", self.cb_apply)
-        buttons.pack_start(accept_button, True, True, 0)
-        buttons.pack_start(apply_button, True, True, 0)
-        return buttons
-
     def collect_repo_names(self) -> list[str]:
         """Return sorted repository names from the database."""
         names: list[str] = []
@@ -620,22 +613,6 @@ class RepoMergeDialog(Gtk.Dialog):
                         merged += 1
         return (merged, renamed, errors)
 
-    def run_auto(self, parent: Gtk.Window | None = None) -> None:
-        """Accept every hint and apply it (same code as Accept all hints)."""
-        owner = parent or self.get_transient_for()
-        try:
-            changed, created = auto_assign_source_repositories(
-                GWizardCitationRepairEngine(), self.dbstate.db
-            )
-        except Exception as error:  # pylint: disable=broad-except
-            LOG.exception("Auto fix of repositories failed")
-            ErrorDialog(str(_("Auto fix: repositories")), str(error), parent=owner)
-            return
-        message = str(_("Changed the repository of %d sources")) % changed
-        if created:
-            message += str(_(" (%d new repositories created)")) % created
-        OkDialog(str(_("Auto fix: repositories")), message + ".", parent=owner)
-
     def show_dialog(self) -> None:
         """Show the dialog modally and destroy it afterwards.
 
@@ -672,16 +649,18 @@ class RepoMergeDialog(Gtk.Dialog):
                     break
         if hasattr(self, "accept_button"):
             self.accept_button.set_sensitive(False)
-            self.accept_button.set_label(str(_("Accept hints (%d)")) % 0)
+            self.accept_button.set_label(
+                _("Accept hints ({number_of})").format(number_of=0)
+            )
         OkDialog(
             str(_("Hints accepted")),
-            str(
-                _(
-                    "Set %d drop-downs to the suggested repository. Review "
-                    "them, change any that look wrong, then press Apply."
-                )
-            )
-            % accepted,
+            ngettext(
+                "Set {number_of} drop-down to the suggested repository. Review it, "
+                "change it if it looks wrong, then press Apply.",
+                "Set {number_of} drop-downs to the suggested repository. Review them, "
+                "change any that look wrong, then press Apply.",
+                accepted,
+            ).format(number_of=accepted),
             parent=self,
         )
 
@@ -744,15 +723,19 @@ class RepoMergeDialog(Gtk.Dialog):
                     plan_repo_merges(repo_changes), trans
                 )
 
-        summary = str(_("Changed the repository of %d sources")) % reassigned
-        if created:
-            summary += str(_(" (%d new repositories created)")) % created
-        summary += "."
-        if merged or renamed:
-            summary += "\n" + str(
-                _("Merged %d empty repositories, renamed %d to golden names.")
-                % (merged, renamed)
-            )
+        summary = repository_change_summary(reassigned, created)
+        if merged:
+            summary += " " + ngettext(
+                "Merged {number_of} empty repository.",
+                "Merged {number_of} empty repositories.",
+                merged,
+            ).format(number_of=merged)
+        if renamed:
+            summary += " " + ngettext(
+                "Renamed {number_of} repository to its gold-standard name.",
+                "Renamed {number_of} repositories to their gold-standard names.",
+                renamed,
+            ).format(number_of=renamed)
         if errors:
             ErrorDialog(
                 str(_("Repository changes had problems")),

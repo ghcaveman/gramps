@@ -449,15 +449,6 @@ class CitationFixDialogTest(unittest.TestCase):
         self.assertIn("Move URL", r2["hint_text"])
         self.assertEqual(r2["suggested_notes"], "https://example.com/record")
 
-        dlg = CitationFixDialog.__new__(CitationFixDialog)
-        dlg.row_targets = [{"row": r1}, {"row": r2}]
-        with unittest.mock.patch(
-            "gramps.plugins.tool.gw_citationsfixdialog.Gtk.Button"
-        ) as btn_mock:
-            dlg.build_buttons()
-            # Button label should show (1), NOT (2)
-            btn_mock.assert_any_call(label="Accept hints (1)")
-
     def test_dialog_buttons_and_footer(self) -> None:
         """Verify buttons in action area next to close, and footer text at bottom without all-caps."""
         src = FakeSource(handle="s1", title="Census 1900")

@@ -54,6 +54,7 @@ from gramps.plugins.tool.gwizardcitationshared import (
 )
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 PROBLEM_TREE_CONFIDENCE = "tree_confidence"
@@ -106,7 +107,9 @@ class CitationFixDialog(Gtk.Dialog):
             done = Gtk.Label(label=str(_("No citations found.")))
             done.set_halign(Gtk.Align.START)
             content.add(done)
-            self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % 0)
+            self.accept_button = Gtk.Button(
+                label=_("Accept hints ({number_of})").format(number_of=0)
+            )
             self.accept_button.set_sensitive(False)
             self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
 
@@ -120,8 +123,9 @@ class CitationFixDialog(Gtk.Dialog):
         total_attrs = sum(int(row.get("attr_count", 0)) for row in self.rows)
         count_label = Gtk.Label(
             label=str(
-                _("Total citations: %d | Total citation attributes: %d")
-                % (len(self.rows), total_attrs)
+                _("Citations: {citations} | Citation attributes: {attributes}").format(
+                    citations=len(self.rows), attributes=total_attrs
+                )
             ),
         )
         count_label.set_halign(Gtk.Align.START)
@@ -180,7 +184,7 @@ class CitationFixDialog(Gtk.Dialog):
         header_grid.attach(hint_head, 6, 0, 1, 1)
         content.add(header_grid)
 
-        # SizeGroups to ensure each header column exactly matches the data column width below
+        # SizeGroups keep each header column as wide as its data column
         self.column_sizegroups = [
             Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL) for _ in range(7)
         ]
@@ -231,7 +235,9 @@ class CitationFixDialog(Gtk.Dialog):
                 or target["row"].get("suggested_notes")
             )
         )
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button = Gtk.Button(
+            label=_("Accept hints ({number_of})").format(number_of=n_hints)
+        )
         self.accept_button.set_sensitive(n_hints > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
@@ -309,7 +315,7 @@ class CitationFixDialog(Gtk.Dialog):
             src_label.set_max_width_chars(26)
             grid.attach(src_label, 0, row_index, 1, 1)
 
-            # Column 1: Citation details with 3 guaranteed separate lines, word-wrapping and fixed size
+            # Column 1: citation details on three wrapped lines, fixed size
             cit_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             cit_box.set_size_request(225, -1)
             cit_lines = row["citation_display"].split("\n")
@@ -373,7 +379,7 @@ class CitationFixDialog(Gtk.Dialog):
             notes_entry.set_text("")
             grid.attach(notes_entry, 5, row_index, 1, 1)
 
-            # Column 6: Hint label (not a text box / dropdown), hints appended on separate lines
+            # Column 6: hint label, one hint per line
             hint_label = Gtk.Label(
                 label=row.get("hint_text", row.get("best_guess", ""))
             )
@@ -414,28 +420,6 @@ class CitationFixDialog(Gtk.Dialog):
         scrolled.set_vexpand(True)
         scrolled.add(grid)
         return scrolled
-
-    def build_buttons(self) -> Gtk.Box:
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        buttons.set_homogeneous(True)
-        n_hints = sum(
-            1
-            for target in self.row_targets
-            if bool(
-                target["row"].get("suggested_conf")
-                or target["row"].get("suggested_page")
-                or target["row"].get("suggested_date")
-                or target["row"].get("suggested_notes")
-            )
-        )
-        accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
-        accept_button.set_sensitive(n_hints > 0)
-        apply_button = Gtk.Button(label=str(_("Apply")))
-        accept_button.connect("clicked", self.cb_accept_hints)
-        apply_button.connect("clicked", self.cb_apply)
-        buttons.pack_start(accept_button, True, True, 0)
-        buttons.pack_start(apply_button, True, True, 0)
-        return buttons
 
     def get_choices(self) -> dict[str, str]:
         return {
@@ -481,28 +465,14 @@ class CitationFixDialog(Gtk.Dialog):
 
         OkDialog(
             str(_("Hints accepted")),
-            str(
-                _(
-                    "Populated suggested data into target columns for %d citations. "
-                    "Review or edit them, then press Apply."
-                )
-            )
-            % populated_count,
+            ngettext(
+                "Filled in suggested values for {number_of} citation. Review or edit "
+                "them, then press Apply.",
+                "Filled in suggested values for {number_of} citations. Review or edit "
+                "them, then press Apply.",
+                populated_count,
+            ).format(number_of=populated_count),
             parent=self,
-        )
-
-    def cb_set_best(self, button: Gtk.Button) -> None:
-        """Backward-compatible alias for cb_accept_hints."""
-        self.cb_accept_hints(button)
-
-    def run_auto(self, parent: Gtk.Window | None = None) -> None:
-        """Accept every hint and apply it (same code as Accept all hints)."""
-        owner = parent or self.get_transient_for()
-        applied_count = auto_fix_citations(self.dbstate.db)
-        OkDialog(
-            str(_("Auto clean: citations")),
-            str(_("Updated %d citations.") % applied_count),
-            parent=owner,
         )
 
     def show_dialog(self) -> None:
@@ -582,7 +552,13 @@ class CitationFixDialog(Gtk.Dialog):
 
         OkDialog(
             str(_("Citation fixes applied")),
-            str(_("Updated %d citations in the database.") % applied_count),
+            str(
+                ngettext(
+                    "Updated {number_of} citation.",
+                    "Updated {number_of} citations.",
+                    applied_count,
+                ).format(number_of=applied_count)
+            ),
             parent=self,
         )
 
@@ -614,7 +590,7 @@ def _extract_date_from_text(text: str) -> str:
     return extract_access_date(text, allow_timestamp=True)
 
 
-def build_citation_fix_rows(db) -> list[dict[str, Any]]:
+def build_citation_fix_rows(db: Any) -> list[dict[str, Any]]:
     """Build per-citation rows from the database, sorted by source name.
 
     Citations with no source reference are listed last under ``(no source)``.
@@ -858,7 +834,9 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
                 hint_actions.append(_("Clean Volume/Page"))
 
             if suggested_date:
-                hint_actions.append(_("Extract date: %s") % suggested_date)
+                hint_actions.append(
+                    _("Extract date: {date}").format(date=suggested_date)
+                )
 
             if hint_actions:
                 hint_text = "\n".join(hint_actions)
@@ -904,64 +882,6 @@ def build_citation_fix_rows(db) -> list[dict[str, Any]]:
     rows.sort(key=lambda r: (r["source_name"] == NO_SOURCE, r["source_name"]))
 
     return rows
-
-
-def plan_citation_fixes(rows):
-    """Turn dialog rows into an apply plan (no database access)."""
-    plan = {
-        "tree_confidence": [],
-        "manual_review": 0,
-    }
-    for row in rows:
-        if row.get("skip"):
-            continue
-        problem = row.get("problem")
-        if problem == PROBLEM_TREE_CONFIDENCE:
-            choice = row.get("best_guess", "")
-            if choice == _("Lower to Confidence 1"):
-                plan["tree_confidence"].append(
-                    {"citation_handle": row["citation_handle"], "target_level": 1}
-                )
-            elif choice == _("Lower to Confidence 2"):
-                plan["tree_confidence"].append(
-                    {"citation_handle": row["citation_handle"], "target_level": 2}
-                )
-        elif problem == PROBLEM_MANUAL_REVIEW:
-            plan["manual_review"] += 1
-    return plan
-
-
-def _tree_source_handles(db):
-    """Return the gramps handles of FamilySearch family-tree sources."""
-    handles = set()
-    for src in db.iter_sources():
-        try:
-            title = str(src.get_title() or "").lower()
-        except Exception:  # pylint: disable=broad-except
-            title = ""
-        if "familysearch" in title and "family tree" in title:
-            handles.add(str(src.get_handle() or ""))
-    return handles
-
-
-def apply_citation_fixes(dbstate, plan):
-    """Lower over-confident FamilySearch Tree citation confidence."""
-    from gramps.gen.db import DbTxn
-
-    db = dbstate.db
-    lowered = 0
-    with DbTxn(_("Lower tree citation confidence"), db) as trans:
-        for entry in plan.get("tree_confidence", []):
-            cit = db.get_citation_from_handle(entry["citation_handle"])
-            if cit is None:
-                continue
-            try:
-                cit.set_confidence_level(entry["target_level"])
-                db.commit_citation(cit, trans)
-                lowered += 1
-            except Exception:
-                LOG.exception("Failed to lower citation confidence")
-    return {"tree_confidence_lowered": lowered}
 
 
 def apply_citation_values(

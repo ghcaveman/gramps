@@ -59,6 +59,7 @@ from gramps.plugins.tool.gwizardcitationshared import (
 from gramps.plugins.tool.gwizardcitationfix import rank_golden_repo_matches
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
@@ -160,7 +161,7 @@ def _tidy_keeper_address(
             removed += 1
     repo.set_address_list(kept)
     for detail in details:
-        text = str(_("Place detail from address: %s")) % detail
+        text = _("Place detail from address: {detail}").format(detail=detail)
         if any(
             (db.get_note_from_handle(n_handle) is not None)
             and db.get_note_from_handle(n_handle).get() == text
@@ -203,7 +204,7 @@ def apply_repo_consolidations(
     when missing). Targets that are themselves merged away are followed to
     the final keeper. ``tidy_handles`` are repositories whose address should
     be cleaned in place without a merge. This is the one implementation used
-    by the dialog's Apply button, its ``run_auto`` and Accept all hints.
+    by the dialog's Apply button and by Accept all hints.
 
     :returns: dict with ``merged``, ``created``, ``removed``, ``moved`` counts
         and an ``errors`` list.
@@ -235,7 +236,9 @@ def apply_repo_consolidations(
                 )
                 if keeper_handle is None:
                     result["errors"].append(
-                        str(_("Could not create golden repository '%s'.")) % golden_name
+                        _("Could not create golden repository '{repository}'.").format(
+                            repository=golden_name
+                        )
                     )
                     continue
                 golden_cache[golden_name] = keeper_handle
@@ -257,7 +260,9 @@ def apply_repo_consolidations(
                 keepers.append(keeper_handle)
         else:
             result["errors"].append(
-                str(_("Failed to merge %s into %s.")) % (discard_handle, keeper_handle)
+                _("Failed to merge {discard} into {keeper}.").format(
+                    discard=discard_handle, keeper=keeper_handle
+                )
             )
 
     for handle in keepers + [h for h in (tidy_handles or []) if h not in keepers]:
@@ -267,6 +272,44 @@ def apply_repo_consolidations(
 
     repair_engine.apply_gold_standard_details(db, trans)
     return result
+
+
+def consolidation_summary(result: dict[str, Any]) -> str:
+    """Return translated sentences describing an ``apply_repo_consolidations`` result.
+
+    :param result: The dict returned by :func:`apply_repo_consolidations`.
+    :returns: One sentence per kind of change, or a single "nothing" line.
+    """
+    sentences = []
+    for key, singular, plural in (
+        (
+            "merged",
+            "Merged {number_of} duplicate repository.",
+            "Merged {number_of} duplicate repositories.",
+        ),
+        (
+            "created",
+            "Created {number_of} gold-standard repository.",
+            "Created {number_of} gold-standard repositories.",
+        ),
+        (
+            "removed",
+            "Removed {number_of} repeated address line.",
+            "Removed {number_of} repeated address lines.",
+        ),
+        (
+            "moved",
+            "Moved {number_of} place detail into a note.",
+            "Moved {number_of} place details into notes.",
+        ),
+    ):
+        if result.get(key):
+            sentences.append(
+                ngettext(singular, plural, result[key]).format(number_of=result[key])
+            )
+    if not sentences:
+        return _("No repositories needed consolidating.")
+    return " ".join(sentences)
 
 
 def auto_consolidate_repositories(
@@ -330,11 +373,12 @@ def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
 
         if len(sources) == 0:
             summary = str(_("No sources"))
-        elif source_titles:
-            sample = ", ".join(source_titles[:2])
-            summary = f"{len(sources)} sources: {sample}"
         else:
-            summary = f"{len(sources)} sources"
+            summary = ngettext(
+                "{number_of} source", "{number_of} sources", len(sources)
+            ).format(number_of=len(sources))
+            if source_titles:
+                summary += ": " + ", ".join(source_titles[:2])
 
         is_golden = name in golden_set
         if is_golden:
@@ -449,9 +493,11 @@ def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
                 if keeper["is_golden"]:
                     hint_reason = str(_("Matches gold standard"))
                 elif keeper["source_count"] > member["source_count"]:
-                    hint_reason = (
-                        str(_("Keeper has %d sources")) % keeper["source_count"]
-                    )
+                    hint_reason = ngettext(
+                        "Keeper has {number_of} source",
+                        "Keeper has {number_of} sources",
+                        keeper["source_count"],
+                    ).format(number_of=keeper["source_count"])
                 else:
                     hint_reason = str(_("Preferred keeper"))
                 if not confident:
@@ -500,7 +546,9 @@ def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
                         target_h = existing_golden_handles[best_golden]
                         if target_h != m_handle:
                             hint_target = target_h
-                            hint_reason = str(_("Merge into existing %s")) % best_golden
+                            hint_reason = _("Merge into existing {repository}").format(
+                                repository=best_golden
+                            )
                             if not confident:
                                 hint_reason = str(
                                     _("Similar name; check before merging")
@@ -591,7 +639,10 @@ class RepoConsolidateDialog(Gtk.Dialog):
 
         count_label = Gtk.Label()
         count_label.set_markup(
-            "<b>%s</b>" % str(_("Problem repositories (%d total)") % n_repos)
+            "<b>%s</b>"
+            % str(
+                _("Problem repositories ({number_of} total)").format(number_of=n_repos)
+            )
         )
         count_label.set_halign(Gtk.Align.START)
         count_label.set_hexpand(True)
@@ -677,7 +728,9 @@ class RepoConsolidateDialog(Gtk.Dialog):
             for row, _combo in self.row_combos
             if row.get("hint_target") and row.get("confident")
         )
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button = Gtk.Button(
+            label=_("Accept hints ({number_of})").format(number_of=n_hints)
+        )
         self.accept_button.set_sensitive(n_hints > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
@@ -834,13 +887,13 @@ class RepoConsolidateDialog(Gtk.Dialog):
                     break
         OkDialog(
             str(_("Hints accepted")),
-            str(
-                _(
-                    "Set %d drop-downs to the suggested repository. Review "
-                    "them, change any that look wrong, then press Apply."
-                )
-            )
-            % accepted,
+            ngettext(
+                "Set {number_of} drop-down to the suggested repository. Review it, "
+                "change it if it looks wrong, then press Apply.",
+                "Set {number_of} drop-downs to the suggested repository. Review them, "
+                "change any that look wrong, then press Apply.",
+                accepted,
+            ).format(number_of=accepted),
             parent=self,
         )
 
@@ -871,28 +924,7 @@ class RepoConsolidateDialog(Gtk.Dialog):
 
     def _show_result(self, result: dict[str, Any], ok_title: str) -> None:
         """Summarize an ``apply_repo_consolidations`` result."""
-        summary_parts = []
-        if result["merged"] > 0:
-            summary_parts.append(
-                str(_("Consolidated %d repositories.")) % result["merged"]
-            )
-        if result["created"] > 0:
-            summary_parts.append(
-                str(_("Created %d gold-standard repositories.")) % result["created"]
-            )
-        if result["removed"] > 0:
-            summary_parts.append(
-                str(_("Removed %d redundant address lines.")) % result["removed"]
-            )
-        if result["moved"] > 0:
-            summary_parts.append(
-                str(_("Moved %d place details into notes.")) % result["moved"]
-            )
-        msg = (
-            " ".join(summary_parts)
-            if summary_parts
-            else str(_("Consolidation complete."))
-        )
+        msg = consolidation_summary(result)
         if result["errors"]:
             ErrorDialog(
                 str(_("Consolidate warnings")),
@@ -901,20 +933,6 @@ class RepoConsolidateDialog(Gtk.Dialog):
             )
         else:
             OkDialog(ok_title, msg, parent=self)
-
-    def run_auto(self, parent: Gtk.Window | None = None) -> None:
-        """Accept all hints and apply them (same code as Accept all hints)."""
-        owner = parent or self.get_transient_for()
-        result = auto_consolidate_repositories(self.dbstate.db, self.engine)
-        message = str(_("Consolidated %d repositories.")) % result["merged"]
-        if result["errors"]:
-            ErrorDialog(
-                str(_("Auto fix: repositories")),
-                message + "\n\n" + "\n".join(result["errors"]),
-                parent=owner,
-            )
-            return
-        OkDialog(str(_("Auto fix: repositories")), message, parent=owner)
 
     def show_dialog(self) -> None:
         """Show and run the modal dialog until user explicitly closes it."""

@@ -151,11 +151,9 @@ class GWizardCitationReportTest(unittest.TestCase):
 
         text = report.format_analysis(stats)
         self.assertIn(
-            "Document scans in Person/Event galleries matching citations: 1 items", text
+            "Document scans in Person/Event galleries matching citations: 1 item.", text
         )
-        self.assertIn(
-            "Suspect media attachments on citations: 1 conflicts detected", text
-        )
+        self.assertIn("Suspect media attachments on citations: 1 conflict.", text)
         self.assertIn("Death_Certificate_1860", text)
         self.assertIn("Link Citation Media", text)
 

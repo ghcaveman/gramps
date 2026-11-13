@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Tool and dialog for assigning Genealogical Proof Standard (GPS) Citation Attributes."""
+"""Tool and dialog for assigning GPS citation attributes."""
 
 # -------------------------------------------------------------------------
 #
@@ -52,6 +52,7 @@ from gramps.gui.plug import tool
 from gramps.plugins.tool.gwizardcitationshared import note_text
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
@@ -77,7 +78,7 @@ def limit_quay_to_current(suggested: str, current_conf: int) -> str:
 def suggest_citation_attributes(
     src_title: str, cit_page: str, cit_text: str, curr_conf: int
 ) -> dict[str, str]:
-    """Suggest GPS Source Type, Information Type, Evidence Type and QUAY based on evidence analysis."""
+    """Suggest GPS Source, Information and Evidence Type and QUAY for a citation."""
     text_corpus = f"{src_title} {cit_page} {cit_text}".lower()
 
     # 1. User Trees ("geni" must be a whole word, not part of "genealogy")
@@ -262,7 +263,9 @@ def build_citation_attribute_rows(db: Any) -> list[dict[str, Any]]:
 
         display_lines = [
             f"{src_title} ({src_gid})" if src_gid else src_title,
-            f"Citation: {page if page else '—'} ({c_gid}) | Conf: {conf}",
+            _("Citation: {page} ({gramps_id}) | Confidence: {confidence}").format(
+                page=page or "—", gramps_id=c_gid, confidence=conf
+            ),
         ]
 
         rows.append(
@@ -337,7 +340,9 @@ class CitationAttributesDialog(Gtk.Dialog):
         self.set_default_size(1285, 520)
 
         n_hints = sum(1 for r in self.rows if not r["has_all"])
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button = Gtk.Button(
+            label=_("Accept hints ({number_of})").format(number_of=n_hints)
+        )
         self.accept_button.set_sensitive(n_hints > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
@@ -361,8 +366,9 @@ class CitationAttributesDialog(Gtk.Dialog):
 
         count_label = Gtk.Label(
             label=str(
-                _("Total citations: %d | Citations needing GPS attributes: %d")
-                % (len(self.rows), n_hints)
+                _("Citations: {citations} | Needing GPS attributes: {needing}").format(
+                    citations=len(self.rows), needing=n_hints
+                )
             )
         )
         count_label.set_halign(Gtk.Align.START)
@@ -457,8 +463,10 @@ class CitationAttributesDialog(Gtk.Dialog):
         hint_footer = Gtk.Label(
             label=str(
                 _(
-                    "Press 'Accept hints' to populate suggested Genealogical Proof Standard (GPS) attributes into the target columns, "
-                    "edit any values as needed, then press 'Apply' to update citations in the database."
+                    "Press 'Accept hints' to populate suggested Genealogical Proof "
+                    "Standard (GPS) attributes into the target columns, "
+                    "edit any values as needed, then press 'Apply' to update "
+                    "citations in the database."
                 )
             )
         )
@@ -468,7 +476,7 @@ class CitationAttributesDialog(Gtk.Dialog):
         content.pack_start(hint_footer, False, False, 0)
 
     def build_rows(self, entries: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
-        """Build data grid with inputs as labels, outputs as text boxes, and hint labels."""
+        """Build the grid: current values as labels, targets as text boxes, hints."""
         grid = Gtk.Grid()
         grid.set_column_spacing(6)
         grid.set_row_spacing(6)
@@ -640,19 +648,19 @@ class CitationAttributesDialog(Gtk.Dialog):
 
         OkDialog(
             str(_("Hints accepted")),
-            str(
-                _(
-                    "Populated suggested GPS attributes into target columns for %d citations. "
-                    "Review or edit them, then press Apply."
-                )
-            )
-            % populated_count,
+            ngettext(
+                "Filled in suggested GPS attributes for {number_of} citation. Review "
+                "or edit them, then press Apply.",
+                "Filled in suggested GPS attributes for {number_of} citations. Review "
+                "or edit them, then press Apply.",
+                populated_count,
+            ).format(number_of=populated_count),
             parent=self,
         )
 
     @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
-        """Apply target column data directly into citation attributes in the database."""
+        """Write the target column values into the citations' attributes."""
         applied_count = 0
         with DbTxn(_("Update Citation Attributes"), self.dbstate.db) as trans:
             for target in self.row_targets:
@@ -683,8 +691,11 @@ class CitationAttributesDialog(Gtk.Dialog):
 
         OkDialog(
             str(_("Citation Attributes Updated")),
-            str(_("Updated GPS attributes on %d citations in the database."))
-            % applied_count,
+            ngettext(
+                "Updated GPS attributes on {number_of} citation.",
+                "Updated GPS attributes on {number_of} citations.",
+                applied_count,
+            ).format(number_of=applied_count),
             parent=self,
         )
 

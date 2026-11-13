@@ -36,18 +36,7 @@ from typing import Any
 # GTK modules
 #
 # -------------------------------------------------------------------------
-try:
-    from gi.repository import Gtk, Pango
-except (ImportError, AttributeError):
-    from unittest.mock import MagicMock
-
-    class _FakeDialog:  # type: ignore[no-redef]
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-    Gtk = MagicMock()  # type: ignore[assignment]
-    Gtk.Dialog = _FakeDialog  # type: ignore[assignment]
-    Pango = MagicMock()  # type: ignore[assignment]
+from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
 #
@@ -59,7 +48,7 @@ from gramps.gen.db import DbTxn
 from gramps.gen.utils.file import media_path_full
 from gramps.gen.utils.thumbnails import get_thumbnail_image
 from gramps.gui.dialog import OkDialog
-from gramps.plugins.tool.gwizard_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_common import escape_markup, reports_apply_errors
 from gramps.plugins.tool.gwizardcitationmediaengine import (
     apply_link_media_to_citation,
     apply_promote_media_to_citation,
@@ -384,7 +373,8 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
             done = Gtk.Label(
                 label=str(
                     _(
-                        "No candidate media links found. All citations and media attachments are well-aligned."
+                        "No candidate media links found. All citations and media "
+                        "attachments are well-aligned."
                     )
                 )
             )
@@ -394,12 +384,15 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
             return
 
         stat_label = Gtk.Label(
-            label=str(
-                _(
-                    "Found %d candidate media links: %d Safe 🟢, %d Review 🟡, %d Conflict 🔴"
-                )
+            label=ngettext(
+                "Found {number_of} candidate media link: {safe} Safe 🟢, {review} "
+                "Review 🟡, {conflict} Conflict 🔴",
+                "Found {number_of} candidate media links: {safe} Safe 🟢, {review} "
+                "Review 🟡, {conflict} Conflict 🔴",
+                len(self.rows),
+            ).format(
+                number_of=len(self.rows), safe=n_safe, review=n_review, conflict=n_conf
             )
-            % (len(self.rows), n_safe, n_review, n_conf)
         )
         stat_label.set_halign(Gtk.Align.START)
         content.pack_start(stat_label, False, False, 0)
@@ -425,7 +418,9 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
         paned.pack2(right_box, resize=False, shrink=False)
 
         # Action area buttons
-        self.accept_button = Gtk.Button(label=str(_("Accept safe hints (%d)")) % n_safe)
+        self.accept_button = Gtk.Button(
+            label=_("Accept safe hints ({number_of})").format(number_of=n_safe)
+        )
         self.accept_button.set_sensitive(n_safe > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
@@ -579,49 +574,73 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
             except Exception:
                 self.preview_image.clear()
 
-        # Score markup
+        # Score markup. Every value from the database is escaped, so a "&"
+        # or "<" in a file name or source title cannot break the markup.
         score_color = (
             "#2E8B57"
             if compat.status == "safe"
             else ("#B8860B" if compat.status == "ambiguous" else "#B22222")
         )
         self.preview_score.set_markup(
-            f"<b>Compatibility Score:</b> <span foreground='{score_color}'><b>{compat.score}/100 ({row['status_display']})</b></span>"
+            "<b>{label}</b> <span foreground='{color}'><b>{score}/100 "
+            "({status})</b></span>".format(
+                label=escape_markup(_("Compatibility score:")),
+                color=score_color,
+                score=compat.score,
+                status=escape_markup(row["status_display"]),
+            )
         )
 
-        lines = []
-        lines.append(f"<b>Candidate Media:</b> {m_id.filename}")
-        lines.append(f"• Path: {m_id.path}")
-        lines.append(
-            f"• Detected Category: {m_id.category.title() if m_id.category else '(none)'}"
-        )
-        lines.append(f"• Year: {m_id.year or '(none)'}")
+        none = _("(none)")
+
+        def heading(text: str) -> str:
+            return "<b>%s</b>" % escape_markup(text)
+
+        def item(label: str, value: Any) -> str:
+            return "• %s %s" % (escape_markup(label), escape_markup(value or none))
+
+        lines = [
+            "%s %s" % (heading(_("Candidate media:")), escape_markup(m_id.filename)),
+            item(_("Path:"), m_id.path),
+            item(_("Detected category:"), m_id.category.title()),
+            item(_("Year:"), m_id.year),
+        ]
         if m_id.sheet_page:
-            lines.append(f"• Sheet/Page: {m_id.sheet_page}")
+            lines.append(item(_("Sheet/Page:"), m_id.sheet_page))
         if m_id.surname:
-            lines.append(f"• Surname: {m_id.surname.title()} {m_id.given.title()}")
+            lines.append(
+                item(_("Surname:"), f"{m_id.surname.title()} {m_id.given.title()}")
+            )
 
-        lines.append("")
-        lines.append("<b>Target Citation:</b>")
-        lines.append(f"• Source: {c_id.source_title or '(no title)'}")
-        lines.append(f"• Volume/Page: {c_id.page or '(none)'}")
-        lines.append(f"• Citation Year: {c_id.year or '(none)'}")
+        lines += [
+            "",
+            heading(_("Target citation:")),
+            item(_("Source:"), c_id.source_title or _("(no title)")),
+            item(_("Volume/Page:"), c_id.page),
+            item(_("Citation year:"), c_id.year),
+        ]
         if c_id.surnames:
             lines.append(
-                f"• Associated Surnames: {', '.join(s.title() for s in c_id.surnames)}"
+                item(
+                    _("Associated surnames:"),
+                    ", ".join(name.title() for name in c_id.surnames),
+                )
             )
 
         if compat.reasons:
-            lines.append("")
-            lines.append("<b>Matching Factors:</b>")
-            for r in compat.reasons:
-                lines.append(f"  ✓ {r}")
+            lines += ["", heading(_("Matching factors:"))]
+            lines += ["  ✓ %s" % escape_markup(reason) for reason in compat.reasons]
 
         if compat.conflicts:
-            lines.append("")
-            lines.append("<span foreground='#B22222'><b>Conflict Warnings:</b></span>")
-            for conf in compat.conflicts:
-                lines.append(f"  <span foreground='#B22222'>⚠ {conf}</span>")
+            lines += [
+                "",
+                "<span foreground='#B22222'>%s</span>"
+                % heading(_("Conflict warnings:")),
+            ]
+            lines += [
+                "  <span foreground='#B22222'>⚠ %s</span>" % escape_markup(conflict)
+                for conflict in compat.conflicts
+            ]
 
         self.preview_text.set_markup("\n".join(lines))
 
@@ -641,10 +660,20 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply chosen actions and close dialog with report."""
         linked, detached = apply_citation_media_fixes(self.dbstate, self.rows)
-        msg_parts = [str(_("Linked %d media object(s) to citations.")) % linked]
+        msg_parts = [
+            ngettext(
+                "Linked {number_of} media object to citations.",
+                "Linked {number_of} media objects to citations.",
+                linked,
+            ).format(number_of=linked)
+        ]
         if detached:
             msg_parts.append(
-                str(_("Detached %d document scan(s) from owners.")) % detached
+                ngettext(
+                    "Detached {number_of} document scan from its owner.",
+                    "Detached {number_of} document scans from their owners.",
+                    detached,
+                ).format(number_of=detached)
             )
         OkDialog(
             str(_("Media Linking Complete")),

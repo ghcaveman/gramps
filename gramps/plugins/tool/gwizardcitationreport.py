@@ -38,6 +38,7 @@ from typing import Any
 # Gramps modules
 #
 # -------------------------------------------------------------------------
+from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.plugins.tool.gwizardcitationshared import (
     detect_title_elements,
     is_debris_text,
@@ -46,7 +47,15 @@ from gramps.plugins.tool.gwizardcitationshared import (
     note_text,
 )
 
+_ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
+
+
+def _count(singular: str, plural: str, number: int, **values: Any) -> str:
+    """Translate a sentence with a count, filling ``{number_of}`` and ``values``."""
+    return ngettext(singular, plural, number).format(number_of=number, **values)
+
 
 LONG_NOTE_CHARS = 2000
 
@@ -672,13 +681,24 @@ class GWizardCitationReport:
         a clean database."""
         errors = stats.get("scan_errors", [])
         if not errors:
-            return ["Scan health: every check completed without errors.", ""]
+            return [_("Scan health: every check completed without errors."), ""]
         total = sum(e["count"] for e in errors)
         lines = [
-            "Scan health: %d error(s) in %d place(s). Counts below for the "
-            "affected steps may be incomplete." % (total, len(errors))
+            _count(
+                "Scan health: {number_of} error in {places} place(s). Counts below "
+                "for the affected steps may be incomplete.",
+                "Scan health: {number_of} errors in {places} place(s). Counts below "
+                "for the affected steps may be incomplete.",
+                total,
+                places=len(errors),
+            )
         ]
         for err in errors[:10]:
+            first_seen = (
+                " " + _("[first seen on {object}]").format(object=err["example"])
+                if err["example"]
+                else ""
+            )
             lines.append(
                 "- %s: %dx %s in %s(): %s%s"
                 % (
@@ -686,12 +706,17 @@ class GWizardCitationReport:
                     err["count"],
                     err["error_type"],
                     err["function"],
-                    err["message"] or "(no message)",
-                    " [first seen on %s]" % err["example"] if err["example"] else "",
+                    err["message"] or _("(no message)"),
+                    first_seen,
                 )
             )
         if len(errors) > 10:
-            lines.append("- ... and %d more (see the Gramps log)." % (len(errors) - 10))
+            lines.append(
+                "- "
+                + _("... and {number_of} more (see the Gramps log).").format(
+                    number_of=len(errors) - 10
+                )
+            )
         lines.append("")
         return lines
 
@@ -701,136 +726,191 @@ class GWizardCitationReport:
         get = stats.get
         out: list[str] = []
 
+        def on_source(number: int, label: str) -> str:
+            return "  ↳ " + _("{number_of} on {source}").format(
+                number_of=number, source=label
+            )
+
+        def id_title(row: dict[str, Any], width: int) -> str:
+            return "%s '%s'" % (row["gramps_id"], row["title"][:width])
+
         # Citation text in the wrong place
         frag = get("page_fragments", [])
-        frag_total = sum(n for _, n in frag)
+        frag_total = sum(n for _label, n in frag)
         if frag_total:
             out.append(
-                "- Citation pages that start mid-sentence (text cut from the "
-                "source title): %d." % frag_total
+                "- "
+                + _count(
+                    "Citation pages that start mid-sentence (text cut from the "
+                    "source title): {number_of}.",
+                    "Citation pages that start mid-sentence (text cut from the "
+                    "source title): {number_of}.",
+                    frag_total,
+                )
             )
-            for label, n in frag[:3]:
-                out.append("  ↳ %d on %s" % (n, label))
+            out += [on_source(n, label) for label, n in frag[:3]]
         if get("page_access_dates"):
             out.append(
-                "- Access dates typed into the page field: %d (%d of them have an "
-                "empty citation Date)."
-                % (get("page_access_dates", 0), get("page_access_dates_no_date", 0))
+                "- "
+                + _(
+                    "Access dates typed into the page field: {number_of} "
+                    "({no_date} of them have an empty citation Date)."
+                ).format(
+                    number_of=get("page_access_dates", 0),
+                    no_date=get("page_access_dates_no_date", 0),
+                )
             )
         templates = get("page_templates", [])
         if templates and get("citations_no_page", 0) < get("citations", 0):
             out.append(
-                "- Page text is repetitive: %d distinct values; most common patterns:"
-                % get("page_distinct", 0)
+                "- "
+                + _(
+                    "Page text is repetitive: {number_of} distinct values; most "
+                    "common patterns:"
+                ).format(number_of=get("page_distinct", 0))
             )
             for tmpl, n in templates[:3]:
                 out.append("  ↳ %dx %s" % (n, tmpl[:90]))
         like_src = get("page_source_like", {})
         if like_src:
             out.append(
-                "- Citation pages that read like a collection name (belongs in "
-                "the source title?): %d sources affected." % len(like_src)
+                "- "
+                + _count(
+                    "Citation pages that read like a collection name (belongs in "
+                    "the source title?): {number_of} source affected.",
+                    "Citation pages that read like a collection name (belongs in "
+                    "the source title?): {number_of} sources affected.",
+                    len(like_src),
+                )
             )
             for label, pages in list(like_src.items())[:4]:
                 out.append("  ↳ %s: %s" % (label, "; ".join(pages[:2])[:100]))
         if get("citations_empty"):
             out.append(
-                "- Completely empty citations (no page, date, attribute, note or "
-                "media): %d of %d." % (get("citations_empty", 0), get("citations", 0))
+                "- "
+                + _(
+                    "Completely empty citations (no page, date, attribute, note "
+                    "or media): {number_of} of {total}."
+                ).format(number_of=get("citations_empty", 0), total=get("citations", 0))
             )
-            for label, n in get("citations_empty_by_source", [])[:3]:
-                out.append("  ↳ %d on %s" % (n, label))
+            out += [
+                on_source(n, label)
+                for label, n in get("citations_empty_by_source", [])[:3]
+            ]
 
         # Source field hygiene
         bad = get("sources_bad_fields", [])
         if bad:
             out.append(
-                "- Sources with markup, stray quotes or stray whitespace in a "
-                "field: %d." % len(bad)
+                "- "
+                + _(
+                    "Sources with markup, stray quotes or stray whitespace in a "
+                    "field: {number_of}."
+                ).format(number_of=len(bad))
             )
             for row in bad[:4]:
                 detail = "; ".join(
                     "%s (%s)" % (f, ", ".join(p)) for f, p in row["problems"].items()
                 )
-                out.append(
-                    "  ↳ %s '%s': %s" % (row["gramps_id"], row["title"][:50], detail)
-                )
+                out.append("  ↳ %s: %s" % (id_title(row, 50), detail))
         cstyle = get("sources_citation_style", [])
         if cstyle:
             out.append(
-                "- Source titles that look like a pasted citation string: %d."
-                % len(cstyle)
+                "- "
+                + _(
+                    "Source titles that look like a pasted citation string: "
+                    "{number_of}."
+                ).format(number_of=len(cstyle))
             )
             for row in cstyle[:3]:
                 out.append(
-                    "  ↳ %s '%s' (%d citations)"
-                    % (row["gramps_id"], row["title"][:60], row["citations"])
+                    "  ↳ %s (%s)"
+                    % (
+                        id_title(row, 60),
+                        _count(
+                            "{number_of} citation",
+                            "{number_of} citations",
+                            row["citations"],
+                        ),
+                    )
                 )
         non_titles = get("sources_non_titles", [])
         if non_titles:
             out.append(
-                "- Source titles that are really a URL, domain or filename: %d."
-                % len(non_titles)
+                "- "
+                + _(
+                    "Source titles that are really a URL, domain or filename: "
+                    "{number_of}."
+                ).format(number_of=len(non_titles))
             )
             for row in non_titles[:4]:
-                out.append(
-                    "  ↳ %s '%s' (%s)" % (row["gramps_id"], row["title"], row["kind"])
-                )
+                out.append("  ↳ %s (%s)" % (id_title(row, 200), row["kind"]))
         placeholders = get("sources_placeholder", [])
         if placeholders:
             cites = sum(r["citations"] for r in placeholders)
             out.append(
-                "- Placeholder sources ('Unknown' / blank): %d, holding %d citations."
-                % (len(placeholders), cites)
+                "- "
+                + _count(
+                    "Placeholder sources ('Unknown' / blank): {sources}, holding "
+                    "{number_of} citation.",
+                    "Placeholder sources ('Unknown' / blank): {sources}, holding "
+                    "{number_of} citations.",
+                    cites,
+                    sources=len(placeholders),
+                )
             )
         unused = get("sources_unused", [])
         if unused:
-            out.append("- Sources with no citations at all: %d." % len(unused))
+            out.append(
+                "- "
+                + _("Sources with no citations at all: {number_of}.").format(
+                    number_of=len(unused)
+                )
+            )
 
         # Duplicates the strict title match misses
-        loose = get("dupes_loose", [])
-        if loose:
-            out.append(
-                "- Duplicate sources hidden by 'U.S.' / punctuation differences "
-                "(safe to merge): %d clusters." % len(loose)
-            )
-            for group in loose[:5]:
-                out.append(
-                    "  ↳ "
-                    + "; ".join(
-                        "%s '%s'" % (r["gramps_id"], r["title"][:45]) for r in group[:3]
-                    )
-                )
-        variants = get("dupes_year_variants", [])
-        if variants:
-            out.append(
-                "- Same collection, different year range (check before merging): "
-                "%d clusters." % len(variants)
-            )
-            for group in variants[:4]:
-                out.append(
-                    "  ↳ "
-                    + "; ".join(
-                        "%s '%s'" % (r["gramps_id"], r["title"][:45]) for r in group[:3]
-                    )
-                )
+        for key, text, limit in (
+            (
+                "dupes_loose",
+                _(
+                    "Duplicate sources hidden by 'U.S.' / punctuation differences "
+                    "(safe to merge): {number_of} clusters."
+                ),
+                5,
+            ),
+            (
+                "dupes_year_variants",
+                _(
+                    "Same collection, different year range (check before "
+                    "merging): {number_of} clusters."
+                ),
+                4,
+            ),
+        ):
+            groups = get(key, [])
+            if groups:
+                out.append("- " + text.format(number_of=len(groups)))
+                for group in groups[:limit]:
+                    out.append("  ↳ " + "; ".join(id_title(r, 45) for r in group[:3]))
 
         # Repository hygiene
-        r_unused = get("repos_unused")
-        if r_unused and hasattr(r_unused, "__len__"):
-            out.append("- Repositories not linked to any source: %d." % len(r_unused))
-        r_addr_name = get("repos_address_is_name")
-        if r_addr_name and hasattr(r_addr_name, "__len__"):
-            out.append(
-                "- Repositories whose address just repeats the name: %d."
-                % len(r_addr_name)
-            )
-        r_packed = get("repos_packed_address")
-        if r_packed and hasattr(r_packed, "__len__"):
-            out.append(
-                "- Repositories with a long address field (likely several "
-                "places or notes packed in): %d." % len(r_packed)
-            )
+        for key, text in (
+            ("repos_unused", _("Repositories not linked to any source: {number_of}.")),
+            (
+                "repos_address_is_name",
+                _("Repositories whose address just repeats the name: {number_of}."),
+            ),
+            (
+                "repos_packed_address",
+                _(
+                    "Repositories with a long address field (likely several "
+                    "places or notes packed in): {number_of}."
+                ),
+            ),
+        ):
+            value = get(key)
+            if value and hasattr(value, "__len__"):
+                out.append("- " + text.format(number_of=len(value)))
         return out
 
     def format_analysis(self, stats: dict[str, Any]) -> str:
@@ -840,14 +920,17 @@ class GWizardCitationReport:
 
         # 1. Database Totals Block
         lines.append(
-            "Database totals: %d people, %d sources, %d repositories, %d citations, %d notes, %d media."
-            % (
-                get("people", 0),
-                get("sources", 0),
-                get("repositories", 0),
-                get("citations", 0),
-                get("notes", 0),
-                get("media", 0),
+            _(
+                "Database totals: {people} people, {sources} sources, "
+                "{repositories} repositories, {citations} citations, "
+                "{notes} notes, {media} media."
+            ).format(
+                people=get("people", 0),
+                sources=get("sources", 0),
+                repositories=get("repositories", 0),
+                citations=get("citations", 0),
+                notes=get("notes", 0),
+                media=get("media", 0),
             )
         )
         lines.append("")
@@ -856,189 +939,256 @@ class GWizardCitationReport:
         lines.extend(self._format_scan_errors(stats))
 
         # 2. Positive Alignments / Best Practices
-        lines.append("Where it matches best practice:")
+        lines.append(_("Where it matches best practice:"))
         lines.append(
-            "- Most sources are collection-level with specifics in citations (Evidence Explained approach)."
+            "- "
+            + _(
+                "Most sources are collection-level with specifics in citations "
+                "(Evidence Explained approach)."
+            )
         )
         lines.append("")
 
         # 3. Deficiencies / Diagnostic Room for Improvement
-        lines.append("Where it falls short:")
+        lines.append(_("Where it falls short:"))
 
-        # Repository Missing Log
+        def of_total(text: str, number: int, total: int) -> str:
+            return "- " + text.format(number_of=number, total=total)
+
         lines.append(
-            "- Sources without a repository link: %d of %d."
-            % (len(get("sources_no_repo", [])), get("sources", 0))
+            of_total(
+                _("Sources without a repository link: {number_of} of {total}."),
+                len(get("sources_no_repo", [])),
+                get("sources", 0),
+            )
         )
 
-        # Conflated Smashed Fields Log
         conflated = get("conflated_sources", [])
         lines.append(
-            "- Conflated Fields: %d sources contain mixed data types crammed together."
-            % len(conflated)
+            "- "
+            + _count(
+                "Conflated fields: {number_of} source mixes repository, source "
+                "and citation text.",
+                "Conflated fields: {number_of} sources mix repository, source "
+                "and citation text.",
+                len(conflated),
+            )
         )
         for row in conflated[:10]:
             lines.append(
-                "  * %s: '%s'\n    ↳ Found elements: %s"
+                "  * %s: '%s'\n    ↳ %s"
                 % (
                     row.get("gramps_id"),
                     row.get("title"),
-                    ", ".join(row.get("elements_detected", [])),
+                    _("Found elements: {elements}").format(
+                        elements=", ".join(row.get("elements_detected", []))
+                    ),
                 )
             )
 
-        # Citation Pinpoint Page Tracking
         lines.append(
-            "- Citations with no pinpoint Volume/Page detail: %d of %d."
-            % (get("citations_no_page", 0), get("citations", 0))
+            of_total(
+                _(
+                    "Citations with no pinpoint Volume/Page detail: {number_of} "
+                    "of {total}."
+                ),
+                get("citations_no_page", 0),
+                get("citations", 0),
+            )
         )
 
-        # FamilySearch Tree Downgrade Metrics
         if get("tree_citations"):
             lines.append(
-                "- Collaborative Tree citations found: %d (Rated High/Very High confidence: %d)."
-                % (get("tree_citations", 0), get("tree_conf_high", 0))
+                "- "
+                + _(
+                    "Collaborative tree citations found: {number_of} (rated "
+                    "High/Very High confidence: {high})."
+                ).format(
+                    number_of=get("tree_citations", 0), high=get("tree_conf_high", 0)
+                )
             )
 
-        # Unsourced Individuals Check
         lines.append(
-            "- Individuals with zero attached source citations: %d of %d."
-            % (get("people_unsourced", 0), get("people", 0))
+            of_total(
+                _(
+                    "Individuals with zero attached source citations: {number_of} "
+                    "of {total}."
+                ),
+                get("people_unsourced", 0),
+                get("people", 0),
+            )
         )
 
-        # Near-Duplicate String Groups Match
         dupes = get("near_duplicates", [])
-        lines.append("- Near-duplicate source title clusters found: %d." % len(dupes))
+        lines.append(
+            "- "
+            + _("Near-duplicate source title clusters found: {number_of}.").format(
+                number_of=len(dupes)
+            )
+        )
         for group in dupes[:7]:
             joined = "; ".join(
                 "%s '%s'" % (r.get("gramps_id"), r.get("title")) for r in group[:4]
             )
-            lines.append("  ↳ Cluster match: " + joined)
+            lines.append("  ↳ " + _("Cluster: {titles}").format(titles=joined))
 
         # Extra placement & hygiene findings ----------------------------
         lines.extend(self._format_placement(stats))
 
-        # Automated Export Junk Log
         debris = get("notes_debris", [])
         lines.append(
-            "- Import debris & migration logs hiding inside notes: %d rows."
-            % len(debris)
+            "- "
+            + _count(
+                "Import debris and migration logs inside notes: {number_of} note.",
+                "Import debris and migration logs inside notes: {number_of} notes.",
+                len(debris),
+            )
         )
         for row in debris[:5]:
             lines.append(
-                "  ↳ Note %s preview: %s" % (row.get("gramps_id"), row.get("preview"))
+                "  ↳ "
+                + _("Note {gramps_id}: {preview}").format(
+                    gramps_id=row.get("gramps_id"), preview=row.get("preview")
+                )
             )
 
-        # Long Sketched Blocks Counter
         long_notes = get("notes_long", [])
         if long_notes:
-            lines.append("- Long life-sketch narrative notes:")
+            lines.append("- " + _("Long life-sketch narrative notes:"))
             for row in long_notes[:3]:
                 lines.append(
-                    "  ↳ Note %s (%d chars): %s..."
-                    % (row.get("gramps_id"), row.get("length"), row.get("preview"))
+                    "  ↳ "
+                    + _("Note {gramps_id} ({length} characters): {preview}...").format(
+                        gramps_id=row.get("gramps_id"),
+                        length=row.get("length"),
+                        preview=row.get("preview"),
+                    )
                 )
 
-        # Media absolute layout warnings
-        abs_count = get("media_absolute_count", 0)
-        cits_with = get("citations_with_media", 0)
-        total_cits = get("citations", 0)
         lines.append(
-            "- Media objects carrying absolute hardcoded file paths: %d (Citations with attached media: %d of %d)."
-            % (abs_count, cits_with, total_cits)
+            "- "
+            + _(
+                "Media objects with absolute file paths: {number_of} (citations "
+                "with attached media: {with_media} of {total})."
+            ).format(
+                number_of=get("media_absolute_count", 0),
+                with_media=get("citations_with_media", 0),
+                total=get("citations", 0),
+            )
         )
 
         promotable_count = get("media_in_galleries_promotable", 0)
         if promotable_count:
             lines.append(
-                "  ↳ Document scans in Person/Event galleries matching citations: %d items."
-                % promotable_count
+                "  ↳ "
+                + _count(
+                    "Document scans in Person/Event galleries matching "
+                    "citations: {number_of} item.",
+                    "Document scans in Person/Event galleries matching "
+                    "citations: {number_of} items.",
+                    promotable_count,
+                )
             )
 
         unpackable_count = get("media_on_sources_unpackable", 0)
         if unpackable_count:
             lines.append(
-                "  ↳ Media on top-level Sources unpackable to specific citations: %d items."
-                % unpackable_count
+                "  ↳ "
+                + _count(
+                    "Media on top-level sources that belongs on specific "
+                    "citations: {number_of} item.",
+                    "Media on top-level sources that belongs on specific "
+                    "citations: {number_of} items.",
+                    unpackable_count,
+                )
             )
 
         suspect = get("suspect_citation_media", [])
         if suspect:
             lines.append(
-                "- Suspect media attachments on citations: %d conflicts detected."
-                % len(suspect)
+                "- "
+                + _count(
+                    "Suspect media attachments on citations: {number_of} conflict.",
+                    "Suspect media attachments on citations: {number_of} conflicts.",
+                    len(suspect),
+                )
             )
             for item in suspect[:5]:
-                conf_str = "; ".join(item.get("conflicts", []))
                 lines.append(
-                    "  ⚠ Citation '%s' <-> Media '%s': %s"
-                    % (item.get("cit_display"), item.get("media_name"), conf_str)
+                    "  ⚠ "
+                    + _(
+                        "Citation '{citation}' <-> Media '{media}': {conflicts}"
+                    ).format(
+                        citation=item.get("cit_display"),
+                        media=item.get("media_name"),
+                        conflicts="; ".join(item.get("conflicts", [])),
+                    )
                 )
 
-        # Duplicate filename warning blocks
         dup_media = get("media_dup_basenames", {})
         if dup_media:
             lines.append(
-                "- Duplicate filenames imported multiple times across different records:"
+                "- " + _("File names imported several times as different records:")
             )
             for base, count in list(dup_media.items())[:5]:
-                lines.append("  * %s (Imported %dx)" % (base, count))
+                lines.append(
+                    "  * "
+                    + _("{file_name} (imported {number_of} times)").format(
+                        file_name=base, number_of=count
+                    )
+                )
 
-        # Leftover layout warning flags
         if get("custom_events_total"):
             lines.append(
-                "- Custom unsupported unaligned legacy event definitions: %d tags."
-                % get("custom_events_total", 0)
+                "- "
+                + _("Custom (non-standard) event types in use: {number_of}.").format(
+                    number_of=get("custom_events_total", 0)
+                )
             )
 
         lines.append("")
 
-        # 4. Roadmap Step Breakdown Timeline
-        lines.append("Suggested order of fixes:")
-        lines.append(
-            "1. Run 'Unpack Conflated Source' to isolate hidden repository text strings."
-        )
-        lines.append(
-            "2. Run 'Repository Consolidate' to deduplicate matching repository targets."
-        )
-        lines.append(
-            "3. Run 'Fix Sources' to safely group matching census & collection lines together."
-        )
-        lines.append(
-            "4. Run 'Unpack Conflated Citation' to separate access dates, URLs, and volume/page strings."
-        )
-        lines.append(
-            "5. Run 'Fix Citations' to auto-downgrade online user tree confidence metrics."
-        )
-        lines.append("6. Run 'Citation Attributes' to assign GPS quality ratings.")
-        lines.append(
-            "7. Run 'Link Citation Media' to link safe documentary evidence scans to citations."
-        )
-        lines.append(
-            "8. Run 'Fix Notes' to permanently scrub legacy automated migration log files."
-        )
-        step = 7
+        # 4. Suggested order: the wizard's steps, then any extra hand work.
+        steps = [
+            _("Run 'Unpack Conflated Source' to separate repository text from titles."),
+            _("Run 'Repository Consolidate' to merge duplicate repositories."),
+            _("Run 'Fix Repositories' to link every source to a repository."),
+            _("Run 'Fix Sources' to merge duplicate census and collection sources."),
+            _(
+                "Run 'Unpack Conflated Citation' to separate access dates, URLs "
+                "and Volume/Page text."
+            ),
+            _("Run 'Fix Citations' to lower the confidence of online tree citations."),
+            _("Run 'Citation Attributes' to add GPS quality attributes."),
+            _(
+                "Run 'Link Citation Media' to link checked (locked) document "
+                "scans to citations."
+            ),
+            _("Run 'Fix Notes' to remove leftover import logs from notes."),
+        ]
         if (
             get("sources_bad_fields")
             or get("sources_citation_style")
             or get("page_fragments")
             or get("page_access_dates_no_date")
         ):
-            lines.append(
-                "%d. Clean source titles (markup, quotes) and move access dates and "
-                "entry detail out of the source and into the citation." % step
+            steps.append(
+                _(
+                    "Clean source titles (markup, quotes) and move access dates "
+                    "and entry detail out of the source and into the citation."
+                )
             )
-            step += 1
         if get("page_source_like") or get("sources_non_titles"):
-            lines.append(
-                "%d. Review the flagged pages and URL/filename titles by hand; "
-                "there are usually only a handful." % step
+            steps.append(
+                _(
+                    "Review the flagged pages and URL/filename titles by hand; "
+                    "there are usually only a handful."
+                )
             )
-            step += 1
         if get("sources_placeholder"):
-            lines.append(
-                "%d. Merge or delete the placeholder 'Unknown' sources." % step
-            )
+            steps.append(_("Merge or delete the placeholder 'Unknown' sources."))
+        lines.append(_("Suggested order of fixes:"))
+        lines += ["%d. %s" % (number, step) for number, step in enumerate(steps, 1)]
 
         return "\n".join(lines)
 

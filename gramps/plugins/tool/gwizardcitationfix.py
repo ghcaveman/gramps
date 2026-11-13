@@ -20,6 +20,10 @@
 
 """Tools/Family Tree Processing/GWizard citation fix."""
 
+# The step dialogs import this module, so they are imported inside the
+# functions that open them to avoid a circular import.
+# pylint: disable=import-outside-toplevel
+
 # -------------------------------------------------------------------------
 #
 # Standard Python modules
@@ -279,6 +283,27 @@ def get_auto_step_titles() -> dict[str, str]:
     return titles
 
 
+def repository_change_summary(changed: int, created: int) -> str:
+    """Return the result line for changing source repositories.
+
+    :param changed: Number of sources whose repository changed.
+    :param created: Number of repositories created for them.
+    :returns: One or two translated sentences.
+    """
+    text = ngettext(
+        "Changed the repository of {number_of} source.",
+        "Changed the repository of {number_of} sources.",
+        changed,
+    ).format(number_of=changed)
+    if created:
+        text += " " + ngettext(
+            "Created {number_of} new repository.",
+            "Created {number_of} new repositories.",
+            created,
+        ).format(number_of=created)
+    return text
+
+
 def run_auto_layer(layer: str, db: Any) -> str:
     """Accept all hints for one step and return a one-line result.
 
@@ -288,63 +313,61 @@ def run_auto_layer(layer: str, db: Any) -> str:
     """
     if layer == "unpack_sources":
         count = GWizardCitationRepairEngine().unpack_conflated_sources(db)
-        return str(_("Unpacked %d mixed source titles.")) % count
+        return ngettext(
+            "Unpacked {number_of} mixed source title.",
+            "Unpacked {number_of} mixed source titles.",
+            count,
+        ).format(number_of=count)
     if layer == "consolidate_repositories":
         from gramps.plugins.tool.gw_repoconsolidatedialog import (
             auto_consolidate_repositories,
+            consolidation_summary,
         )
 
         result = auto_consolidate_repositories(db)
-        text = str(_("Merged %d duplicate repository records")) % result["merged"]
-        extras = []
-        if result["created"]:
-            extras.append(
-                str(_("created %d gold-standard repositories")) % result["created"]
-            )
-        if result["removed"]:
-            extras.append(
-                str(_("removed %d repeated address lines")) % result["removed"]
-            )
-        if result["moved"]:
-            extras.append(str(_("moved %d place details into notes")) % result["moved"])
-        if extras:
-            text += " (%s)" % ", ".join(extras)
-        if result["errors"]:
-            text += ". " + " ".join(result["errors"])
-        return text + "."
+        parts = [consolidation_summary(result)] + list(result["errors"])
+        return " ".join(parts)
     if layer == "repositories":
         changed, created = auto_assign_source_repositories(
             GWizardCitationRepairEngine(), db
         )
-        text = str(_("Set the repository of %d sources")) % changed
-        if created:
-            text += str(_(" (%d new repositories created)")) % created
-        return text + "."
+        return repository_change_summary(changed, created)
     if layer == "sources":
-        from gramps.plugins.tool.gw_sourcesfixdialog import auto_fix_sources
-
-        merged, quarantined, trimmed = auto_fix_sources(db)
-        return str(_("Merged %d duplicate sources, quarantined %d, trimmed %d.")) % (
-            merged,
-            quarantined,
-            trimmed,
+        from gramps.plugins.tool.gw_sourcesfixdialog import (
+            auto_fix_sources,
+            source_fix_summary,
         )
+
+        return source_fix_summary(*auto_fix_sources(db))
     if layer == "unpack_citations":
         from gramps.plugins.tool.gw_unpackcitationsdialog import auto_unpack_citations
 
-        return str(_("Unpacked %d conflated citations.")) % auto_unpack_citations(db)
+        count = auto_unpack_citations(db)
+        return ngettext(
+            "Unpacked {number_of} conflated citation.",
+            "Unpacked {number_of} conflated citations.",
+            count,
+        ).format(number_of=count)
     if layer == "citations":
         from gramps.plugins.tool.gw_citationsfixdialog import auto_fix_citations
 
-        return str(_("Refined %d citations.")) % auto_fix_citations(db)
+        count = auto_fix_citations(db)
+        return ngettext(
+            "Refined {number_of} citation.",
+            "Refined {number_of} citations.",
+            count,
+        ).format(number_of=count)
     if layer == "citation_attributes":
         from gramps.plugins.tool.gw_citationattributesdialog import (
             auto_citation_attributes,
         )
 
-        return str(_("Updated attributes on %d citations.")) % auto_citation_attributes(
-            db
-        )
+        count = auto_citation_attributes(db)
+        return ngettext(
+            "Updated attributes on {number_of} citation.",
+            "Updated attributes on {number_of} citations.",
+            count,
+        ).format(number_of=count)
     if layer == "link_citation_media":
         from gramps.plugins.tool.gw_linkcitationmediadialog import (
             auto_link_citation_media,
@@ -363,7 +386,12 @@ def run_auto_layer(layer: str, db: Any) -> str:
     if layer == "notes":
         from gramps.plugins.tool.gw_notesfixdialog import auto_fix_notes
 
-        return str(_("Fixed or removed %d notes.")) % auto_fix_notes(db)
+        count = auto_fix_notes(db)
+        return ngettext(
+            "Fixed or removed {number_of} note.",
+            "Fixed or removed {number_of} notes.",
+            count,
+        ).format(number_of=count)
     raise ValueError("Unknown step: %s" % layer)
 
 
@@ -384,7 +412,8 @@ def find_items_needing_review(db: Any) -> list[str]:
     def failed(label: str, error: Exception) -> None:
         LOG.exception("Review check failed for %s", label)
         items.append(
-            "  • %s: %s" % (label, str(_("could not be checked (%s).")) % error)
+            "  • %s: %s"
+            % (label, _("could not be checked ({error}).").format(error=error))
         )
 
     label = str(_("Unpack Conflated Source"))
@@ -394,7 +423,8 @@ def find_items_needing_review(db: Any) -> list[str]:
             len(engine.plan_unpack_conflated_sources(db)),
             str(
                 _(
-                    "source titles with complex or ambiguous mixed text need manual review."
+                    "source titles with complex or ambiguous mixed text need manual "
+                    "review."
                 )
             ),
         )
@@ -487,7 +517,8 @@ def find_items_needing_review(db: Any) -> list[str]:
             ),
             str(
                 _(
-                    "citations have no characteristic keywords (e.g. census, certificate) to infer attributes from."
+                    "citations have no characteristic keywords (e.g. census, "
+                    "certificate) to infer attributes from."
                 )
             ),
         )
@@ -598,8 +629,8 @@ def auto_assign_source_repositories(
 ) -> tuple[int, int]:
     """Accept every Fix Repositories hint and apply it in one transaction.
 
-    This is the single no-review implementation shared by the dialog's
-    ``run_auto``, the per-step Auto button and Accept all hints. Returns
+    This is the single no-review implementation shared by the per-step
+    Auto button and Accept all hints. Returns
     ``(sources changed, repositories created)``.
     """
     return engine.reassign_source_repositories(db, build_repo_fix_changes(db), trans)
@@ -698,6 +729,7 @@ class GWizardCitationFixProgressMeter(ProgressMeter):
         )
 
     def show_stage(self, text: str) -> None:
+        """Show a progress message in the window while a step runs."""
         self.set_header(text)
         self.step()
 
@@ -715,7 +747,8 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
             str(_("Unpack Conflated Source")),
             str(
                 _(
-                    "Parse mixed text headers, extract repository entries, and prepare fields for deduplication."
+                    "Parse mixed text headers, extract repository entries, and "
+                    "prepare fields for deduplication."
                 )
             ),
         ),
@@ -734,7 +767,8 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
             str(_("Unpack Conflated Citation")),
             str(
                 _(
-                    "Extract dates and URLs mixed into volume/page strings or notes, and unpack citation fields."
+                    "Extract dates and URLs mixed into volume/page strings or notes, "
+                    "and unpack citation fields."
                 )
             ),
         ),
@@ -748,7 +782,8 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
             str(_("Citation Attributes")),
             str(
                 _(
-                    "Assign Genealogical Proof Standard (GPS) quality attributes and confidence ratings to citations."
+                    "Assign Genealogical Proof Standard (GPS) quality attributes and "
+                    "confidence ratings to citations."
                 )
             ),
         ),
@@ -757,7 +792,8 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
             str(_("Link Citation Media")),
             str(
                 _(
-                    "Discover and link documentary media from galleries, sources, or orphan files to citations."
+                    "Discover and link documentary media from galleries, sources, or "
+                    "orphan files to citations."
                 )
             ),
         ),
@@ -770,10 +806,12 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
 
 
 def get_fix_layer_titles() -> dict[str, str]:
+    """Return the display title of every step, keyed by step name."""
     return {layer: title for layer, title, _desc in get_fix_layer_specs()}
 
 
 def get_fix_description(layer: str) -> str:
+    """Return the one-line description shown for a step."""
     for spec_layer, _title, desc in get_fix_layer_specs():
         if spec_layer == layer:
             return desc
@@ -851,6 +889,7 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
         return (_("GWizard citation fix"), " ")
 
     def cb_close(self, dialog: Gtk.Dialog, response: int) -> None:
+        """Close the window and release it from the window manager."""
         # Only close the managed window on a close-type response.  Other
         # responses (e.g. propagated from transient child dialogs such as the
         # "Accept all hints" confirmation) must not close the parent dialog.
@@ -887,10 +926,12 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             self.cb_auto_all()
 
     def cb_fix_layer(self, layer: str) -> None:
+        """Open the review dialog for one step."""
         titles = get_fix_layer_titles()
         self.show_fix_dialog(layer, titles.get(layer, layer))
 
     def show_fix_dialog(self, layer: str, title: str) -> None:
+        """Create and run the review dialog that belongs to ``layer``."""
         if layer == "unpack_sources":
             from gramps.plugins.tool.gw_unpacksourcesdialog import UnpackSourcesDialog
 
@@ -1017,16 +1058,30 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                 _(
                     "This accepts all hints and applies them without review. Each step "
                     "uses the same code as its own dialog's Accept hints and Apply:\n\n"
-                    "1. Unpack Conflated Source: unpack source titles, parse mixed text headers, extract repository entries, and separate publication info.\n"
-                    "2. Repository Consolidate: merge duplicate repositories into gold-standard ones and clean repeated address lines.\n"
-                    "3. Fix Repositories: link sources to best-guess repositories and create missing repository entries.\n"
-                    "4. Fix Sources: merge near-duplicates (differing author or publication text is kept in a note), trim whitespace, and quarantine non-sources such as image file names.\n"
-                    "5. Unpack Conflated Citation: extract dates and URLs from volume/page fields, without duplicating notes.\n"
-                    "6. Fix Citations: lower the confidence of user-tree citations and fill in volume/page and date from the hints.\n"
-                    "7. Citation Attributes: assign Genealogical Proof Standard attributes (Source Type, Information Type, Evidence Type) and QUAY confidence.\n"
-                    "8. Link Citation Media: link safe documentary scans from galleries and sources to citations.\n"
-                    "9. Fix Notes: delete import debris and empty notes, trim whitespace, and remove notes that only repeat a web address already in the citation page.\n\n"
-                    "Each step is one transaction: Edit > Undo reverses one step at a time (up to 9 undos)."
+                    "1. Unpack Conflated Source: unpack source titles, parse mixed "
+                    "text headers, extract repository entries, and separate "
+                    "publication info.\n"
+                    "2. Repository Consolidate: merge duplicate repositories into "
+                    "gold-standard ones and clean repeated address lines.\n"
+                    "3. Fix Repositories: link sources to best-guess repositories and "
+                    "create missing repository entries.\n"
+                    "4. Fix Sources: merge near-duplicates (differing author or "
+                    "publication text is kept in a note), trim whitespace, and "
+                    "quarantine non-sources such as image file names.\n"
+                    "5. Unpack Conflated Citation: extract dates and URLs from "
+                    "volume/page fields, without duplicating notes.\n"
+                    "6. Fix Citations: lower the confidence of user-tree citations "
+                    "and fill in volume/page and date from the hints.\n"
+                    "7. Citation Attributes: assign Genealogical Proof Standard "
+                    "attributes (Source Type, Information Type, Evidence Type) and "
+                    "QUAY confidence.\n"
+                    "8. Link Citation Media: link safe documentary scans from "
+                    "galleries and sources to citations.\n"
+                    "9. Fix Notes: delete import debris and empty notes, trim "
+                    "whitespace, and remove notes that only repeat a web address "
+                    "already in the citation page.\n\n"
+                    "Each step is one transaction: Edit > Undo reverses one step at a "
+                    "time (up to 9 undos)."
                 )
             ),
             str(_("_Accept all")),
@@ -1043,7 +1098,7 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                 message = run_auto_layer(layer, db)
             except Exception as error:  # pylint: disable=broad-except
                 LOG.exception("Auto step %d (%s) failed", number, layer)
-                message = str(_("FAILED: %s")) % error
+                message = _("FAILED: {error}").format(error=error)
             lines.append("  %d. %s: %s" % (number, titles[layer], message))
 
         manual_items = find_items_needing_review(db)
@@ -1061,7 +1116,8 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             report_sections.append(
                 str(
                     _(
-                        "No human intervention required. All cleanup layers are fully resolved."
+                        "No human intervention required. All cleanup layers are fully "
+                        "resolved."
                     )
                 )
             )
@@ -1152,7 +1208,7 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             self.report_path = target_path
             OkDialog(
                 str(_("Report Generated")),
-                str(_("Report written to %s.") % target_path),
+                str(_("Report written to {path}.").format(path=target_path)),
                 parent=self.window,
             )
             self.cb_view_report()

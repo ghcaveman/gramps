@@ -43,6 +43,7 @@ from gramps.gen.lib import Date, Note, NoteType
 from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 
 # ------------------------------------------------------------
 #
@@ -688,7 +689,9 @@ def suggest_repository(
     # (otherwise two sources would each suggest moving to the other).
     if votes and not (already_golden and is_ancestry_style_title(title)):
         name = votes.most_common(1)[0][0]
-        return result(name, _("same title already linked to %s") % name)
+        return result(
+            name, _("same title already linked to {repository}").format(repository=name)
+        )
     if already_golden:
         return None
 
@@ -700,7 +703,9 @@ def suggest_repository(
     # 3. A golden repository named in the title.
     mention = find_repository_mention(title or "")
     if mention and mention[0] in golden:
-        return result(mention[0], _("title names %s") % mention[0])
+        return result(
+            mention[0], _("title names {repository}").format(repository=mention[0])
+        )
 
     uspto = "United States Patent and Trademark Office (USPTO)"
     if uspto in golden and re.search(
@@ -831,7 +836,8 @@ def suggest_source_merge_target(
             score = 1500 + target_cites * 10 + len(target_repos)
             reason = str(
                 _(
-                    "Matching normalized title (%(target_cites)d citations vs %(src_cites)d)"
+                    "Matching normalized title (%(target_cites)d citations vs "
+                    "%(src_cites)d)"
                 )
                 % {"target_cites": target_cites, "src_cites": src_cites}
             )

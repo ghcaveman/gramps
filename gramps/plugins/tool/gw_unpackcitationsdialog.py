@@ -50,7 +50,6 @@ from gramps.gen.errors import HandleError
 from gramps.plugins.tool.gwizardcitationshared import (
     add_note_once,
     delete_note_if_unused,
-    is_bare_url_text,
     parse_citation_date,
     ACCESS_DATE_REGEX as _ACCESS_DATE_REGEX,
     extract_access_date as _extract_access_date,
@@ -59,6 +58,7 @@ from gramps.plugins.tool.gwizardcitationshared import (
 )
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
@@ -127,7 +127,6 @@ def plan_unpack_conflated_citations(db: Any) -> list[dict[str, Any]]:
         drop_note_handles: list[str] = []
 
         # Look for conflated elements in raw_page, notes, or source pub info
-        extracted_url = _extract_url(raw_page) or _extract_url(notes_text)
         extracted_date = ""
         if not curr_date:
             extracted_date = _extract_access_date(raw_page) or _extract_access_date(
@@ -187,15 +186,21 @@ def plan_unpack_conflated_citations(db: Any) -> list[dict[str, Any]]:
 
         hint_parts: list[str] = []
         if suggested_page and suggested_page != raw_page:
-            hint_parts.append(_("Clean Volume/Page to '%s'") % suggested_page)
+            hint_parts.append(
+                _("Clean Volume/Page to '{page}'").format(page=suggested_page)
+            )
         elif not raw_page and suggested_page:
-            hint_parts.append(_("Set Volume/Page to '%s'") % suggested_page)
+            hint_parts.append(
+                _("Set Volume/Page to '{page}'").format(page=suggested_page)
+            )
         elif clear_page:
             hint_parts.append(_("Move URL from Volume/Page to notes"))
         if suggested_date and suggested_date != curr_date:
-            hint_parts.append(_("Extract date '%s'") % suggested_date)
+            hint_parts.append(_("Extract date '{date}'").format(date=suggested_date))
         if suggested_notes:
-            hint_parts.append(_("Move URL '%s' to notes") % suggested_notes)
+            hint_parts.append(
+                _("Move URL '{url}' to notes").format(url=suggested_notes)
+            )
         if drop_note_handles:
             hint_parts.append(_("Remove the note that only repeats the URL"))
 
@@ -269,7 +274,9 @@ class UnpackCitationsDialog(Gtk.Dialog):
 
         # Action buttons in dialog action bar (always visible at bottom)
         n_hints = len(self.plan)
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button = Gtk.Button(
+            label=_("Accept hints ({number_of})").format(number_of=n_hints)
+        )
         self.accept_button.set_sensitive(n_hints > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
@@ -292,7 +299,11 @@ class UnpackCitationsDialog(Gtk.Dialog):
             return
 
         count_label = Gtk.Label(
-            label=str(_("Total conflated citations found: %d") % len(self.plan))
+            label=str(
+                _("Conflated citations found: {number_of}").format(
+                    number_of=len(self.plan)
+                )
+            )
         )
         count_label.set_halign(Gtk.Align.START)
         content.add(count_label)
@@ -492,13 +503,13 @@ class UnpackCitationsDialog(Gtk.Dialog):
 
         OkDialog(
             str(_("Hints accepted")),
-            str(
-                _(
-                    "Populated suggested data into target columns for %d citations. "
-                    "Review or edit them, then press Apply."
-                )
-            )
-            % populated_count,
+            ngettext(
+                "Filled in suggested values for {number_of} citation. Review or edit "
+                "them, then press Apply.",
+                "Filled in suggested values for {number_of} citations. Review or edit "
+                "them, then press Apply.",
+                populated_count,
+            ).format(number_of=populated_count),
             parent=self,
         )
 
@@ -560,7 +571,11 @@ class UnpackCitationsDialog(Gtk.Dialog):
 
         OkDialog(
             str(_("Citation Unpacking Complete")),
-            str(_("Unpacked %d conflated citations.")) % applied_count,
+            ngettext(
+                "Unpacked {number_of} conflated citation.",
+                "Unpacked {number_of} conflated citations.",
+                applied_count,
+            ).format(number_of=applied_count),
             parent=self,
         )
 

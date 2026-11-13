@@ -52,18 +52,27 @@ class GoldStandardRepositories:
                 "name": "FamilySearch",
                 "type": "Web site",
                 "url": "https://www.familysearch.org",
-                "address": "Family History Library, 35 N West Temple St, Salt Lake City, UT 84150, USA",
+                "address": (
+                    "Family History Library, 35 N West Temple St, Salt Lake City, UT "
+                    "84150, USA"
+                ),
                 "notes": _(
-                    "Free global database managed by the Family History Department of the LDS Church. Features digitized microfilms and a collaborative tree."
+                    "Free global database managed by the Family History Department of "
+                    "the LDS Church. Features digitized microfilms and a "
+                    "collaborative tree."
                 ),
             },
             {
                 "name": "Ancestry.com",
                 "type": "Web site",
                 "url": "https://www.ancestry.com",
-                "address": "Ancestry Operations Inc., 1300 W Traverse Pkwy, Lehi, UT 84043, USA",
+                "address": (
+                    "Ancestry Operations Inc., 1300 W Traverse Pkwy, Lehi, UT 84043, "
+                    "USA"
+                ),
                 "notes": _(
-                    "Commercial genealogy giant. Hosts the largest collection of historical records, user trees, and DNA testing databases."
+                    "Commercial genealogy giant. Hosts the largest collection of "
+                    "historical records, user trees, and DNA testing databases."
                 ),
             },
             {
@@ -72,7 +81,8 @@ class GoldStandardRepositories:
                 "url": "https://www.myheritage.com",
                 "address": "MyHeritage Ltd., 30 Hasifman St., Tel Aviv, Israel",
                 "notes": _(
-                    "Commercial database with an international focus, featuring robust European historical records and family tree networks."
+                    "Commercial database with an international focus, featuring "
+                    "robust European historical records and family tree networks."
                 ),
             },
             {
@@ -81,7 +91,8 @@ class GoldStandardRepositories:
                 "url": "https://www.findmypast.com",
                 "address": "Findmypast, 185 Fleet Street, London, EC4A 2HS, UK",
                 "notes": _(
-                    "Commercial database specializing extensively in British, Irish, Welsh, and Commonwealth historical records."
+                    "Commercial database specializing extensively in British, Irish, "
+                    "Welsh, and Commonwealth historical records."
                 ),
             },
             {
@@ -90,16 +101,22 @@ class GoldStandardRepositories:
                 "url": "https://www.geneanet.org",
                 "address": "Geneanet, 165 bis rue de Vaugirard, 75015 Paris, France",
                 "notes": _(
-                    "Community-driven European family tree network and historical database with strong coverage of France and continental Europe."
+                    "Community-driven European family tree network and historical "
+                    "database with strong coverage of France and continental Europe."
                 ),
             },
             {
                 "name": "National Archives and Records Administration (NARA)",
                 "type": "Archive",
                 "url": "https://www.archives.gov",
-                "address": "National Archives Building, 700 Pennsylvania Ave NW, Washington, DC 20408, USA",
+                "address": (
+                    "National Archives Building, 700 Pennsylvania Ave NW, Washington, "
+                    "DC 20408, USA"
+                ),
                 "notes": _(
-                    "Official repository for US federal records, including census schedules, military service/pension records, land patents, and passenger lists."
+                    "Official repository for US federal records, including census "
+                    "schedules, military service/pension records, land patents, and "
+                    "passenger lists."
                 ),
             },
             {
@@ -108,7 +125,9 @@ class GoldStandardRepositories:
                 "url": "https://library-archives.canada.ca",
                 "address": "395 Wellington St, Ottawa, ON K1A 0N4, Canada",
                 "notes": _(
-                    "Official repository for Canadian heritage records, holding federal censuses, military personnel service files, and immigration manifests."
+                    "Official repository for Canadian heritage records, holding "
+                    "federal censuses, military personnel service files, and "
+                    "immigration manifests."
                 ),
             },
             {
@@ -117,16 +136,21 @@ class GoldStandardRepositories:
                 "url": "https://www.nationalarchives.gov.uk",
                 "address": "Kew, Richmond, Surrey, TW9 4DU, UK",
                 "notes": _(
-                    "Official government archive for Great Britain and the UK, holding records ranging from medieval rolls to modern civil service assets."
+                    "Official government archive for Great Britain and the UK, "
+                    "holding records ranging from medieval rolls to modern civil "
+                    "service assets."
                 ),
             },
             {
                 "name": "National Records of Scotland (NRS)",
                 "type": "Archive",
                 "url": "https://www.nrscotland.gov.uk",
-                "address": "HM General Register House, 2 Princes St, Edinburgh, EH1 3YY, UK",
+                "address": (
+                    "HM General Register House, 2 Princes St, Edinburgh, EH1 3YY, UK"
+                ),
                 "notes": _(
-                    "Main Scottish repository housing statutory registers of births, marriages, and deaths, old parish records, and census books."
+                    "Main Scottish repository housing statutory registers of births, "
+                    "marriages, and deaths, old parish records, and census books."
                 ),
             },
             {
@@ -135,7 +159,8 @@ class GoldStandardRepositories:
                 "url": "https://www.naa.gov.au",
                 "address": "Kings Avenue, Parkes, ACT 2600, Australia",
                 "notes": _(
-                    "Official repository for Australian Commonwealth records, key for post-federation defense service, immigration, and naturalization."
+                    "Official repository for Australian Commonwealth records, key for "
+                    "post-federation defense service, immigration, and naturalization."
                 ),
             },
             {
@@ -144,16 +169,22 @@ class GoldStandardRepositories:
                 "url": "https://www.scotlandspeople.gov.uk",
                 "address": "NRS, 2 Princes St, Edinburgh, EH1 3YY, UK",
                 "notes": _(
-                    "Official pay-per-view web portal managed by the National Records of Scotland for statutory registers, church records, and wills."
+                    "Official pay-per-view web portal managed by the National Records "
+                    "of Scotland for statutory registers, church records, and wills."
                 ),
             },
             {
                 "name": "Irish Genealogy Portal",
                 "type": "Web site",
                 "url": "https://www.irishgenealogy.ie",
-                "address": "Department of Tourism, Culture, Arts, Gaeltacht, Sport and Media, Dublin, Ireland",
+                "address": (
+                    "Department of Tourism, Culture, Arts, Gaeltacht, Sport and "
+                    "Media, Dublin, Ireland"
+                ),
                 "notes": _(
-                    "Free, official government website providing access to digital images of Irish civil registration indexes and historical church registers."
+                    "Free, official government website providing access to digital "
+                    "images of Irish civil registration indexes and historical church "
+                    "registers."
                 ),
             },
             {
@@ -162,43 +193,62 @@ class GoldStandardRepositories:
                 "url": "https://www.nli.ie",
                 "address": "Kildare St, Dublin 2, D02 P638, Ireland",
                 "notes": _(
-                    "National library providing free online digital image access to historical Catholic parish registers spanning the island of Ireland."
+                    "National library providing free online digital image access to "
+                    "historical Catholic parish registers spanning the island of "
+                    "Ireland."
                 ),
             },
             {
                 "name": "WieWasWie",
                 "type": "Web site",
                 "url": "https://www.wiewaswie.nl",
-                "address": "Centrum voor Familiegeschiedenis (CBG), Prins Willem-Alexanderhof 22, 2595 BE The Hague, Netherlands",
+                "address": (
+                    "Centrum voor Familiegeschiedenis (CBG), Prins "
+                    "Willem-Alexanderhof 22, 2595 BE The Hague, Netherlands"
+                ),
                 "notes": _(
-                    "Centralized Dutch database providing access to millions of civil registration records, church registers, and population books."
+                    "Centralized Dutch database providing access to millions of civil "
+                    "registration records, church registers, and population books."
                 ),
             },
             {
                 "name": "ArkivDigital",
                 "type": "Web site",
                 "url": "https://www.arkivdigital.net",
-                "address": "ArkivDigital AD AB, Södra Portgatan 19, 283 50 Lönsboda, Sweden",
+                "address": (
+                    "ArkivDigital AD AB, Södra Portgatan 19, 283 50 Lönsboda, Sweden"
+                ),
                 "notes": _(
-                    "Commercial subscription provider offering high-resolution color imagery of Swedish church books, estate inventories, and court records."
+                    "Commercial subscription provider offering high-resolution color "
+                    "imagery of Swedish church books, estate inventories, and court "
+                    "records."
                 ),
             },
             {
                 "name": "Matricula Online",
                 "type": "Web site",
                 "url": "https://data.matricula-online.eu",
-                "address": "Diocesan Archives of St. Pölten, Klosterneuburg / ICARUS, Vienna, Austria",
+                "address": (
+                    "Diocesan Archives of St. Pölten, Klosterneuburg / ICARUS, "
+                    "Vienna, Austria"
+                ),
                 "notes": _(
-                    "Free access portal for digitized church books and parish registers, covering Austria, Germany, Poland, and parts of Central Europe."
+                    "Free access portal for digitized church books and parish "
+                    "registers, covering Austria, Germany, Poland, and parts of "
+                    "Central Europe."
                 ),
             },
             {
                 "name": "Fold3",
                 "type": "Web site",
                 "url": "https://www.fold3.com",
-                "address": "Ancestry Operations Inc., 1300 W Traverse Pkwy, Lehi, UT 84043, USA",
+                "address": (
+                    "Ancestry Operations Inc., 1300 W Traverse Pkwy, Lehi, UT 84043, "
+                    "USA"
+                ),
                 "notes": _(
-                    "Ancestry-owned commercial niche site focusing on US, UK, and Commonwealth military histories, draft records, and pension files."
+                    "Ancestry-owned commercial niche site focusing on US, UK, and "
+                    "Commonwealth military histories, draft records, and pension files."
                 ),
             },
             {
@@ -207,7 +257,9 @@ class GoldStandardRepositories:
                 "url": "https://www.cwgc.org",
                 "address": "2 Marlow Road, Maidenhead, Berkshire, SL6 7CX, UK",
                 "notes": _(
-                    "Free database documenting and honoring the graves, memorials, and final resting locations of Commonwealth forces from WWI and WWII."
+                    "Free database documenting and honoring the graves, memorials, "
+                    "and final resting locations of Commonwealth forces from WWI and "
+                    "WWII."
                 ),
             },
             {
@@ -216,34 +268,46 @@ class GoldStandardRepositories:
                 "url": "https://www.forces-war-records.co.uk",
                 "address": "Findmypast, 185 Fleet Street, London, EC4A 2HS, UK",
                 "notes": _(
-                    "Specialist subscription site providing British military service records and rosters spanning over three centuries."
+                    "Specialist subscription site providing British military service "
+                    "records and rosters spanning over three centuries."
                 ),
             },
             {
                 "name": "Find a Grave",
                 "type": "Web site",
                 "url": "https://www.findagrave.com",
-                "address": "Ancestry Operations Inc., 1300 W Traverse Pkwy, Lehi, UT 84043, USA",
+                "address": (
+                    "Ancestry Operations Inc., 1300 W Traverse Pkwy, Lehi, UT 84043, "
+                    "USA"
+                ),
                 "notes": _(
-                    "Free, crowdsourced virtual cemetery database mapping millions of global headstone photos, inscriptions, and memorial notes."
+                    "Free, crowdsourced virtual cemetery database mapping millions of "
+                    "global headstone photos, inscriptions, and memorial notes."
                 ),
             },
             {
                 "name": "BillionGraves",
                 "type": "Web site",
                 "url": "https://www.billiongraves.com",
-                "address": "BillionGraves LLC, 2087 E 3900 S, Salt Lake City, UT 84124, USA",
+                "address": (
+                    "BillionGraves LLC, 2087 E 3900 S, Salt Lake City, UT 84124, USA"
+                ),
                 "notes": _(
-                    "Crowdsourced database capturing GPS-tagged headstone images and transcription records mapped to exact cemetery plots globally."
+                    "Crowdsourced database capturing GPS-tagged headstone images and "
+                    "transcription records mapped to exact cemetery plots globally."
                 ),
             },
             {
                 "name": "Interment.net",
                 "type": "Web site",
                 "url": "https://www.interment.net",
-                "address": "Clear Digital Media, Inc., P.O. Box 486, Colton, CA 92324, USA",
+                "address": (
+                    "Clear Digital Media, Inc., P.O. Box 486, Colton, CA 92324, USA"
+                ),
                 "notes": _(
-                    "Free resource containing thousands of independent cemetery burial transcriptions collected from public archives and volunteers."
+                    "Free resource containing thousands of independent cemetery "
+                    "burial transcriptions collected from public archives and "
+                    "volunteers."
                 ),
             },
             {
@@ -252,16 +316,23 @@ class GoldStandardRepositories:
                 "url": "https://chroniclingamerica.loc.gov",
                 "address": "101 Independence Ave SE, Washington, DC 20540, USA",
                 "notes": _(
-                    "Free digital repository of historical American newspapers from 1770 to 1963, maintained jointly with the National Endowment for the Humanities."
+                    "Free digital repository of historical American newspapers from "
+                    "1770 to 1963, maintained jointly with the National Endowment for "
+                    "the Humanities."
                 ),
             },
             {
                 "name": "Newspapers.com",
                 "type": "Web site",
                 "url": "https://www.newspapers.com",
-                "address": "Ancestry Operations Inc., 1300 W Traverse Pkwy, Lehi, UT 84043, USA",
+                "address": (
+                    "Ancestry Operations Inc., 1300 W Traverse Pkwy, Lehi, UT 84043, "
+                    "USA"
+                ),
                 "notes": _(
-                    "Largest commercial digital subscription archive of historical newspapers, featuring millions of pages globally from the 1700s forward."
+                    "Largest commercial digital subscription archive of historical "
+                    "newspapers, featuring millions of pages globally from the 1700s "
+                    "forward."
                 ),
             },
             {
@@ -270,7 +341,9 @@ class GoldStandardRepositories:
                 "url": "https://trove.nla.gov.au",
                 "address": "Parkes Place, Canberra ACT 2600, Australia",
                 "notes": _(
-                    "Free digital database aggregator providing comprehensive text-searchable historical Australian newspapers, gazettes, diaries, and books."
+                    "Free digital database aggregator providing comprehensive "
+                    "text-searchable historical Australian newspapers, gazettes, "
+                    "diaries, and books."
                 ),
             },
             {
@@ -279,16 +352,22 @@ class GoldStandardRepositories:
                 "url": "https://archive.org",
                 "address": "300 Funston Ave, San Francisco, CA 94118, USA",
                 "notes": _(
-                    "Non-profit digital library containing millions of public domain texts, digitized county histories, local family genealogies, and city directories."
+                    "Non-profit digital library containing millions of public domain "
+                    "texts, digitized county histories, local family genealogies, and "
+                    "city directories."
                 ),
             },
             {
                 "name": "Google Books",
                 "type": "Web site",
                 "url": "https://books.google.com",
-                "address": "Google LLC, 1600 Amphitheatre Pkwy, Mountain View, CA 94043, USA",
+                "address": (
+                    "Google LLC, 1600 Amphitheatre Pkwy, Mountain View, CA 94043, USA"
+                ),
                 "notes": _(
-                    "Global book indexing search engine containing full out-of-print digital views of early 19th and 20th-century family histories and town bios."
+                    "Global book indexing search engine containing full out-of-print "
+                    "digital views of early 19th and 20th-century family histories "
+                    "and town bios."
                 ),
             },
             {
@@ -297,7 +376,8 @@ class GoldStandardRepositories:
                 "url": "https://legacy.com",
                 "address": "Legacy.com, Chicago, IL, USA",
                 "notes": _(
-                    "Global obituary aggregation platform compiling historical death announcements from thousands of local newspaper providers."
+                    "Global obituary aggregation platform compiling historical death "
+                    "announcements from thousands of local newspaper providers."
                 ),
             },
             {
@@ -306,7 +386,9 @@ class GoldStandardRepositories:
                 "url": "",
                 "address": "Multiple Regional Offices, Italy / USA",
                 "notes": _(
-                    "Local town halls, municipal registries, and state vital statistics archives holding primary birth, marriage, and death books (for example Genoa, Italy and Broward County, Florida)."
+                    "Local town halls, municipal registries, and state vital "
+                    "statistics archives holding primary birth, marriage, and death "
+                    "books (for example Genoa, Italy and Broward County, Florida)."
                 ),
             },
             {
@@ -315,7 +397,9 @@ class GoldStandardRepositories:
                 "url": "https://ille-et-vilaine.fr",
                 "address": "1 Rue de la rhelinais, 35000 Rennes, France",
                 "notes": _(
-                    "Regional historical archive holding early Catholic parish registers and civil registrations for the commune of La Baussaine and surrounding areas."
+                    "Regional historical archive holding early Catholic parish "
+                    "registers and civil registrations for the commune of La "
+                    "Baussaine and surrounding areas."
                 ),
             },
             {
@@ -324,7 +408,9 @@ class GoldStandardRepositories:
                 "url": "https://ny.gov",
                 "address": "Corning Tower, Empire State Plaza, Albany, NY 12237, USA",
                 "notes": _(
-                    "Official state repository preserving vital records indexes for municipal regions outside of New York City, including Long Island and Patchogue."
+                    "Official state repository preserving vital records indexes for "
+                    "municipal regions outside of New York City, including Long "
+                    "Island and Patchogue."
                 ),
             },
             {
@@ -333,7 +419,9 @@ class GoldStandardRepositories:
                 "url": "https://nj.gov",
                 "address": "225 West State Street, Trenton, NJ 08625, USA",
                 "notes": _(
-                    "State repository holding comprehensive historical collections of births, marriages, and deaths, including early records for Camden and Somers Point."
+                    "State repository holding comprehensive historical collections of "
+                    "births, marriages, and deaths, including early records for "
+                    "Camden and Somers Point."
                 ),
             },
             {
@@ -342,16 +430,21 @@ class GoldStandardRepositories:
                 "url": "https://www.uspto.gov",
                 "address": "600 Dulany Street, Alexandria, VA 22314, USA",
                 "notes": _(
-                    "Federal agency holding historical patent grants, drawings, and trademark registrations, searchable by patent number."
+                    "Federal agency holding historical patent grants, drawings, and "
+                    "trademark registrations, searchable by patent number."
                 ),
             },
             {
                 "name": "Facebook",
                 "type": "Web site",
                 "url": "https://www.facebook.com",
-                "address": "Meta Platforms, Inc., 1 Meta Way, Menlo Park, CA 94025, USA",
+                "address": (
+                    "Meta Platforms, Inc., 1 Meta Way, Menlo Park, CA 94025, USA"
+                ),
                 "notes": _(
-                    "Social media platform; family-posted photos, tributes, and personal announcements, usually cited as an online personal source."
+                    "Social media platform; family-posted photos, tributes, and "
+                    "personal announcements, usually cited as an online personal "
+                    "source."
                 ),
             },
             {
@@ -360,7 +453,9 @@ class GoldStandardRepositories:
                 "url": "",
                 "address": "",
                 "notes": _(
-                    "Privately held family documents, photographs, charts, letters, and heirlooms (for example a family tree document from a relative) that are not held by an archive or website."
+                    "Privately held family documents, photographs, charts, letters, "
+                    "and heirlooms (for example a family tree document from a "
+                    "relative) that are not held by an archive or website."
                 ),
             },
         ],

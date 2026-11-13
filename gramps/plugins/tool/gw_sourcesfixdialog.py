@@ -60,6 +60,7 @@ from gramps.plugins.tool.gwizardcitationshared import (
 )
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 _QUARANTINE_REPO_NAME = "Quarantine"
@@ -101,7 +102,8 @@ class SourceFixDialog(Gtk.Dialog):
         n_sources = len(rows)
         count_label = Gtk.Label()
         count_label.set_markup(
-            "<b>%s</b>" % str(_("Problem sources (%d total)") % n_sources)
+            "<b>%s</b>"
+            % str(_("Problem sources ({number_of} total)").format(number_of=n_sources))
         )
         count_label.set_halign(Gtk.Align.START)
         count_label.set_hexpand(True)
@@ -111,7 +113,9 @@ class SourceFixDialog(Gtk.Dialog):
             done = Gtk.Label(label=str(_("No source-record problems found.")))
             done.set_halign(Gtk.Align.START)
             content.add(done)
-            self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % 0)
+            self.accept_button = Gtk.Button(
+                label=_("Accept hints ({number_of})").format(number_of=0)
+            )
             self.accept_button.set_sensitive(False)
             self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
 
@@ -189,7 +193,9 @@ class SourceFixDialog(Gtk.Dialog):
 
         # Action area buttons (Accept hints and Apply placed to the left of Close)
         n_hints = sum(1 for row, _combo in self.row_combos if row.get("hint_target"))
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button = Gtk.Button(
+            label=_("Accept hints ({number_of})").format(number_of=n_hints)
+        )
         self.accept_button.set_sensitive(n_hints > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
@@ -315,20 +321,6 @@ class SourceFixDialog(Gtk.Dialog):
         scrolled.add(grid)
         return scrolled
 
-    def build_buttons(self) -> Gtk.Box:
-        """Return the action button row with Accept hints and Apply."""
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        buttons.set_homogeneous(True)
-        n_hints = sum(1 for row, _combo in self.row_combos if row.get("hint_target"))
-        accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
-        accept_button.set_sensitive(n_hints > 0)
-        accept_button.connect("clicked", self.cb_accept_hints)
-        apply_button = Gtk.Button(label=str(_("Apply")))
-        apply_button.connect("clicked", self.cb_apply)
-        buttons.pack_start(accept_button, True, True, 0)
-        buttons.pack_start(apply_button, True, True, 0)
-        return buttons
-
     def get_choice(self, combo: Gtk.ComboBox, fallback: str) -> str:
         """Return the target handle/value behind a dropdown row."""
         user_target = getattr(combo, "_user_target", None)
@@ -365,19 +357,15 @@ class SourceFixDialog(Gtk.Dialog):
                     break
         OkDialog(
             str(_("Hints accepted")),
-            str(
-                _(
-                    "Set %d drop-downs to the suggested source. Review "
-                    "them, change any that look wrong, then press Apply."
-                )
-            )
-            % accepted,
+            ngettext(
+                "Set {number_of} drop-down to the suggested source. Review it, change "
+                "it if it looks wrong, then press Apply.",
+                "Set {number_of} drop-downs to the suggested source. Review them, "
+                "change any that look wrong, then press Apply.",
+                accepted,
+            ).format(number_of=accepted),
             parent=self,
         )
-
-    def cb_set_best(self, button: Gtk.Button) -> None:
-        """Backward-compatible alias for accepting hints."""
-        self.cb_accept_hints(button)
 
     @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
@@ -401,70 +389,11 @@ class SourceFixDialog(Gtk.Dialog):
             return
 
         merged, quarantined, trimmed = apply_source_fixes(self.dbstate, plan)
-        msg_parts = []
-        if merged > 0:
-            msg_parts.append(
-                glocale.translation.ngettext(
-                    "merged %d duplicate source",
-                    "merged %d duplicate sources",
-                    merged,
-                )
-                % merged
-            )
-        if trimmed > 0:
-            msg_parts.append(
-                glocale.translation.ngettext(
-                    "trimmed %d source", "trimmed %d sources", trimmed
-                )
-                % trimmed
-            )
-        if quarantined > 0:
-            msg_parts.append(
-                glocale.translation.ngettext(
-                    "quarantined %d source", "quarantined %d sources", quarantined
-                )
-                % quarantined
-            )
-        msg = ", ".join(msg_parts).capitalize() + "."
+        msg = source_fix_summary(merged, quarantined, trimmed)
         OkDialog(
             str(_("Source fixes applied")),
             msg,
             parent=self,
-        )
-
-    def run_auto(self, parent: Gtk.Window | None = None) -> None:
-        """Run the best-guess auto fix by accepting all hints and applying."""
-        owner = parent or self.get_transient_for()
-        merged, quarantined, trimmed = auto_fix_sources(self.dbstate.db)
-        msg_parts = []
-        if merged > 0:
-            msg_parts.append(
-                glocale.translation.ngettext(
-                    "merged %d duplicate source",
-                    "merged %d duplicate sources",
-                    merged,
-                )
-                % merged
-            )
-        if trimmed > 0:
-            msg_parts.append(
-                glocale.translation.ngettext(
-                    "trimmed %d source", "trimmed %d sources", trimmed
-                )
-                % trimmed
-            )
-        if quarantined > 0:
-            msg_parts.append(
-                glocale.translation.ngettext(
-                    "quarantined %d source", "quarantined %d sources", quarantined
-                )
-                % quarantined
-            )
-        msg = ", ".join(msg_parts).capitalize() + "."
-        OkDialog(
-            str(_("Auto fix: sources")),
-            msg,
-            parent=owner,
         )
 
     def show_dialog(self) -> None:
@@ -490,8 +419,8 @@ def _source_display(row: dict[str, Any]) -> str:
     """Human-readable label for a source row."""
     title = row.get("title") or _("(unnamed source)")
     cites = row.get("citations", 0)
-    cite_str = (
-        glocale.translation.ngettext("%d citation", "%d citations", cites) % cites
+    cite_str = ngettext("{number_of} citation", "{number_of} citations", cites).format(
+        number_of=cites
     )
     if cites == 0:
         title = _("No citations: ") + title
@@ -596,7 +525,11 @@ def build_source_fix_rows(
                     hint_reason = str(_("Keeper has repository"))
                 elif keeper.get("citations", 0) > member.get("citations", 0):
                     hint_reason = str(
-                        _("Keeper has %d citations") % keeper.get("citations", 0)
+                        ngettext(
+                            "Keeper has {number_of} citation",
+                            "Keeper has {number_of} citations",
+                            keeper.get("citations", 0),
+                        ).format(number_of=keeper.get("citations", 0))
                     )
                 else:
                     hint_reason = str(_("Preferred keeper"))
@@ -824,7 +757,12 @@ def build_source_fix_rows(
         clean_match = clean_sources_by_title.get(title.strip().lower())
         if clean_match and clean_match["handle"] != handle:
             match_disp = "%s (%s)" % (clean_match["title"], clean_match["gramps_id"])
-            options.append((_("Merge into '%s'") % match_disp, clean_match["handle"]))
+            options.append(
+                (
+                    _("Merge into '{source}'").format(source=match_disp),
+                    clean_match["handle"],
+                )
+            )
             options.append((str(_("Trim whitespace")), "trim"))
             hint_target = clean_match["handle"]
             hint_reason = str(_("Duplicate with clean title"))
@@ -981,7 +919,7 @@ def plan_source_fixes(
         elif chosen != handle:
             merge_targets[handle] = chosen
 
-    # Resolve transitive merges and cycles so discards point to the final surviving keeper
+    # Follow merge chains (and stop at cycles) so each discard names the final keeper
     merges_by_keeper: dict[str, set[str]] = defaultdict(set)
     for src_h in merge_targets:
         final_keeper = _resolve_merge_target(src_h, merge_targets)
@@ -1105,11 +1043,46 @@ def apply_source_fixes(
     return merged, quarantined, trimmed
 
 
+def source_fix_summary(merged: int, quarantined: int, trimmed: int) -> str:
+    """Return translated sentences describing the result of the source fixes.
+
+    :returns: One sentence per kind of change, or a single "nothing" line.
+    """
+    sentences = []
+    if merged:
+        sentences.append(
+            ngettext(
+                "Merged {number_of} duplicate source.",
+                "Merged {number_of} duplicate sources.",
+                merged,
+            ).format(number_of=merged)
+        )
+    if quarantined:
+        sentences.append(
+            ngettext(
+                "Quarantined {number_of} source.",
+                "Quarantined {number_of} sources.",
+                quarantined,
+            ).format(number_of=quarantined)
+        )
+    if trimmed:
+        sentences.append(
+            ngettext(
+                "Trimmed spaces in {number_of} source.",
+                "Trimmed spaces in {number_of} sources.",
+                trimmed,
+            ).format(number_of=trimmed)
+        )
+    if not sentences:
+        return _("No sources needed fixing.")
+    return " ".join(sentences)
+
+
 def auto_fix_sources(db: Any) -> tuple[int, int, int]:
     """Accept every hint and apply it, exactly as the Fix Sources dialog does.
 
-    This is the single no-review implementation, shared by the dialog's
-    ``run_auto``, the per-step Auto button and Accept all hints. Returns
+    This is the single no-review implementation, shared by the per-step
+    Auto button and Accept all hints. Returns
     ``(merged, quarantined, trimmed)``.
     """
     stats = collect_db_stats(db)

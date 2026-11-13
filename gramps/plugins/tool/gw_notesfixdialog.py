@@ -53,6 +53,7 @@ from gramps.plugins.tool.gwizardcitationshared import (
 )
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
@@ -71,7 +72,7 @@ def _url_already_in_every_citation_page(db: Any, note_handle: str, url: str) -> 
 
 
 def build_note_fix_rows(db: Any) -> list[dict[str, Any]]:
-    """Scan for notes with hygiene problems (debris, empty, whitespace, repeated URL)."""
+    """Find notes with problems: import debris, empty, padded, or a repeated URL."""
     rows: list[dict[str, Any]] = []
     for note in db.iter_notes():
         n_handle = str(note.get_handle() or "")
@@ -150,7 +151,7 @@ def build_note_fix_rows(db: Any) -> list[dict[str, Any]]:
 #
 # ------------------------------------------------------------
 class NotesFixDialog(Gtk.Dialog):
-    """Review and fix notes with From (labels) / To (textboxes) columns, hints, Accept and Apply."""
+    """Review and fix notes: current text, target text box, hint, Accept and Apply."""
 
     def __init__(
         self,
@@ -173,7 +174,9 @@ class NotesFixDialog(Gtk.Dialog):
 
         # Action buttons in dialog action bar (always visible at bottom)
         n_hints = len(self.rows)
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button = Gtk.Button(
+            label=_("Accept hints ({number_of})").format(number_of=n_hints)
+        )
         self.accept_button.set_sensitive(n_hints > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
@@ -196,7 +199,9 @@ class NotesFixDialog(Gtk.Dialog):
             return
 
         count_label = Gtk.Label(
-            label=str(_("Total problem notes found: %d") % len(self.rows))
+            label=str(
+                _("Problem notes found: {number_of}").format(number_of=len(self.rows))
+            )
         )
         count_label.set_halign(Gtk.Align.START)
         content.add(count_label)
@@ -362,13 +367,13 @@ class NotesFixDialog(Gtk.Dialog):
 
         OkDialog(
             str(_("Hints accepted")),
-            str(
-                _(
-                    "Populated suggested actions into target columns for %d notes. "
-                    "Review or edit them, then press Apply."
-                )
-            )
-            % populated_count,
+            ngettext(
+                "Filled in suggested actions for {number_of} note. Review or edit "
+                "them, then press Apply.",
+                "Filled in suggested actions for {number_of} notes. Review or edit "
+                "them, then press Apply.",
+                populated_count,
+            ).format(number_of=populated_count),
             parent=self,
         )
 
@@ -404,7 +409,11 @@ class NotesFixDialog(Gtk.Dialog):
 
         OkDialog(
             str(_("Note fixes applied")),
-            str(_("Updated or removed %d notes in the database.")) % applied_count,
+            ngettext(
+                "Updated or removed {number_of} note.",
+                "Updated or removed {number_of} notes.",
+                applied_count,
+            ).format(number_of=applied_count),
             parent=self,
         )
 

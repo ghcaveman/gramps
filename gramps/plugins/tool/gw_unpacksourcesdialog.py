@@ -53,6 +53,7 @@ from gramps.plugins.tool.gwizardcitationrepairengine import (
 from gramps.plugins.tool.gwizardcitationshared import clean_source_title
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
@@ -122,21 +123,27 @@ class UnpackSourcesDialog(Gtk.Dialog):
             hint_parts = []
             repo_name = item.get("repo_name", "")
             if repo_name:
-                hint_parts.append(_("Extract repository '%s'") % repo_name)
+                hint_parts.append(
+                    _("Extract repository '{repository}'").format(repository=repo_name)
+                )
             new_title = item.get("new_title", "")
             if new_title:
-                hint_parts.append(_("Source title to '%s'") % new_title)
+                hint_parts.append(
+                    _("Source title to '{title}'").format(title=new_title)
+                )
                 hint_parts.append(
                     _("Abbreviation updated to match, if it copied the old title")
                 )
             moved = item.get("moved_text", "")
             if moved:
                 hint_parts.append(
-                    _("Move citation detail '%s' to publication info") % moved
+                    _("Move citation detail '{detail}' to publication info").format(
+                        detail=moved
+                    )
                 )
             reason = item.get("reason", "")
             if reason:
-                hint_parts.append(_("Cleans: %s") % reason)
+                hint_parts.append(_("Cleans: {reason}").format(reason=reason))
             item["hint_text"] = "\n".join(hint_parts)
             self.plan.append(item)
 
@@ -145,7 +152,9 @@ class UnpackSourcesDialog(Gtk.Dialog):
 
         # Action buttons in dialog action area (always visible at bottom)
         n_hints = len(self.plan)
-        self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
+        self.accept_button = Gtk.Button(
+            label=_("Accept hints ({number_of})").format(number_of=n_hints)
+        )
         self.accept_button.set_sensitive(n_hints > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
@@ -168,7 +177,11 @@ class UnpackSourcesDialog(Gtk.Dialog):
             return
 
         count_label = Gtk.Label(
-            label=str(_("Total conflated sources found: %d") % len(self.plan))
+            label=str(
+                _("Conflated sources found: {number_of}").format(
+                    number_of=len(self.plan)
+                )
+            )
         )
         count_label.set_halign(Gtk.Align.START)
         content.add(count_label)
@@ -321,20 +334,6 @@ class UnpackSourcesDialog(Gtk.Dialog):
         scrolled.add(grid)
         return scrolled
 
-    def build_buttons(self) -> Gtk.Box:
-        """Return the action button row with Accept hints and Apply."""
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        buttons.set_homogeneous(True)
-        n_hints = len(self.row_targets)
-        accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
-        accept_button.set_sensitive(n_hints > 0)
-        apply_button = Gtk.Button(label=str(_("Apply")))
-        accept_button.connect("clicked", self.cb_accept_hints)
-        apply_button.connect("clicked", self.cb_apply)
-        buttons.pack_start(accept_button, True, True, 0)
-        buttons.pack_start(apply_button, True, True, 0)
-        return buttons
-
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
         """Populate suggested values into target columns."""
         populated_count = 0
@@ -360,13 +359,13 @@ class UnpackSourcesDialog(Gtk.Dialog):
 
         OkDialog(
             str(_("Hints accepted")),
-            str(
-                _(
-                    "Populated suggested data into target columns for %d sources. "
-                    "Review or edit them, then press Apply."
-                )
-            )
-            % populated_count,
+            ngettext(
+                "Filled in suggested values for {number_of} source. Review or edit "
+                "them, then press Apply.",
+                "Filled in suggested values for {number_of} sources. Review or edit "
+                "them, then press Apply.",
+                populated_count,
+            ).format(number_of=populated_count),
             parent=self,
         )
 
@@ -400,8 +399,13 @@ class UnpackSourcesDialog(Gtk.Dialog):
 
         OkDialog(
             str(_("Field Unpacking Complete")),
-            str(_("Unpacked %d conflated sources (%d abbreviations updated)."))
-            % (applied_count, abbrev_count),
+            ngettext(
+                "Unpacked {number_of} conflated source ({abbreviations} abbreviations "
+                "updated).",
+                "Unpacked {number_of} conflated sources ({abbreviations} "
+                "abbreviations updated).",
+                applied_count,
+            ).format(number_of=applied_count, abbreviations=abbrev_count),
             parent=self,
         )
 
