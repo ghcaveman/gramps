@@ -765,9 +765,9 @@ GWizardMediaFix.cb_auto_all:
 - images/gwizard_mediafix-consolidate.png
 - images/gwizard_mediafix-find-missing.png
 - images/gwizard_mediafix-fix-references.png
-- images/gwizard_mediafix-main-menu.png
 - images/gwizard_mediafix-report-save.png
 - images/gwizard_mediafix-report.png
+- images/gwizard_mediafix-undo-last-file-moves.png
 
 ### Isolated Feature Diff (against functionality_base):
 (git diff warning: fatal: bad revision 'functionality_base...HEAD')
