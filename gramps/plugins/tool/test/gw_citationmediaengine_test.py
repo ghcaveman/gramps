@@ -126,6 +126,31 @@ class GWizardCitationMediaEngineTest(unittest.TestCase):
         self.assertEqual(extract_sheet_page("cert 402"), "402")
         self.assertEqual(extract_sheet_page("Just some generic notes"), "")
 
+    def test_extract_sheet_page_ignores_years(self) -> None:
+        """A year after "certificate" or "line" is not a sheet or page number."""
+        self.assertEqual(extract_sheet_page("Death_Certificate_1860"), "")
+        self.assertEqual(extract_sheet_page("Certificate_1860_page_7"), "7")
+        self.assertEqual(extract_sheet_page("Adams_1940_Census_Sheet_12A"), "12A")
+
+    def test_year_in_file_name_is_not_a_sheet_mismatch(self) -> None:
+        """A death certificate is flagged for its category, not a sheet number."""
+        media = MediaIdentity(
+            filename="Death_Certificate_1860",
+            sheet_page=extract_sheet_page("Death_Certificate_1860"),
+            category="death",
+            year="1860",
+        )
+        citation = CitationIdentity(
+            source_title="1940 Federal Population Schedule",
+            page="Sheet 10B",
+            sheet_page="10B",
+            category="census",
+            year="1940",
+        )
+        result = compute_citation_media_compatibility(media, citation)
+        self.assertEqual(result.status, "conflict")
+        self.assertFalse(any("Sheet/Page" in text for text in result.conflicts))
+
     def test_extract_media_identity(self) -> None:
         """extract_media_identity captures filename, year, category, and portrait flags."""
         with DbTxn("Create media", self.db) as trans:

@@ -240,17 +240,24 @@ def extract_year(text: str) -> str:
     return match.group(1) if match else ""
 
 
+_SHEET_PAGE_RE = re.compile(
+    r"(?i)(?:^|[\W_])(?:sheet|page|p\.|cert|certificate|line)[\s_]*"
+    r"([0-9]+[a-z]?)(?=$|[\W_])"
+)
+_YEAR_RE = re.compile(r"1[5-9][0-9]{2}|20[0-9]{2}")
+
+
 def extract_sheet_page(text: str) -> str:
     """Extract sheet, page, or certificate numbers from text."""
     if not text:
         return ""
-    # Sheet 12A, Sheet_12A, Sheet 12, p. 45, page 123, cert 402, ed 16-100
-    m = re.search(
-        r"(?i)(?:^|[\W_])(?:sheet|page|p\.|cert|certificate|line)[\s_]*([0-9]+[a-z]?)(?:$|[\W_])",
-        text,
-    )
-    if m:
-        return m.group(1).upper()
+    # Sheet 12A, Sheet_12A, Sheet 12, p. 45, page 123, cert 402, ed 16-100.
+    # A bare year after the word ("Death_Certificate_1860") is a date, not a
+    # number on the document, so it is skipped.
+    for m in _SHEET_PAGE_RE.finditer(text):
+        value = m.group(1)
+        if not _YEAR_RE.fullmatch(value):
+            return value.upper()
     m_num = re.search(r"(?i)(?:^|[\W_])ed[\s_]*([0-9]+[\-_][0-9]+)(?:$|[\W_])", text)
     if m_num:
         return m_num.group(1)

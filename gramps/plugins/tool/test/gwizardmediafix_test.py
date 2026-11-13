@@ -309,7 +309,7 @@ class GWizardMediaFixTest(unittest.TestCase):
             m2 = Media()
             m2.set_description("Photo 2")
             m2.set_path("shared/file.jpg")
-            m2_h = self.db.add_media(m2, trans)
+            self.db.add_media(m2, trans)
 
             p1 = Person()
             mr1 = MediaRef()
@@ -344,7 +344,7 @@ class GWizardMediaFixTest(unittest.TestCase):
             e = Event()
             e.set_type(EventType.DEATH)
             e.set_date_object(d)
-            e_h = db_add_e = self.db.add_event(e, trans)
+            e_h = self.db.add_event(e, trans)
             eref = EventRef()
             eref.set_reference_handle(e_h)
             p.add_event_ref(eref)
@@ -352,7 +352,7 @@ class GWizardMediaFixTest(unittest.TestCase):
             mref = MediaRef()
             mref.set_reference_handle(m_handle)
             p.add_media_reference(mref)
-            p_handle = self.db.add_person(p, trans)
+            self.db.add_person(p, trans)
 
         media = self.db.get_media_from_handle(m_handle)
         ctx = resolve_media_reference_context(self.db, media)
@@ -395,7 +395,7 @@ class GWizardMediaFixTest(unittest.TestCase):
             eref = EventRef()
             eref.set_reference_handle(e_handle)
             p.add_event_ref(eref)
-            p_handle = self.db.add_person(p, trans)
+            self.db.add_person(p, trans)
 
         media = self.db.get_media_from_handle(m_handle)
         ctx = resolve_media_reference_context(self.db, media)
@@ -518,7 +518,7 @@ class GWizardMediaFixTest(unittest.TestCase):
             eref = EventRef()
             eref.set_reference_handle(e_h)
             p.add_event_ref(eref)
-            p_h = self.db.add_person(p, trans)
+            self.db.add_person(p, trans)
 
         media = self.db.get_media_from_handle(m_h)
         ctx = resolve_media_reference_context(self.db, media)
@@ -569,7 +569,7 @@ class GWizardMediaFixTest(unittest.TestCase):
             mref = MediaRef()
             mref.set_reference_handle(m_h)
             p.add_media_reference(mref)
-            p_h = self.db.add_person(p, trans)
+            self.db.add_person(p, trans)
 
         media = self.db.get_media_from_handle(m_h)
         ctx = resolve_media_reference_context(self.db, media)
@@ -1006,7 +1006,7 @@ class GWizardMediaFixTest(unittest.TestCase):
             m2 = Media()
             m2.set_description("Photo 2")
             m2.set_path("shared/sample.jpg")
-            m2_h = self.db.add_media(m2, trans)
+            self.db.add_media(m2, trans)
 
             # Person links to m1
             p = Person()
@@ -1083,7 +1083,7 @@ class GWizardMediaFixTest(unittest.TestCase):
                 m1 = Media()
                 m1.set_description("Photo A")
                 m1.set_path(shared_file)
-                m1_h = self.db.add_media(m1, trans)
+                self.db.add_media(m1, trans)
 
                 m2 = Media()
                 m2.set_description("Photo B")
@@ -1730,11 +1730,11 @@ class GWizardMediaFixTest(unittest.TestCase):
             with DbTxn("Create records", self.db) as trans:
                 m_missing = Media()
                 m_missing.set_path("lost/found.jpg")
-                h_m = self.db.add_media(m_missing, trans)
+                self.db.add_media(m_missing, trans)
 
                 m_move = Media()
                 m_move.set_path(f2)
-                h_mv = self.db.add_media(m_move, trans)
+                self.db.add_media(m_move, trans)
 
             lock_media(self.db, m_missing, commit=True)
             lock_media(self.db, m_move, commit=True)
@@ -1753,12 +1753,12 @@ class GWizardMediaFixTest(unittest.TestCase):
             m_lock = Media()
             m_lock.set_description("Secure Photo")
             m_lock.set_path("secure.jpg")
-            h_l = self.db.add_media(m_lock, trans)
+            self.db.add_media(m_lock, trans)
 
             m_fix = Media()
             m_fix.set_description("Clean Photo")
             m_fix.set_path("clean.jpg")
-            h_f = self.db.add_media(m_fix, trans)
+            self.db.add_media(m_fix, trans)
 
         lock_media(self.db, m_lock, commit=True)
         add_media_fixed_tag(self.db, m_fix, commit=True)
