@@ -537,10 +537,12 @@ class GWizardMediaFixTest(unittest.TestCase):
         with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
             dlg.cb_apply(MagicMock())
 
+        # The source file does not exist, so the record must be left unchanged.
+        # (Compare with "/" separators: normpath only converts "\\" on Windows.)
         updated = self.db.get_media_from_handle(m_handle)
         self.assertEqual(
-            os.path.normpath(updated.get_path()),
-            os.path.normpath("subfolder/backslashes.jpg"),
+            updated.get_path().replace("\\", "/"),
+            "subfolder/backslashes.jpg",
         )
 
     def test_apply_filename_standards(self) -> None:

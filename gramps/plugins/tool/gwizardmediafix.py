@@ -102,6 +102,8 @@ try:
         unique_destination,
         relocate_file,
         build_basename_index,
+        full_media_path,
+        is_bare_media,
         TAG_MEDIA_FIXED,
         TAG_MEDIA_FIXED_COLOR,
         TAG_LOCKED,
@@ -128,6 +130,8 @@ except (ImportError, ValueError):
         unique_destination,
         relocate_file,
         build_basename_index,
+        full_media_path,
+        is_bare_media,
         TAG_MEDIA_FIXED,
         TAG_MEDIA_FIXED_COLOR,
         TAG_LOCKED,
@@ -748,6 +752,28 @@ def find_in_media_dir(
     return basename if os.path.exists(flat) else ""
 
 
+def ambiguous_matches(candidates: list[tuple[str, str, str]]) -> set[str]:
+    """Return the handles whose suggested file is also wanted by another record.
+
+    Matching a missing file by name alone is only safe when every record that
+    is pointed at the found file had the same original path.  Two different
+    records ("C:/Smith/scan1.jpg" and "D:/Jones/scan1.jpg") that both match
+    one "scan1.jpg" would otherwise be repointed at the same file and then
+    merged as duplicates, so neither is changed automatically.
+
+    :param candidates: (handle, original_raw_path, suggested_path) triples.
+    :returns: The handles that must not be repointed automatically.
+    """
+    origins: dict[str, set[str]] = {}
+    for _handle, raw, found in candidates:
+        origins.setdefault(path_key(found), set()).add(path_key(raw))
+    return {
+        handle
+        for handle, _raw, found in candidates
+        if len(origins[path_key(found)]) > 1
+    }
+
+
 def media_dir_index(db: Any, base_dir: str) -> dict[str, list[str]] | None:
     """Recursive file index of base_dir, only when the user configured a media
     base path (never walk the whole home folder by accident)."""
@@ -993,14 +1019,12 @@ def find_duplicate_media_references(
     for media in db.iter_media():
         m_gid = str(media.get_gramps_id() or "")
         desc = str(media.get_description() or "")
-        raw_path = str(media.get_path() or "").strip()
+        raw_path = clean_path(str(media.get_path() or ""))
         if not raw_path:
             continue
-        try:
-            full_path = media_path_full(db, raw_path)
-            key = os.path.normcase(os.path.normpath(full_path))
-        except Exception:
-            key = os.path.normcase(os.path.normpath(raw_path))
+        # Same key as find_duplicate_media_groups(), so the report and the
+        # Fix media references dialog always agree on what is a duplicate.
+        key = path_key(full_media_path(db, raw_path))
 
         ctx = resolve_media_reference_context(db, media, cache)
         assoc_str = ctx.get("assoc", "")
@@ -1556,6 +1580,7 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
         "base_dir": base_dir,
         "base_set": base_set,
         "find": [],
+        "ambiguous": [],
         "merges": [],
         "delete": [],
         "keep_unref": [],
@@ -1571,6 +1596,7 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
     # Step 1: find missing
     effective: dict[str, str] = {}
     found_handles: set[str] = set()
+    find_candidates: list[tuple[str, str, str, str]] = []  # handle, gid, raw, rel
     for media in list(db.iter_media()):
         handle = str(media.get_handle() or "")
         raw = clean_path(str(media.get_path() or ""))
@@ -1589,9 +1615,15 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
             base_dir, os.path.basename(raw.replace("\\", "/")), index
         )
         if rel:
-            plan["find"].append((str(media.get_gramps_id() or ""), raw, rel))
-            effective[handle] = rel
-            found_handles.add(handle)
+            find_candidates.append((handle, str(media.get_gramps_id() or ""), raw, rel))
+    unsafe = ambiguous_matches([(h, raw, rel) for h, _g, raw, rel in find_candidates])
+    for handle, gid, raw, rel in find_candidates:
+        if handle in unsafe:
+            plan["ambiguous"].append((gid, raw, rel))
+            continue
+        plan["find"].append((gid, raw, rel))
+        effective[handle] = rel
+        found_handles.add(handle)
 
     # Step 2: references
     gone: set[str] = set()
@@ -1709,6 +1741,17 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
         section(
             str(_("1. Find missing media - repoint %d record(s):")) % len(plan["find"]),
             ["[%s] %s  ->  %s" % r for r in plan["find"]],
+        )
+    if plan.get("ambiguous"):
+        section(
+            str(
+                _(
+                    "1. Find missing media - NOT repointed, several different "
+                    "records match the same file (%d):"
+                )
+            )
+            % len(plan["ambiguous"]),
+            ["[%s] %s  ?  %s" % r for r in plan["ambiguous"]],
         )
     if plan["merges"]:
         section(
@@ -1894,6 +1937,25 @@ class FindMissingMediaDialog(Gtk.Dialog):
                         "locked": locked,
                     }
                 )
+
+        # A file found by name for several different records is not a safe
+        # hint: offering it to all of them would make them duplicates.
+        unsafe = ambiguous_matches(
+            [
+                (r["handle"], r["raw_path"], r["suggested_path"])
+                for r in self.rows
+                if r.get("suggested_path")
+            ]
+        )
+        for r in self.rows:
+            if r["handle"] in unsafe:
+                r["hint_text"] = (
+                    _(
+                        "'%s' also matches other missing records: choose the path manually"
+                    )
+                    % r["suggested_path"]
+                )
+                r["suggested_path"] = ""
 
         n_hints = sum(1 for r in self.rows if r.get("suggested_path"))
         self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
@@ -2409,8 +2471,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
 
             locked = is_media_locked(dbstate.db, media)
             hint_val = self._compute_hint(raw_path, media)
-            norm_raw = raw_path.replace("\\", "/")
-            if norm_raw != hint_val or is_absolute_path(raw_path):
+            if self._needs_consolidation(raw_path, hint_val):
                 try:
                     src_full = clean_path(
                         media_path_full(dbstate.db, clean_path(raw_path))
@@ -2624,6 +2685,27 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             if val:
                 self.path_entry.set_text(val)
         f.destroy()
+
+    def _needs_consolidation(self, raw_path: str, hint_val: str) -> bool:
+        """
+        Return True when a record is not yet at its consolidated location.
+
+        The hint is an absolute path inside the base directory, while an
+        already-consolidated record stores the matching *relative* path, so the
+        two are compared in database form.  (Comparing the stored path with the
+        absolute hint directly listed every record, every time.)
+
+        :param raw_path: The path stored on the media record.
+        :param hint_val: The suggested absolute path from :meth:`_compute_hint`.
+        :returns: ``True`` if the record should be listed.
+        """
+        clean_raw = clean_path(raw_path)
+        if not clean_raw:
+            return False
+        if is_absolute_path(clean_raw):
+            return True
+        target = to_db_path(hint_val, self.base_dir).replace("\\", "/")
+        return clean_raw.replace("\\", "/") != target
 
     def _get_current_template(self) -> str:
         if hasattr(self, "tmpl_combo"):
@@ -3553,61 +3635,69 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         perm_denied: list[tuple[str, str, str, str]] = []
 
         name_index = media_dir_index(db, base_dir)
+
+        # Pass 1: work out every match without changing anything, so that a
+        # file wanted by several different records can be held back.
+        matches: list[tuple[Any, str, str, str, str]] = []  # media,gid,desc,raw,rel
+        for media in list(db.iter_media()):
+            if is_media_locked(db, media):
+                continue
+            m_gid = str(media.get_gramps_id() or "")
+            desc = str(media.get_description() or "")
+            raw_path = str(media.get_path() or "")
+            clean_raw = clean_path(raw_path)
+            if not clean_raw:
+                continue
+
+            try:
+                full_path = media_path_full(db, clean_raw)
+            except Exception:
+                full_path = clean_raw
+
+            exists = os.path.exists(full_path) or (
+                is_absolute_path(clean_raw) and os.path.exists(clean_raw)
+            )
+            if exists:
+                continue
+
+            basename = os.path.basename(clean_raw.replace("\\", "/"))
+            found_rel = find_in_media_dir(base_dir, basename, name_index)
+            if found_rel:
+                matches.append((media, m_gid, desc, raw_path, found_rel))
+                continue
+            perm_issue, inaccess_dir = check_path_permission(full_path)
+            if not perm_issue and is_absolute_path(clean_raw):
+                perm_issue, inaccess_dir = check_path_permission(clean_raw)
+            if perm_issue and inaccess_dir:
+                perm_denied.append((m_gid, desc, raw_path, inaccess_dir))
+            else:
+                unresolved.append((m_gid, desc, raw_path))
+
+        unsafe = ambiguous_matches(
+            [(str(m.get_handle()), raw, rel) for m, _g, _d, raw, rel in matches]
+        )
+
+        # Pass 2: repoint only the unambiguous matches.
         with DbTxn(_("Auto Find Missing Media"), db) as trans:
-            for media in list(db.iter_media()):
-                if is_media_locked(db, media):
+            for media, m_gid, desc, raw_path, found_rel in matches:
+                if str(media.get_handle()) in unsafe:
+                    unresolved.append((m_gid, desc, raw_path))
                     continue
-                m_gid = str(media.get_gramps_id() or "")
-                desc = str(media.get_description() or "")
-                raw_path = str(media.get_path() or "")
-                clean_raw = clean_path(raw_path)
-                if not clean_raw:
-                    continue
-
-                try:
-                    full_path = media_path_full(db, clean_raw)
-                except Exception:
-                    full_path = clean_raw
-
-                exists = os.path.exists(full_path) or (
-                    is_absolute_path(clean_raw) and os.path.exists(clean_raw)
-                )
-
-                if not exists:
-                    basename = os.path.basename(clean_raw.replace("\\", "/"))
-                    found_rel = find_in_media_dir(base_dir, basename, name_index)
-                    if found_rel:
-                        media.set_path(found_rel)
-                        add_media_fixed_tag(db, media, txn=trans)
-                        db.commit_media(media, trans)
-                        resolved_count += 1
-                    else:
-                        perm_issue, inaccess_dir = check_path_permission(full_path)
-                        if not perm_issue and is_absolute_path(clean_raw):
-                            perm_issue, inaccess_dir = check_path_permission(clean_raw)
-                        if perm_issue and inaccess_dir:
-                            perm_denied.append((m_gid, desc, raw_path, inaccess_dir))
-                        else:
-                            unresolved.append((m_gid, desc, raw_path))
+                media.set_path(found_rel)
+                add_media_fixed_tag(db, media, txn=trans)
+                db.commit_media(media, trans)
+                resolved_count += 1
 
         return resolved_count, unresolved, perm_denied
 
     @staticmethod
     def _is_bare_media(media: Any) -> bool:
-        """True when a media record carries nothing worth keeping."""
+        """True when a media record carries nothing worth keeping.
 
-        def _has(name: str) -> bool:
-            fn = getattr(media, name, None)
-            return bool(fn()) if callable(fn) else False
-
-        date = media.get_date_object() if hasattr(media, "get_date_object") else None
-        return not (
-            _has("get_note_list")
-            or _has("get_attribute_list")
-            or _has("get_tag_list")
-            or _has("get_citation_list")
-            or (date is not None and not date.is_empty())
-        )
+        Kept for existing callers; the shared implementation lives in
+        gwizard_common so the Fix media references dialog uses the same rule.
+        """
+        return is_bare_media(media)
 
     def _auto_fix_references(self, db: Any) -> tuple[int, int, list[str]]:
         """Auto resolve duplicate media references and purge unreferenced image tags.
