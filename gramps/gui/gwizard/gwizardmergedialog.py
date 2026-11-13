@@ -337,6 +337,35 @@ def sources_line(db: Any, obj: Any) -> str:
     return _("Sources: %s") % (citation_sources_summary(db, obj) or _("none"))
 
 
+def pair_relatives(
+    source_items: list[Any], target_items: list[Any], resolve: Any
+) -> list[tuple[Any, Any]]:
+    """
+    Pair incoming relatives with the tree person's relatives of one role.
+
+    ``resolve`` maps the handle of an incoming person to the handle of the
+    person in the tree that it stands for (None when there is none). A
+    relative the tree person already has is paired with it whatever the
+    order of the two lists. Returns (incoming, tree) pairs: the pairs first,
+    in incoming order, then incoming relatives the tree person lacks, then
+    relatives only the tree person has. The missing side of an unpaired
+    relative is None.
+    """
+    unused = list(target_items)
+    paired: list[tuple[Any, Any]] = []
+    source_only: list[tuple[Any, Any]] = []
+    for s_rel in source_items:
+        wanted = resolve(s_rel.handle) if unused else None
+        for position, t_rel in enumerate(unused):
+            if wanted and t_rel.handle == wanted:
+                del unused[position]
+                paired.append((s_rel, t_rel))
+                break
+        else:
+            source_only.append((s_rel, None))
+    return paired + source_only + [(None, t_rel) for t_rel in unused]
+
+
 def person_events_by_type(db: Any, person: Person) -> dict[str, list[str]]:
     """Return visible event handles grouped by event type, preserving order."""
     groups: dict[str, list[str]] = {}
@@ -909,13 +938,13 @@ class GWizardMergeDialog(Gtk.Dialog):
         ):
             t_items = rel_items(td, right, role)
             s_items = rel_items(sd, left, role)
-            count = max(len(t_items), len(s_items))
-            for i in range(count):
-                t_rel = t_items[i] if i < len(t_items) else None
-                s_rel = s_items[i] if i < len(s_items) else None
+            for s_rel, t_rel in pair_relatives(
+                s_items, t_items, self.gwizard.target_person_for
+            ):
                 t_text = self._related_text(t_rel, td) if t_rel else ""
                 s_text = self._related_text(s_rel, sd) if s_rel else ""
-                key = (role + ":" + s_rel.handle) if s_rel else None
+                # A relative the tree person already has needs no arrow.
+                key = (role + ":" + s_rel.handle) if s_rel and not t_rel else None
                 add_row(
                     key,
                     title,
@@ -929,13 +958,12 @@ class GWizardMergeDialog(Gtk.Dialog):
         section(_("Children"))
         t_items = rel_items(td, right, "child")
         s_items = rel_items(sd, left, "child")
-        count = max(len(t_items), len(s_items))
-        for i in range(count):
-            t_rel = t_items[i] if i < len(t_items) else None
-            s_rel = s_items[i] if i < len(s_items) else None
+        for s_rel, t_rel in pair_relatives(
+            s_items, t_items, self.gwizard.target_person_for
+        ):
             t_text = self._related_text(t_rel, td) if t_rel else ""
             s_text = self._related_text(s_rel, sd) if s_rel else ""
-            key = ("child:" + s_rel.handle) if s_rel else None
+            key = ("child:" + s_rel.handle) if s_rel and not t_rel else None
             add_row(
                 key,
                 "",

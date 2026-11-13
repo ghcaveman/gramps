@@ -1041,6 +1041,13 @@ class GedGWizard(GWizardBase):
 
         return rows
 
+    def target_person_for(self, s_handle: str) -> str | None:
+        """
+        Return the handle of the person in the tree that an incoming person
+        stands for, or None. This is the person a merge links as a relative.
+        """
+        return self._best_target_person(s_handle)
+
     def _best_target_person(self, s_handle: str) -> str | None:
         """
         Return the handle of the person in the tree that an incoming person
