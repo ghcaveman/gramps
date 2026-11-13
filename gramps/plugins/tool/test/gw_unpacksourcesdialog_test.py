@@ -83,6 +83,7 @@ from gramps.plugins.tool.gw_unpacksourcesdialog import UnpackSourcesDialog
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
+from gramps.plugins.tool.gwizardcitationshared import split_conflated_title
 
 
 class FakeDbState:
@@ -225,6 +226,83 @@ class UnpackSourcesDialogTest(unittest.TestCase):
                 for text in labels_created
             )
             self.assertTrue(merged_footer_found)
+
+
+class SplitConflatedTitleTest(unittest.TestCase):
+    """Splitting a mixed title is complete in one pass and loses nothing."""
+
+    CASES = [
+        (
+            "Newspapers.com Obituary Index, 1800s-current "
+            "(Repository: Newspapers.com, Source: Obituary Index)",
+            ("Newspapers.com", "Obituary Index, 1800s-current", ""),
+        ),
+        (
+            "Ancestry.com; 1900 Census; Page 1",
+            ("Ancestry.com", "1900 Census", "Page 1"),
+        ),
+        (
+            "1940 Census (from Ancestry.com, page 2)",
+            ("Ancestry.com", "1940 Census", "page 2"),
+        ),
+        (
+            "Census (Repository: Some Local Library, Source: State Census)",
+            ("Some Local Library", "Census", "State Census"),
+        ),
+        (
+            "https://www.familysearch.org/ark:/61903/1:1:XYZ Pennsylvania "
+            "Marriages; Ancestry.com; Vol 3",
+            (
+                "FamilySearch",
+                "Pennsylvania Marriages",
+                "Ancestry.com; https://www.familysearch.org/ark:/61903/1:1:XYZ; "
+                "Vol 3",
+            ),
+        ),
+    ]
+
+    def test_split_results(self) -> None:
+        """Each title gives the expected repository, title and moved text."""
+        for title, (repo, new_title, moved) in self.CASES:
+            with self.subTest(title=title):
+                result = split_conflated_title(title)
+                assert result is not None
+                self.assertEqual(result["repo_name"], repo)
+                self.assertEqual(result["new_title"], new_title)
+                self.assertEqual(result["moved_text"], moved)
+
+    def test_second_split_finds_nothing(self) -> None:
+        """The new title has no repository text left and no stray brackets."""
+        for title, _expected in self.CASES:
+            with self.subTest(title=title):
+                result = split_conflated_title(title)
+                assert result is not None
+                self.assertIsNone(split_conflated_title(result["new_title"]))
+                self.assertEqual(
+                    result["new_title"].count("("), result["new_title"].count(")")
+                )
+
+    def test_unpack_step_is_stable(self) -> None:
+        """Running the unpack step again changes nothing and adds no repository."""
+        db: DbWriteBase = make_database("sqlite")
+        db.load(":memory:")
+        try:
+            with DbTxn("Setup", db) as trans:
+                for title, _expected in self.CASES:
+                    src = Source()
+                    src.set_title(title)
+                    db.add_source(src, trans)
+            engine = GWizardCitationRepairEngine()
+            self.assertGreater(engine.unpack_conflated_sources(db), 0)
+            titles = sorted(src.get_title() for src in db.iter_sources())
+            repos = db.get_number_of_repositories()
+            self.assertEqual(engine.unpack_conflated_sources(db), 0)
+            self.assertEqual(
+                sorted(src.get_title() for src in db.iter_sources()), titles
+            )
+            self.assertEqual(db.get_number_of_repositories(), repos)
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

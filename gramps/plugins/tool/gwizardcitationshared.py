@@ -385,10 +385,100 @@ def _expand_url_token(text: str, start: int, end: int) -> tuple[int, int]:
     return (start, end)
 
 
+def _balance_brackets(text: str) -> str:
+    """Drop any bracket that has no partner, so cutting text never leaves "(" behind."""
+    pairs = {")": "(", "]": "["}
+    stack: list[int] = []
+    drop: set[int] = set()
+    for index, char in enumerate(text):
+        if char in "([":
+            stack.append(index)
+        elif char in pairs:
+            if stack and text[stack[-1]] == pairs[char]:
+                stack.pop()
+            else:
+                drop.add(index)
+    drop.update(stack)
+    return "".join(char for index, char in enumerate(text) if index not in drop)
+
+
+_DANGLING_WORD_RE = re.compile(
+    r"^(?:from|via|at|courtesy of|provided by)\s+|"
+    r"\s+(?:from|via|at|courtesy of|provided by)$",
+    re.IGNORECASE,
+)
+
+
 def _clean_fragment(text: str) -> str:
+    text = _balance_brackets(text)
     text = re.sub(r"\(\s*\)|\[\s*\]", " ", text)
     text = re.sub(r"\s+", " ", text)
-    return text.strip(" \t,.;:|-()")
+    text = text.strip(" \t,.;:|-()[]")
+    # A connecting word left behind by a cut repository name: "(from X)".
+    text = _DANGLING_WORD_RE.sub("", text)
+    return text.strip(" \t,.;:|-()[]")
+
+
+# "(Repository: Newspapers.com, Source: Obituary Index)" style groups.
+_LABELLED_GROUP_RE = re.compile(
+    r"[(\[]\s*((?:repository|source|citation)\s*:[^()\[\]]*)[)\]]?",
+    re.IGNORECASE,
+)
+_LABEL_RE = re.compile(r"\b(repository|source|citation)\s*:\s*", re.IGNORECASE)
+
+
+def _take_labelled_groups(title: str) -> tuple[str, str, list[str]]:
+    """Remove labelled groups such as ``(Repository: X, Source: Y)``.
+
+    :returns: ``(rest, repository_text, moved)``. ``rest`` is the title
+        with the groups cut out, ``repository_text`` the first value
+        labelled Repository, and ``moved`` the Citation values and any
+        Source value whose text is not already in the title.
+    """
+    repo_text = ""
+    moved: list[str] = []
+    source_values: list[str] = []
+    for match in _LABELLED_GROUP_RE.finditer(title):
+        parts = _LABEL_RE.split(match.group(1))
+        for label, value in zip(parts[1::2], parts[2::2]):
+            value = value.strip(" ,;")
+            if not value:
+                continue
+            label = label.lower()
+            if label == "repository":
+                repo_text = repo_text or value
+            elif label == "citation":
+                moved.append(value)
+            else:
+                source_values.append(value)
+    rest = _LABELLED_GROUP_RE.sub(" ; ", title)
+    rest_key = normalize_text_key(rest)
+    for value in source_values:
+        if normalize_text_key(value) not in rest_key:
+            moved.append(value)
+    return rest, repo_text, moved
+
+
+def _cut_repository_mentions(text: str) -> tuple[str, list[str], list[str]]:
+    """Cut every repository mention (and URLs around it) out of text.
+
+    :returns: ``(text, names, urls)``: the names of the repositories found,
+        in the order they first appear, and the full web addresses cut out
+        (kept so a record link is never lost).
+    """
+    names: list[str] = []
+    urls: list[str] = []
+    for _attempt in range(20):
+        mention = find_repository_mention(text)
+        if mention is None:
+            break
+        if mention[0] not in names:
+            names.append(mention[0])
+        start, end = _expand_url_token(text, mention[1], mention[2])
+        if (start, end) != (mention[1], mention[2]):
+            urls.append(text[start:end])
+        text = text[:start] + " ; " + text[end:]
+    return text, names, urls
 
 
 def split_conflated_title(title: str) -> dict[str, str] | None:
@@ -398,17 +488,26 @@ def split_conflated_title(title: str) -> dict[str, str] | None:
     title cannot be separated safely. ``moved_text`` holds citation-style
     fragments (page, volume, memorial id...) removed from the title so no
     information is lost.
+
+    Every mention of the repository is removed, along with labelled groups
+    such as ``(Repository: X, Source: Y)``, so splitting the new title
+    again finds nothing more to do.
     """
-    title = title or ""
-    mention = find_repository_mention(title)
-    if mention is None:
+    rest, repo_text, moved = _take_labelled_groups(title or "")
+    remainder, mentioned, urls = _cut_repository_mentions(rest)
+    repo_name = ""
+    if repo_text:
+        labelled = find_repository_mention(repo_text)
+        repo_name = labelled[0] if labelled else repo_text
+    elif mentioned:
+        repo_name = mentioned[0]
+    if not repo_name:
         return None
-    repo_name, start, end = mention
-    start, end = _expand_url_token(title, start, end)
-    remainder = title[:start] + " ; " + title[end:]
+    # A second repository named in the title is kept as text, not lost.
+    moved.extend(name for name in mentioned if name != repo_name)
+    moved.extend(urls)
 
     kept: list[str] = []
-    moved: list[str] = []
     for fragment in re.split(r"\s*[;|]\s*", remainder):
         fragment = _clean_fragment(fragment)
         if not fragment:
@@ -420,7 +519,7 @@ def split_conflated_title(title: str) -> dict[str, str] | None:
         else:
             kept.append(fragment)
     new_title = "; ".join(kept).strip()
-    if not new_title or not repo_name:
+    if not new_title:
         return None
     return {
         "repo_name": repo_name,
