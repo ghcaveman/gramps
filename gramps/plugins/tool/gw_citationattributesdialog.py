@@ -44,7 +44,9 @@ from gi.repository import Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
+from gramps.plugins.tool.gwizard_common import reports_apply_errors
 from gramps.gen.db import DbTxn
+from gramps.gen.errors import HandleError
 from gramps.gen.lib import SrcAttribute
 from gramps.gui.plug import tool
 from gramps.plugins.tool.gwizardcitationshared import note_text
@@ -648,6 +650,7 @@ class CitationAttributesDialog(Gtk.Dialog):
             parent=self,
         )
 
+    @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply target column data directly into citation attributes in the database."""
         applied_count = 0
@@ -756,7 +759,7 @@ def apply_citation_attributes(
     """
     try:
         cit = db.get_citation_from_handle(citation_handle)
-    except Exception:  # pylint: disable=broad-except
+    except HandleError:
         cit = None
     if cit is None:
         return False

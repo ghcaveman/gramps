@@ -47,11 +47,15 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbTxn
 from gramps.gen.lib import Note, NoteType
 from gramps.gui.dialog import ErrorDialog, OkDialog
+from gramps.plugins.tool.gwizard_common import reports_apply_errors
 from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
-from gramps.plugins.tool.gwizardcitationshared import normalize_repo_name
+from gramps.plugins.tool.gwizardcitationshared import (
+    golden_repository_for,
+    normalize_repo_name,
+)
 from gramps.plugins.tool.gwizardcitationfix import rank_golden_repo_matches
 
 _ = glocale.translation.sgettext
@@ -111,11 +115,7 @@ def _find_or_create_golden(
         if repo and repo.get_name() == golden_name:
             return str(repo.get_handle()), False
     repair_engine = engine or GWizardCitationRepairEngine()
-    try:
-        return repair_engine._create_repository(db, golden_name, trans), True
-    except Exception:  # pylint: disable=broad-except
-        LOG.exception("Failed to create golden repository %s", golden_name)
-        return None, False
+    return repair_engine._create_repository(db, golden_name, trans), True
 
 
 def _tidy_keeper_address(
@@ -158,26 +158,22 @@ def _tidy_keeper_address(
             kept.append(addr)
         else:
             removed += 1
-    try:
-        repo.set_address_list(kept)
-        for detail in details:
-            text = str(_("Place detail from address: %s")) % detail
-            if any(
-                (db.get_note_from_handle(n_handle) is not None)
-                and db.get_note_from_handle(n_handle).get() == text
-                for n_handle in repo.get_note_list()
-            ):
-                continue
-            note = Note()
-            note.set(text)
-            note.set_type(NoteType.REPO)
-            note_handle = db.add_note(note, trans)
-            repo.add_note(note_handle)
-            moved += 1
-        db.commit_repository(repo, trans)
-    except Exception:  # pylint: disable=broad-except
-        LOG.exception("Failed to tidy address for repository %s", name)
-        return 0, 0
+    repo.set_address_list(kept)
+    for detail in details:
+        text = str(_("Place detail from address: %s")) % detail
+        if any(
+            (db.get_note_from_handle(n_handle) is not None)
+            and db.get_note_from_handle(n_handle).get() == text
+            for n_handle in repo.get_note_list()
+        ):
+            continue
+        note = Note()
+        note.set(text)
+        note.set_type(NoteType.REPO)
+        note_handle = db.add_note(note, trans)
+        repo.add_note(note_handle)
+        moved += 1
+    db.commit_repository(repo, trans)
     return removed, moved
 
 
@@ -255,31 +251,21 @@ def apply_repo_consolidations(
         keeper_handle = _resolve_chain(discard_handle, targets)
         if keeper_handle == discard_handle:
             continue
-        try:
-            if repair_engine.merge_repositories(
-                db, keeper_handle, discard_handle, trans
-            ):
-                result["merged"] += 1
-                if keeper_handle not in keepers:
-                    keepers.append(keeper_handle)
-            else:
-                result["errors"].append(
-                    str(_("Failed to merge %s into %s."))
-                    % (discard_handle, keeper_handle)
-                )
-        except Exception as err:  # pylint: disable=broad-except
-            LOG.exception("Merge failed for %s -> %s", discard_handle, keeper_handle)
-            result["errors"].append(str(err))
+        if repair_engine.merge_repositories(db, keeper_handle, discard_handle, trans):
+            result["merged"] += 1
+            if keeper_handle not in keepers:
+                keepers.append(keeper_handle)
+        else:
+            result["errors"].append(
+                str(_("Failed to merge %s into %s.")) % (discard_handle, keeper_handle)
+            )
 
     for handle in keepers + [h for h in (tidy_handles or []) if h not in keepers]:
         removed, moved = _tidy_keeper_address(db, handle, trans)
         result["removed"] += removed
         result["moved"] += moved
 
-    try:
-        repair_engine.apply_gold_standard_details(db, trans)
-    except Exception:  # pylint: disable=broad-except
-        LOG.exception("Failed to apply gold standard details")
+    repair_engine.apply_gold_standard_details(db, trans)
     return result
 
 
@@ -293,7 +279,9 @@ def auto_consolidate_repositories(
     """
     rows = build_repo_consolidate_rows(db)
     changes = [
-        (row["handle"], row["hint_target"]) for row in rows if row["hint_target"]
+        (row["handle"], row["hint_target"])
+        for row in rows
+        if row["hint_target"] and row["confident"]
     ]
     tidy = [
         row["handle"]
@@ -368,23 +356,29 @@ def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
                 "source_count": len(sources),
                 "sources_summary": summary,
                 "norm_name": normalize_repo_name(name),
+                # Same golden repository, or the same name once case and
+                # punctuation are ignored: safe to merge without asking.
+                "same_key": golden_repository_for(name) or normalize_repo_name(name),
                 "is_golden": is_golden,
                 "addr_issue": addr_issue,
             }
         )
 
-    # Group duplicate repositories by normalized name or similarity
+    # Group duplicate repositories: first the sure ones (same golden
+    # repository or same normalized name), then names that are only similar.
+    # Only sure groups are applied by Accept all hints; similar ones are
+    # shown with a hint for the user to check.
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for r in repos:
-        if r["norm_name"]:
-            groups[r["norm_name"]].append(r)
+        if r["same_key"]:
+            groups[r["same_key"]].append(r)
 
-    merged_groups: list[list[dict[str, Any]]] = []
+    merged_groups: list[tuple[list[dict[str, Any]], bool]] = []
     handled_handles: set[str] = set()
 
-    for _norm_key, members in groups.items():
+    for _same_key, members in groups.items():
         if len(members) >= 2:
-            merged_groups.append(members)
+            merged_groups.append((members, True))
             for m in members:
                 handled_handles.add(m["handle"])
 
@@ -410,14 +404,14 @@ def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
                 cluster.append(r2)
                 used_in_fuzzy.add(r2["handle"])
         if len(cluster) >= 2:
-            merged_groups.append(cluster)
+            merged_groups.append((cluster, False))
             used_in_fuzzy.add(r1["handle"])
             for m in cluster:
                 handled_handles.add(m["handle"])
 
     rows: list[dict[str, Any]] = []
 
-    for group in merged_groups:
+    for group, confident in merged_groups:
         group.sort(
             key=lambda r: (
                 not r["is_golden"],
@@ -460,6 +454,8 @@ def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
                     )
                 else:
                     hint_reason = str(_("Preferred keeper"))
+                if not confident:
+                    hint_reason = str(_("Similar name; check before merging"))
                 hint_display = f"{keeper_disp}\n({hint_reason})"
 
             rows.append(
@@ -475,6 +471,7 @@ def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
                     "hint_display": hint_display,
                     "is_keeper": is_keeper,
                     "problem": "duplicate",
+                    "confident": confident,
                 }
             )
 
@@ -488,6 +485,7 @@ def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
         hint_target = ""
         hint_reason = ""
         hint_display = ""
+        confident = False
 
         if not member["is_golden"]:
             ranked = rank_golden_repo_matches(m_name, golden_names, limit=1)
@@ -497,11 +495,16 @@ def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
                 norm_g = normalize_repo_name(best_golden)
                 ratio = difflib.SequenceMatcher(None, norm_m, norm_g).ratio()
                 if norm_m in norm_g or norm_g in norm_m or ratio >= 0.6:
+                    confident = golden_repository_for(m_name) == best_golden
                     if best_golden in existing_golden_handles:
                         target_h = existing_golden_handles[best_golden]
                         if target_h != m_handle:
                             hint_target = target_h
                             hint_reason = str(_("Merge into existing %s")) % best_golden
+                            if not confident:
+                                hint_reason = str(
+                                    _("Similar name; check before merging")
+                                )
                             target_disp = next(
                                 (
                                     r["display"]
@@ -514,6 +517,8 @@ def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
                     else:
                         hint_target = f"GOLDEN:{best_golden}"
                         hint_reason = str(_("Gold-standard match"))
+                        if not confident:
+                            hint_reason = str(_("Similar name; check before merging"))
                         hint_display = f"{best_golden}\n({hint_reason})"
 
         if hint_target or member["addr_issue"]:
@@ -540,6 +545,7 @@ def build_repo_consolidate_rows(db: Any) -> list[dict[str, Any]]:
                     "hint_display": hint_display,
                     "is_keeper": False,
                     "problem": "golden_match" if hint_target else "address",
+                    "confident": confident,
                 }
             )
 
@@ -666,7 +672,11 @@ class RepoConsolidateDialog(Gtk.Dialog):
         hint.set_halign(Gtk.Align.START)
         content.add(hint)
 
-        n_hints = sum(1 for row, _combo in self.row_combos if row.get("hint_target"))
+        n_hints = sum(
+            1
+            for row, _combo in self.row_combos
+            if row.get("hint_target") and row.get("confident")
+        )
         self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
         self.accept_button.set_sensitive(n_hints > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
@@ -810,7 +820,8 @@ class RepoConsolidateDialog(Gtk.Dialog):
         accepted = 0
         for row, combo in self.row_combos:
             target = row.get("hint_target")
-            if not target:
+            # Similar-name hints stay for the user to pick by hand.
+            if not target or not row.get("confident"):
                 continue
             original = row["handle"]
             if self.get_choice(combo, original) != original:
@@ -833,6 +844,7 @@ class RepoConsolidateDialog(Gtk.Dialog):
             parent=self,
         )
 
+    @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply chosen repository consolidations."""
         changes: list[tuple[str, str]] = []

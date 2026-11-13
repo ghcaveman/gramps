@@ -59,6 +59,7 @@ from gramps.gen.db import DbTxn
 from gramps.gen.utils.file import media_path_full
 from gramps.gen.utils.thumbnails import get_thumbnail_image
 from gramps.gui.dialog import OkDialog
+from gramps.plugins.tool.gwizard_common import reports_apply_errors
 from gramps.plugins.tool.gwizardcitationmediaengine import (
     apply_link_media_to_citation,
     apply_promote_media_to_citation,
@@ -636,6 +637,7 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
                 combo.set_active_id("link")
                 row["chosen_action"] = "link"
 
+    @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply chosen actions and close dialog with report."""
         linked, detached = apply_citation_media_fixes(self.dbstate, self.rows)

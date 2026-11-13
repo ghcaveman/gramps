@@ -38,6 +38,7 @@ from typing import Any
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbTxn
+from gramps.gen.errors import HandleError
 from gramps.gen.lib import (
     Note,
     NoteType,
@@ -172,48 +173,45 @@ class GWizardCitationRepairEngine:
             moved = str(entry.get("moved_text") or "").strip()
             if not repo_name and not new_title and not moved:
                 continue
-            try:
-                source = db.get_source_from_handle(entry["handle"])
-                if source is None:
-                    continue
-                before = source.serialize()
-                # A title-only entry (markup or quotes) has no repository.
-                if repo_name:
-                    key = normalize_repo_name(repo_name)
-                    repo_handle = repo_map.get(key)
-                    if not repo_handle:
-                        repo_handle = self._create_repository(db, repo_name, trans)
-                        repo_map[key] = repo_handle
-                    linked = any(
-                        ref.get_reference_handle() == repo_handle
-                        for ref in source.get_reporef_list()
-                    )
-                    if not linked:
-                        repo_ref = RepoRef()
-                        repo_ref.set_reference_handle(repo_handle)
-                        source.add_repo_reference(repo_ref)
-                if new_title:
-                    new_abbrev = unpacked_abbreviation(
-                        str(source.get_abbreviation() or ""),
-                        str(source.get_title() or ""),
-                        new_title,
-                        repo_name,
-                    )
-                    source.set_title(new_title)
-                    if new_abbrev is not None:
-                        source.set_abbreviation(new_abbrev)
-                        self.last_abbreviations_updated += 1
-                if moved:
-                    pubinfo = str(source.get_publication_info() or "").strip()
-                    source.set_publication_info(
-                        "%s; %s" % (pubinfo, moved) if pubinfo else moved
-                    )
-                if source.serialize() == before:
-                    continue  # already unpacked; leave it alone
-                db.commit_source(source, trans)
-                count += 1
-            except Exception:  # pylint: disable=broad-except
-                LOG.exception("Failed to unpack source %s", entry.get("handle"))
+            source = db.get_source_from_handle(entry["handle"])
+            if source is None:
+                continue
+            before = source.serialize()
+            # A title-only entry (markup or quotes) has no repository.
+            if repo_name:
+                key = normalize_repo_name(repo_name)
+                repo_handle = repo_map.get(key)
+                if not repo_handle:
+                    repo_handle = self._create_repository(db, repo_name, trans)
+                    repo_map[key] = repo_handle
+                linked = any(
+                    ref.get_reference_handle() == repo_handle
+                    for ref in source.get_reporef_list()
+                )
+                if not linked:
+                    repo_ref = RepoRef()
+                    repo_ref.set_reference_handle(repo_handle)
+                    source.add_repo_reference(repo_ref)
+            if new_title:
+                new_abbrev = unpacked_abbreviation(
+                    str(source.get_abbreviation() or ""),
+                    str(source.get_title() or ""),
+                    new_title,
+                    repo_name,
+                )
+                source.set_title(new_title)
+                if new_abbrev is not None:
+                    source.set_abbreviation(new_abbrev)
+                    self.last_abbreviations_updated += 1
+            if moved:
+                pubinfo = str(source.get_publication_info() or "").strip()
+                source.set_publication_info(
+                    "%s; %s" % (pubinfo, moved) if pubinfo else moved
+                )
+            if source.serialize() == before:
+                continue  # already unpacked; leave it alone
+            db.commit_source(source, trans)
+            count += 1
         return count
 
     def unpack_conflated_sources(self, db: Any) -> int:
@@ -373,37 +371,29 @@ class GWizardCitationRepairEngine:
             target = str(change.get("target_name") or "").strip()
             if not target:
                 continue
-            try:
-                source = db.get_source_from_handle(change["source_handle"])
-                if source is None:
-                    continue
-                key = normalize_repo_name(target)
-                new_handle = repo_map.get(key)
-                if not new_handle:
-                    new_handle = self._create_repository(db, target, trans)
-                    repo_map[key] = new_handle
-                    created += 1
-                old_handle = str(change.get("old_repo_handle") or "")
-                if old_handle == new_handle:
-                    continue
-                current = [
-                    ref.get_reference_handle() for ref in source.get_reporef_list()
-                ]
-                if old_handle and old_handle in current:
-                    source.replace_repo_references(old_handle, new_handle)
-                elif new_handle not in current:
-                    repo_ref = RepoRef()
-                    repo_ref.set_reference_handle(new_handle)
-                    source.add_repo_reference(repo_ref)
-                else:
-                    continue
-                db.commit_source(source, trans)
-                changed += 1
-            except Exception:  # pylint: disable=broad-except
-                LOG.exception(
-                    "Failed to change repository of source %s",
-                    change.get("source_handle"),
-                )
+            source = db.get_source_from_handle(change["source_handle"])
+            if source is None:
+                continue
+            key = normalize_repo_name(target)
+            new_handle = repo_map.get(key)
+            if not new_handle:
+                new_handle = self._create_repository(db, target, trans)
+                repo_map[key] = new_handle
+                created += 1
+            old_handle = str(change.get("old_repo_handle") or "")
+            if old_handle == new_handle:
+                continue
+            current = [ref.get_reference_handle() for ref in source.get_reporef_list()]
+            if old_handle and old_handle in current:
+                source.replace_repo_references(old_handle, new_handle)
+            elif new_handle not in current:
+                repo_ref = RepoRef()
+                repo_ref.set_reference_handle(new_handle)
+                source.add_repo_reference(repo_ref)
+            else:
+                continue
+            db.commit_source(source, trans)
+            changed += 1
         return changed, created
 
     # ------------------------------------------------------------
@@ -420,11 +410,11 @@ class GWizardCitationRepairEngine:
             return False
         try:
             keeper = db.get_source_from_handle(keeper_handle)
-        except Exception:
+        except HandleError:
             keeper = None
         try:
             discard = db.get_source_from_handle(discard_handle)
-        except Exception:
+        except HandleError:
             discard = None
         if keeper is None or discard is None:
             return False

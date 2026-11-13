@@ -45,6 +45,7 @@ from gi.repository import Gdk, Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
+from gramps.plugins.tool.gwizard_common import reports_apply_errors
 from gramps.gen.db import DbTxn
 from gramps.gen.lib import Repository, RepoRef
 from gramps.plugins.tool.gwizardcitationreport import (
@@ -378,6 +379,7 @@ class SourceFixDialog(Gtk.Dialog):
         """Backward-compatible alias for accepting hints."""
         self.cb_accept_hints(button)
 
+    @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply chosen source merges, trims, and quarantines."""
         rows_with_choices = [
@@ -1015,11 +1017,8 @@ def plan_source_fixes(
 def _get_or_create_quarantine_repo(db: Any, trans: Any) -> str:
     """Return the handle of an existing or newly created Quarantine repository."""
     for repo in db.iter_repositories():
-        try:
-            if str(repo.get_name() or "").strip().lower() == "quarantine":
-                return str(repo.get_handle() or "")
-        except Exception:  # pylint: disable=broad-except
-            continue
+        if str(repo.get_name() or "").strip().lower() == "quarantine":
+            return str(repo.get_handle() or "")
     repo = Repository()
     repo.set_name(_QUARANTINE_REPO_NAME)
     db.add_repository(repo, trans)
@@ -1052,68 +1051,26 @@ def apply_source_fixes(
         _get_or_create_quarantine_repo(db, trans) if plan.get("quarantine") else ""
     )
 
+    # Errors are not caught here: one failure aborts the whole transaction,
+    # so the database is never left half-fixed, and the caller reports it.
     for entry in plan.get("trim", []):
-        src_handle = entry["source_handle"]
-        if src_handle in already_merged_or_deleted:
+        source = db.get_source_from_handle(entry["source_handle"])
+        if source is None:
             continue
-        try:
-            source = db.get_source_from_handle(src_handle)
-            if source is None:
-                continue
-            title = str(source.get_title() or "")
-            author = str(source.get_author() or "")
-            pub = str(source.get_publication_info() or "")
-            abbr = str(source.get_abbreviation() or "")
-            changed = False
-            if title != title.strip():
-                source.set_title(title.strip())
+        changed = False
+        for getter, setter in (
+            (source.get_title, source.set_title),
+            (source.get_author, source.set_author),
+            (source.get_publication_info, source.set_publication_info),
+            (source.get_abbreviation, source.set_abbreviation),
+        ):
+            value = str(getter() or "")
+            if value != value.strip():
+                setter(value.strip())
                 changed = True
-            if author != author.strip():
-                source.set_author(author.strip())
-                changed = True
-            if pub != pub.strip():
-                source.set_publication_info(pub.strip())
-                changed = True
-            if abbr != abbr.strip():
-                source.set_abbreviation(abbr.strip())
-                changed = True
-            if changed:
-                db.commit_source(source, trans)
-                trimmed += 1
-        except Exception:  # pylint: disable=broad-except
-            LOG.exception("Failed to trim source whitespace %s", src_handle)
-
-    for entry in plan.get("trim", []):
-        src_handle = entry["source_handle"]
-        if src_handle in already_merged_or_deleted:
-            continue
-        try:
-            source = db.get_source_from_handle(src_handle)
-            if source is None:
-                continue
-            title = str(source.get_title() or "")
-            author = str(source.get_author() or "")
-            pub = str(source.get_publication_info() or "")
-            abbr = str(source.get_abbreviation() or "")
-            changed = False
-            if title != title.strip():
-                source.set_title(title.strip())
-                changed = True
-            if author != author.strip():
-                source.set_author(author.strip())
-                changed = True
-            if pub != pub.strip():
-                source.set_publication_info(pub.strip())
-                changed = True
-            if abbr != abbr.strip():
-                source.set_abbreviation(abbr.strip())
-                changed = True
-            if changed:
-                with DbTxn(_("Trim source whitespace"), db) as trans:
-                    db.commit_source(source, trans)
-                trimmed += 1
-        except Exception:  # pylint: disable=broad-except
-            LOG.exception("Failed to trim source whitespace %s", src_handle)
+        if changed:
+            db.commit_source(source, trans)
+            trimmed += 1
 
     for entry in plan.get("merge", []):
         keeper = entry["keeper_handle"]
@@ -1123,33 +1080,27 @@ def apply_source_fixes(
         for discard in entry.get("discard_handles", []):
             if discard == keeper or discard in already_merged_or_deleted:
                 continue
-            try:
-                if engine.merge_sources(db, keeper, discard, trans):
-                    merged += 1
-                    already_merged_or_deleted.add(discard)
-            except Exception:  # pylint: disable=broad-except
-                LOG.exception("Failed to merge source %s into %s", discard, keeper)
+            if engine.merge_sources(db, keeper, discard, trans):
+                merged += 1
+                already_merged_or_deleted.add(discard)
 
     for entry in plan.get("quarantine", []):
         src_handle = entry["source_handle"]
         if src_handle in already_merged_or_deleted:
             continue
-        try:
-            source = db.get_source_from_handle(src_handle)
-            if source is None:
-                continue
-            if any(
-                ref.get_reference_handle() == quarantine_handle
-                for ref in source.get_reporef_list()
-            ):
-                continue
-            ref = RepoRef()
-            ref.set_reference_handle(quarantine_handle)
-            source.add_repo_reference(ref)
-            db.commit_source(source, trans)
-            quarantined += 1
-        except Exception:  # pylint: disable=broad-except
-            LOG.exception("Failed to quarantine source %s", src_handle)
+        source = db.get_source_from_handle(src_handle)
+        if source is None:
+            continue
+        if any(
+            ref.get_reference_handle() == quarantine_handle
+            for ref in source.get_reporef_list()
+        ):
+            continue
+        ref = RepoRef()
+        ref.set_reference_handle(quarantine_handle)
+        source.add_repo_reference(ref)
+        db.commit_source(source, trans)
+        quarantined += 1
 
     return merged, quarantined, trimmed
 

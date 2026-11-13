@@ -44,7 +44,9 @@ from gi.repository import Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
+from gramps.plugins.tool.gwizard_common import reports_apply_errors
 from gramps.gen.db import DbTxn
+from gramps.gen.errors import HandleError
 from gramps.plugins.tool.gwizardcitationshared import (
     add_note_once,
     delete_note_if_unused,
@@ -500,6 +502,7 @@ class UnpackCitationsDialog(Gtk.Dialog):
             parent=self,
         )
 
+    @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply target column data directly into citation records."""
         applied_count = 0
@@ -596,7 +599,7 @@ def apply_unpack_citation(
     """
     try:
         cit = db.get_citation_from_handle(citation_handle)
-    except Exception:  # pylint: disable=broad-except
+    except HandleError:
         cit = None
     if cit is None:
         return False

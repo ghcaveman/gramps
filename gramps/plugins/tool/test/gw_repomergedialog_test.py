@@ -27,6 +27,7 @@
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import sys
+import tempfile
 import unittest
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -279,6 +280,34 @@ class RepoMergeDialogTest(unittest.TestCase):
                 for text in labels_created
             )
             self.assertTrue(footer_found)
+
+
+class RepoMergeApplyTest(unittest.TestCase):
+    """Fix Repositories' Apply is one undoable transaction."""
+
+    def test_merge_and_rename_undo_together(self) -> None:
+        """A merge and a rename made by one Apply are undone by one undo."""
+        db: DbWriteBase = make_database("sqlite")
+        db.load(tempfile.mkdtemp())
+        try:
+            with DbTxn("Setup", db) as trans:
+                for name in ("FamilySearch", "Family Search", "Ancestry"):
+                    repo = Repository()
+                    repo.set_name(name)
+                    db.add_repository(repo, trans)
+            dialog = RepoMergeDialog.__new__(RepoMergeDialog)
+            dialog.dbstate = FakeDbState(db)
+            plan = {"FamilySearch": ["Family Search"], "Ancestry.com": ["Ancestry"]}
+            with DbTxn("Fix Repositories", db) as trans:
+                merged, renamed, errors = dialog.apply_merges(plan, trans)
+            self.assertEqual((merged, renamed, errors), (1, 1, []))
+            names = sorted(r.get_name() for r in db.iter_repositories())
+            self.assertEqual(names, ["Ancestry.com", "FamilySearch"])
+            self.assertTrue(db.undo())
+            names = sorted(r.get_name() for r in db.iter_repositories())
+            self.assertEqual(names, ["Ancestry", "Family Search", "FamilySearch"])
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

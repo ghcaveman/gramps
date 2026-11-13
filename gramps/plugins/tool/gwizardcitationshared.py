@@ -332,6 +332,8 @@ def _build_matchers() -> list[tuple[str, re.Pattern]]:
             label = host.split(".", 1)[0]
             if len(label) >= 8 and label not in _GENERIC_HOST_LABELS:
                 pieces.append(re.escape(label))
+        # Longest first, so "familysearch.org" wins over "FamilySearch".
+        pieces.sort(key=len, reverse=True)
         matchers.append(
             (name, re.compile(r"\b(?:%s)" % "|".join(pieces), re.IGNORECASE))
         )
@@ -479,6 +481,36 @@ def _cut_repository_mentions(text: str) -> tuple[str, list[str], list[str]]:
             urls.append(text[start:end])
         text = text[:start] + " ; " + text[end:]
     return text, names, urls
+
+
+def golden_repository_for(name: str) -> str:
+    """Return the gold-standard repository that ``name`` plainly is, or "".
+
+    A name counts only when it is the golden name, its web address, its
+    abbreviation or its short host name, with nothing else left over
+    except "The" and punctuation: "ancestry.com", "Ancestry" and
+    "The National Archives and Records Administration (NARA)" match, while
+    "Pennsylvania State Archives" or "Archives" do not. Use this before
+    merging without asking; looser similarity is only a hint to review.
+    """
+    text = (name or "").strip()
+    if not text:
+        return ""
+    key = normalize_text_key(text)
+    for gold in GoldStandardRepositories.get_names():
+        if normalize_text_key(gold) == key:
+            return gold
+    rest, names, _urls = _cut_repository_mentions(text)
+    if len(names) != 1:
+        return ""
+    leftover = normalize_text_key(rest)
+    leftover = re.sub(r"\bthe\b", " ", leftover).strip()
+    gold = names[0]
+    if leftover and "(" in gold:
+        abbr = normalize_text_key(gold.rsplit("(", 1)[1].rstrip(")"))
+        leftover = re.sub(r"\b%s\b" % re.escape(abbr), " ", leftover).strip()
+    golden = set(GoldStandardRepositories.get_names())
+    return gold if not leftover and gold in golden else ""
 
 
 def split_conflated_title(title: str) -> dict[str, str] | None:

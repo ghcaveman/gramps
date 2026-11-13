@@ -27,6 +27,7 @@
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import sys
+import tempfile
 import unittest
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -467,6 +468,32 @@ class SourceFixDialogTest(unittest.TestCase):
                 for text in labels_created
             )
             self.assertTrue(footer_found)
+
+
+class SourceFixTransactionTest(unittest.TestCase):
+    """Source fixes are one transaction: one undo restores everything."""
+
+    def test_trim_is_one_undo_step(self) -> None:
+        """Trimming runs once, inside the caller's transaction."""
+        db: DbWriteBase = make_database("sqlite")
+        db.load(tempfile.mkdtemp())
+        try:
+            with DbTxn("Setup", db) as trans:
+                src = Source()
+                src.set_title("  Padded title  ")
+                src.set_author(" Someone ")
+                handle = db.add_source(src, trans)
+            plan = {"trim": [{"source_handle": handle}], "merge": [], "quarantine": []}
+            self.assertEqual(apply_source_fixes(db, plan), (0, 0, 1))
+            fixed = db.get_source_from_handle(handle)
+            self.assertEqual(fixed.get_title(), "Padded title")
+            self.assertEqual(fixed.get_author(), "Someone")
+            self.assertTrue(db.undo())
+            self.assertEqual(
+                db.get_source_from_handle(handle).get_title(), "  Padded title  "
+            )
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

@@ -43,7 +43,9 @@ from gi.repository import Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
+from gramps.plugins.tool.gwizard_common import reports_apply_errors
 from gramps.gen.db import DbTxn
+from gramps.gen.errors import HandleError
 from gramps.plugins.tool.gwizardcitationshared import (
     is_bare_url_text,
     is_debris_text,
@@ -370,6 +372,7 @@ class NotesFixDialog(Gtk.Dialog):
             parent=self,
         )
 
+    @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply target column data directly into note records in the database."""
         applied_count = 0
@@ -439,7 +442,7 @@ def apply_note_fix(
         return False
     try:
         note = db.get_note_from_handle(note_handle)
-    except Exception:  # pylint: disable=broad-except
+    except HandleError:
         note = None
     if note is None:
         return False

@@ -48,6 +48,7 @@ from gi.repository import Pango
 from gramps.gen.db import DbTxn
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import ErrorDialog, OkDialog
+from gramps.plugins.tool.gwizard_common import reports_apply_errors
 from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationshared import (
     build_family_titles,
@@ -557,15 +558,9 @@ class RepoMergeDialog(Gtk.Dialog):
 
     def find_repository_by_name(self, name: str) -> Any | None:
         """Return the first repository matching a name, or None."""
-        try:
-            for repo in self.dbstate.db.iter_repositories():
-                try:
-                    if str(repo.get_name() or "") == name:
-                        return repo
-                except Exception:  # pylint: disable=broad-except
-                    continue
-        except Exception:  # pylint: disable=broad-except
-            LOG.exception("Failed to find repository %s", name)
+        for repo in self.dbstate.db.iter_repositories():
+            if str(repo.get_name() or "") == name:
+                return repo
         return None
 
     def get_choice(self, combo: Gtk.ComboBox, fallback: str) -> str:
@@ -588,54 +583,41 @@ class RepoMergeDialog(Gtk.Dialog):
             name: self.get_choice(combo, name) for name, combo, _best in self.combos
         }
 
-    def apply_merges(self, plan: dict[str, list[str]]) -> tuple[int, int, list[str]]:
+    def apply_merges(
+        self, plan: dict[str, list[str]], trans: Any
+    ) -> tuple[int, int, list[str]]:
         """Apply repository merges/renames from a target->originals plan.
 
-        Returns (merged_count, renamed_count, error_messages).
-        """
-        from gramps.gen.merge import MergeRepositoryQuery
+        Runs inside ``trans`` so it is part of the dialog's single undo
+        step. A repository that cannot be found is reported; any other
+        error is raised so the whole transaction is rolled back.
 
+        :returns: ``(merged_count, renamed_count, error_messages)``.
+        """
         merged = 0
         renamed = 0
         errors: list[str] = []
         db = self.dbstate.db
+        engine = GWizardCitationRepairEngine()
         for target_name, originals in plan.items():
             for original in originals:
-                try:
-                    target = self.find_repository_by_name(target_name)
-                    source = self.find_repository_by_name(original)
-                    if source is None:
-                        errors.append(
-                            str(
-                                _("Repository '%(original)s' not found in " "database.")
-                                % {"original": original}
-                            )
-                        )
-                        continue
-                    if target is None:
-                        with DbTxn(
-                            str(_("Rename Repository")), db, batch=True
-                        ) as trans:
-                            source.set_name(target_name)
-                            db.commit_repository(source, trans)
-                        renamed += 1
-                    else:
-                        if source.get_handle() == target.get_handle():
-                            continue
-                        query = MergeRepositoryQuery(self.dbstate, target, source)
-                        query.execute()
-                        merged += 1
-                except Exception as error:  # pylint: disable=broad-except
-                    LOG.exception("Failed to merge repository %s", original)
+                target = self.find_repository_by_name(target_name)
+                source = self.find_repository_by_name(original)
+                if source is None:
                     errors.append(
-                        str(
-                            _("Failed to merge repository '%(original)s': " "%(error)s")
-                            % {
-                                "original": original,
-                                "error": str(error),
-                            }
-                        )
+                        _("Repository '%(original)s' not found in database.")
+                        % {"original": original}
                     )
+                    continue
+                if target is None:
+                    source.set_name(target_name)
+                    db.commit_repository(source, trans)
+                    renamed += 1
+                elif source.get_handle() != target.get_handle():
+                    if engine.merge_repositories(
+                        db, target.get_handle(), source.get_handle(), trans
+                    ):
+                        merged += 1
         return (merged, renamed, errors)
 
     def run_auto(self, parent: Gtk.Window | None = None) -> None:
@@ -731,6 +713,7 @@ class RepoMergeDialog(Gtk.Dialog):
                 repo_changes[original] = target
         return source_changes, repo_changes
 
+    @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Change the repository of every source whose drop-down was changed."""
         source_changes, repo_changes = self.collect_changes()
@@ -749,24 +732,17 @@ class RepoMergeDialog(Gtk.Dialog):
 
         reassigned = created = merged = renamed = 0
         errors: list[str] = []
-        try:
+        # One transaction for the whole Apply, so it is one Edit > Undo and
+        # a failure part way through changes nothing.
+        with DbTxn(_("Fix Repositories"), self.dbstate.db) as trans:
             engine = GWizardCitationRepairEngine()
             reassigned, created = engine.reassign_source_repositories(
-                self.dbstate.db, source_changes
+                self.dbstate.db, source_changes, trans
             )
-            if reassigned < len(source_changes):
-                errors.append(
-                    str(_("%d source(s) could not be changed (see the Gramps log)."))
-                    % (len(source_changes) - reassigned)
+            if repo_changes:
+                merged, renamed, errors = self.apply_merges(
+                    plan_repo_merges(repo_changes), trans
                 )
-        except Exception as error:  # pylint: disable=broad-except
-            LOG.exception("Failed to change source repositories")
-            errors.append(str(error))
-        if repo_changes:
-            merged, renamed, merge_errors = self.apply_merges(
-                plan_repo_merges(repo_changes)
-            )
-            errors.extend(merge_errors)
 
         summary = str(_("Changed the repository of %d sources")) % reassigned
         if created:

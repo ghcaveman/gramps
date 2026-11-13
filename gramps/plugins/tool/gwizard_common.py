@@ -27,6 +27,7 @@
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import csv
+import functools
 import html
 import logging
 import os
@@ -34,7 +35,7 @@ import re
 import shutil
 import sys
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 # -------------------------------------------------------------------------
 #
@@ -58,6 +59,42 @@ LOG = logging.getLogger(__name__)
 
 # "C:\..." or "C:/..." - a Windows drive path, recognised on every platform
 _WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+_Method = TypeVar("_Method", bound=Callable[..., Any])
+
+
+def reports_apply_errors(method: _Method) -> _Method:
+    """Decorate a dialog's Apply handler so a failure is shown, not lost.
+
+    The apply functions run in one transaction and let errors through, so
+    Gramps rolls the whole transaction back. This shows the user that
+    nothing was changed, and logs the details.
+
+    :param method: A dialog method; ``self`` is used as the dialog parent.
+    :returns: The wrapped method.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as error:  # pylint: disable=broad-except
+            LOG.exception("Apply failed in %s", type(self).__name__)
+            # pylint: disable-next=import-outside-toplevel
+            from gramps.gui.dialog import ErrorDialog
+
+            ErrorDialog(
+                _("Changes not applied"),
+                _(
+                    "Something went wrong, so nothing was changed. "
+                    "The details are in the Gramps log.\n\n{error}"
+                ).format(error=error),
+                parent=self,
+            )
+            return None
+
+    return wrapper  # type: ignore[return-value]
 
 
 def escape_markup(text: Any) -> str:

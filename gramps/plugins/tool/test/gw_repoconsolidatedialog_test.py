@@ -27,6 +27,7 @@
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import sys
+import tempfile
 import unittest
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -215,10 +216,15 @@ if "gi" not in sys.modules:
 from gramps.gen.db.base import DbWriteBase
 from gramps.gen.db.txn import DbTxn
 from gramps.gen.db.utils import make_database
+from gramps.plugins.tool.gwizardcitationrepairengine import (
+    GWizardCitationRepairEngine,
+)
 from gramps.gen.errors import HandleError
 from gramps.gen.lib import Address, Repository, Source, RepoRef
 from gramps.plugins.tool.gw_repoconsolidatedialog import (
     RepoConsolidateDialog,
+    apply_repo_consolidations,
+    auto_consolidate_repositories,
     build_repo_consolidate_rows,
     classify_repo_street,
 )
@@ -366,6 +372,83 @@ class RepoConsolidateDialogTest(unittest.TestCase):
         updated_s = self.db.get_source_from_handle(s_h)
         self.assertIsNotNone(updated_s)
         self.assertEqual(updated_s.get_reporef_list()[0].get_reference_handle(), r1_h)
+
+
+class RepoConsolidateSafetyTest(unittest.TestCase):
+    """Only sure duplicates are merged without asking; failures change nothing."""
+
+    def setUp(self) -> None:
+        self.db: DbWriteBase = make_database("sqlite")
+        self.db.load(tempfile.mkdtemp())
+
+    def tearDown(self) -> None:
+        self.db.close()
+
+    def _add(self, *names: str) -> list[str]:
+        handles = []
+        with DbTxn("Setup", self.db) as trans:
+            for name in names:
+                repo = Repository()
+                repo.set_name(name)
+                handles.append(self.db.add_repository(repo, trans))
+        return handles
+
+    def _names(self) -> list[str]:
+        return sorted(r.get_name() for r in self.db.iter_repositories())
+
+    def test_similar_names_are_not_merged_automatically(self) -> None:
+        """Different places with similar names stay separate."""
+        names = (
+            "Ohio County Courthouse",
+            "Iowa County Courthouse",
+            "St Marys Church",
+            "St Marks Church",
+            "Pennsylvania State Archives",
+            "Archives",
+            "National Archives of Ireland",
+        )
+        self._add(*names)
+        rows = build_repo_consolidate_rows(self.db)
+        self.assertTrue(rows)
+        self.assertFalse(any(row["confident"] for row in rows))
+        hinted = [row for row in rows if row["hint_target"]]
+        self.assertTrue(hinted)
+        for row in hinted:
+            self.assertIn("check before merging", row["hint_display"])
+        self.assertEqual(auto_consolidate_repositories(self.db)["merged"], 0)
+        self.assertEqual(self._names(), sorted(names))
+
+    def test_same_repository_names_are_merged(self) -> None:
+        """Spellings of the same golden repository are merged without asking."""
+        self._add(
+            "Ancestry",
+            "ancestry.com",
+            "NARA",
+            "The National Archives and Records Administration (NARA)",
+        )
+        result = auto_consolidate_repositories(self.db)
+        self.assertEqual(result["merged"], 2)
+        self.assertEqual(self.db.get_number_of_repositories(), 2)
+
+    def test_failed_merge_rolls_back_everything(self) -> None:
+        """An error part way through leaves the database as it was."""
+        keep, gone1, keep2, gone2 = self._add("A", "B", "C", "D")
+        before = self._names()
+        engine = GWizardCitationRepairEngine()
+        real_merge = engine.merge_repositories
+        calls = []
+
+        def merge_then_fail(*args: Any, **kwargs: Any) -> bool:
+            calls.append(args)
+            if len(calls) == 2:
+                raise RuntimeError("disk full")
+            return real_merge(*args, **kwargs)
+
+        engine.merge_repositories = merge_then_fail  # type: ignore[method-assign]
+        with self.assertRaises(RuntimeError):
+            apply_repo_consolidations(self.db, [(gone1, keep), (gone2, keep2)], engine)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self._names(), before)
 
 
 if __name__ == "__main__":
