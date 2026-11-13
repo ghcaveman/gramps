@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Regression tests for the GWizard Media Fix review fixes (batches 1 and 2).
+"""Regression tests for the GWizard Media Fix review fixes (batches 1-3).
 
 1. Accept hints in Fix media references never suggests deleting a record that
    has notes, attributes, tags, citations or a date.
@@ -37,6 +37,16 @@ Batch 2:
    their files.
 9. A file attached to a shared (household) census event is named after the
    person in its description, or deterministically when none is named.
+
+Batch 3:
+
+- The GWizard lock and "fixed" tags work on any tagged object (Citation,
+  Source, Repository, Note, ...), shared with Citation Fix; checking a lock
+  never creates tags; tags are committed once.
+- 12: failed actions are reported, not "nothing selected"; a relative path is
+  never validated against the working directory.
+- 13: paths and titles are escaped before going into markup.
+- 14: removing import notes reports what was actually removed.
 """
 
 # -------------------------------------------------------------------------
@@ -78,7 +88,9 @@ from gramps.gen.lib import (
     Media,
     MediaRef,
     Name,
+    Note,
     Person,
+    Repository,
     Source,
     Surname,
 )
@@ -619,6 +631,151 @@ class BasePathChangeTest(_DbTestCase):
         with patch(_MF_DLG):
             dlg.cb_apply(MagicMock())
         self.assertEqual(self.db.get_media_from_handle(self.h_ok).get_path(), "a.jpg")
+
+
+# ------------------------------------------------------------
+#
+# Batch 3: generic locks shared with Citation Fix
+#
+# ------------------------------------------------------------
+class GenericLockTest(_DbTestCase):
+    """Lock and fixed-tag helpers work on every tagged object type."""
+
+    def add(self, obj: object) -> object:
+        """Add *obj* with the matching add_<type> method and return it."""
+        with DbTxn("add", self.db) as trans:
+            getattr(self.db, "add_%s" % type(obj).__name__.lower())(obj, trans)
+        return obj
+
+    def test_lock_round_trip_on_non_media_objects(self) -> None:
+        """Citation, Source, Repository and Note can be locked and unlocked."""
+        for obj in (Citation(), Source(), Repository(), Note()):
+            with self.subTest(kind=type(obj).__name__):
+                self.add(obj)
+                self.assertFalse(gc.is_locked(self.db, obj))
+                self.assertTrue(gc.lock_object(self.db, obj, commit=True))
+                self.assertFalse(gc.lock_object(self.db, obj, commit=True))
+                getter = getattr(
+                    self.db, "get_%s_from_handle" % type(obj).__name__.lower()
+                )
+                stored = getter(obj.get_handle())
+                self.assertTrue(gc.is_locked(self.db, stored))  # committed
+                self.assertTrue(gc.unlock_object(self.db, stored, commit=True))
+                self.assertFalse(gc.is_locked(self.db, getter(obj.get_handle())))
+
+    def test_media_wrappers_match_generic(self) -> None:
+        """is_media_locked and is_locked agree."""
+        media = self.db.get_media_from_handle(self.add_media("x.jpg"))
+        gc.lock_media(self.db, media, commit=True)
+        self.assertTrue(gc.is_locked(self.db, media))
+        self.assertTrue(gc.is_media_locked(self.db, media))
+
+    def test_checking_a_lock_creates_no_tags(self) -> None:
+        """is_locked on a tree without GWizard tags leaves it untouched."""
+        cit = self.add(Citation())
+        self.assertFalse(gc.is_locked(self.db, cit))
+        self.assertFalse(gc.is_locked(self.db, None))
+        self.assertEqual(self.db.get_number_of_tags(), 0)
+
+    def test_custom_fixed_tag_for_another_tool(self) -> None:
+        """add_fixed_tag accepts a tool-specific tag name."""
+        cit = self.add(Citation())
+        self.assertTrue(
+            gc.add_fixed_tag(
+                self.db, cit, "GWizard: CitationFixed", "#123456", commit=True
+            )
+        )
+        self.assertTrue(gc.has_tag(self.db, cit, "GWizard: CitationFixed"))
+        self.assertFalse(gc.has_tag(self.db, cit, gc.TAG_MEDIA_FIXED))
+
+    def test_ensure_tag_commits_once(self) -> None:
+        """Creating a tag commits it once (add_tag already commits)."""
+        with patch.object(
+            self.db, "commit_tag", wraps=self.db.commit_tag
+        ) as commit_tag:
+            self.assertIsNotNone(gc.ensure_tag(self.db, "GWizard: Test"))
+        self.assertEqual(commit_tag.call_count, 1)
+
+    def test_commit_object_rejects_unknown_type(self) -> None:
+        """commit_object raises TypeError for an object it cannot commit."""
+        with DbTxn("x", self.db) as trans:
+            with self.assertRaises(TypeError):
+                gc.commit_object(self.db, object(), trans)
+
+
+# ------------------------------------------------------------
+#
+# Batch 3: small correctness fixes
+#
+# ------------------------------------------------------------
+class SmallFixesTest(_DbTestCase):
+    """Fixes 12, 13 and 14."""
+
+    def test_failed_actions_are_reported(self) -> None:
+        """12: all merges blocked by locks -> the errors are shown."""
+        h1 = self.add_media("shared/a.jpg", "One")
+        self.add_media("shared/a.jpg", "Two")
+        gc.lock_media(self.db, self.db.get_media_from_handle(h1), commit=True)
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        with patch(_DLG) as ok_dialog:
+            dlg.cb_apply(MagicMock())
+        title, body = ok_dialog.call_args[0][:2]
+        self.assertEqual(title, "Nothing was changed")
+        self.assertIn("locked", body)
+
+    def test_relative_path_not_checked_against_cwd(self) -> None:
+        """12: a relative path that exists only in the working directory is refused."""
+        self.db.set_mediapath(self.base)
+        h_missing = self.add_media("lost/photo.jpg", "Missing")
+        cwd_dir = os.path.join(self.tmp, "cwd")
+        os.makedirs(cwd_dir)
+        with open(os.path.join(cwd_dir, "only_here.jpg"), "w", encoding="utf-8") as f:
+            f.write("x")
+        dlg = mf.FindMissingMediaDialog(dbstate=self.dbstate)
+        entry = MagicMock()
+        entry.get_text.return_value = "only_here.jpg"
+        dlg.row_targets = [{"entry": dlg.rows[0], "path_entry": entry}]
+        old_cwd = os.getcwd()
+        os.chdir(cwd_dir)
+        try:
+            with patch(_MF_DLG):
+                dlg.cb_apply(MagicMock())
+        finally:
+            os.chdir(old_cwd)
+        self.assertEqual(
+            self.db.get_media_from_handle(h_missing).get_path(), "lost/photo.jpg"
+        )
+
+    def test_markup_is_escaped(self) -> None:
+        """13: '&' and '<' in a base path or header do not break markup."""
+        self.assertEqual(
+            gc.escape_markup("Smith & Jones <1>"), "Smith &amp; Jones &lt;1&gt;"
+        )
+        self.assertEqual(gc.HeaderLabel("A & B").markup, "<b>A &amp; B</b>")
+        base = os.path.join(self.tmp, "Smith & Jones")
+        os.makedirs(base)
+        self.db.set_mediapath(base)
+        dlg = mf.ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+        self.assertIn("Smith &amp; Jones", dlg.base_path_label.markup)
+        self.assertNotIn("Smith & Jones", dlg.base_path_label.markup)
+
+    def test_import_note_count_includes_shared_note(self) -> None:
+        """14: a note detached from media but still used elsewhere is counted."""
+        with DbTxn("notes", self.db) as trans:
+            note = Note()
+            note.set("Records not imported into OBJE (multi-media object)")
+            n_h = self.db.add_note(note, trans)
+            media = Media()
+            media.set_path("x.jpg")
+            media.add_note(n_h)
+            m_h = self.db.add_media(media, trans)
+            person = Person()
+            person.add_note(n_h)
+            self.db.add_person(person, trans)
+        items = [(m_h, media.get_gramps_id(), n_h, note.get_gramps_id())]
+        self.assertEqual(mf.remove_import_notes(self.db, items), 1)
+        self.assertEqual(self.db.get_media_from_handle(m_h).get_note_list(), [])
+        self.assertIsNotNone(self.db.get_note_from_handle(n_h))  # still used
 
 
 if __name__ == "__main__":

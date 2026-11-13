@@ -380,7 +380,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                 desc_lines = [group["raw_path"]]
                 if group.get("perm_issue") and group.get("inaccess_dir"):
                     desc_lines.append(
-                        f"  ⚠ "
+                        "  ⚠ "
                         + str(_("Permission denied at: %s")) % group["inaccess_dir"]
                     )
                 for r in records:
@@ -606,6 +606,15 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                             self.dbstate.db.commit_media(other_media, trans)
 
         if merged_count == 0 and copied_count == 0 and deleted_count == 0:
+            if errors:
+                # Every selected action failed (e.g. all locked): say why,
+                # instead of claiming nothing was selected.
+                OkDialog(
+                    str(_("Nothing was changed")),
+                    "\n".join(errors),
+                    parent=self,
+                )
+                return
             OkDialog(
                 str(_("Nothing to apply")),
                 str(

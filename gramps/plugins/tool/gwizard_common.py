@@ -26,6 +26,7 @@
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import html
 import logging
 import os
 import re
@@ -55,6 +56,20 @@ LOG = logging.getLogger(__name__)
 
 # "C:\..." or "C:/..." - a Windows drive path, recognised on every platform
 _WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def escape_markup(text: Any) -> str:
+    """
+    Escape text for use inside Pango markup.
+
+    Paths and translated strings can contain ``&`` or ``<`` (e.g. a folder
+    called "Smith & Jones"), which otherwise makes GTK reject the markup and
+    show an empty label.
+
+    :param text: Any value; it is converted to ``str`` first.
+    :returns: The escaped text.
+    """
+    return html.escape(str(text), quote=False)
 
 
 # ------------------------------------------------------------
@@ -144,7 +159,7 @@ class HeaderLabel(SelectableLabel):
     def __init__(self, title: str = "", **kwargs: Any) -> None:
         """Initialize a header label with bold markup."""
         super().__init__(
-            label=f"<b>{title}</b>",
+            label="<b>%s</b>" % escape_markup(title),
             selectable=True,
             wrap=False,
             xalign=0.0,
@@ -365,6 +380,19 @@ def build_basename_index(base_dir: str, limit: int = 50000) -> dict[str, list[st
 # GWizard Standard Tags and Locking Helpers
 #
 # ------------------------------------------------------------
+#
+# These helpers work on ANY Gramps object that carries tags (Media, Citation,
+# Source, Repository, Note, Person, Family, Event, Place), so every GWizard tool
+# (Media Fix, Citation Fix, ...) shares one definition of "locked".
+#
+# A lock is the tag named TAG_LOCKED.  It is looked up by NAME, so renaming
+# the tag in Organize Tags silently unlocks everything that carries it (and the
+# next lock creates a new tag with the standard name).  Tell users to leave the
+# GWizard tag names alone.
+#
+# Tags are created lazily, the first time an object is tagged; checking
+# whether something is locked never changes the database.
+#
 TAG_MEDIA_FIXED = "GWizard: MediaFixed"
 TAG_MEDIA_FIXED_COLOR = "#2E8B57"
 
@@ -373,7 +401,13 @@ TAG_LOCKED_COLOR = "#B22222"
 
 
 def create_gwizard_tag(name: str, color: str = "") -> Tag:
-    """Create a new Tag instance configured with the specified name and color."""
+    """
+    Create a new (unsaved) Tag with the given name and colour.
+
+    :param name: The tag name.
+    :param color: Optional colour, e.g. ``"#B22222"``.
+    :returns: The new tag.
+    """
     tag = Tag()
     tag.set_name(name)
     if color:
@@ -387,9 +421,17 @@ def ensure_tag(
     color: str = "",
     txn: Any = None,
 ) -> Tag | None:
-    """Ensure a Tag with name and color exists in the database.
+    """
+    Return the tag called *name*, creating it if it does not exist.
 
-    If it exists, return it. If not, create, add, and commit it, then return it.
+    Pass *txn* when a transaction is already open: without it a new
+    transaction is started, and Gramps does not allow nested transactions.
+
+    :param db: The database.
+    :param name: The tag name.
+    :param color: Colour used when the tag has to be created.
+    :param txn: An open transaction, or ``None``.
+    :returns: The tag, or ``None`` if it could not be created.
     """
     if not db or not hasattr(db, "get_tag_from_name"):
         return None
@@ -410,16 +452,13 @@ def ensure_tag(
         except Exception:
             pass
 
+    # add_tag() already commits the tag; a second commit_tag() was redundant.
     try:
         if txn is not None:
             db.add_tag(tag, txn)
-            if hasattr(db, "commit_tag"):
-                db.commit_tag(tag, txn)
         else:
             with DbTxn(_("Create GWizard Tag"), db) as trans:
                 db.add_tag(tag, trans)
-                if hasattr(db, "commit_tag"):
-                    db.commit_tag(tag, trans)
         return tag
     except Exception as err:
         LOG.warning("Failed to create tag '%s': %s", name, err)
@@ -427,66 +466,219 @@ def ensure_tag(
 
 
 def ensure_gwizard_tags(db: Any, txn: Any = None) -> tuple[Tag | None, Tag | None]:
-    """Ensure both standard GWizard tags ('GWizard: MediaFixed' and 'GWizard: Locked') exist."""
+    """
+    Ensure both standard GWizard tags exist.
+
+    Not needed for normal use (tags are created when first applied); kept for
+    callers that want the tags visible up front.
+
+    :param db: The database.
+    :param txn: An open transaction, or ``None``.
+    :returns: ``(MediaFixed tag, Locked tag)``.
+    """
     t_fixed = ensure_tag(db, TAG_MEDIA_FIXED, TAG_MEDIA_FIXED_COLOR, txn=txn)
     t_locked = ensure_tag(db, TAG_LOCKED, TAG_LOCKED_COLOR, txn=txn)
     return t_fixed, t_locked
 
 
-def is_media_locked(db: Any, media: Any) -> bool:
-    """Return True if media has the 'GWizard: Locked' tag."""
-    if not db or not media or not hasattr(media, "get_tag_list"):
+def find_tag_handle(db: Any, name: str) -> str | None:
+    """
+    Return the handle of the tag called *name* without creating it.
+
+    :param db: The database.
+    :param name: The tag name.
+    :returns: The tag handle, or ``None`` if there is no such tag.
+    """
+    if not db or not hasattr(db, "get_tag_from_name"):
+        return None
+    try:
+        tag = db.get_tag_from_name(name)
+    except Exception:
+        return None
+    return tag.get_handle() if tag else None
+
+
+def has_tag(db: Any, obj: Any, name: str) -> bool:
+    """
+    Return True if *obj* carries the tag called *name*.
+
+    :param db: The database.
+    :param obj: Any tagged Gramps object (or ``None``).
+    :param name: The tag name.
+    :returns: Whether the object has the tag.
+    """
+    if not obj or not hasattr(obj, "get_tag_list"):
         return False
-    tag_list = media.get_tag_list()
+    tag_list = obj.get_tag_list()
     if not tag_list:
         return False
+    handle = find_tag_handle(db, name)
+    return bool(handle) and handle in tag_list
 
-    if hasattr(db, "get_tag_from_name"):
-        try:
-            lock_tag = db.get_tag_from_name(TAG_LOCKED)
-            if lock_tag and lock_tag.get_handle() in tag_list:
-                return True
-        except Exception:
-            pass
 
-    if hasattr(db, "get_tag_from_handle"):
-        for th in tag_list:
-            try:
-                t = db.get_tag_from_handle(th)
-                if t and getattr(t, "name", None) == TAG_LOCKED:
-                    return True
-            except Exception:
-                pass
+def commit_object(db: Any, obj: Any, txn: Any) -> None:
+    """
+    Commit any primary object with the matching ``commit_<type>`` method.
 
-    return False
+    :param db: The database.
+    :param obj: A Media, Citation, Source, Repository, Note, ... object.
+    :param txn: The open transaction.
+    :raises TypeError: If the database has no commit method for the type.
+    """
+    commit = getattr(db, "commit_%s" % type(obj).__name__.lower(), None)
+    if commit is None:
+        raise TypeError("cannot commit object of type %s" % type(obj).__name__)
+    commit(obj, txn)
+
+
+def _commit_now(db: Any, obj: Any, txn: Any, label: str) -> None:
+    """
+    Commit *obj* in *txn*, or in a transaction of its own when *txn* is None.
+
+    :param db: The database.
+    :param obj: The object to commit.
+    :param txn: An open transaction, or ``None``.
+    :param label: Undo label for a new transaction.
+    """
+    if txn is not None:
+        commit_object(db, obj, txn)
+    else:
+        with DbTxn(label, db) as trans:
+            commit_object(db, obj, trans)
+
+
+def add_tag_to(
+    db: Any,
+    obj: Any,
+    name: str,
+    color: str = "",
+    txn: Any = None,
+    commit: bool = False,
+) -> bool:
+    """
+    Add the tag called *name* to *obj* (creating the tag if needed).
+
+    :param db: The database.
+    :param obj: Any tagged Gramps object.
+    :param name: The tag name.
+    :param color: Colour used if the tag has to be created.
+    :param txn: An open transaction, or ``None``.
+    :param commit: Also commit *obj* (in *txn*, or a new transaction).
+    :returns: True if the tag was newly added.
+    """
+    if not db or not obj or not hasattr(obj, "add_tag"):
+        return False
+    tag = ensure_tag(db, name, color, txn=txn)
+    if not tag or not tag.get_handle():
+        return False
+    if tag.get_handle() in (obj.get_tag_list() or []):
+        return False
+    obj.add_tag(tag.get_handle())
+    if commit:
+        _commit_now(db, obj, txn, _("Tag %s") % name)
+    return True
+
+
+def remove_tag_from(
+    db: Any,
+    obj: Any,
+    name: str,
+    txn: Any = None,
+    commit: bool = False,
+) -> bool:
+    """
+    Remove the tag called *name* from *obj*.
+
+    :param db: The database.
+    :param obj: Any tagged Gramps object.
+    :param name: The tag name.
+    :param txn: An open transaction, or ``None``.
+    :param commit: Also commit *obj* (in *txn*, or a new transaction).
+    :returns: True if the tag was removed.
+    """
+    if not db or not obj or not hasattr(obj, "remove_tag"):
+        return False
+    handle = find_tag_handle(db, name)
+    if not handle or handle not in (obj.get_tag_list() or []):
+        return False
+    obj.remove_tag(handle)
+    if commit:
+        _commit_now(db, obj, txn, _("Untag %s") % name)
+    return True
+
+
+def is_locked(db: Any, obj: Any) -> bool:
+    """
+    Return True if *obj* carries the shared ``GWizard: Locked`` tag.
+
+    Every GWizard tool must check this before changing an object.
+
+    :param db: The database.
+    :param obj: Any tagged Gramps object (or ``None``).
+    :returns: Whether the object is locked.
+    """
+    return has_tag(db, obj, TAG_LOCKED)
+
+
+def lock_object(db: Any, obj: Any, txn: Any = None, commit: bool = False) -> bool:
+    """
+    Lock *obj* against changes by GWizard tools.
+
+    :param db: The database.
+    :param obj: Any tagged Gramps object.
+    :param txn: An open transaction, or ``None``.
+    :param commit: Also commit *obj*.
+    :returns: True if the object was newly locked.
+    """
+    return add_tag_to(db, obj, TAG_LOCKED, TAG_LOCKED_COLOR, txn=txn, commit=commit)
+
+
+def unlock_object(db: Any, obj: Any, txn: Any = None, commit: bool = False) -> bool:
+    """
+    Remove the GWizard lock from *obj*.
+
+    :param db: The database.
+    :param obj: Any tagged Gramps object.
+    :param txn: An open transaction, or ``None``.
+    :param commit: Also commit *obj*.
+    :returns: True if the lock was removed.
+    """
+    return remove_tag_from(db, obj, TAG_LOCKED, txn=txn, commit=commit)
+
+
+def add_fixed_tag(
+    db: Any,
+    obj: Any,
+    name: str = TAG_MEDIA_FIXED,
+    color: str = TAG_MEDIA_FIXED_COLOR,
+    txn: Any = None,
+    commit: bool = False,
+) -> bool:
+    """
+    Mark *obj* as repaired by a GWizard tool.
+
+    Each tool can pass its own tag name (Media Fix uses ``GWizard: MediaFixed``).
+
+    :param db: The database.
+    :param obj: Any tagged Gramps object.
+    :param name: The "fixed" tag name for the calling tool.
+    :param color: Colour used if the tag has to be created.
+    :param txn: An open transaction, or ``None``.
+    :param commit: Also commit *obj*.
+    :returns: True if the tag was newly added.
+    """
+    return add_tag_to(db, obj, name, color, txn=txn, commit=commit)
+
+
+# Media-specific names, kept so existing callers and tests keep working.
+def is_media_locked(db: Any, media: Any) -> bool:
+    """Return True if *media* has the ``GWizard: Locked`` tag (see is_locked)."""
+    return is_locked(db, media)
 
 
 def has_media_fixed_tag(db: Any, media: Any) -> bool:
-    """Return True if media has the 'GWizard: MediaFixed' tag."""
-    if not db or not media or not hasattr(media, "get_tag_list"):
-        return False
-    tag_list = media.get_tag_list()
-    if not tag_list:
-        return False
-
-    if hasattr(db, "get_tag_from_name"):
-        try:
-            fixed_tag = db.get_tag_from_name(TAG_MEDIA_FIXED)
-            if fixed_tag and fixed_tag.get_handle() in tag_list:
-                return True
-        except Exception:
-            pass
-
-    if hasattr(db, "get_tag_from_handle"):
-        for th in tag_list:
-            try:
-                t = db.get_tag_from_handle(th)
-                if t and getattr(t, "name", None) == TAG_MEDIA_FIXED:
-                    return True
-            except Exception:
-                pass
-
-    return False
+    """Return True if *media* has the ``GWizard: MediaFixed`` tag."""
+    return has_tag(db, media, TAG_MEDIA_FIXED)
 
 
 def add_media_fixed_tag(
@@ -495,27 +687,8 @@ def add_media_fixed_tag(
     txn: Any = None,
     commit: bool = False,
 ) -> bool:
-    """Add the 'GWizard: MediaFixed' tag to media if not already tagged.
-
-    Returns True if the tag was newly added, False otherwise.
-    """
-    if not db or not media or not hasattr(media, "add_tag"):
-        return False
-    tag = ensure_tag(db, TAG_MEDIA_FIXED, TAG_MEDIA_FIXED_COLOR, txn=txn)
-    if not tag or not tag.get_handle():
-        return False
-    tag_list = media.get_tag_list() or []
-    if tag.get_handle() in tag_list:
-        return False
-
-    media.add_tag(tag.get_handle())
-    if commit and hasattr(db, "commit_media"):
-        if txn is not None:
-            db.commit_media(media, txn)
-        else:
-            with DbTxn(_("Tag Media Fixed"), db) as trans:
-                db.commit_media(media, trans)
-    return True
+    """Add the ``GWizard: MediaFixed`` tag to *media* (see add_fixed_tag)."""
+    return add_fixed_tag(db, media, txn=txn, commit=commit)
 
 
 def lock_media(
@@ -524,27 +697,8 @@ def lock_media(
     txn: Any = None,
     commit: bool = False,
 ) -> bool:
-    """Add the 'GWizard: Locked' tag to media if not already tagged.
-
-    Returns True if the tag was newly added, False otherwise.
-    """
-    if not db or not media or not hasattr(media, "add_tag"):
-        return False
-    tag = ensure_tag(db, TAG_LOCKED, TAG_LOCKED_COLOR, txn=txn)
-    if not tag or not tag.get_handle():
-        return False
-    tag_list = media.get_tag_list() or []
-    if tag.get_handle() in tag_list:
-        return False
-
-    media.add_tag(tag.get_handle())
-    if commit and hasattr(db, "commit_media"):
-        if txn is not None:
-            db.commit_media(media, txn)
-        else:
-            with DbTxn(_("Lock Media"), db) as trans:
-                db.commit_media(media, trans)
-    return True
+    """Lock *media* (see lock_object)."""
+    return lock_object(db, media, txn=txn, commit=commit)
 
 
 def unlock_media(
@@ -553,43 +707,5 @@ def unlock_media(
     txn: Any = None,
     commit: bool = False,
 ) -> bool:
-    """Remove the 'GWizard: Locked' tag from media.
-
-    Returns True if the tag was removed, False otherwise.
-    """
-    if not db or not media or not hasattr(media, "remove_tag"):
-        return False
-    tag_list = list(media.get_tag_list() or [])
-    if not tag_list:
-        return False
-
-    tag_handle = None
-    if hasattr(db, "get_tag_from_name"):
-        try:
-            tag = db.get_tag_from_name(TAG_LOCKED)
-            if tag and tag.get_handle() in tag_list:
-                tag_handle = tag.get_handle()
-        except Exception:
-            pass
-
-    if not tag_handle and hasattr(db, "get_tag_from_handle"):
-        for th in tag_list:
-            try:
-                t = db.get_tag_from_handle(th)
-                if t and getattr(t, "name", None) == TAG_LOCKED:
-                    tag_handle = th
-                    break
-            except Exception:
-                pass
-
-    if not tag_handle:
-        return False
-
-    media.remove_tag(tag_handle)
-    if commit and hasattr(db, "commit_media"):
-        if txn is not None:
-            db.commit_media(media, txn)
-        else:
-            with DbTxn(_("Unlock Media"), db) as trans:
-                db.commit_media(media, trans)
-    return True
+    """Unlock *media* (see unlock_object)."""
+    return unlock_object(db, media, txn=txn, commit=commit)
