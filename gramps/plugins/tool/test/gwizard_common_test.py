@@ -27,141 +27,27 @@
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import os
-import shutil
-import sys
 import tempfile
 import unittest
-from typing import Any
-from unittest.mock import MagicMock
 
 # -------------------------------------------------------------------------
 #
-# GTK mock fallback when running without display or PyGObject
+# GTK test doubles: installed before any GWizard module is imported, so the
+# dialog classes subclass the fakes.
 #
 # -------------------------------------------------------------------------
-if "gi" not in sys.modules:
-    gi_mock = MagicMock()
-    sys.modules["gi"] = gi_mock
-    sys.modules["gi.repository"] = gi_mock.repository
+from gramps.plugins.tool.test import gwizard_gtk_fakes as fakes
 
-from gi.repository import Gtk
-
-
-class _FakeDialog:
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self.response: Any = None
-
-    def get_content_area(self) -> MagicMock:
-        return MagicMock()
-
-    def add_button(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def add_action_widget(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def connect(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def set_default_size(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def show_all(self) -> None:
-        pass
-
-    def destroy(self) -> None:
-        pass
-
-    def run(self) -> Any:
-        if self.response is not None:
-            return self.response
-        return getattr(Gtk.ResponseType, "OK", 1)
-
-
-class _FakeLabel:
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self.selectable = False
-        self.can_focus = True
-        self.line_wrap = False
-        self.text = ""
-        self.markup = ""
-        self.max_width_chars: int | None = None
-        self.size_request: tuple[int, int] | None = None
-        self.xalign = 0.5
-        self.halign: Any = None
-
-    def set_text(self, val: str) -> None:
-        self.text = val
-
-    def set_markup(self, val: str) -> None:
-        self.markup = val
-
-    def set_use_markup(self, val: bool) -> None:
-        pass
-
-    def set_selectable(self, val: bool) -> None:
-        self.selectable = val
-
-    def set_can_focus(self, val: bool) -> None:
-        self.can_focus = val
-
-    def set_line_wrap(self, val: bool) -> None:
-        self.line_wrap = val
-
-    def set_line_wrap_mode(self, val: Any) -> None:
-        pass
-
-    def set_halign(self, val: Any) -> None:
-        self.halign = val
-
-    def set_xalign(self, val: float) -> None:
-        self.xalign = val
-
-    def set_max_width_chars(self, val: int) -> None:
-        self.max_width_chars = val
-
-    def set_size_request(self, w: int, h: int) -> None:
-        self.size_request = (w, h)
-
-    def set_hexpand(self, val: bool) -> None:
-        self.hexpand = val
-
-    def set_vexpand(self, val: bool) -> None:
-        self.vexpand = val
-
-
-class _FakeGrid:
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self.col_spacing = 0
-        self.row_spacing = 0
-        self.hexpand = False
-        self.vexpand = False
-
-    def set_column_spacing(self, val: int) -> None:
-        self.col_spacing = val
-
-    def set_row_spacing(self, val: int) -> None:
-        self.row_spacing = val
-
-    def set_hexpand(self, val: bool) -> None:
-        self.hexpand = val
-
-    def set_vexpand(self, val: bool) -> None:
-        self.vexpand = val
-
-    def attach(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-
-Gtk.Dialog = _FakeDialog
-Gtk.Label = _FakeLabel
-Gtk.Grid = _FakeGrid
+Gtk = fakes.install()
 
 # -------------------------------------------------------------------------
 #
 # Gramps modules
 #
 # -------------------------------------------------------------------------
+from gramps.gen.db import DbTxn
+from gramps.gen.db.utils import make_database
+from gramps.gen.lib import Media, Tag
 from gramps.plugins.tool.gwizard_common import (
     SelectableLabel,
     TableLabel,
@@ -174,7 +60,28 @@ from gramps.plugins.tool.gwizard_common import (
     unique_destination,
     relocate_file,
     build_basename_index,
+    TAG_MEDIA_FIXED,
+    TAG_MEDIA_FIXED_COLOR,
+    TAG_LOCKED,
+    TAG_LOCKED_COLOR,
+    create_gwizard_tag,
+    ensure_gwizard_tags,
+    is_media_locked,
+    has_media_fixed_tag,
+    add_media_fixed_tag,
+    lock_media,
+    unlock_media,
 )
+
+
+def setUpModule() -> None:
+    """Install the GTK fakes for this module's tests."""
+    fakes.install()
+
+
+def tearDownModule() -> None:
+    """Restore the real GTK classes for other test modules."""
+    fakes.uninstall()
 
 
 # ------------------------------------------------------------
@@ -335,6 +242,101 @@ class GWizardCommonTest(unittest.TestCase):
             self.assertIn("doc.pdf", idx)
             self.assertNotIn(".hidden", idx)
             self.assertEqual(len(idx["photo.jpg"]), 1)
+
+    def test_gwizard_tags_constants(self) -> None:
+        """Standard tag names and colors match specifications."""
+        self.assertEqual(TAG_MEDIA_FIXED, "GWizard: MediaFixed")
+        self.assertEqual(TAG_MEDIA_FIXED_COLOR, "#2E8B57")
+        self.assertEqual(TAG_LOCKED, "GWizard: Locked")
+        self.assertEqual(TAG_LOCKED_COLOR, "#B22222")
+
+    def test_create_gwizard_tag(self) -> None:
+        """create_gwizard_tag creates a Tag object with name and color."""
+        tag = create_gwizard_tag("TestTag", "#123456")
+        self.assertIsInstance(tag, Tag)
+        self.assertEqual(tag.get_name(), "TestTag")
+        self.assertEqual(tag.get_color(), "#123456")
+
+    def test_ensure_tag_and_ensure_gwizard_tags(self) -> None:
+        """ensure_tag and ensure_gwizard_tags create tags in DB and are idempotent."""
+        db = make_database("sqlite")
+        db.load(":memory:")
+        try:
+            t_fixed, t_locked = ensure_gwizard_tags(db)
+            self.assertIsNotNone(t_fixed)
+            self.assertIsNotNone(t_locked)
+            assert t_fixed is not None and t_locked is not None
+            self.assertEqual(t_fixed.get_name(), TAG_MEDIA_FIXED)
+            self.assertEqual(t_fixed.get_color(), TAG_MEDIA_FIXED_COLOR)
+            self.assertEqual(t_locked.get_name(), TAG_LOCKED)
+            self.assertEqual(t_locked.get_color(), TAG_LOCKED_COLOR)
+
+            # Calling again returns existing tags without duplicating
+            t_fixed2, t_locked2 = ensure_gwizard_tags(db)
+            assert t_fixed2 is not None and t_locked2 is not None
+            self.assertEqual(t_fixed.get_handle(), t_fixed2.get_handle())
+            self.assertEqual(t_locked.get_handle(), t_locked2.get_handle())
+        finally:
+            db.close()
+
+    def test_is_media_locked_and_lock_unlock(self) -> None:
+        """is_media_locked, lock_media, and unlock_media correctly toggle locked state."""
+        db = make_database("sqlite")
+        db.load(":memory:")
+        try:
+            with DbTxn("Create media", db) as trans:
+                media = Media()
+                media.set_path("test.jpg")
+                h = db.add_media(media, trans)
+
+            self.assertFalse(is_media_locked(db, media))
+
+            # Lock media
+            locked_ok = lock_media(db, media, commit=True)
+            self.assertTrue(locked_ok)
+            self.assertTrue(is_media_locked(db, media))
+
+            # Calling lock again returns False (already locked)
+            self.assertFalse(lock_media(db, media, commit=True))
+            self.assertTrue(is_media_locked(db, media))
+
+            # Unlock media
+            unlocked_ok = unlock_media(db, media, commit=True)
+            self.assertTrue(unlocked_ok)
+            self.assertFalse(is_media_locked(db, media))
+
+            # Calling unlock again returns False (not locked)
+            self.assertFalse(unlock_media(db, media, commit=True))
+        finally:
+            db.close()
+
+    def test_add_media_fixed_tag_and_has_media_fixed_tag(self) -> None:
+        """add_media_fixed_tag adds GWizard: MediaFixed tag and is idempotent."""
+        db = make_database("sqlite")
+        db.load(":memory:")
+        try:
+            with DbTxn("Create media", db) as trans:
+                media = Media()
+                media.set_path("test.jpg")
+                h = db.add_media(media, trans)
+
+            self.assertFalse(has_media_fixed_tag(db, media))
+
+            # Add fixed tag
+            added = add_media_fixed_tag(db, media, commit=True)
+            self.assertTrue(added)
+            self.assertTrue(has_media_fixed_tag(db, media))
+
+            # Verify tag in db
+            tag = db.get_tag_from_name(TAG_MEDIA_FIXED)
+            self.assertIsNotNone(tag)
+            self.assertEqual(tag.get_color(), TAG_MEDIA_FIXED_COLOR)
+            self.assertIn(tag.get_handle(), media.get_tag_list())
+
+            # Second call is a no-op
+            self.assertFalse(add_media_fixed_tag(db, media, commit=True))
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

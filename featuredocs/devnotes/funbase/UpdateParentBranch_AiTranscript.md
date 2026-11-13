@@ -1,0 +1,10 @@
+My current branch ([current_branch]) was branched off [parent_branch], which now has new commits. Update my current branch with the latest changes from [parent_branch] by following these steps:
+1. Run git status to ensure my working tree is clean, and create a backup branch named backup-[current_branch].
+2. Run git fetch origin so both branches are up to date locally.
+3. Check for rewritten parent history: Verify whether origin/[parent_branch] was rebased, amended, or squash-merged since I branched off it (using git merge-base and git cherry -v origin/[parent_branch]). If its history was rewritten, print a clear warning explaining what happened, list which commits are stale vs. mine, and STOP immediately without making changes so I can handle it manually.
+4. If the parent history is clean, check git log --oneline origin/[parent_branch]..[current_branch] and show me what commits will be affected.
+5. Update [current_branch] using [choose: 'git merge origin/[parent_branch]' OR 'git rebase origin/[parent_branch]'].
+6. Conflict Resolution Rules: If merge conflicts occur, follow these rules:
+	• Lockfiles (package-lock.json, yarn.lock, pnpm-lock.yaml, uv.lock, Cargo.lock, etc.): Never edit lockfiles manually. Instead, accept the parent branch's version first, then resolve any package.json / pyproject.toml / Cargo.toml conflicts, and run the project's package manager install/lock command to regenerate a clean lockfile.
+	• Side awareness: Remember that if merging, HEAD / Current / ours is my feature branch and Incoming / theirs is the parent branch; if rebasing, HEAD / Current / ours is the parent branch and Incoming / theirs is my feature branch.
+	• Code conflicts: Prefer the parent branch for config boilerplate and unrelated refactors; prefer my feature branch for logic specific to [current_branch]; and combine both if both sides added separate features to the same block. Pause and ask me to confirm before finalizing any complex logic conflict.

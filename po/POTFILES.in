@@ -975,3 +975,6 @@ data/org.gramps_project.Gramps.metainfo.xml.in
 data/org.gramps_project.Gramps.desktop.in
 data/holidays.xml
 data/tips.xml
+gramps/plugins/tool/gw_fixmediareferencesdialog.py
+gramps/plugins/tool/gwizard_common.py
+gramps/plugins/tool/gwizardmediafix.py

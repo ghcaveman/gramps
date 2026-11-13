@@ -1,6 +1,6 @@
 You are a technical documentation writer for the Gramps Genealogy Software Wiki.
 Write a clear, end-user Markdown manual for the feature 'gwizard_mediafix'.
-Save your output into: C:/workspace/gramps/featuredocs/README_gwizard_mediafix.md
+Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_mediafix/featuredocs/README_gwizard_mediafix.md
 
 ### Strict Rules:
 1. Base all UI labels, menu paths, checkboxes, and behavior strictly on the provided .gpr.py metadata and git diff.
@@ -16,43 +16,27 @@ Save your output into: C:/workspace/gramps/featuredocs/README_gwizard_mediafix.m
 6. Do not invent menu paths or options not present in the diff. If a menu path is inherited and unclear, mark it `[VERIFY MENU PATH]`.
 
 ### Feature Files (from changed_files.txt):
-- featuredocs/README_gwizard_filemerge.md
-- featuredocs/build_gwizard_filemerge_wiki.bash
-- featuredocs/gwizard_filemerge.mediawiki
-- featuredocs/gwizard_filemerge_prompt.txt
-- featuredocs/images/gwizard_filemerge-compare.png
-- featuredocs/images/gwizard_filemerge-merge.png
-- featuredocs/script_output.txt
-- gramps/gen/gwizard/gwizard_base.py
-- gramps/gen/gwizard/gwizardgedcom.py
-- gramps/gen/gwizard/test/data/gwizard_mergefrom_sources.ged
-- gramps/gen/gwizard/test/data/make_sample_media.py
-- gramps/gen/gwizard/test/data/media/adoption_certificate.png
-- gramps/gen/gwizard/test/data/media/birth_certificate.png
-- gramps/gen/gwizard/test/data/media/census_record.png
-- gramps/gen/gwizard/test/data/media/death_certificate.png
-- gramps/gen/gwizard/test/data/media/grave_marker.png
-- gramps/gen/gwizard/test/data/media/marriage_certificate.png
-- gramps/gen/gwizard/test/data/media/newspaper_christening.png
-- gramps/gen/gwizard/test/data/media/newspaper_marriage.png
-- gramps/gen/gwizard/test/data/media/newspaper_obituary.png
-- gramps/gen/gwizard/test/gwizard_fixes_test.py
-- gramps/gen/gwizard/test/gwizard_handle_map_test.py
-- gramps/gen/gwizard/test/gwizard_test.py
-- gramps/gui/gwizard/gwizardcompare.py
-- gramps/gui/gwizard/gwizardlauncher.py
-- gramps/gui/gwizard/gwizardmergedialog.py
-- gramps/gui/gwizard/test/gwizard_merge_fields_test.py
-- gramps/gui/gwizard/test/gwizard_styling_test.py
-- gramps/plugins/tool/gwizardmerge.py
-- gramps/plugins/tool/test/gwizardmerge_test.py
+- WikiTree_ImprovementList.md
+- environment_create.py
+- featuredocs/README_gwizard_mediafix.md
+- featuredocs/build_gwizard_mediafix_wiki.bash
+- featuredocs/devnotes/environment/install.md
+- featuredocs/devnotes/mediafix/MediaArrangementInAGedcomFile.md
+- featuredocs/gwizard_mediafix.mediawiki
+- featuredocs/gwizard_mediafix_image_audit.txt
+- featuredocs/gwizard_mediafix_prompt.txt
+- gramps/plugins/tool/gw_fixmediareferencesdialog.py
+- gramps/plugins/tool/gwizard_common.py
+- gramps/plugins/tool/gwizardmediafix.py
+- gramps/plugins/tool/test/gwizard_common_test.py
+- gramps/plugins/tool/test/gwizardmediafix_ex_test.py
+- gramps/plugins/tool/test/gwizardmediafix_test.py
 - gramps/plugins/tool/tools.gpr.py
 - gramps/version.py
-- gwizard_filemerge_functionality_explained.txt
-- gwizard_filemerge_test_plan.txt
-- gwizard_filemerge_todo_list.txt
-- package_gwizard_filemerge.py
+- package_gwizard_mediafix.py
 - po/POTFILES.in
+- po/POTFILES.skip
+- po/sk.po
 
 ### Plugin Registration Metadata (.gpr.py):
 --- gramps/plugins/tool/tools.gpr.py ---
@@ -644,66 +628,4 @@ register(
 
 
 ### Isolated Feature Diff (against functionality_base):
-diff --git a/gramps/plugins/tool/tools.gpr.py b/gramps/plugins/tool/tools.gpr.py
-index 97b501907d..a8fc1ea16f 100644
---- a/gramps/plugins/tool/tools.gpr.py
-+++ b/gramps/plugins/tool/tools.gpr.py
-@@ -505,6 +505,32 @@ register(
-     help_url=TOOLS_HELP,
- )
- 
-+# ------------------------------------------------------------------------
-+#
-+# GWizard Media Fix
-+#
-+# ------------------------------------------------------------------------
-+
-+register(
-+    TOOL,
-+    id="gwizardmediafix",
-+    name=_("GWizard Media Fix"),
-+    description=_(
-+        "Find missing media files, consolidate media locations, and apply filename standards."
-+    ),
-+    version="1.0",
-+    gramps_target_version=MODULE_VERSION,
-+    status=STABLE,
-+    fname="gwizardmediafix.py",
-+    authors=["Kevin White"],
-+    authors_email=["gocaveman@gmail.com"],
-+    category=TOOL_DBPROC,
-+    toolclass="GWizardMediaFix",
-+    optionclass="GWizardMediaFixOptions",
-+    tool_modes=[TOOL_MODE_GUI],
-+    help_url=TOOLS_HELP,
-+)
-+
- # ------------------------------------------------------------------------
- #
- # Find database Loop
-diff --git a/gramps/version.py b/gramps/version.py
-index 52b0eef55b..2841cb73c5 100644
---- a/gramps/version.py
-+++ b/gramps/version.py
-@@ -17,7 +17,7 @@
- # with this program; if not, see <https://www.gnu.org/licenses/>.
- #
- 
--DEV_VERSION = True
-+DEV_VERSION = False
- VERSION_TUPLE = (6, 1, 0)
- VERSION_QUALIFIER = "-beta2"
- VERSION = ".".join(map(str, VERSION_TUPLE)) + VERSION_QUALIFIER
-diff --git a/po/POTFILES.in b/po/POTFILES.in
-index 693f47a5f6..32b53286f6 100755
---- a/po/POTFILES.in
-+++ b/po/POTFILES.in
-@@ -881,6 +881,8 @@ gramps/plugins/tool/finddupes.glade
- gramps/plugins/tool/finddupes.py
- gramps/plugins/tool/findloop.py
- gramps/plugins/tool/mediamanager.py
-+gramps/plugins/tool/gw_fixmediareferencesdialog.py
-+gramps/plugins/tool/gwizardmediafix.py
- gramps/plugins/tool/mergecitations.glade
- gramps/plugins/tool/mergecitations.py
- gramps/plugins/tool/notrelated.glade
+(git diff warning: fatal: bad revision 'functionality_base...HEAD')

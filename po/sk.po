@@ -24465,14 +24465,6 @@ msgstr "Do kalendára zahrnúť len žijúcich ľudí"
 msgid "Content"
 msgstr "Obsah"
 
-# <<<<<<< .mine
-# msgstr ""
-# "%(spouse)s a\n"
-# " %(person)s, %(nyears)d rok"
-# "%(spouse)s a\n"
-# " %(person)s, %(nyears)d rokov"
-# =======
-# >>>>>>> .r12618
 #: ../gramps/plugins/drawreport/calendarreport.py:646
 #: ../gramps/plugins/drawreport/calendarreport.py:647
 msgid "Year of calendar"
