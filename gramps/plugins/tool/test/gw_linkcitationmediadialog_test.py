@@ -74,6 +74,7 @@ from gramps.plugins.tool.gw_linkcitationmediadialog import (
     apply_citation_media_fixes,
     auto_link_citation_media,
     build_link_citation_media_rows,
+    unlocked_media_message,
 )
 from gramps.plugins.tool.gwizard_common import lock_media
 
@@ -124,6 +125,7 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
 
             m = Media()
             m.set_path("Adams_John_1940_Census_Sheet_12A.jpg")
+            lock_media(self.db, m, txn=trans)
             m_h = self.db.add_media(m, trans)
 
             mref = MediaRef()
@@ -187,42 +189,89 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
         p_obj = self.db.get_person_from_handle(p_h)
         self.assertEqual(len(p_obj.get_media_list()), 0)
 
-    def test_apply_citation_media_fixes_respects_locked_media(self) -> None:
-        """Locked media is linked to citation but removal from owner is skipped."""
-        with DbTxn("Setup locked media", self.db) as trans:
+    def _add_census_candidate(self, surname: str, year: str, locked: bool) -> tuple:
+        """Add a person gallery scan that matches one of their citations."""
+        with DbTxn("Setup candidate", self.db) as trans:
+            src = Source()
+            src.set_title("%s Federal Census" % year)
+            s_h = self.db.add_source(src, trans)
             cit = Citation()
+            cit.set_reference_handle(s_h)
+            cit.set_page("Sheet 3B")
             c_h = self.db.add_citation(cit, trans)
-
-            m = Media()
-            m.set_path("Protected_Certificate.jpg")
-            lock_media(self.db, m, txn=trans)
-            m_h = self.db.add_media(m, trans)
-
             person = Person()
+            name = Name()
+            sname = Surname()
+            sname.set_surname(surname)
+            name.add_surname(sname)
+            person.set_primary_name(name)
+            person.add_citation(c_h)
+            m = Media()
+            m.set_path("%s_%s_Census_Sheet_3B.jpg" % (surname, year))
+            if locked:
+                lock_media(self.db, m, txn=trans)
+            m_h = self.db.add_media(m, trans)
             ref = MediaRef()
             ref.set_reference_handle(m_h)
             person.add_media_reference(ref)
-            p_h = self.db.add_person(person, trans)
+            self.db.add_person(person, trans)
+        return c_h, m_h
 
-        plan = [
-            {
-                "chosen_action": "link_detach",
-                "action": "promote_from_person",
-                "citation_handle": c_h,
-                "media_handle": m_h,
-                "owner_handle": p_h,
-                "owner_type": "Person",
-                "is_locked": True,
-            }
-        ]
+    def test_unlocked_media_is_not_offered(self) -> None:
+        """Media not yet locked in Media Fix is left out and counted."""
+        c_h, _m_h = self._add_census_candidate("Evans", "1930", locked=False)
+        stats: dict[str, int] = {}
+        self.assertEqual(build_link_citation_media_rows(self.db, stats), [])
+        self.assertEqual(stats["unlocked_media"], 1)
+        stats = {}
+        self.assertEqual(auto_link_citation_media(self.db, stats), 0)
+        self.assertEqual(stats["unlocked_media"], 1)
+        c_obj = self.db.get_citation_from_handle(c_h)
+        self.assertEqual(len(c_obj.get_media_list()), 0)
+        self.assertIn("1 media file was left out", unlocked_media_message(1))
+        self.assertEqual(unlocked_media_message(0), "")
 
-        linked, detached = apply_citation_media_fixes(self.dbstate, plan)
-        self.assertEqual(linked, 1)
-        self.assertEqual(detached, 0)
+    def test_rerun_picks_up_newly_locked_media(self) -> None:
+        """Locking more media later and running again links only the new ones."""
+        c1, _m1 = self._add_census_candidate("Fox", "1920", locked=True)
+        c2, m2 = self._add_census_candidate("Gray", "1910", locked=False)
+        stats: dict[str, int] = {}
+        self.assertEqual(auto_link_citation_media(self.db, stats), 1)
+        self.assertEqual(stats["unlocked_media"], 1)
 
-        # Media remains in person gallery because it is locked
-        p_obj = self.db.get_person_from_handle(p_h)
-        self.assertEqual(len(p_obj.get_media_list()), 1)
+        lock_media(self.db, self.db.get_media_from_handle(m2), commit=True)
+        stats = {}
+        self.assertEqual(auto_link_citation_media(self.db, stats), 1)
+        self.assertEqual(stats["unlocked_media"], 0)
+        for c_h in (c1, c2):
+            c_obj = self.db.get_citation_from_handle(c_h)
+            self.assertEqual(len(c_obj.get_media_list()), 1)
+        # Nothing left to offer: the linked citations are not listed again.
+        self.assertEqual(build_link_citation_media_rows(self.db), [])
+
+    def test_wizard_reports_unlocked_media(self) -> None:
+        """The auto step and the review list both name media left unlocked."""
+        # pylint: disable=import-outside-toplevel
+        from gramps.plugins.tool import gwizardcitationfix as fix
+
+        self._add_census_candidate("Irwin", "1940", locked=False)
+        msg = fix.run_auto_layer("link_citation_media", self.db)
+        self.assertIn("Linked 0 media objects", msg)
+        self.assertIn("1 media file was left out", msg)
+        review = "\n".join(fix.find_items_needing_review(self.db))
+        self.assertIn("Link Citation Media (1): media files are not locked", review)
+
+    def test_locked_media_can_be_detached(self) -> None:
+        """The lock means "checked", so the user may still detach from a gallery."""
+        c_h, m_h = self._add_census_candidate("Hall", "1900", locked=True)
+        rows = build_link_citation_media_rows(self.db)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("link_detach", [code for _label, code in rows[0]["options"]])
+        rows[0]["chosen_action"] = "link_detach"
+        linked, detached = apply_citation_media_fixes(self.dbstate, rows)
+        self.assertEqual((linked, detached), (1, 1))
+        person = next(self.db.iter_people())
+        self.assertEqual(person.get_media_list(), [])
 
     def test_auto_link_citation_media(self) -> None:
         """auto_link_citation_media applies only safe candidates in a single transaction."""
@@ -246,6 +295,7 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
 
             m = Media()
             m.set_path("Clark_1920_Census_Sheet_02A.jpg")
+            lock_media(self.db, m, txn=trans)
             m_h = self.db.add_media(m, trans)
 
             ref = MediaRef()
@@ -281,6 +331,7 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
 
             m = Media()
             m.set_path("Davis_1910_Census_Sheet_5A.jpg")
+            lock_media(self.db, m, txn=trans)
             m_h = self.db.add_media(m, trans)
 
             ref = MediaRef()

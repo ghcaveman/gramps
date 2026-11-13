@@ -314,8 +314,8 @@ class GWizardCitationMediaEngineTest(unittest.TestCase):
         self.assertEqual(item["citation_handle"], c_handle)
         self.assertEqual(item["action"], "promote_from_person")
 
-    def test_apply_promote_media_and_lock_respect(self) -> None:
-        """apply_promote_media_to_citation links to citation and respects locked tag on owner removal."""
+    def test_apply_promote_locked_media_detaches(self) -> None:
+        """Locked (checked) media is linked to the citation and can leave the gallery."""
         with DbTxn("Setup locked media promote test", self.db) as trans:
             cit = Citation()
             c_handle = self.db.add_citation(cit, trans)
@@ -348,10 +348,11 @@ class GWizardCitationMediaEngineTest(unittest.TestCase):
         c_refs = [str(r.ref) for r in cit_after.get_media_list() or []]
         self.assertIn(m_handle, c_refs)
 
-        # Because media was locked, person gallery still keeps it (not detached)
+        # The lock means "checked in Media Fix"; detaching changes the
+        # person, not the media, so the gallery reference is removed.
         person_after = self.db.get_person_from_handle(p_handle)
         p_refs = [str(r.ref) for r in person_after.get_media_list() or []]
-        self.assertIn(m_handle, p_refs)
+        self.assertNotIn(m_handle, p_refs)
 
     def test_find_unpackable_source_media(self) -> None:
         """find_unpackable_source_media matches media on master Source to matching child citation."""

@@ -44,9 +44,8 @@ from typing import Any
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.db import DbTxn
 from gramps.gen.lib import MediaRef
-from gramps.plugins.tool.gwizard_common import is_media_locked
+from gramps.plugins.tool.gwizard_common import is_locked
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -327,7 +326,7 @@ def extract_media_identity(media: Any, db: Any = None) -> MediaIdentity:
             surname = clean_name_token(part1)
             given = clean_name_token(part2)
 
-    locked = is_media_locked(db, media) if db else False
+    locked = is_locked(db, media) if db else False
 
     tokens = [t.lower() for t in re.split(r"[\W_]+", f"{stem} {desc}") if len(t) >= 3]
 
@@ -985,23 +984,14 @@ def apply_promote_media_to_citation(
 ) -> bool:
     """Link media to citation and optionally detach from Person or Event gallery.
 
-    If the media is locked (TAG_LOCKED), detaching from owner is safely skipped.
+    Only locked media (checked in Media Fix) reach this step, so the lock
+    does not stop the detach; detaching changes the owner, not the media.
     """
     linked = apply_link_media_to_citation(db, trans, citation_handle, media_handle)
     if not linked:
         return False
 
     if detach_from_owner and owner_type and owner_handle:
-        # Check if locked
-        media_obj = (
-            db.get_media_from_handle(media_handle)
-            if hasattr(db, "get_media_from_handle")
-            else None
-        )
-        if is_media_locked(db, media_obj):
-            LOG.info("Media %s is locked; skipping gallery removal", media_handle)
-            return True
-
         if owner_type == "Person" and hasattr(db, "get_person_from_handle"):
             person = db.get_person_from_handle(owner_handle)
             if person:
@@ -1040,15 +1030,6 @@ def apply_unpack_source_media(
         return False
 
     if detach_from_source and source_handle and hasattr(db, "get_source_from_handle"):
-        media_obj = (
-            db.get_media_from_handle(media_handle)
-            if hasattr(db, "get_media_from_handle")
-            else None
-        )
-        if is_media_locked(db, media_obj):
-            LOG.info("Media %s is locked; skipping source removal", media_handle)
-            return True
-
         source = db.get_source_from_handle(source_handle)
         if source:
             m_list = list(source.get_media_list() or [])

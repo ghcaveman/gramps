@@ -67,6 +67,7 @@ from gramps.plugins.tool.gwizardcitationshared import (
 )
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 REPORT_FILENAME = "CitationFixReport.txt"
@@ -347,11 +348,18 @@ def run_auto_layer(layer: str, db: Any) -> str:
     if layer == "link_citation_media":
         from gramps.plugins.tool.gw_linkcitationmediadialog import (
             auto_link_citation_media,
+            unlocked_media_message,
         )
 
-        return str(
-            _("Linked %d media objects to citations.")
-        ) % auto_link_citation_media(db)
+        stats: dict[str, int] = {}
+        linked = auto_link_citation_media(db, stats)
+        text = ngettext(
+            "Linked {number_of} media object to citations.",
+            "Linked {number_of} media objects to citations.",
+            linked,
+        ).format(number_of=linked)
+        unlocked = unlocked_media_message(stats.get("unlocked_media", 0))
+        return text + (" " + unlocked if unlocked else "")
     if layer == "notes":
         from gramps.plugins.tool.gw_notesfixdialog import auto_fix_notes
 
@@ -492,16 +500,27 @@ def find_items_needing_review(db: Any) -> list[str]:
             build_link_citation_media_rows,
         )
 
+        link_stats: dict[str, int] = {}
         add(
             label,
             len(
                 [
                     row
-                    for row in build_link_citation_media_rows(db)
+                    for row in build_link_citation_media_rows(db, link_stats)
                     if row.get("status") in ("ambiguous", "conflict")
                 ]
             ),
             str(_("candidate media links require review or have potential conflicts.")),
+        )
+        add(
+            label,
+            link_stats.get("unlocked_media", 0),
+            str(
+                _(
+                    "media files are not locked yet, so they were not offered. "
+                    "Check and lock them in Media Fix first."
+                )
+            ),
         )
     except Exception as error:  # pylint: disable=broad-except
         failed(label, error)

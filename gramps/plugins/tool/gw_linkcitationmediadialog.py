@@ -69,6 +69,7 @@ from gramps.plugins.tool.gwizardcitationmediaengine import (
 )
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
@@ -77,8 +78,23 @@ LOG = logging.getLogger(__name__)
 # Data builder
 #
 # -------------------------------------------------------------------------
-def build_link_citation_media_rows(db: Any) -> list[dict[str, Any]]:
-    """Scan database and build candidate rows for media-to-citation linking."""
+def build_link_citation_media_rows(
+    db: Any, stats: dict[str, int] | None = None
+) -> list[dict[str, Any]]:
+    """Scan the database and build candidate rows for media-to-citation linking.
+
+    Only locked media is offered. The lock is set in Media Fix once a file
+    has been checked, so media is fixed before it is linked to a citation,
+    and a user can lock media over several sessions and run this step again.
+    A candidate whose citation already has the media is left out.
+
+    :param db: The database.
+    :param stats: Optional dict that receives ``unlocked_media``, the number
+        of different media files left out because they are not locked yet.
+    :returns: The candidate rows, safe matches first.
+    """
+    if stats is not None:
+        stats["unlocked_media"] = 0
     if not db:
         return []
 
@@ -87,12 +103,18 @@ def build_link_citation_media_rows(db: Any) -> list[dict[str, Any]]:
     candidates.extend(find_unpackable_source_media(db))
     candidates.extend(find_orphan_media_matches(db))
 
+    unlocked: set[str] = set()
     rows: list[dict[str, Any]] = []
     for item in candidates:
         m_id = item["media_identity"]
         c_id = item["citation_identity"]
         compat = item["compatibility"]
         action = item["action"]
+        if not m_id.is_locked:
+            unlocked.add(str(item["media_handle"]))
+            continue
+        if str(item["media_handle"]) in c_id.media_handles:
+            continue
 
         # Action display label
         if action == "promote_from_person":
@@ -137,8 +159,6 @@ def build_link_citation_media_rows(db: Any) -> list[dict[str, Any]]:
         media_display = m_id.filename or os.path.basename(m_id.path) or "Media"
         if m_id.gramps_id:
             media_display += f" [{m_id.gramps_id}]"
-        if m_id.is_locked:
-            media_display += " 🔒"
 
         # Full path for thumbnail
         full_path = ""
@@ -152,8 +172,8 @@ def build_link_citation_media_rows(db: Any) -> list[dict[str, Any]]:
             (str(_("Link to Citation")), "link"),
             (str(_("Skip / Ignore")), "skip"),
         ]
-        # Detach option is available only if not locked and attached to an owner
-        if not m_id.is_locked and action in (
+        # Detach is offered when the media hangs off a gallery or source
+        if action in (
             "promote_from_person",
             "promote_from_event",
             "unpack_from_source",
@@ -185,10 +205,29 @@ def build_link_citation_media_rows(db: Any) -> list[dict[str, Any]]:
             }
         )
 
+    if stats is not None:
+        stats["unlocked_media"] = len(unlocked)
     # Sort: safe first, then review, then conflict
     order = {"safe": 0, "ambiguous": 1, "conflict": 2}
     rows.sort(key=lambda r: (order.get(r["status"], 3), -r["score"]))
     return rows
+
+
+def unlocked_media_message(count: int) -> str:
+    """Return the note shown when media was left out because it is unlocked.
+
+    :param count: Number of media files that are not locked yet.
+    :returns: The message, or an empty string when ``count`` is 0.
+    """
+    if not count:
+        return ""
+    return ngettext(
+        "{number_of} media file was left out because it is not locked yet. "
+        "Check it in Media Fix and lock it, then run this step again.",
+        "{number_of} media files were left out because they are not locked "
+        "yet. Check them in Media Fix and lock them, then run this step again.",
+        count,
+    ).format(number_of=count)
 
 
 # -------------------------------------------------------------------------
@@ -233,7 +272,7 @@ def apply_citation_media_fixes(
                     owner_type=item.get("owner_type", ""),
                     owner_handle=item.get("owner_handle", ""),
                 )
-                if success and detach and not item.get("is_locked"):
+                if success and detach:
                     detached += 1
             elif action == "unpack_from_source":
                 success = apply_unpack_source_media(
@@ -244,7 +283,7 @@ def apply_citation_media_fixes(
                     media_handle=m_h,
                     detach_from_source=detach,
                 )
-                if success and detach and not item.get("is_locked"):
+                if success and detach:
                     detached += 1
             elif action == "link_orphan":
                 success = apply_link_media_to_citation(db, trans, c_h, m_h)
@@ -255,15 +294,19 @@ def apply_citation_media_fixes(
     return linked, detached
 
 
-def auto_link_citation_media(db: Any) -> int:
+def auto_link_citation_media(db: Any, stats: dict[str, int] | None = None) -> int:
     """Headless auto-linker for 'Accept all hints'.
 
     Applies only safe (🟢) candidates with zero conflicts in one transaction.
+    Only locked media is used; see :func:`build_link_citation_media_rows`
+    for ``stats``.
     """
     if not db:
+        if stats is not None:
+            stats["unlocked_media"] = 0
         return 0
 
-    rows = build_link_citation_media_rows(db)
+    rows = build_link_citation_media_rows(db, stats)
     safe_plan = [
         r
         for r in rows
@@ -307,8 +350,11 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
             destroy_with_parent=True,
         )
         self.dbstate = dbstate
+        self.stats: dict[str, int] = {"unlocked_media": 0}
         self.rows = (
-            build_link_citation_media_rows(dbstate.db) if dbstate and dbstate.db else []
+            build_link_citation_media_rows(dbstate.db, self.stats)
+            if dbstate and dbstate.db
+            else []
         )
         self.row_combos: list[tuple[dict[str, Any], Gtk.ComboBoxText]] = []
         self.preview_image: Gtk.Image | None = None
@@ -325,6 +371,13 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
         content = self.get_content_area()
         content.set_border_width(12)
         content.set_spacing(8)
+
+        unlocked_text = unlocked_media_message(self.stats["unlocked_media"])
+        if unlocked_text:
+            unlocked_label = Gtk.Label(label=unlocked_text)
+            unlocked_label.set_line_wrap(True)
+            unlocked_label.set_halign(Gtk.Align.START)
+            content.pack_start(unlocked_label, False, False, 0)
 
         if not self.rows:
             done = Gtk.Label(
@@ -371,7 +424,6 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
         paned.pack2(right_box, resize=False, shrink=False)
 
         # Action area buttons
-        n_hints = sum(1 for r in self.rows if r["status"] in ("safe", "ambiguous"))
         self.accept_button = Gtk.Button(label=str(_("Accept safe hints (%d)")) % n_safe)
         self.accept_button.set_sensitive(n_safe > 0)
         self.accept_button.connect("clicked", self.cb_accept_hints)
@@ -547,11 +599,9 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
             lines.append(f"• Sheet/Page: {m_id.sheet_page}")
         if m_id.surname:
             lines.append(f"• Surname: {m_id.surname.title()} {m_id.given.title()}")
-        if m_id.is_locked:
-            lines.append("• 🔒 <i>Media is Locked (protected from removal)</i>")
 
         lines.append("")
-        lines.append(f"<b>Target Citation:</b>")
+        lines.append("<b>Target Citation:</b>")
         lines.append(f"• Source: {c_id.source_title or '(no title)'}")
         lines.append(f"• Volume/Page: {c_id.page or '(none)'}")
         lines.append(f"• Citation Year: {c_id.year or '(none)'}")

@@ -622,7 +622,9 @@ def is_locked(db: DbReadBase, obj: Any) -> bool:
     """
     Return True if *obj* carries the shared ``GWizard: Locked`` tag.
 
-    Every GWizard tool must check this before changing an object.
+    Media Fix leaves locked media alone, and Citation Fix's Link Citation
+    Media step only offers locked media, so media is fixed before it is
+    linked to citations.
 
     :param db: The database.
     :param obj: Any tagged Gramps object (or ``None``).
