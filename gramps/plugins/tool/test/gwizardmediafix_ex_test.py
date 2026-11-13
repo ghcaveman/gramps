@@ -27,24 +27,21 @@
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import itertools
-import os
 import pathlib
 import shutil
-import sys
 import tempfile
 import unittest
 from typing import Any
-from unittest.mock import MagicMock
 
 # -------------------------------------------------------------------------
 #
-# GTK mock fallback when running without display or PyGObject
+# GTK test doubles: installed before any GWizard module is imported, so the
+# dialog classes subclass the fakes.
 #
 # -------------------------------------------------------------------------
-if "gi" not in sys.modules:
-    gi_mock = MagicMock()
-    sys.modules["gi"] = gi_mock
-    sys.modules["gi.repository"] = gi_mock.repository
+from gramps.plugins.tool.test import gwizard_gtk_fakes as fakes
+
+fakes.install()
 
 # -------------------------------------------------------------------------
 #
@@ -52,7 +49,16 @@ if "gi" not in sys.modules:
 #
 # -------------------------------------------------------------------------
 from gramps.plugins.tool import gwizardmediafix as m
-from gramps.plugins.tool import gwizard_common as gc
+
+
+def setUpModule() -> None:
+    """Install the GTK fakes for this module's tests."""
+    fakes.install()
+
+
+def tearDownModule() -> None:
+    """Restore the real GTK classes for other test modules."""
+    fakes.uninstall()
 
 
 # ------------------------------------------------------------

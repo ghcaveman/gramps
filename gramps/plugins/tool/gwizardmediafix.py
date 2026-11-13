@@ -31,7 +31,6 @@ import hashlib
 import logging
 import os
 import re
-import shutil
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -39,7 +38,7 @@ from typing import Any
 # GTK modules
 #
 # -------------------------------------------------------------------------
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
 #
@@ -48,47 +47,19 @@ from gi.repository import Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.config import config
 from gramps.gen.const import GRAMPS_LOCALE as glocale, USER_HOME, USER_PICTURES
-from gramps.gui.dialog import OkDialog, QuestionDialog2
-from gramps.gen.db import DbTxn
-from gramps.gen.utils.file import (
-    media_path_full,
-    relative_path,
-    media_path,
-    expand_path,
-)
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
+from gramps.gen.types import EventHandle, MediaGrampsID, MediaHandle, PersonHandle
 from gramps.gen.utils.db import get_birth_or_fallback, get_death_or_fallback
-from gramps.gui.plug import tool
+from gramps.gen.utils.file import expand_path, media_path, media_path_full
+from gramps.gui.dialog import OkDialog, QuestionDialog2
 from gramps.gui.managedwindow import ManagedWindow
+from gramps.gui.plug import tool
 
-try:
-    from .gwizard_common import (
-        SelectableLabel,
-        TableLabel,
-        HeaderLabel,
-        create_table_grid,
-        clean_path,
-        is_absolute_path,
-        path_key,
-        to_db_path,
-        unique_destination,
-        relocate_file,
-        build_basename_index,
-    )
-except (ImportError, ValueError):
-    from gwizard_common import (  # type: ignore[import-not-found,no-redef]
-        SelectableLabel,
-        TableLabel,
-        HeaderLabel,
-        create_table_grid,
-        clean_path,
-        is_absolute_path,
-        path_key,
-        to_db_path,
-        unique_destination,
-        relocate_file,
-        build_basename_index,
-    )
-
+# -------------------------------------------------------------------------
+#
+# GWizard modules
+#
+# -------------------------------------------------------------------------
 try:
     from .gwizard_common import (
         SelectableLabel,
@@ -110,18 +81,9 @@ try:
         escape_markup,
         full_media_path,
         is_bare_media,
-        TAG_MEDIA_FIXED,
-        TAG_MEDIA_FIXED_COLOR,
-        TAG_LOCKED,
-        TAG_LOCKED_COLOR,
-        create_gwizard_tag,
-        ensure_tag,
-        ensure_gwizard_tags,
         is_media_locked,
         has_media_fixed_tag,
         add_media_fixed_tag,
-        lock_media,
-        unlock_media,
     )
 except (ImportError, ValueError):
     from gwizard_common import (  # type: ignore[import-not-found,no-redef]
@@ -144,18 +106,9 @@ except (ImportError, ValueError):
         escape_markup,
         full_media_path,
         is_bare_media,
-        TAG_MEDIA_FIXED,
-        TAG_MEDIA_FIXED_COLOR,
-        TAG_LOCKED,
-        TAG_LOCKED_COLOR,
-        create_gwizard_tag,
-        ensure_tag,
-        ensure_gwizard_tags,
         is_media_locked,
         has_media_fixed_tag,
         add_media_fixed_tag,
-        lock_media,
-        unlock_media,
     )
 
 try:
@@ -170,6 +123,7 @@ except (ImportError, ValueError):
     )
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 CONFIG_TEMPLATE_KEY = "preferences.gwizardmediafix-filename-template"
@@ -239,8 +193,7 @@ def check_path_permission(path: str) -> tuple[bool, str | None]:
     Walks from the root directory downwards to identify the highest-level directory
     which cannot be read.
 
-    Returns:
-        (has_permission_issue: bool, highest_inaccessible_dir_or_file: str | None)
+    :returns: ``(has_permission_issue, highest_inaccessible_dir_or_file)``
     """
     clean_p = clean_path(path)
     if not clean_p:
@@ -292,7 +245,7 @@ def check_path_permission(path: str) -> tuple[bool, str | None]:
     return False, None
 
 
-def expand_base_path(mpath: str | None, db: Any = None) -> str:
+def expand_base_path(mpath: str | None, db: DbReadBase | None = None) -> str:
     """
     Resolve a base media path string exactly the way Gramps does.
 
@@ -331,7 +284,7 @@ def expand_base_path(mpath: str | None, db: Any = None) -> str:
     return os.path.normpath(os.path.abspath(path))
 
 
-def get_media_base_path(db: Any) -> str:
+def get_media_base_path(db: DbReadBase | None) -> str:
     """
     Return the folder Gramps resolves relative media paths against.
 
@@ -369,7 +322,7 @@ def is_in_default_path(raw_path: str, base_dir: str) -> bool:
 
 
 def find_unreferenced_default_path_files(
-    db: Any,
+    db: DbReadBase,
     base_dir: str,
     max_scan_files: int = 5000,
     stats: dict[str, Any] | None = None,
@@ -544,7 +497,9 @@ def find_in_media_dir(
     return basename if os.path.exists(flat) else ""
 
 
-def ambiguous_matches(candidates: list[tuple[str, str, str]]) -> set[str]:
+def ambiguous_matches(
+    candidates: list[tuple[MediaHandle, str, str]],
+) -> set[MediaHandle]:
     """Return the handles whose suggested file is also wanted by another record.
 
     Matching a missing file by name alone is only safe when every record that
@@ -566,7 +521,7 @@ def ambiguous_matches(candidates: list[tuple[str, str, str]]) -> set[str]:
     }
 
 
-def media_dir_index(db: Any, base_dir: str) -> dict[str, list[str]] | None:
+def media_dir_index(db: DbReadBase, base_dir: str) -> dict[str, list[str]] | None:
     """Recursive file index of base_dir, only when the user configured a media
     base path (never walk the whole home folder by accident)."""
     try:
@@ -579,7 +534,7 @@ def media_dir_index(db: Any, base_dir: str) -> dict[str, list[str]] | None:
 
 
 def scan_unreadable_media(
-    db: Any,
+    db: DbReadBase,
 ) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
     """Classify every media record whose file cannot be opened *right now*.
 
@@ -683,10 +638,24 @@ def extract_year_and_clean_doctype(
 
 
 def _norm_name(text: Any) -> str:
+    """
+    Normalise a name for comparison: letters and digits only, case-folded.
+
+    :param text: Any name text.
+    :returns: The comparison key.
+    """
     return re.sub(r"\W+", "", str(text or "")).casefold()
 
 
-def _db_get(db: Any, cname: str, handle: str) -> Any:
+def _db_get(db: DbReadBase, cname: str, handle: str) -> Any:
+    """
+    Fetch a primary object by class name and handle, or ``None``.
+
+    :param db: The database.
+    :param cname: Class name as used in backlinks, e.g. ``"Person"``.
+    :param handle: The object's handle.
+    :returns: The object, or ``None`` if it cannot be fetched.
+    """
     getter = getattr(db, "get_%s_from_handle" % cname.lower(), None)
     try:
         return getter(handle) if getter else None
@@ -694,7 +663,7 @@ def _db_get(db: Any, cname: str, handle: str) -> Any:
         return None
 
 
-def _persons_of(db: Any, cname: str, handle: str, _depth: int = 0) -> list[Any]:
+def _persons_of(db: DbReadBase, cname: str, handle: str, _depth: int = 0) -> list[Any]:
     """People reachable from a backlink: the person itself, the participants of
     an event or family, or whoever a citation is attached to."""
     obj = _db_get(db, cname, handle)
@@ -720,6 +689,16 @@ def _persons_of(db: Any, cname: str, handle: str, _depth: int = 0) -> list[Any]:
 
 
 def _person_matches(person: Any, surname: str, given: str) -> bool:
+    """
+    Return True if a person's primary name matches a surname and given name.
+
+    Given names match when one starts with the other ("Harry" / "Harry Jay").
+
+    :param person: The person.
+    :param surname: Surname to match.
+    :param given: Given name to match (may be empty).
+    :returns: Whether the names match.
+    """
     name = person.get_primary_name()
     if not name or not surname:
         return False
@@ -766,7 +745,7 @@ def _name_score(person: Any, surname: str, given: str) -> float:
     return ratio if (not dg or pg.startswith(dg) or dg.startswith(pg)) else 0.0
 
 
-def _best_person(db: Any, handles: list[str], text: str) -> Any:
+def _best_person(db: DbReadBase, handles: list[PersonHandle], text: str) -> Any:
     """
     Choose the person a media file is *of* from several candidates.
 
@@ -794,7 +773,9 @@ def _best_person(db: Any, handles: list[str], text: str) -> Any:
     return people[0]
 
 
-def _event_person_handles(db: Any, event_handle: str) -> list[str]:
+def _event_person_handles(
+    db: DbReadBase, event_handle: EventHandle
+) -> list[PersonHandle]:
     """
     Return the handles of people who reference an event.
 
@@ -810,13 +791,14 @@ def _event_person_handles(db: Any, event_handle: str) -> list[str]:
 
 
 def _order_backlinks(
-    db: Any, backlinks: list[tuple[str, str]], text: str
+    db: DbReadBase, backlinks: list[tuple[str, str]], text: str
 ) -> list[tuple[str, str]]:
     """Return backlinks in a stable order.  When the description names a person
     ("Surname, Given - ..."), only backlinks leading to that person are kept, so
     a file shared by several people is named after the one it is *of*."""
 
     def gid(b: tuple[str, str]) -> str:
+        """Return the Gramps ID of a backlinked object, for sorting."""
         obj = _db_get(db, b[0], b[1])
         return str(obj.get_gramps_id() or "") if obj is not None else ""
 
@@ -834,7 +816,7 @@ def _order_backlinks(
 
 
 def find_name_mismatches(
-    db: Any,
+    db: DbReadBase,
 ) -> list[tuple[str, str, str, str, str]]:
     """Media whose description names someone ("Surname, Given - ...") who is not
     among the people it is attached to, e.g. 'Duvault' vs 'Devault'.
@@ -879,7 +861,7 @@ def find_name_mismatches(
 
 
 def find_duplicate_media_references(
-    db: Any, cache: dict[str, dict[str, str]] | None = None
+    db: DbReadBase | None, cache: dict[str, dict[str, str]] | None = None
 ) -> dict[str, list[tuple[str, str, str, str]]]:
     """Find media records pointing to the same file path on disk.
 
@@ -908,7 +890,7 @@ def find_duplicate_media_references(
     return {k: v for k, v in path_map.items() if len(v) > 1}
 
 
-def get_person_year(db: Any, person: Any) -> str:
+def get_person_year(db: DbReadBase, person: Any) -> str:
     """Extract a representative year for a person (birth, death, or first dated event)."""
     if not person or not db:
         return ""
@@ -937,7 +919,9 @@ def get_person_year(db: Any, person: Any) -> str:
     return ""
 
 
-def _resolve_media_reference_context_uncached(db: Any, media: Any) -> dict[str, str]:
+def _resolve_media_reference_context_uncached(
+    db: DbReadBase | None, media: Any
+) -> dict[str, str]:
     """Resolve context tokens (surname, given, doc_type, year, ref_id, assoc) for a media object."""
     context: dict[str, str] = {
         "id": str(media.get_gramps_id() or "") if media else "",
@@ -1275,7 +1259,7 @@ def _resolve_media_reference_context_uncached(db: Any, media: Any) -> dict[str, 
 
 
 def resolve_media_reference_context(
-    db: Any, media: Any, cache: dict[str, dict[str, str]] | None = None
+    db: DbReadBase, media: Any, cache: dict[str, dict[str, str]] | None = None
 ) -> dict[str, str]:
     """Resolve naming context for a media object (optionally memoised per media
     handle in *cache*, which avoids repeating the backlink traversal)."""
@@ -1328,7 +1312,7 @@ def format_standard_filename(
 
 def sanitize_standard_filename(
     path: str,
-    db: Any = None,
+    db: DbReadBase | None = None,
     media: Any = None,
     template: str | None = None,
     cache: dict[str, dict[str, str]] | None = None,
@@ -1376,6 +1360,13 @@ def file_content_hash(path: str, length: int = 6) -> str:
 # ------------------------------------------------------------
 class _Progress:
     def __init__(self, title: str, total: int, parent: Any = None) -> None:
+        """
+        Open a Gramps progress meter, if one can be created.
+
+        :param title: Title and pass label.
+        :param total: Number of steps.
+        :param parent: Parent window.
+        """
         self.meter: Any = None
         try:
             from gramps.gui.utils import ProgressMeter
@@ -1386,6 +1377,7 @@ class _Progress:
             self.meter = None
 
     def step(self) -> None:
+        """Advance the meter by one step."""
         if self.meter is not None:
             try:
                 self.meter.step()
@@ -1393,6 +1385,7 @@ class _Progress:
                 pass
 
     def close(self) -> None:
+        """Close the meter."""
         if self.meter is not None:
             try:
                 self.meter.close()
@@ -1410,7 +1403,7 @@ IMPORT_NOTE_PREFIX = "Records not imported into OBJE"
 
 
 def find_stale_import_notes(
-    db: Any, only_resolved: bool = True
+    db: DbReadBase, only_resolved: bool = True
 ) -> list[tuple[str, str, str, str]]:
     """Import-failure notes attached to media.  With only_resolved, only those
     whose file is now readable (so the note's complaint is out of date).
@@ -1447,7 +1440,7 @@ def find_stale_import_notes(
     return items
 
 
-def remove_import_notes(db: Any, items: list[tuple[str, str, str, str]]) -> int:
+def remove_import_notes(db: DbWriteBase, items: list[tuple[str, str, str, str]]) -> int:
     """
     Detach the notes from their media and delete notes nothing else uses.
 
@@ -1479,7 +1472,7 @@ def remove_import_notes(db: Any, items: list[tuple[str, str, str, str]]) -> int:
 # Keeping records valid when the base media path changes
 #
 # ------------------------------------------------------------
-def snapshot_resolved_paths(db: Any) -> dict[str, str]:
+def snapshot_resolved_paths(db: DbReadBase) -> dict[MediaHandle, str]:
     """
     Record where every relative media record's file is *now*.
 
@@ -1490,20 +1483,23 @@ def snapshot_resolved_paths(db: Any) -> dict[str, str]:
     :param db: The database.
     :returns: Mapping of media handle to the file's current full path.
     """
-    snapshot: dict[str, str] = {}
+    snapshot: dict[MediaHandle, str] = {}
     for media in db.iter_media():
         raw = clean_path(str(media.get_path() or ""))
         if not raw or is_absolute_path(raw):
             continue
         full = full_media_path(db, raw)
         if os.path.exists(full):
-            snapshot[str(media.get_handle() or "")] = full
+            snapshot[media.get_handle()] = full
     return snapshot
 
 
 def keep_records_pointing_at_files(
-    db: Any, snapshot: dict[str, str], trans: Any, skip: set[str]
-) -> tuple[int, list[str]]:
+    db: DbWriteBase,
+    snapshot: dict[MediaHandle, str],
+    trans: Any,
+    skip: set[MediaHandle],
+) -> tuple[int, list[MediaGrampsID]]:
     """
     Repoint records that a base-path change would otherwise break.
 
@@ -1522,7 +1518,7 @@ def keep_records_pointing_at_files(
     """
     new_base = media_path(db)
     fixed = 0
-    locked: list[str] = []
+    locked: list[MediaGrampsID] = []
     for handle, old_full in snapshot.items():
         if handle in skip:
             continue
@@ -1536,7 +1532,7 @@ def keep_records_pointing_at_files(
         if path_key(full_media_path(db, raw)) == path_key(old_full):
             continue  # still finds its file (e.g. the base did not really move)
         if is_media_locked(db, media):
-            locked.append(_gid_of(media))
+            locked.append(MediaGrampsID(_gid_of(media)))
             continue
         media.set_path(to_db_path(old_full, new_base))
         add_media_fixed_tag(db, media, txn=trans)
@@ -1578,7 +1574,7 @@ def move_log_summary(move_log: MoveLog) -> str:
     )
 
 
-def base_change_summary(fixed: int, locked: list[str]) -> str:
+def base_change_summary(fixed: int, locked: list[MediaGrampsID]) -> str:
     """
     Describe what a base-path change did to records outside the batch.
 
@@ -1589,21 +1585,23 @@ def base_change_summary(fixed: int, locked: list[str]) -> str:
     parts: list[str] = []
     if fixed:
         parts.append(
-            str(
-                _(
-                    "The base media path changed: %d other record(s) were updated "
-                    "so they still point at their files."
-                )
+            ngettext(
+                "The base media path changed: %d other record was updated so "
+                "it still points at its file.",
+                "The base media path changed: %d other records were updated so "
+                "they still point at their files.",
+                fixed,
             )
             % fixed
         )
     if locked:
         parts.append(
-            str(
-                _(
-                    "Locked record(s) not updated, now resolving against the new "
-                    "base path: %s"
-                )
+            ngettext(
+                "Locked record not updated, now resolving against the new "
+                "base path: %s",
+                "Locked records not updated, now resolving against the new "
+                "base path: %s",
+                len(locked),
             )
             % ", ".join(locked[:10])
         )
@@ -1615,7 +1613,7 @@ def base_change_summary(fixed: int, locked: list[str]) -> str:
 # Consolidation planner (shared by the preview and the real run)
 #
 # ------------------------------------------------------------
-def namer_rank(db: Any, media: Any) -> tuple[int, str]:
+def namer_rank(db: DbReadBase, media: Any) -> tuple[int, str]:
     """
     Sort key choosing which of several records sharing a file names it.
 
@@ -1634,7 +1632,7 @@ def namer_rank(db: Any, media: Any) -> tuple[int, str]:
 
 
 def plan_consolidation_moves(
-    db: Any,
+    db: DbReadBase,
     base_dir: str,
     template: str,
     effective: dict[str, str] | None = None,
@@ -1732,7 +1730,9 @@ def plan_consolidation_moves(
 # Accept-all preview (dry run)
 #
 # ------------------------------------------------------------
-def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, Any]:
+def build_accept_all_plan(
+    db: DbReadBase, base_dir: str, base_set: bool
+) -> dict[str, Any]:
     """Work out, WITHOUT changing anything, what 'Accept all hints' would do."""
     plan: dict[str, Any] = {
         "base_dir": base_dir,
@@ -1775,7 +1775,9 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
         )
         if rel:
             find_candidates.append((handle, str(media.get_gramps_id() or ""), raw, rel))
-    unsafe = ambiguous_matches([(h, raw, rel) for h, _g, raw, rel in find_candidates])
+    unsafe = ambiguous_matches(
+        [(MediaHandle(h), raw, rel) for h, _g, raw, rel in find_candidates]
+    )
     for handle, gid, raw, rel in find_candidates:
         if handle in unsafe:
             plan["ambiguous"].append((gid, raw, rel))
@@ -1824,7 +1826,7 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
         else:
             if is_media_locked(db, keeper_media):
                 plan["keep_unref"].append((keeper["gramps_id"], group["raw_path"]))
-            elif GWizardMediaFix._is_bare_media(keeper["media"]):
+            elif is_bare_media(keeper["media"]):
                 plan["delete"].append((keeper["gramps_id"], group["raw_path"]))
                 gone.add(keeper["handle"])
             else:
@@ -1862,6 +1864,12 @@ def build_accept_all_plan(db: Any, base_dir: str, base_set: bool) -> dict[str, A
 
 
 def plan_has_changes(plan: dict[str, Any]) -> bool:
+    """
+    Return True if an Accept-all plan would change anything.
+
+    :param plan: Result of :func:`build_accept_all_plan`.
+    :returns: Whether there is anything to apply.
+    """
     return any(plan[k] for k in ("find", "merges", "delete", "moves"))
 
 
@@ -1870,6 +1878,7 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
     lines: list[str] = [str(_("PREVIEW - nothing has been changed yet.")), ""]
 
     def section(title: str, rows: list[str]) -> None:
+        """Add a titled section, listing at most *limit* rows."""
         lines.append(title)
         lines.extend("    " + r for r in rows[:limit])
         if len(rows) > limit:
@@ -1878,7 +1887,12 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
 
     if plan["find"]:
         section(
-            str(_("1. Find missing media - repoint %d record(s):")) % len(plan["find"]),
+            ngettext(
+                "1. Find missing media - repoint %d record:",
+                "1. Find missing media - repoint %d records:",
+                len(plan["find"]),
+            )
+            % len(plan["find"]),
             ["[%s] %s  ->  %s" % r for r in plan["find"]],
         )
     if plan.get("ambiguous"):
@@ -1894,7 +1908,11 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
         )
     if plan["merges"]:
         section(
-            str(_("2. Merge duplicate records - %d file group(s):"))
+            ngettext(
+                "2. Merge duplicate records - %d file group:",
+                "2. Merge duplicate records - %d file groups:",
+                len(plan["merges"]),
+            )
             % len(plan["merges"]),
             [
                 "[%s] absorbs %s  (%s)" % (k, ", ".join(o), p)
@@ -1916,8 +1934,8 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
         lines += [str(_("3. Move/rename files: SKIPPED - %s")) % plan["halted"], ""]
     elif plan["moves"]:
         section(
-            str(_("3. Move/rename files into '%s' (%d):"))
-            % (plan["base_dir"], len(plan["moves"])),
+            _("3. Move/rename files into '%(folder)s' (%(count)d):")
+            % {"folder": plan["base_dir"], "count": len(plan["moves"])},
             [
                 "[%s] %s  ->  %s%s"
                 % (g, o, n, "  (renamed: name already taken)" if c else "")
@@ -1933,12 +1951,22 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
         lines.append(str(_("NEEDS YOUR ATTENTION (cannot be fixed automatically):")))
         if plan["missing"]:
             lines.append(
-                "    " + str(_("%d file(s) not found on disk")) % len(plan["missing"])
+                "    "
+                + ngettext(
+                    "%d file not found on disk",
+                    "%d files not found on disk",
+                    len(plan["missing"]),
+                )
+                % len(plan["missing"])
             )
         if plan["denied"]:
             lines.append(
                 "    "
-                + str(_("%d file(s) exist but cannot be read (permission denied)"))
+                + ngettext(
+                    "%d file exists but cannot be read (permission denied)",
+                    "%d files exist but cannot be read (permission denied)",
+                    len(plan["denied"]),
+                )
                 % len(plan["denied"])
             )
         lines.append("")
@@ -1996,6 +2024,13 @@ class FindMissingMediaDialog(Gtk.Dialog):
         dbstate: Any = None,
         transient_for: Gtk.Window | None = None,
     ) -> None:
+        """
+        Scan for media records whose file is missing and build the review table.
+
+        :param title: Window title (defaults to "Find Missing Media").
+        :param dbstate: The Gramps database state.
+        :param transient_for: Parent window.
+        """
         dialog_title = title or str(_("Find Missing Media"))
         super().__init__(
             title=dialog_title,
@@ -2202,6 +2237,12 @@ class FindMissingMediaDialog(Gtk.Dialog):
         content.pack_start(self.build_rows(self.rows), True, True, 0)
 
     def build_rows(self, entries: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
+        """
+        Build one table row (media, current path, new path, hint) per record.
+
+        :param entries: The missing-media rows.
+        :returns: A scrolled window holding the table.
+        """
         grid = create_table_grid()
 
         row_index = 0
@@ -2260,6 +2301,11 @@ class FindMissingMediaDialog(Gtk.Dialog):
         return scrolled
 
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
+        """
+        Copy each suggested path into its empty "New Path" entry.
+
+        :param _button: The button that was clicked.
+        """
         count = 0
         for target in self.row_targets:
             if target["entry"].get("locked"):
@@ -2373,28 +2419,39 @@ class FindMissingMediaDialog(Gtk.Dialog):
             queued += 1
         OkDialog(
             str(_("Copies queued")),
-            str(
-                _(
-                    "Queued %d file(s) to copy into the media directory. Review and press Apply."
-                )
+            ngettext(
+                "Queued %d file to copy into the media directory. "
+                "Review and press Apply.",
+                "Queued %d files to copy into the media directory. "
+                "Review and press Apply.",
+                queued,
             )
             % queued,
             parent=self,
         )
 
     def cb_apply(self, _button: Gtk.Button) -> None:
+        """
+        Repoint records to the entered paths, copying queued files first.
+
+        A record is never pointed at a file that does not exist. If the base
+        media path changed, other relative records are kept pointing at their
+        files.
+
+        :param _button: The button that was clicked.
+        """
         applied = 0
         copied = 0
         skipped: list[str] = []
         claimed: set[str] = set()
-        repointed: set[str] = set()
+        repointed: set[MediaHandle] = set()
         base = self.base_dir
         # Note where every relative record's file is before a base-path
         # change, so records outside this batch keep pointing at their files.
         base_changed = self._mediapath_text != self._orig_mediapath
         snapshot = snapshot_resolved_paths(self.dbstate.db) if base_changed else {}
         rebased = 0
-        rebase_locked: list[str] = []
+        rebase_locked: list[MediaGrampsID] = []
         move_log = MoveLog(base, "Find missing media")
         with DbTxn(_("Update Missing Media Paths"), self.dbstate.db) as trans:
             if base_changed:
@@ -2449,7 +2506,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
                 media.set_path(store_path)
                 add_media_fixed_tag(self.dbstate.db, media, txn=trans)
                 self.dbstate.db.commit_media(media, trans)
-                repointed.add(str(media.get_handle() or ""))
+                repointed.add(media.get_handle())
                 applied += 1
 
             if snapshot:
@@ -2468,18 +2525,26 @@ class FindMissingMediaDialog(Gtk.Dialog):
 
         msg = str(_("Updated %d media file paths in the database.")) % applied
         if copied:
-            msg += " " + str(_("Copied %d file(s) into the media directory.")) % copied
-        if skipped:
-            msg += "\n\n" + str(_("Skipped %d (not found or copy failed):\n%s")) % (
-                len(skipped),
-                "\n".join(skipped[:10]),
+            msg += (
+                " "
+                + ngettext(
+                    "Copied %d file into the media directory.",
+                    "Copied %d files into the media directory.",
+                    copied,
+                )
+                % copied
             )
+        if skipped:
+            msg += "\n\n" + _(
+                "Skipped %(count)d (not found or copy failed):\n%(paths)s"
+            ) % {"count": len(skipped), "paths": "\n".join(skipped[:10])}
         if extra:
             msg += "\n\n" + extra
         msg += move_log_summary(move_log)
         OkDialog(str(_("Media Paths Updated")), msg, parent=self)
 
     def show_dialog(self) -> None:
+        """Show the dialog and run it until it is closed."""
         self.show_all()
         while True:
             resp = self.run()
@@ -2506,6 +2571,13 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         dbstate: Any = None,
         transient_for: Gtk.Window | None = None,
     ) -> None:
+        """
+        Build the consolidation table; records sharing a file share one row.
+
+        :param title: Window title (defaults to "Consolidate Media Location").
+        :param dbstate: The Gramps database state.
+        :param transient_for: Parent window.
+        """
         dialog_title = title or str(_("Consolidate Media Location"))
         super().__init__(
             title=dialog_title,
@@ -2661,8 +2733,10 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             locked_ids = [_gid_of(m) for m in members if is_media_locked(dbstate.db, m)]
             locked = bool(locked_ids)
             if locked and len(members) > 1:
-                hint_text = _(
-                    "Shared with locked record(s) %s: will not move"
+                hint_text = ngettext(
+                    "Shared with locked record %s: will not move",
+                    "Shared with locked records %s: will not move",
+                    len(locked_ids),
                 ) % ", ".join(locked_ids)
             elif locked:
                 hint_text = _("Locked: will not modify (GWizard: Locked)")
@@ -2694,10 +2768,14 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         self.dup_files: list[dict[str, Any]] = []
         if self.shared_count:
             info_label = SelectableLabel(
-                label=_(
-                    "%d file(s) are used by several media records. Each is moved "
+                label=ngettext(
+                    "%d file is used by several media records. It is moved once "
+                    "and all of its records are updated; a file shared with a "
+                    "locked record is left in place.",
+                    "%d files are used by several media records. Each is moved "
                     "once and all of its records are updated; a file shared with "
-                    "a locked record is left in place."
+                    "a locked record is left in place.",
+                    self.shared_count,
                 )
                 % self.shared_count,
             )
@@ -2754,6 +2832,12 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         content.pack_start(self.build_rows(self.rows), True, True, 0)
 
     def build_rows(self, entries: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
+        """
+        Build one table row (media, current path, new path, hint) per file.
+
+        :param entries: The consolidation rows.
+        :returns: A scrolled window holding the table.
+        """
         grid = create_table_grid()
 
         row_index = 0
@@ -2887,6 +2971,11 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         return clean_raw.replace("\\", "/") != target
 
     def _get_current_template(self) -> str:
+        """
+        Return the naming template chosen in the combo box (or the saved one).
+
+        :returns: The filename template.
+        """
         if hasattr(self, "tmpl_combo"):
             idx = self.tmpl_combo.get_active()
             if isinstance(idx, int) and 0 <= idx < len(FILENAME_PRESETS):
@@ -2928,6 +3017,11 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         return fname.replace("\\", "/")
 
     def cb_template_changed(self, combo: Gtk.ComboBoxText) -> None:
+        """
+        Use a preset or typed template and recompute the hints.
+
+        :param combo: The template combo box.
+        """
         idx = combo.get_active()
         if isinstance(idx, int) and 0 <= idx < len(FILENAME_PRESETS):
             tmpl_str = FILENAME_PRESETS[idx][0]
@@ -2943,15 +3037,30 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                     self.apply_template(val.strip())
 
     def cb_template_entry_activated(self, entry: Gtk.Entry) -> None:
+        """
+        Apply a typed template when Enter is pressed.
+
+        :param entry: The combo box's text entry.
+        """
         tmpl_str = entry.get_text().strip()
         if tmpl_str:
             self.apply_template(tmpl_str)
 
     def apply_template(self, tmpl_str: str) -> None:
+        """
+        Save the template and recompute every row's hint.
+
+        :param tmpl_str: The filename template.
+        """
         config.set(CONFIG_TEMPLATE_KEY, tmpl_str)
         self._recompute_hints()
 
     def cb_naming_style_toggled(self, _button: Gtk.RadioButton) -> None:
+        """
+        Recompute the hints when the naming style changes.
+
+        :param _button: The radio button that was toggled.
+        """
         self._recompute_hints()
 
     def _recompute_hints(self) -> None:
@@ -2976,6 +3085,11 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             self.accept_button.set_sensitive(n_hints > 0)
 
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
+        """
+        Copy each row's suggested path into its "Consolidated Path" entry.
+
+        :param _button: The button that was clicked.
+        """
         count = 0
         for target in self.row_targets:
             if target["entry"].get("locked"):
@@ -3033,7 +3147,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         files_copied = 0
         failures: list[str] = []
         claimed: set[str] = set()
-        repointed: set[str] = set()
+        repointed: set[MediaHandle] = set()
         is_copy = hasattr(self, "radio_copy") and bool(self.radio_copy.get_active())
         base = self.base_dir
 
@@ -3046,7 +3160,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             self._orig_mediapath = self._mediapath_text
 
         rebased = 0
-        rebase_locked: list[str] = []
+        rebase_locked: list[MediaGrampsID] = []
         move_log = MoveLog(base, "Consolidate")
         with DbTxn(_("Consolidate Media Locations"), db) as trans:
             for target in self.row_targets:
@@ -3117,7 +3231,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                     media.set_path(new_rel)
                     add_media_fixed_tag(db, media, txn=trans)
                     db.commit_media(media, trans)
-                    repointed.add(str(media.get_handle() or ""))
+                    repointed.add(media.get_handle())
                     applied += 1
 
             if snapshot:
@@ -3160,6 +3274,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         )
 
     def show_dialog(self) -> None:
+        """Show the dialog and run it until it is closed."""
         self.show_all()
         while True:
             resp = self.run()
@@ -3170,14 +3285,6 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             ):
                 break
         self.destroy()
-
-
-# ------------------------------------------------------------
-#
-# Backward compatibility alias
-#
-# ------------------------------------------------------------
-ApplyFilenameStandardsDialog = FixMediaReferencesDialog
 
 
 # ------------------------------------------------------------
@@ -3254,6 +3361,13 @@ class AcceptAllHintsReportDialog(Gtk.Dialog):
         title: str | None = None,
         transient_for: Gtk.Window | None = None,
     ) -> None:
+        """
+        Build the result dialog with selectable, copyable text.
+
+        :param report_text: The report to show.
+        :param title: Window title.
+        :param transient_for: Parent window.
+        """
         dialog_title = title or str(_("Accept All Hints Complete"))
         super().__init__(
             title=dialog_title,
@@ -3284,6 +3398,7 @@ class AcceptAllHintsReportDialog(Gtk.Dialog):
         content.pack_start(scrolled, True, True, 0)
 
     def show_dialog(self) -> None:
+        """Show the dialog and run it until it is closed."""
         self.show_all()
         while True:
             resp = self.run()
@@ -3296,7 +3411,7 @@ class AcceptAllHintsReportDialog(Gtk.Dialog):
         self.destroy()
 
 
-def generate_media_fix_report(db: Any, progress_parent: Any = None) -> str:
+def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> str:
     """Scan all media objects in database, check existence with os.path.exists(), and return formatted report."""
     base_dir = get_media_base_path(db) if db else get_media_base_path(None)
     curr_tmpl = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
@@ -3444,171 +3559,205 @@ def generate_media_fix_report(db: Any, progress_parent: Any = None) -> str:
         else []
     )
 
+    rule = "-" * 72
+    unnamed = _("(unnamed)")
+
+    def metric(label: str, value: Any) -> str:
+        """Format one summary line, values aligned in column 29."""
+        return "  %s%s" % (label.ljust(27), value)
+
+    def heading(text: str) -> None:
+        """Start a report section."""
+        lines.extend([rule, text, rule])
+
+    def field(label: str, value: Any, width: int = 0) -> str:
+        """Format an indented "Label: value" line."""
+        return (
+            "    %s %s" % (label.ljust(width), value)
+            if width
+            else ("    %s %s" % (label, value))
+        )
+
+    if base_configured:
+        unref_value = str(len(unref_disk_files))
+    else:
+        unref_value = _("n/a (no media base path set)")
+    if scan_stats.get("truncated"):
+        unref_value += " " + _("(scan truncated)")
+
     lines: list[str] = [
         "=" * 72,
-        "GWIZARD MEDIA FIX REPORT",
+        _("GWIZARD MEDIA FIX REPORT"),
         "=" * 72,
         "",
-        "SUMMARY METRICS:",
-        f"  Total media records:       {total}",
-        f"  Files in default path:     {in_default_path}",
-        f"  Files outside default path:{outside_default_path}",
-        f"  Files found on disk:       {found}",
-        f"  Files missing on disk:     {missing}",
-        f"  Permission denied files:   {permission_denied}",
-        f"  Absolute file paths:       {absolute_paths}",
-        f"  Non-standard filenames:    {non_standard}",
-        "  Unreferenced path files:   "
-        + (
-            str(len(unref_disk_files))
-            if base_configured
-            else "n/a (no media base path set)"
-        )
-        + (" (scan truncated)" if scan_stats.get("truncated") else ""),
-        f"  Unreferenced image tags:   {len(zero_ref_media)}",
-        f"  Shared media records:      {len(multi_ref_media)} (info)",
-        f"  Locked media records:      {len(locked_media)}",
-        f"  Fixed media records:       {len(fixed_media)}",
-        f"  Name mismatches:           {len(name_mismatches)}",
-        f"  Duplicate file references: {len(dup_files)} files ({dup_media_count} media records)",
-        f"  Naming template:           {curr_tmpl}",
-        f"  Media Base Path:           {base_dir}",
+        _("SUMMARY METRICS:"),
+        metric(_("Total media records:"), total),
+        metric(_("Files in default path:"), in_default_path),
+        metric(_("Files outside default path:"), outside_default_path),
+        metric(_("Files found on disk:"), found),
+        metric(_("Files missing on disk:"), missing),
+        metric(_("Permission denied files:"), permission_denied),
+        metric(_("Absolute file paths:"), absolute_paths),
+        metric(_("Non-standard filenames:"), non_standard),
+        metric(_("Unreferenced path files:"), unref_value),
+        metric(_("Unreferenced image tags:"), len(zero_ref_media)),
+        metric(
+            _("Shared media records:"),
+            _("%d (info)") % len(multi_ref_media),
+        ),
+        metric(_("Locked media records:"), len(locked_media)),
+        metric(_("Fixed media records:"), len(fixed_media)),
+        metric(_("Name mismatches:"), len(name_mismatches)),
+        metric(
+            _("Duplicate file references:"),
+            _("%(files)d files (%(records)d media records)")
+            % {"files": len(dup_files), "records": dup_media_count},
+        ),
+        metric(_("Naming template:"), curr_tmpl),
+        metric(_("Media Base Path:"), base_dir),
         "",
     ]
 
     if dup_files:
-        lines.append("-" * 72)
-        lines.append(
-            f"DUPLICATE FILE REFERENCES ({len(dup_files)} files shared by multiple records):"
+        heading(
+            _("DUPLICATE FILE REFERENCES (%d files shared by multiple records):")
+            % len(dup_files)
         )
-        lines.append("-" * 72)
-        for p_key, records in dup_files.items():
-            lines.append(f"  File: {records[0][2]}")
-            lines.append(f"    Referenced by {len(records)} media records:")
+        for records in dup_files.values():
+            lines.append("  %s %s" % (_("File:"), records[0][2]))
+            lines.append("    " + _("Referenced by %d media records:") % len(records))
             for gid, desc, _p, assoc_str in records:
                 assoc_part = f" ({assoc_str})" if assoc_str else ""
                 lines.append(f"      - [{gid}] {desc}{assoc_part}")
         lines.append("")
 
     if unref_disk_files:
-        lines.append("-" * 72)
-        lines.append(
-            f"UNREFERENCED FILES IN DEFAULT PATH ({len(unref_disk_files)} files with no database connection):"
+        heading(
+            _(
+                "UNREFERENCED FILES IN DEFAULT PATH (%d files with no database "
+                "connection):"
+            )
+            % len(unref_disk_files)
         )
-        lines.append("-" * 72)
         for rel_f in unref_disk_files[:100]:
             lines.append(f"  {rel_f}")
         if len(unref_disk_files) > 100:
-            lines.append(f"  ... and {len(unref_disk_files) - 100} more files.")
+            lines.append(
+                "  " + _("... and %d more files.") % (len(unref_disk_files) - 100)
+            )
         lines.append("")
 
     if multi_ref_media:
-        lines.append("-" * 72)
-        lines.append(
-            f"SHARED MEDIA RECORDS - one file used from several places ({len(multi_ref_media)} items, informational):"
+        heading(
+            _(
+                "SHARED MEDIA RECORDS - one file used from several places "
+                "(%d items, informational):"
+            )
+            % len(multi_ref_media)
         )
-        lines.append("-" * 72)
         for gid, desc, path, r_count, blinks in multi_ref_media:
             type_counts: dict[str, int] = {}
             for cname, _h in blinks:
                 type_counts[cname] = type_counts.get(cname, 0) + 1
             t_str = ", ".join(f"{k}: {v}" for k, v in sorted(type_counts.items()))
             lines.append(f"  [{gid}] {desc}")
-            lines.append(f"    Path:       {path}")
-            lines.append(f"    References: {r_count} ({t_str})")
+            lines.append(field(_("Path:"), path, 11))
+            lines.append(field(_("References:"), f"{r_count} ({t_str})", 11))
         lines.append("")
 
     if name_mismatches:
-        lines.append("-" * 72)
-        lines.append(
-            f"NAME MISMATCHES - description vs linked person ({len(name_mismatches)} items):"
+        heading(
+            _("NAME MISMATCHES - description vs linked person (%d items):")
+            % len(name_mismatches)
         )
-        lines.append("-" * 72)
         for gid, desc, in_desc, linked, kind in name_mismatches:
             lines.append(f"  [{gid}] {desc}")
-            lines.append(f"    Description says: {in_desc}")
-            lines.append(f"    Linked person:    {linked}  ({kind})")
+            lines.append(field(_("Description says:"), in_desc, 17))
+            lines.append(field(_("Linked person:"), f"{linked}  ({kind})", 17))
         lines.append("")
 
-    lines.append("-" * 72)
-    lines.append(
-        f"UNREFERENCED IMAGE TAGS / MEDIA RECORDS ({len(zero_ref_media)} items with no data references):"
+    heading(
+        _(
+            "UNREFERENCED IMAGE TAGS / MEDIA RECORDS (%d items with no data "
+            "references):"
+        )
+        % len(zero_ref_media)
     )
-    lines.append("-" * 72)
     if zero_ref_media:
         for gid, desc, path in zero_ref_media:
-            lines.append(f"  [{gid}] {desc or '(unnamed)'}")
-            lines.append(f"    Path: {path}")
+            lines.append(f"  [{gid}] {desc or unnamed}")
+            lines.append(field(_("Path:"), path))
     else:
         lines.append(
-            "  0 unreferenced image tags found. All media records have data references."
+            "  "
+            + _(
+                "0 unreferenced image tags found. All media records have data "
+                "references."
+            )
         )
     lines.append("")
 
     if outside_default_list:
-        lines.append("-" * 72)
-        lines.append(f"FILES OUTSIDE DEFAULT PATH ({len(outside_default_list)} items):")
-        lines.append("-" * 72)
+        heading(_("FILES OUTSIDE DEFAULT PATH (%d items):") % len(outside_default_list))
         for gid, desc, path in outside_default_list:
             lines.append(f"  [{gid}] {desc}")
-            lines.append(f"    Path: {path}")
+            lines.append(field(_("Path:"), path))
         lines.append("")
 
-    lines.append("-" * 72)
-    lines.append(
-        f"PERMISSION DENIED FILES ({len(perm_denied_list)} files inaccessible due to directory permissions):"
+    heading(
+        _(
+            "PERMISSION DENIED FILES (%d files inaccessible due to directory "
+            "permissions):"
+        )
+        % len(perm_denied_list)
     )
-    lines.append("-" * 72)
     if perm_denied_list:
         for gid, desc, path, inaccess in perm_denied_list:
-            lines.append(f"  [{gid}] {desc or '(unnamed)'}")
-            lines.append(f"    Path:            {path}")
-            lines.append(f"    Inaccessible at: {inaccess}")
+            lines.append(f"  [{gid}] {desc or unnamed}")
+            lines.append(field(_("Path:"), path, 16))
+            lines.append(field(_("Inaccessible at:"), inaccess, 16))
     else:
         lines.append(
-            "  0 permission errors encountered. All inspected directories are readable."
+            "  "
+            + _(
+                "0 permission errors encountered. All inspected directories are "
+                "readable."
+            )
         )
     lines.append("")
 
     if missing_list:
-        lines.append("-" * 72)
-        lines.append(f"MISSING FILES ({len(missing_list)} items):")
-        lines.append("-" * 72)
+        heading(_("MISSING FILES (%d items):") % len(missing_list))
         for gid, desc, path in missing_list:
             lines.append(f"  [{gid}] {desc}")
-            lines.append(f"    Path: {path}")
+            lines.append(field(_("Path:"), path))
         lines.append("")
 
     if abs_list:
-        lines.append("-" * 72)
-        lines.append(f"ABSOLUTE PATHS ({len(abs_list)} items):")
-        lines.append("-" * 72)
+        heading(_("ABSOLUTE PATHS (%d items):") % len(abs_list))
         for gid, desc, path in abs_list:
             lines.append(f"  [{gid}] {desc}")
-            lines.append(f"    Path: {path}")
+            lines.append(field(_("Path:"), path))
         lines.append("")
 
     if non_std_list:
-        lines.append("-" * 72)
-        lines.append(f"NON-STANDARD FILENAMES ({len(non_std_list)} items):")
-        lines.append("-" * 72)
+        heading(_("NON-STANDARD FILENAMES (%d items):") % len(non_std_list))
         for gid, desc, path, std_p, assoc_str in non_std_list:
             lines.append(f"  [{gid}] {desc}")
             if assoc_str:
-                lines.append(f"    Association: {assoc_str}")
-            lines.append(f"    Current:     {path}")
-            lines.append(f"    Standard:    {std_p}")
+                lines.append(field(_("Association:"), assoc_str, 12))
+            lines.append(field(_("Current:"), path, 12))
+            lines.append(field(_("Standard:"), std_p, 12))
         lines.append("")
 
     if locked_media:
-        lines.append("-" * 72)
-        lines.append(
-            f"LOCKED MEDIA RECORDS ({len(locked_media)} items skipped from modifications):"
+        heading(
+            _("LOCKED MEDIA RECORDS (%d items skipped from modifications):")
+            % len(locked_media)
         )
-        lines.append("-" * 72)
         for gid, desc, path in locked_media:
-            lines.append(f"  [{gid}] {desc or '(unnamed)'}")
-            lines.append(f"    Path: {path}")
+            lines.append(f"  [{gid}] {desc or unnamed}")
+            lines.append(field(_("Path:"), path))
         lines.append("")
 
     return "\n".join(lines)
@@ -3623,6 +3772,12 @@ class GWizardMediaFixOptions(tool.ToolOptions):
     """Tool options for GWizard Media Fix."""
 
     def __init__(self, name: str, person_id: str | None = None) -> None:
+        """
+        Set up the tool options.
+
+        :param name: The tool's name.
+        :param person_id: The active person's Gramps ID, if any.
+        """
         super().__init__(name, person_id)
 
 
@@ -3637,6 +3792,15 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         name: str,
         callback: Any = None,
     ) -> None:
+        """
+        Open the GWizard Media Fix window.
+
+        :param dbstate: The Gramps database state.
+        :param user: The Gramps user object (gives the UI state).
+        :param options_class: The tool's options class.
+        :param name: The tool's name.
+        :param callback: Unused; part of the Gramps tool interface.
+        """
         uistate = user.uistate
         tool.Tool.__init__(self, dbstate, options_class, name)
         ManagedWindow.__init__(self, uistate, [], self.__class__, modal=True)
@@ -3648,6 +3812,11 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         self.show()
 
     def _build_window(self, uistate: Any) -> None:
+        """
+        Build the main window with one button per step.
+
+        :param uistate: The Gramps UI state.
+        """
         dialog = Gtk.Dialog(
             title=str(_("GWizard Media Fix")),
             transient_for=uistate.window,
@@ -3704,6 +3873,12 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         dialog.show_all()
 
     def cb_close(self, dialog: Gtk.Dialog, response: int) -> None:
+        """
+        Close the tool window.
+
+        :param dialog: The dialog.
+        :param response: The response id.
+        """
         self.close()
 
     def cb_generate_report(self) -> None:
@@ -3774,6 +3949,12 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         dialog.destroy()
 
     def cb_button(self, button: Gtk.Button, key: str) -> None:
+        """
+        Run the step behind a main-window button.
+
+        :param button: The button that was clicked.
+        :param key: The step's key, e.g. ``"find_missing"``.
+        """
         if key == "generate":
             self.cb_generate_report()
         elif key == "find_missing":
@@ -3807,12 +3988,11 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             self.cb_undo_moves()
 
     def _auto_find_missing(
-        self, db: Any
+        self, db: DbWriteBase
     ) -> tuple[int, list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
         """Auto find missing media files in the default media base path.
 
-        Returns:
-            (resolved_count, unresolved_missing_list, perm_denied_list)
+        :returns: (resolved_count, unresolved_missing_list, perm_denied_list)
         """
         base_dir = get_media_base_path(db) if db else ""
         resolved_count = 0
@@ -3859,7 +4039,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 unresolved.append((m_gid, desc, raw_path))
 
         unsafe = ambiguous_matches(
-            [(str(m.get_handle()), raw, rel) for m, _g, _d, raw, rel in matches]
+            [(m.get_handle(), raw, rel) for m, _g, _d, raw, rel in matches]
         )
 
         # Pass 2: repoint only the unambiguous matches.
@@ -3875,20 +4055,10 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
 
         return resolved_count, unresolved, perm_denied
 
-    @staticmethod
-    def _is_bare_media(media: Any) -> bool:
-        """True when a media record carries nothing worth keeping.
-
-        Kept for existing callers; the shared implementation lives in
-        gwizard_common so the Fix media references dialog uses the same rule.
-        """
-        return is_bare_media(media)
-
-    def _auto_fix_references(self, db: Any) -> tuple[int, int, list[str]]:
+    def _auto_fix_references(self, db: DbWriteBase) -> tuple[int, int, list[str]]:
         """Auto resolve duplicate media references and purge unreferenced image tags.
 
-        Returns:
-            (merged_count, deleted_count, errors)
+        :returns: (merged_count, deleted_count, errors)
         """
         groups = find_duplicate_media_groups(db)
         merged_count = 0
@@ -3905,7 +4075,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                     cand = db.get_media_from_handle(h)
                     if (
                         cand is None
-                        or not self._is_bare_media(cand)
+                        or not is_bare_media(cand)
                         or is_media_locked(db, cand)
                     ):
                         if cand is not None and is_media_locked(db, cand):
@@ -3961,7 +4131,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         return merged_count, deleted_count, errors
 
     def _auto_consolidate_location(
-        self, db: Any
+        self, db: DbWriteBase
     ) -> tuple[int, list[tuple[str, str, str]]]:
         """Auto consolidate media file locations and apply standard filenames.
 
@@ -3969,8 +4139,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         preview: a shared file is moved once and all of its records are
         repointed; a file shared with a locked record stays where it is.
 
-        Returns:
-            (files_moved_or_renamed, not_consolidated)
+        :returns: (files_moved_or_renamed, not_consolidated)
         """
         base_dir = get_media_base_path(db) if db else ""
         if not base_dir:
@@ -4050,13 +4219,11 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         )
         confirm = QuestionDialog2(
             str(_("Undo last file moves")),
-            str(
-                _(
-                    "Reverse the file operations from %(time)s?\n\n"
-                    "%(files)d file(s) will be moved back (copies are kept) and "
-                    "%(records)d media record(s) repointed. Records changed since "
-                    "then are left alone."
-                )
+            _(
+                "Reverse the file operations from %(time)s?\n\n"
+                "Files moved: %(files)d (moved back; copies are kept)\n"
+                "Media records: %(records)d (repointed)\n\n"
+                "Records changed since then are left alone."
             )
             % {"time": run[0].get("time", ""), "files": n_files, "records": len(run)},
             str(_("_Undo moves")),
@@ -4066,9 +4233,10 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         if not confirm.run():
             return
         files_back, records_back, problems = undo_logged_run(db, log_path)
-        msg = str(
-            _("Moved %(files)d file(s) back and repointed %(records)d record(s).")
-        ) % {"files": files_back, "records": records_back}
+        msg = _("Files moved back: %(files)d\nMedia records repointed: %(records)d") % {
+            "files": files_back,
+            "records": records_back,
+        }
         if problems:
             msg += "\n\n" + str(_("Needs review (%d):")) % len(problems)
             msg += "\n" + "\n".join(problems[:15])
@@ -4093,14 +4261,19 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         n_media = len({mh for mh, _g, _n, _ng in items})
         confirm = QuestionDialog2(
             str(_("Clean import notes")),
-            str(
-                _(
-                    "Delete %d leftover import-failure note(s) from %d media record(s)?\n\n"
-                    "They describe files the importer could not find, but those files "
-                    "are readable now. This can be undone with Edit > Undo."
-                )
+            ngettext(
+                "Delete %(notes)d leftover import-failure note?",
+                "Delete %(notes)d leftover import-failure notes?",
+                len(items),
             )
-            % (len(items), n_media),
+            % {"notes": len(items)}
+            + " "
+            + _("(media records affected: %(media)d)") % {"media": n_media}
+            + "\n\n"
+            + _(
+                "They describe files the importer could not find, but those files "
+                "are readable now. This can be undone with Edit > Undo."
+            ),
             str(_("_Delete")),
             str(_("_Cancel")),
             parent=self.window,
@@ -4111,10 +4284,19 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         OkDialog(
             str(_("Import notes cleaned")),
             (
-                str(_("Removed %d note(s) from media.")) % removed
+                ngettext(
+                    "Removed %d note from media.",
+                    "Removed %d notes from media.",
+                    removed,
+                )
+                % removed
                 + (
                     "\n\n"
-                    + str(_("%d note(s) on locked media were left alone."))
+                    + ngettext(
+                        "%d note on locked media was left alone.",
+                        "%d notes on locked media were left alone.",
+                        len(items) - removed,
+                    )
                     % (len(items) - removed)
                     if removed < len(items)
                     else ""
@@ -4165,11 +4347,13 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         unresolved_missing, perm_denied = scan_unreadable_media(db)
 
         if base_set:
-            consolidate_line = str(
-                _(
-                    "  • Consolidate media location: %d file(s) moved or renamed in '%s'."
-                )
-            ) % (consolidated_count, base_dir)
+            consolidate_line = ngettext(
+                "  • Consolidate media location: %(count)d file moved or renamed "
+                "in '%(folder)s'.",
+                "  • Consolidate media location: %(count)d files moved or renamed "
+                "in '%(folder)s'.",
+                consolidated_count,
+            ) % {"count": consolidated_count, "folder": base_dir}
         else:
             consolidate_line = str(
                 _("  • Consolidate media location: skipped (no base media path set).")
@@ -4177,18 +4361,19 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
 
         lines = [
             str(_("AUTOMATED CHANGES PERFORMED:")),
-            str(
-                _(
-                    "  • Find missing media: %d missing path(s) found in media directory and updated."
-                )
+            ngettext(
+                "  • Find missing media: %d missing path found in media directory "
+                "and updated.",
+                "  • Find missing media: %d missing paths found in media directory "
+                "and updated.",
+                missing_count,
             )
             % missing_count,
-            str(
-                _(
-                    "  • Fix media references: %d duplicate record(s) merged, %d unreferenced image tag(s) deleted."
-                )
+            _(
+                "  • Fix media references: duplicate records merged: %(merged)d; "
+                "unreferenced image tags deleted: %(deleted)d."
             )
-            % (merged_count, deleted_count),
+            % {"merged": merged_count, "deleted": deleted_count},
             consolidate_line,
             "",
         ]
@@ -4198,18 +4383,21 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         manual_items: list[str] = []
         if unresolved_missing:
             manual_items.append(
-                str(
-                    _(
-                        "  • Missing files on disk (%d): not found on disk. Locate them with 'Find missing media' (searches '%s'):"
-                    )
+                _(
+                    "  • Missing files on disk (%(count)d): not found on disk. Locate "
+                    "them with 'Find missing media' (searches '%(folder)s'):"
                 )
-                % (len(unresolved_missing), base_dir)
+                % {"count": len(unresolved_missing), "folder": base_dir}
             )
             for gid, desc, path in unresolved_missing[:5]:
                 manual_items.append(f"      - [{gid}] {desc or _('(unnamed)')}: {path}")
             if len(unresolved_missing) > 5:
                 manual_items.append(
-                    str(_("      - ... and %d more missing file(s)"))
+                    ngettext(
+                        "      - ... and %d more missing file",
+                        "      - ... and %d more missing files",
+                        len(unresolved_missing) - 5,
+                    )
                     % (len(unresolved_missing) - 5)
                 )
 
@@ -4226,7 +4414,11 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 manual_items.append(f"      - [{gid}] {path} (blocked at: {inaccess})")
             if len(perm_denied) > 5:
                 manual_items.append(
-                    str(_("      - ... and %d more inaccessible file(s)"))
+                    ngettext(
+                        "      - ... and %d more inaccessible file",
+                        "      - ... and %d more inaccessible files",
+                        len(perm_denied) - 5,
+                    )
                     % (len(perm_denied) - 5)
                 )
 
@@ -4246,7 +4438,11 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 manual_items.append(f"      - [{gid}] {path}")
             if len(unconsolidated) > 5:
                 manual_items.append(
-                    str(_("      - ... and %d more unconsolidated path(s)"))
+                    ngettext(
+                        "      - ... and %d more unconsolidated path",
+                        "      - ... and %d more unconsolidated paths",
+                        len(unconsolidated) - 5,
+                    )
                     % (len(unconsolidated) - 5)
                 )
 
@@ -4266,11 +4462,12 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         if stale_notes:
             lines.append("")
             lines.append(
-                str(
-                    _(
-                        "OPTIONAL CLEANUP: %d stale import note(s) can be removed with "
-                        "'Clean import notes'."
-                    )
+                ngettext(
+                    "OPTIONAL CLEANUP: %d stale import note can be removed with "
+                    "'Clean import notes'.",
+                    "OPTIONAL CLEANUP: %d stale import notes can be removed with "
+                    "'Clean import notes'.",
+                    len(stale_notes),
                 )
                 % len(stale_notes)
             )

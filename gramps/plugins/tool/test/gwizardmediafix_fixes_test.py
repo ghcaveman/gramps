@@ -70,11 +70,13 @@ from unittest.mock import MagicMock, patch
 
 # -------------------------------------------------------------------------
 #
-# GTK fakes: importing the main test module installs them before any GWizard
-# module (and so any Gtk base class) is imported.
+# GTK test doubles: installed before any GWizard module is imported, so the
+# dialog classes subclass the fakes.
 #
 # -------------------------------------------------------------------------
-from gramps.plugins.tool import gwizardmediafix_test as _gtk_fakes  # noqa: F401
+from gramps.plugins.tool.test import gwizard_gtk_fakes as fakes
+
+fakes.install()
 
 # -------------------------------------------------------------------------
 #
@@ -110,6 +112,16 @@ from gramps.plugins.tool.gw_fixmediareferencesdialog import (
 
 _DLG = "gramps.plugins.tool.gw_fixmediareferencesdialog.OkDialog"
 _MF_DLG = "gramps.plugins.tool.gwizardmediafix.OkDialog"
+
+
+def setUpModule() -> None:
+    """Install the GTK fakes for this module's tests."""
+    fakes.install()
+
+
+def tearDownModule() -> None:
+    """Restore the real GTK classes for other test modules."""
+    fakes.uninstall()
 
 
 class _DbState:
@@ -204,7 +216,6 @@ class AcceptHintsDeletionTest(_DbTestCase):
         rich = self.db.get_media_from_handle(self.add_media("b.jpg", attr=True))
         self.assertTrue(gc.is_bare_media(bare))
         self.assertFalse(gc.is_bare_media(rich))
-        self.assertFalse(mf.GWizardMediaFix._is_bare_media(rich))
 
 
 # ------------------------------------------------------------
@@ -609,7 +620,7 @@ class BasePathChangeTest(_DbTestCase):
         self.assertEqual(
             self.db.get_media_from_handle(self.h_missing).get_path(), "lost/b.jpg"
         )
-        self.assertIn("still point at their files", self.last_message)
+        self.assertIn("still points at its file", self.last_message)
 
     def test_new_base_containing_old_keeps_relative_path(self) -> None:
         """New base is a parent of the old: the path stays relative."""
@@ -630,7 +641,7 @@ class BasePathChangeTest(_DbTestCase):
         gc.lock_media(self.db, self.db.get_media_from_handle(self.h_ok), commit=True)
         self.change_base(mf.FindMissingMediaDialog(dbstate=self.dbstate), self.new_base)
         self.assertEqual(self.db.get_media_from_handle(self.h_ok).get_path(), "a.jpg")
-        self.assertIn("Locked record(s) not updated", self.last_message)
+        self.assertIn("Locked record not updated", self.last_message)
 
     def test_unchanged_base_touches_nothing(self) -> None:
         """No base change: other records are not rewritten."""
@@ -965,7 +976,7 @@ class MoveLogUndoTest(_DbTestCase):
         ):
             tool.cb_button(MagicMock(), "undo_moves")
         question.assert_called_once()
-        self.assertIn("Moved 1 file(s) back", ok_dialog.call_args[0][1])
+        self.assertIn("Files moved back: 1", ok_dialog.call_args[0][1])
         self.assertTrue(os.path.exists(src))
 
 

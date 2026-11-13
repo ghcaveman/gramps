@@ -49,7 +49,7 @@ from gi.repository import Gtk, Pango
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.db import DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.lib import Tag
 from gramps.gen.utils.file import media_path_full
 
@@ -200,14 +200,14 @@ def clean_path(path: str | None) -> str:
     """
     if not path:
         return ""
-    p = str(path).strip()
-    while len(p) >= 2 and p[0] == p[-1] and p[0] in "\"'":
-        p = p[1:-1].strip()
-    if p.startswith('"'):
-        p = p[1:].strip()
-    if p.endswith('"'):
-        p = p[:-1].strip()
-    return p
+    text = str(path).strip()
+    while len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+        text = text[1:-1].strip()
+    if text.startswith('"'):
+        text = text[1:].strip()
+    if text.endswith('"'):
+        text = text[:-1].strip()
+    return text
 
 
 def is_absolute_path(path: str | None) -> bool:
@@ -218,10 +218,12 @@ def is_absolute_path(path: str | None) -> bool:
     them as absolute so they are not mistaken for paths relative to the media
     base directory.
     """
-    p = clean_path(path)
-    if not p:
+    text = clean_path(path)
+    if not text:
         return False
-    return os.path.isabs(p) or p[0] in ("/", "\\") or bool(_WIN_DRIVE_RE.match(p))
+    return (
+        os.path.isabs(text) or text[0] in ("/", "\\") or bool(_WIN_DRIVE_RE.match(text))
+    )
 
 
 def is_windows_style_path(path: str | None) -> bool:
@@ -230,8 +232,8 @@ def is_windows_style_path(path: str | None) -> bool:
     Such paths come from Windows (often via a GEDCOM import) and are compared
     case-insensitively on every platform.
     """
-    p = clean_path(path)
-    return bool(_WIN_DRIVE_RE.match(p)) or p.startswith("\\\\")
+    text = clean_path(path)
+    return bool(_WIN_DRIVE_RE.match(text)) or text.startswith("\\\\")
 
 
 def path_key(path: str) -> str:
@@ -242,28 +244,28 @@ def path_key(path: str) -> str:
     Windows-style paths everywhere, so "C:\\Pic.JPG" and "c:/pic.jpg" match on
     Linux and macOS too.
     """
-    p = clean_path(path)
-    fold = is_windows_style_path(p) or sys.platform == "darwin"
-    key = os.path.normcase(os.path.normpath(p.replace("\\", "/")))
+    text = clean_path(path)
+    fold = is_windows_style_path(text) or sys.platform == "darwin"
+    key = os.path.normcase(os.path.normpath(text.replace("\\", "/")))
     return key.casefold() if fold else key
 
 
-def full_media_path(db: Any, raw_path: str | None) -> str:
+def full_media_path(db: DbReadBase, raw_path: str | None) -> str:
     """Return the on-disk path for a stored media path ("" for an empty path).
 
     Absolute paths (including Windows drive paths on Linux/macOS) are returned
     as-is; relative paths are resolved against the media base path.  Never
     raises.
     """
-    p = clean_path(raw_path)
-    if not p:
+    text = clean_path(raw_path)
+    if not text:
         return ""
-    if is_absolute_path(p):
-        return p
+    if is_absolute_path(text):
+        return text
     try:
-        return media_path_full(db, p)
+        return media_path_full(db, text)
     except Exception:  # noqa: BLE001 - fall back to the stored path
-        return p
+        return text
 
 
 def is_bare_media(media: Any) -> bool:
@@ -274,8 +276,9 @@ def is_bare_media(media: Any) -> bool:
     """
 
     def _has(name: str) -> bool:
-        fn = getattr(media, name, None)
-        return bool(fn()) if callable(fn) else False
+        """Return True if the record's ``name`` method returns anything."""
+        method = getattr(media, name, None)
+        return bool(method()) if callable(method) else False
 
     date = media.get_date_object() if hasattr(media, "get_date_object") else None
     return not (
@@ -297,9 +300,12 @@ def to_db_path(full_path: str, base_dir: str) -> str:
     try:
         abs_full = os.path.abspath(full_path)
         abs_base = os.path.abspath(base_dir)
-        nf = os.path.normcase(os.path.normpath(abs_full))
-        nb = os.path.normcase(os.path.normpath(abs_base))
-        if nf == nb or os.path.commonpath([nf, nb]) != nb:
+        norm_full = os.path.normcase(os.path.normpath(abs_full))
+        norm_base = os.path.normcase(os.path.normpath(abs_base))
+        if (
+            norm_full == norm_base
+            or os.path.commonpath([norm_full, norm_base]) != norm_base
+        ):
             return full_path
         return os.path.relpath(abs_full, abs_base).replace("\\", "/")
     except (ValueError, OSError):
@@ -311,12 +317,13 @@ def unique_destination(dest: str, claimed: set[str], src: str | None = None) -> 
     result neither exists on disk (unless it is src itself) nor was already
     claimed by another record in the current batch.  The result is claimed."""
 
-    def taken(p: str) -> bool:
-        if path_key(p) in claimed:
+    def taken(candidate: str) -> bool:
+        """Return True if *p* is claimed in this batch or is another existing file."""
+        if path_key(candidate) in claimed:
             return True
-        if os.path.exists(p):
+        if os.path.exists(candidate):
             try:
-                if src and os.path.exists(src) and os.path.samefile(src, p):
+                if src and os.path.exists(src) and os.path.samefile(src, candidate):
                     return False
             except OSError:
                 pass
@@ -418,7 +425,7 @@ def create_gwizard_tag(name: str, color: str = "") -> Tag:
 
 
 def ensure_tag(
-    db: Any,
+    db: DbWriteBase | None,
     name: str,
     color: str = "",
     txn: Any = None,
@@ -467,7 +474,9 @@ def ensure_tag(
         return None
 
 
-def ensure_gwizard_tags(db: Any, txn: Any = None) -> tuple[Tag | None, Tag | None]:
+def ensure_gwizard_tags(
+    db: DbWriteBase, txn: Any = None
+) -> tuple[Tag | None, Tag | None]:
     """
     Ensure both standard GWizard tags exist.
 
@@ -483,7 +492,7 @@ def ensure_gwizard_tags(db: Any, txn: Any = None) -> tuple[Tag | None, Tag | Non
     return t_fixed, t_locked
 
 
-def find_tag_handle(db: Any, name: str) -> str | None:
+def find_tag_handle(db: DbReadBase | None, name: str) -> str | None:
     """
     Return the handle of the tag called *name* without creating it.
 
@@ -500,7 +509,7 @@ def find_tag_handle(db: Any, name: str) -> str | None:
     return tag.get_handle() if tag else None
 
 
-def has_tag(db: Any, obj: Any, name: str) -> bool:
+def has_tag(db: DbReadBase, obj: Any, name: str) -> bool:
     """
     Return True if *obj* carries the tag called *name*.
 
@@ -518,7 +527,7 @@ def has_tag(db: Any, obj: Any, name: str) -> bool:
     return bool(handle) and handle in tag_list
 
 
-def commit_object(db: Any, obj: Any, txn: Any) -> None:
+def commit_object(db: DbWriteBase, obj: Any, txn: Any) -> None:
     """
     Commit any primary object with the matching ``commit_<type>`` method.
 
@@ -533,7 +542,7 @@ def commit_object(db: Any, obj: Any, txn: Any) -> None:
     commit(obj, txn)
 
 
-def _commit_now(db: Any, obj: Any, txn: Any, label: str) -> None:
+def _commit_now(db: DbWriteBase, obj: Any, txn: Any, label: str) -> None:
     """
     Commit *obj* in *txn*, or in a transaction of its own when *txn* is None.
 
@@ -550,7 +559,7 @@ def _commit_now(db: Any, obj: Any, txn: Any, label: str) -> None:
 
 
 def add_tag_to(
-    db: Any,
+    db: DbWriteBase | None,
     obj: Any,
     name: str,
     color: str = "",
@@ -582,7 +591,7 @@ def add_tag_to(
 
 
 def remove_tag_from(
-    db: Any,
+    db: DbWriteBase | None,
     obj: Any,
     name: str,
     txn: Any = None,
@@ -609,7 +618,7 @@ def remove_tag_from(
     return True
 
 
-def is_locked(db: Any, obj: Any) -> bool:
+def is_locked(db: DbReadBase, obj: Any) -> bool:
     """
     Return True if *obj* carries the shared ``GWizard: Locked`` tag.
 
@@ -622,7 +631,9 @@ def is_locked(db: Any, obj: Any) -> bool:
     return has_tag(db, obj, TAG_LOCKED)
 
 
-def lock_object(db: Any, obj: Any, txn: Any = None, commit: bool = False) -> bool:
+def lock_object(
+    db: DbWriteBase, obj: Any, txn: Any = None, commit: bool = False
+) -> bool:
     """
     Lock *obj* against changes by GWizard tools.
 
@@ -635,7 +646,9 @@ def lock_object(db: Any, obj: Any, txn: Any = None, commit: bool = False) -> boo
     return add_tag_to(db, obj, TAG_LOCKED, TAG_LOCKED_COLOR, txn=txn, commit=commit)
 
 
-def unlock_object(db: Any, obj: Any, txn: Any = None, commit: bool = False) -> bool:
+def unlock_object(
+    db: DbWriteBase, obj: Any, txn: Any = None, commit: bool = False
+) -> bool:
     """
     Remove the GWizard lock from *obj*.
 
@@ -649,7 +662,7 @@ def unlock_object(db: Any, obj: Any, txn: Any = None, commit: bool = False) -> b
 
 
 def add_fixed_tag(
-    db: Any,
+    db: DbWriteBase,
     obj: Any,
     name: str = TAG_MEDIA_FIXED,
     color: str = TAG_MEDIA_FIXED_COLOR,
@@ -673,18 +686,18 @@ def add_fixed_tag(
 
 
 # Media-specific names, kept so existing callers and tests keep working.
-def is_media_locked(db: Any, media: Any) -> bool:
+def is_media_locked(db: DbReadBase, media: Any) -> bool:
     """Return True if *media* has the ``GWizard: Locked`` tag (see is_locked)."""
     return is_locked(db, media)
 
 
-def has_media_fixed_tag(db: Any, media: Any) -> bool:
+def has_media_fixed_tag(db: DbReadBase, media: Any) -> bool:
     """Return True if *media* has the ``GWizard: MediaFixed`` tag."""
     return has_tag(db, media, TAG_MEDIA_FIXED)
 
 
 def add_media_fixed_tag(
-    db: Any,
+    db: DbWriteBase,
     media: Any,
     txn: Any = None,
     commit: bool = False,
@@ -694,7 +707,7 @@ def add_media_fixed_tag(
 
 
 def lock_media(
-    db: Any,
+    db: DbWriteBase,
     media: Any,
     txn: Any = None,
     commit: bool = False,
@@ -704,7 +717,7 @@ def lock_media(
 
 
 def unlock_media(
-    db: Any,
+    db: DbWriteBase,
     media: Any,
     txn: Any = None,
     commit: bool = False,
@@ -891,7 +904,11 @@ def _move_back(
     if old_there:
         problems.append(
             "[%s] %s"
-            % (gid, _("another file is now at %s; left at %s") % (old_full, new_full))
+            % (
+                gid,
+                _("another file is now at %(old)s; left at %(new)s")
+                % {"old": old_full, "new": new_full},
+            )
         )
     else:
         problems.append(
@@ -900,7 +917,7 @@ def _move_back(
     return False, False
 
 
-def undo_logged_run(db: Any, log_path: str) -> tuple[int, int, list[str]]:
+def undo_logged_run(db: DbWriteBase, log_path: str) -> tuple[int, int, list[str]]:
     """
     Reverse the most recent logged run: move files back, repoint records.
 
