@@ -16,10 +16,12 @@ Checking folder: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_med
              Capture: Consolidate Media Location: set the base media path, naming template, and file operation
   [EXISTS]  gwizard_mediafix-clean-import-notes.png
              Capture: Clean import notes: confirm deletion of leftover import-failure notes
+  [EXISTS]  gwizard_mediafix-undo-last-file-moves.png
+             Capture: Undo last file moves: confirm reversal of the last logged file-move run
   [EXISTS]  gwizard_mediafix-accept-all-hints.png
              Capture: Accept all hints - preview: review the planned automatic changes before accepting
   [EXISTS]  gwizard_mediafix-accept-all-hints-complete.png
              Capture: Accept All Hints Complete: summary of automated changes and items needing human intervention
 --------------------------------------------------------------------
-Summary: 9/9 present, 0 missing.
+Summary: 10/10 present, 0 missing.
 

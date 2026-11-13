@@ -5,7 +5,7 @@ The **GWizard Media Fix** tool helps genealogists clean up media files attached 
 ## Usage
 
 1. Open Gramps and load the Family Tree you want to work on.
-2. Choose **Tools → Family Tree Processing → GWizard Media Fix**.
+2. Choose **Tools → GWizard Media Fix** [VERIFY MENU PATH].
 3. The **GWizard Media Fix** dialog opens. It shows one button for each task, plus **Accept all hints** in the action area and **Close** at the bottom right:
    * **Generate report** — writes a plain-text report listing missing files, permission problems, absolute paths, non-standard filenames, duplicate references, and unreferenced files.
    * **Find missing media** — lists media records whose files are missing on disk and suggests replacement paths found in the media base folder.
@@ -33,7 +33,7 @@ The **GWizard Media Fix** tool helps genealogists clean up media files attached 
    ![Find Missing Media: review each missing record and its suggested replacement path](images/gwizard_mediafix-find-missing.png)
 3. Verify or edit the **New Path** for each record. To restore a file from another folder, click **Copy from folder...**, choose the source folder in the **Select folder containing the missing files** chooser, and review the queued copies.
 4. To fill in all suggested paths at once, click **Accept hints (N)** (N is the number of hinted items).
-5. Click **Apply** to update the database and copy the files into the media directory. A **Media Paths Updated** message confirms the result.
+5. Click **Apply** to update the database and copy the files into the media directory. A **Media Paths Updated** message confirms the result; if nothing was selected, **Nothing to apply** appears instead.
 6. Click **Close** to close the dialog.
 
 ### Fix media references
@@ -43,7 +43,7 @@ The **GWizard Media Fix** tool helps genealogists clean up media files attached 
    ![Fix Media References: pick Merge, Create copies, or Delete for each duplicate or unreferenced record](images/gwizard_mediafix-fix-references.png)
 3. For each group, choose a resolution: **Merge** (combine duplicate media records into one keeper), **Create copies** (give each reference its own file), or **Delete** (remove unreferenced media records). Media tagged **GWizard: Locked** is skipped.
 4. Click **Accept hints (N)** to apply the suggested resolutions for all groups.
-5. Click **Apply** to write the changes. A **Media References Resolved** message summarizes what was merged, copied, or deleted.
+5. Click **Apply** to write the changes. A **Media References Resolved** message summarizes what was merged, copied, or deleted; **Nothing to apply** appears if no actions were selected.
 6. Click **Close** when done.
 
 ### Consolidate media location
@@ -72,9 +72,10 @@ The **GWizard Media Fix** tool helps genealogists clean up media files attached 
 ### Undo last file moves
 
 1. From the main dialog, click **Undo last file moves**.
-2. The **Undo last file moves** confirmation dialog opens, showing the last logged file-move run. Click **Undo moves** to move the files back and repoint the media records, or **Cancel** to abort. Records changed since the run, or locked files, are left alone and listed.
-3. A **File moves undone** message confirms how many files were moved back and records repointed.
-4. If no logged file moves exist, a **No file moves to undo** message appears instead.
+2. If no logged file moves exist, a **No file moves to undo** message appears instead. Otherwise the **Undo last file moves** confirmation dialog opens, showing the last logged file-move run.
+   ![Undo last file moves: confirm reversal of the last logged file-move run](images/gwizard_mediafix-undo-last-file-moves.png)
+3. Click **Undo moves** to move the files back and repoint the media records, or **Cancel** to abort. Records changed since the run, or locked files, are left alone and listed.
+4. A **File moves undone** message confirms how many files were moved back and records repointed.
 
 ### Accept all hints
 

@@ -47,10 +47,10 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 - featuredocs/images/gwizard_mediafix-consolidate.png
 - featuredocs/images/gwizard_mediafix-find-missing.png
 - featuredocs/images/gwizard_mediafix-fix-references.png
-- featuredocs/images/gwizard_mediafix-main-menu.png
 - featuredocs/images/gwizard_mediafix-main.png
 - featuredocs/images/gwizard_mediafix-report-save.png
 - featuredocs/images/gwizard_mediafix-report.png
+- featuredocs/images/gwizard_mediafix-undo-last-file-moves.png
 - gramps/plugins/tool/gw_fixmediareferencesdialog.py
 - gramps/plugins/tool/gwizard_common.py
 - gramps/plugins/tool/gwizardmediafix.py
