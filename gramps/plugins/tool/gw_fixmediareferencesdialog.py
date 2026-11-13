@@ -35,7 +35,7 @@ from typing import Any
 # GTK modules
 #
 # -------------------------------------------------------------------------
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
 #
@@ -43,7 +43,7 @@ from gi.repository import Gtk, Pango
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.db import DbTxn
+from gramps.gen.db import DbReadBase, DbTxn
 from gramps.gen.merge.mergemediaquery import MergeMediaQuery
 from gramps.gen.utils.file import media_path_full
 from gramps.gui.dialog import OkDialog
@@ -80,10 +80,11 @@ except (ImportError, ValueError):
     )
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
-def media_base_path(db: Any) -> str:
+def media_base_path(db: DbReadBase) -> str:
     """
     Return the base media folder (where the file-move log is kept).
 
@@ -100,7 +101,7 @@ def media_base_path(db: Any) -> str:
 
 
 def find_duplicate_media_groups(
-    db: Any, cache: dict[str, dict[str, str]] | None = None
+    db: DbReadBase | None, cache: dict[str, dict[str, str]] | None = None
 ) -> list[dict[str, Any]]:
     """Scan database for media files referenced by multiple media records.
 
@@ -182,11 +183,11 @@ def find_duplicate_media_groups(
     for file_key, records in path_map.items():
         if len(records) > 1:
             records.sort(
-                key=lambda r: (
-                    -r["backlink_count"],
-                    not r["assoc"],
-                    not r["desc"],
-                    r["gramps_id"],
+                key=lambda rec: (
+                    -rec["backlink_count"],
+                    not rec["assoc"],
+                    not rec["desc"],
+                    rec["gramps_id"],
                 )
             )
             keeper = records[0]
@@ -197,9 +198,13 @@ def find_duplicate_media_groups(
                     "records": records,
                     "keeper": keeper,
                     "raw_path": records[0]["raw_path"],
-                    "perm_issue": any(r.get("perm_issue") for r in records),
+                    "perm_issue": any(rec.get("perm_issue") for rec in records),
                     "inaccess_dir": next(
-                        (r["inaccess_dir"] for r in records if r.get("inaccess_dir")),
+                        (
+                            rec["inaccess_dir"]
+                            for rec in records
+                            if rec.get("inaccess_dir")
+                        ),
                         None,
                     ),
                 }
@@ -208,16 +213,16 @@ def find_duplicate_media_groups(
     # 2. Unreferenced media records (image tags with 0 data references)
     for records in path_map.values():
         if len(records) == 1 and records[0]["backlink_count"] == 0:
-            r = records[0]
+            rec = records[0]
             groups.append(
                 {
                     "type": "unreferenced",
-                    "file_key": r["full_path"],
-                    "records": [r],
-                    "keeper": r,
-                    "raw_path": r["raw_path"],
-                    "perm_issue": r.get("perm_issue", False),
-                    "inaccess_dir": r.get("inaccess_dir"),
+                    "file_key": rec["full_path"],
+                    "records": [rec],
+                    "keeper": rec,
+                    "raw_path": rec["raw_path"],
+                    "perm_issue": rec.get("perm_issue", False),
+                    "inaccess_dir": rec.get("inaccess_dir"),
                 }
             )
 
@@ -238,6 +243,13 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         dbstate: Any = None,
         transient_for: Gtk.Window | None = None,
     ) -> None:
+        """
+        Scan the tree and build the review table.
+
+        :param title: Window title (defaults to "Fix Media References").
+        :param dbstate: The Gramps database state.
+        :param transient_for: Parent window.
+        """
         dialog_title = title or str(_("Fix Media References"))
         super().__init__(
             title=dialog_title,
@@ -299,9 +311,10 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         count_label = Gtk.Label(
             label=str(
                 _(
-                    "Total items to fix: %d (%d duplicate file groups, %d unreferenced image tags)"
+                    "Total items to fix: %(total)d (duplicate file groups: "
+                    "%(dups)d, unreferenced image tags: %(unref)d)"
                 )
-                % (len(self.groups), dup_count, unref_count)
+                % {"total": len(self.groups), "dups": dup_count, "unref": unref_count}
             )
         )
         count_label.set_halign(Gtk.Align.START)
@@ -334,6 +347,12 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         content.pack_start(self.build_rows(self.groups), True, True, 0)
 
     def build_rows(self, groups: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
+        """
+        Build one table row (description, references, action, hint) per group.
+
+        :param groups: Result of :func:`find_duplicate_media_groups`.
+        :returns: A scrolled window holding the table.
+        """
         grid = create_table_grid()
         row_index = 0
 
@@ -408,9 +427,9 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                         "  ⚠ "
                         + str(_("Permission denied at: %s")) % group["inaccess_dir"]
                     )
-                for r in records:
-                    d = r["desc"] or _("(unnamed)")
-                    desc_lines.append(f"  • [{r['gramps_id']}] {d}")
+                for rec in records:
+                    rec_desc = rec["desc"] or _("(unnamed)")
+                    desc_lines.append(f"  • [{rec['gramps_id']}] {rec_desc}")
                 file_label = TableLabel(
                     "\n".join(desc_lines), width_chars=40, width_request=320
                 )
@@ -418,9 +437,9 @@ class FixMediaReferencesDialog(Gtk.Dialog):
 
                 # Column 1: References summary
                 ref_parts = []
-                for r in records:
-                    assoc = r.get("assoc") or r.get("desc") or _("(unnamed)")
-                    ref_parts.append(f"[{r['gramps_id']}]: {assoc}")
+                for rec in records:
+                    assoc = rec.get("assoc") or rec.get("desc") or _("(unnamed)")
+                    ref_parts.append(f"[{rec['gramps_id']}]: {assoc}")
                 ref_label = TableLabel(
                     "\n".join(ref_parts), width_chars=40, width_request=300
                 )
@@ -472,6 +491,13 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         return scrolled
 
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
+        """
+        Set every row's action to its suggestion.
+
+        Unreferenced records are only set to *Delete* when they carry no data.
+
+        :param _button: The button that was clicked.
+        """
         count = 0
         for target in self.row_targets:
             combo = target["action_combo"]
@@ -481,13 +507,24 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         OkDialog(
             str(_("Hints accepted")),
             str(
-                _("Set the suggested action for %d row(s). Review and press Apply.")
+                ngettext(
+                    "Set the suggested action for %d row. Review and press Apply.",
+                    "Set the suggested action for %d rows. Review and press Apply.",
+                    count,
+                )
                 % count
             ),
             parent=self,
         )
 
     def cb_apply(self, _button: Gtk.Button) -> None:
+        """
+        Merge, split or delete according to each row's chosen action.
+
+        Locked records are never changed; failures are listed in the result.
+
+        :param _button: The button that was clicked.
+        """
         merged_count = 0
         copied_count = 0
         deleted_count = 0
@@ -507,8 +544,8 @@ class FixMediaReferencesDialog(Gtk.Dialog):
 
             if g_type == "unreferenced":
                 if choice == 0:
-                    h = group["keeper"]["handle"]
-                    cand = self.dbstate.db.get_media_from_handle(h)
+                    handle = group["keeper"]["handle"]
+                    cand = self.dbstate.db.get_media_from_handle(handle)
                     if cand and is_media_locked(self.dbstate.db, cand):
                         errors.append(
                             "[%s] %s"
@@ -522,7 +559,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                         with DbTxn(
                             _("Remove Unreferenced Media"), self.dbstate.db
                         ) as trans:
-                            self.dbstate.db.remove_media(h, trans)
+                            self.dbstate.db.remove_media(handle, trans)
                             deleted_count += 1
                     except Exception as err:
                         LOG.exception("Failed to remove unreferenced media: %s", err)
@@ -590,20 +627,22 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                 claimed: set[str] = set()
                 move_log = MoveLog(media_base_path(self.dbstate.db), "Split media")
                 with DbTxn(_("Split Media References"), self.dbstate.db) as trans:
-                    for r in records[1:]:
-                        other_media = self.dbstate.db.get_media_from_handle(r["handle"])
+                    for rec in records[1:]:
+                        other_media = self.dbstate.db.get_media_from_handle(
+                            rec["handle"]
+                        )
                         if other_media and is_media_locked(
                             self.dbstate.db, other_media
                         ):
                             errors.append(
                                 "[%s] %s"
                                 % (
-                                    r.get("gramps_id", ""),
+                                    rec.get("gramps_id", ""),
                                     _("media is locked; cannot modify path"),
                                 )
                             )
                             continue
-                        new_rel = f"{base}_{r['gramps_id']}{ext}"
+                        new_rel = f"{base}_{rec['gramps_id']}{ext}"
                         try:
                             expected = media_path_full(self.dbstate.db, new_rel)
                         except Exception:
@@ -611,7 +650,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                         if not os.path.exists(src_full):
                             errors.append(
                                 "[%s] source file not found: %s"
-                                % (r["gramps_id"], src_full)
+                                % (rec["gramps_id"], src_full)
                             )
                             continue
                         dest_full = unique_destination(expected, claimed, src_full)
@@ -619,11 +658,13 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                             extra = os.path.splitext(dest_full)[0][
                                 len(os.path.splitext(expected)[0]) :
                             ]
-                            new_rel = f"{base}_{r['gramps_id']}{extra}{ext}"
-                        ok, copy_err = relocate_file(src_full, dest_full, copy=True)
-                        if not ok:
+                            new_rel = f"{base}_{rec['gramps_id']}{extra}{ext}"
+                        copied_ok, copy_err = relocate_file(
+                            src_full, dest_full, copy=True
+                        )
+                        if not copied_ok:
                             LOG.warning("Failed to copy media file: %s", copy_err)
-                            errors.append("[%s] %s" % (r["gramps_id"], copy_err))
+                            errors.append("[%s] %s" % (rec["gramps_id"], copy_err))
                             continue
                         copied_count += 1
                         if other_media:
@@ -695,6 +736,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
             self.accept_button.set_sensitive(False)
 
     def show_dialog(self) -> None:
+        """Show the dialog and run it until it is closed."""
         self.show_all()
         while True:
             resp = self.run()
@@ -705,7 +747,3 @@ class FixMediaReferencesDialog(Gtk.Dialog):
             ):
                 break
         self.destroy()
-
-
-# Backward compatibility alias
-ApplyFilenameStandardsDialog = FixMediaReferencesDialog
