@@ -11,12 +11,26 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
    - `## Usage` (numbered steps starting from the exact Gramps menu or Gramplet bar)
    - `## Configure Options` (bulleted list matching every GUI control/option in the code)
    - `## Features` (bulleted list of key capabilities)
-5. Where screenshots are helpful, insert Markdown image tags using this exact collision-proof naming format:
+5. Use the UI Inventory below to find the tool's main window (the one its menu entry opens) and the buttons on it, in the order they appear on screen.
+   In `## Usage`, list EVERY button of the main window (including action-area buttons such as "Accept all hints", but not Close/Cancel), with one line on what it does.
+   Then add one `### <Button label>` subsection per button, in the same order, with numbered steps that follow the code
+   (for example, if a file chooser opens before a report window, say so in that order).
+6. Screenshots - insert Markdown image tags using this exact collision-proof naming format:
    `![Caption describing what to capture](images/gwizard_mediafix-<short-name>.png)`
-6. Do not invent menu paths or options not present in the diff. If a menu path is inherited and unclear, mark it `[VERIFY MENU PATH]`.
+   - The page header already shows `images/gwizard_mediafix-main.png` (the main window as it first opens). Do NOT reference
+     `gwizard_mediafix-main.png` again, and do NOT add a screenshot of the Gramps menu.
+   - In each button's subsection, add one screenshot for each window or dialog that button opens, placed at the step where it
+     appears. Name it after the button: `gwizard_mediafix-<button-label-in-kebab-case>.png`, adding a suffix such as `-preview`,
+     `-save` or `-complete` when one button opens more than one window
+     (e.g. `gwizard_mediafix-generate-report-save.png`, `gwizard_mediafix-generate-report.png`).
+   - Captions must name the window by its title from the UI Inventory and say what to capture.
+   - Reference each image exactly once. Do NOT add a gallery or repeat images at the end of the page.
+7. Write button labels without the GTK mnemonic underscore (**Close**, not **_Close**).
+8. Do not invent menu paths, buttons, or options not present in the diff or UI Inventory. If a menu path is inherited and unclear, mark it `[VERIFY MENU PATH]`.
 
 ### Feature Files (from changed_files.txt):
 - WikiTree_ImprovementList.md
+- featuredocs/.gitignore
 - featuredocs/README_gwizard_mediafix.md
 - featuredocs/ToolComparison.md
 - featuredocs/create_gwizard_mediafix_wiki.bash
@@ -31,11 +45,15 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 - featuredocs/images/NoStaleImportNotes.png
 - featuredocs/images/ReportSaveDialog.png
 - featuredocs/images/SelectMediaDirectory.png
+- featuredocs/images/gwizard_mediafix-accept-all-hints-complete.png
+- featuredocs/images/gwizard_mediafix-accept-all-hints.png
+- featuredocs/images/gwizard_mediafix-clean-import-notes.png
 - featuredocs/images/gwizard_mediafix-consolidate.png
 - featuredocs/images/gwizard_mediafix-find-missing.png
 - featuredocs/images/gwizard_mediafix-fix-references.png
 - featuredocs/images/gwizard_mediafix-main-menu.png
 - featuredocs/images/gwizard_mediafix-main.png
+- featuredocs/images/gwizard_mediafix-report-save.png
 - featuredocs/images/gwizard_mediafix-report.png
 - gramps/plugins/tool/gw_fixmediareferencesdialog.py
 - gramps/plugins/tool/gwizard_common.py
@@ -641,6 +659,107 @@ register(
     help_url=TOOLS_HELP,
 )
 
+
+### UI Inventory (window titles and buttons extracted from the code, grouped by the function that creates them):
+--- gramps/plugins/tool/gw_fixmediareferencesdialog.py ---
+FixMediaReferencesDialog.__init__:
+  line 271: button: Accept hints (%d)
+  line 276: button: Apply
+  line 281: dialog button: Close
+FixMediaReferencesDialog.cb_accept_hints:
+  line 507: message title: Hints accepted
+FixMediaReferencesDialog.cb_apply:
+  line 694: message title: Nothing was changed
+  line 700: message title: Nothing to apply
+  line 724: message title: Media References Resolved
+
+--- gramps/plugins/tool/gwizardmediafix.py ---
+(module):
+  line 134: list item (button or choice): Reference ID + Community Standard ({ref_id}_{surname}_{given}-{doc_type}-{year})
+  line 140: list item (button or choice): Community Standard ({surname}_{given}-{doc_type}-{year})
+  line 144: list item (button or choice): Reference ID + Document Type ({ref_id}_{doc_type}-{year})
+  line 148: list item (button or choice): Media ID + Document Type ({id}_{doc_type}-{year})
+  line 152: list item (button or choice): Media ID + Original Name ({id}_{orig})
+  line 156: list item (button or choice): Sanitized Original Name ({orig})
+  line 160: list item (button or choice): Community Standard + content hash (never clashes for different files)
+confirm_plan:
+  line 1987: window title: Accept all hints - preview
+  line 1994: dialog button: Cancel
+  line 1995: dialog button: Accept all
+FindMissingMediaDialog.__init__:
+  line 2151: button: Accept hints (%d)
+  line 2156: button: Copy from folder...
+  line 2161: button: Apply
+  line 2166: dialog button: Close
+FindMissingMediaDialog.cb_accept_hints:
+  line 2340: message title: Hints accepted
+FindMissingMediaDialog.cb_pick_file:
+  line 2359: window title: Select the file for %s
+FindMissingMediaDialog.cb_select_mediapath:
+  line 2466: window title: Select media directory
+FindMissingMediaDialog.cb_copy_from_folder:
+  line 2497: message title: Set a base media path first
+  line 2508: window title: Select folder containing the missing files
+  line 2527: message title: Folder not readable
+  line 2547: message title: Copies queued
+FindMissingMediaDialog.cb_apply:
+  line 2650: message title: Nothing to apply
+  line 2675: message title: Media Paths Updated
+ConsolidateMediaLocationDialog.__init__:
+  line 2814: button: Use naming standard
+  line 2817: button: Keep original filename
+  line 2831: button: Move files
+  line 2834: button: Make a copy
+  line 2916: button: Accept hints (%d)
+  line 2921: button: Apply
+  line 2926: dialog button: Close
+ConsolidateMediaLocationDialog.cb_select_mediapath:
+  line 3051: window title: Select media directory
+ConsolidateMediaLocationDialog.cb_accept_hints:
+  line 3232: message title: Hints accepted
+ConsolidateMediaLocationDialog.cb_apply:
+  line 3260: message title: Duplicate Source Files Detected
+  line 3375: message title: Base media path saved
+  line 3381: message title: Nothing to apply
+  line 3401: message title: Media Locations Consolidated
+MediaFixReportDialog.__init__:
+  line 3447: dialog button: Close
+AcceptAllHintsReportDialog.__init__:
+  line 3511: dialog button: Close
+GWizardMediaFix._build_window:
+  line 3957: window title: GWizard Media Fix
+  line 3983: list item (button or choice): Generate report
+  line 3984: list item (button or choice): Find missing media
+  line 3985: list item (button or choice): Fix media references
+  line 3986: list item (button or choice): Consolidate media location
+  line 3987: list item (button or choice): Clean import notes
+  line 3988: list item (button or choice): Undo last file moves
+  line 4000: button: Accept all hints
+  line 4005: dialog button: Close
+GWizardMediaFix.cb_generate_report:
+  line 4023: window title: Save Media Fix Report
+  line 4029: dialog button: Cancel
+  line 4029: dialog button: Save
+  line 4061: message title: Report Not Written
+GWizardMediaFix.cb_button:
+  line 4098: window title: Find Missing Media
+  line 4105: window title: Fix Media References
+  line 4114: window title: Consolidate Media Location
+GWizardMediaFix.cb_undo_moves:
+  line 4348: message title: No file moves to undo
+  line 4357: message title: Undo last file moves
+  line 4357: dialog button: Undo moves
+  line 4357: dialog button: Cancel
+  line 4380: message title: File moves undone
+GWizardMediaFix.cb_clean_notes:
+  line 4387: message title: No stale import notes
+  line 4399: message title: Clean import notes
+  line 4399: dialog button: Delete
+  line 4399: dialog button: Cancel
+  line 4421: message title: Import notes cleaned
+GWizardMediaFix.cb_auto_all:
+  line 4458: message title: Nothing to change automatically
+  line 4612: window title: Accept All Hints Complete
 
 ### Isolated Feature Diff (against functionality_base):
 (git diff warning: fatal: bad revision 'functionality_base...HEAD')
