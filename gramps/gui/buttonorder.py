@@ -19,6 +19,16 @@ set_alternative_button_order_from_array()).
 
 from gi.repository import Gtk
 
+from gramps.gen.config import config
+from gramps.gen.constfunc import win
+
+# Values of the interface.dialog-button-order preference.
+ORDER_AUTO = 0
+ORDER_GNOME = 1
+ORDER_WINDOWS = 2
+
+_platform_default = None  # GTK's own value, captured before we change it
+
 # Responses that mark the affirmative button, in priority order.
 _PRIMARY = (
     Gtk.ResponseType.OK,
@@ -26,6 +36,35 @@ _PRIMARY = (
     Gtk.ResponseType.YES,
     Gtk.ResponseType.APPLY,
 )
+
+
+def apply_platform_button_order():
+    """Set gtk-alternative-button-order from the dialog-button-order
+    preference. Called at startup and whenever the preference changes;
+    dialogs created afterwards use the new order.
+
+    On Windows the title-bar layout (gtk-decoration-layout) is also set.
+    """
+    global _platform_default
+    settings = Gtk.Settings.get_default()
+    if settings is None:
+        return
+    if _platform_default is None:
+        _platform_default = settings.props.gtk_alternative_button_order
+
+    mode = config.get("interface.dialog-button-order")
+    if mode == ORDER_WINDOWS:
+        alternative = True
+    elif mode == ORDER_GNOME:
+        alternative = False
+    else:  # ORDER_AUTO, or an unexpected value
+        alternative = True if win() else _platform_default
+    settings.props.gtk_alternative_button_order = alternative
+
+    if win():
+        settings.props.gtk_decoration_layout = config.get(
+            "interface.window-controls"
+        )
 
 
 def alternative_order_enabled():

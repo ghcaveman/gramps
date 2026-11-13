@@ -82,7 +82,7 @@ from gramps.gen.constfunc import win
 _ = glocale.translation.gettext
 from gramps.gen.utils.symbols import Symbols
 from gramps.gen.constfunc import get_env_var
-from gramps.gui.buttonorder import apply_button_order
+from gramps.gui.buttonorder import apply_button_order, apply_platform_button_order
 
 # -------------------------------------------------------------------------
 #
@@ -332,6 +332,14 @@ class ConfigureDialog(ManagedWindow):
         :param constant: the config setting to which the value must be saved
         """
         self.__config.set(constant, obj.get_active())
+
+    def cb_button_order_changed(self, obj, constant):
+        """
+        Save the dialog button order and apply it to dialogs opened from
+        now on.
+        """
+        self.update_combo(obj, constant)
+        apply_platform_button_order()
 
     def update_slider(self, obj, constant):
         """
@@ -2316,6 +2324,27 @@ class GrampsPreferences(ConfigureDialog):
             stop=3,
             tooltip=_("Show or hide the Preferences icon on the toolbar."),
             extra_callback=self.cb_toolbar_changed,
+        )
+
+        row += 1
+        # Dialog button order:
+        combo = self.add_combo(
+            grid,
+            _("Dialog button order"),
+            row,
+            "interface.dialog-button-order",
+            [
+                (0, _("Automatic (follow the operating system)")),
+                (1, _("OK on the right (GNOME)")),
+                (2, _("OK on the left (Windows)")),
+            ],
+            callback=self.cb_button_order_changed,
+        )
+        combo.set_tooltip_text(
+            _(
+                "Order of the OK and Cancel buttons in dialogs. "
+                "Applies to dialogs opened after the change."
+            )
         )
 
         row += 1
