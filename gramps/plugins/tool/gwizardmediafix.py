@@ -245,8 +245,9 @@ def check_path_permission(path: str) -> tuple[bool, str | None]:
     return False, None
 
 
-def expand_base_path(mpath: str | None, db: Any) -> str:
-    """Return the base path for relative media files.
+def expand_base_path(mpath: str | None, db: DbReadBase | None = None) -> str:
+    """
+    Resolve a base media path string exactly the way Gramps does.
 
     This mirrors ``gramps.gen.utils.file.expand_media_path`` so the folder the
     tool shows, searches and moves files into is the folder Gramps will use
@@ -3600,12 +3601,6 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
         if has_media_fixed_tag(db, media):
             fixed_media.append((m_gid, desc, first_raw))
 
-        if len(backlinks) > 1:
-            multi_ref_media.append((m_gid, desc, first_raw, len(backlinks), backlinks))
-        elif len(backlinks) == 0:
-            zero_ref_media.append((m_gid, desc, first_raw))
-
-        first_raw = raw_paths[0] if raw_paths else ""
         if len(backlinks) > 1:
             multi_ref_media.append((m_gid, desc, first_raw, len(backlinks), backlinks))
         elif len(backlinks) == 0:

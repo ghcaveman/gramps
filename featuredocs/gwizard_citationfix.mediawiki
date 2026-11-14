@@ -1,0 +1,89 @@
+{{Third-party plugin}}
+{{Languages|Addon:<PluginName>}}
+
+{| class="wikitable" style="float:right; margin-left: 1em; width: 280px;"
+! colspan="2" style="background:#e8eef5; text-align:center;" | <Plugin Display Name>
+|-
+
+| '''Addon ID''' || <code><plugin_id></code>
+|-
+
+| '''Type''' || <Gramplet / Report / Tool / View>
+|-
+
+| '''Status''' || {{Stable_branch}}
+|-
+
+| '''Target Version''' || Gramps 6.1
+|-
+
+| '''Source Code''' || {{github_url|<PluginDirectory>}}
+|}
+
+'''<Plugin Display Name>''' is a third-party [[Addons|addon]] that <one-sentence summary of the genealogical problem it solves>.
+
+[[File:<PluginName>-main.png|thumb|right|350px|<Plugin Display Name> main interface]]
+
+== Overview ==
+
+The '''GWizard citation fix''' tool helps genealogists clean up and standardise citation data across the entire database. It analyses sources, repositories, and citations, offering suggestions to merge duplicate entries, assign correct repositories, unpack conflated titles, and add missing citation attributes. The tool also generates a detailed report of the analysis.
+
+[[File:gwizard_citationfix-main.png|thumb|GWizard citation fix main dialog]]
+
+== Usage ==
+
+# Open Gramps and navigate to '''[VERIFY MENU PATH]'''.
+# In the dialog you will see a series of buttons:
+* '''Generate report''' – creates a plain‑text citation analysis report.
+* '''Unpack Conflated Source''' – separates mixed or ambiguous source titles.
+* '''Repository Consolidate''' – groups similar repository entries.
+* '''Fix Repositories''' – assigns the best‑matching repository to sources.
+* '''Fix Sources''' – merges duplicate sources and trims excess data.
+* '''Unpack Conflated Citation''' – separates merged citation text.
+* '''Fix Citations''' – refines citation details such as volume/page and confidence.
+* '''Citation Attributes''' – adds or updates structured attributes (e.g., evidence type, confidence).
+* '''Link Citation Media''' – discovers documentary scans in galleries, master sources, or orphan files, validates compatibility, and links them directly to citations.
+* '''Fix Notes''' – cleans up notes attached to citations.
+* '''Accept all hints''' – runs all 9 steps automatically, applying safe fixes in one transaction per step.
+# Click the desired button(s) to perform the action. Most actions display a preview table where you can review and edit the suggested changes before applying them.
+# After completing the steps, you can close the dialog.
+
+== Configure Options ==
+
+''This tool does not expose additional checkboxes or configuration fields; all behaviour is driven by the buttons above.''
+
+== Features ==
+
+* '''Automated analysis''' of sources, repositories, citations, and attached evidence media.
+* '''Generate a comprehensive report''' (<code>CitationFixReport.txt</code>), including media layout and citation evidence coverage.
+* '''Unpack conflated source titles''' to separate distinct source information.
+* '''Consolidate similar repositories''' and assign gold‑standard repository names.
+* '''Merge duplicate sources''' and trim unnecessary data.
+* '''Unpack conflated citations''' for clearer citation records.
+* '''Refine citation details''' such as volume/page and confidence levels.
+* '''Add structured citation attributes''' (e.g., evidence type, confidence).
+* '''Link Citation Media''' – matches documentary media to citations with mismatch prevention heuristics:
+** ''Chronological check:'' flags date discrepancies between image and citation/source.
+** ''Category compatibility:'' prevents incompatible pairings (e.g., death certificate on census citation).
+** ''Surname & sheet/page verification:'' checks family names and sheet numbers.
+** ''Inspector side-panel:'' interactive thumbnail preview and full compatibility score breakdown.
+** ''Owner detachment:'' option to promote scans out of Person/Event galleries into citations, preserving locked media (<code>GWizard: Locked</code>).
+* '''Clean up citation notes''' automatically.
+* '''Accept all hints''' – one‑click execution of all 9 steps with preview and human intervention reporting.
+
+[[File:gwizard_citationfix-main.png|thumb|GWizard citation fix main dialog]]
+== Prerequisites ==
+* Gramps 6.1.x
+* <Optional external Python dependencies, e.g., Pillow, networkx — omit if none>
+
+== Issues ==
+* Report bugs or feature requests on the [https://gramps-project.org Gramps Bug Tracker] under the '''Addons''' project.
+* Discuss this addon on the [https://discourse.group Gramps Discourse Forum].
+
+== See Also ==
+* [[6.1_Addons|List of Gramps 6.1 Addons]]
+* [[Addons_development|Addons Development]]
+
+[[Category:Addons]]
+[[Category:Plugins]]
+[[Category:Developers/General]]

@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 # -------------------------------------------------------------------------
 #
@@ -49,6 +50,7 @@ from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Media, Tag
 from gramps.plugins.tool.gwizard_common import (
+    reports_apply_errors,
     SelectableLabel,
     TableLabel,
     HeaderLabel,
@@ -287,7 +289,7 @@ class GWizardCommonTest(unittest.TestCase):
             with DbTxn("Create media", db) as trans:
                 media = Media()
                 media.set_path("test.jpg")
-                h = db.add_media(media, trans)
+                db.add_media(media, trans)
 
             self.assertFalse(is_media_locked(db, media))
 
@@ -318,7 +320,7 @@ class GWizardCommonTest(unittest.TestCase):
             with DbTxn("Create media", db) as trans:
                 media = Media()
                 media.set_path("test.jpg")
-                h = db.add_media(media, trans)
+                db.add_media(media, trans)
 
             self.assertFalse(has_media_fixed_tag(db, media))
 
@@ -337,6 +339,31 @@ class GWizardCommonTest(unittest.TestCase):
             self.assertFalse(add_media_fixed_tag(db, media, commit=True))
         finally:
             db.close()
+
+
+class ReportsApplyErrorsTest(unittest.TestCase):
+    """A failed Apply is shown to the user instead of being lost."""
+
+    def test_error_is_shown_and_not_raised(self) -> None:
+        """The decorator logs the error and shows an error dialog."""
+
+        class _Dialog:
+            @reports_apply_errors
+            def cb_apply(self, _button: object) -> str:
+                raise RuntimeError("disk full")
+
+            @reports_apply_errors
+            def cb_ok(self, _button: object) -> str:
+                return "done"
+
+        dialog = _Dialog()
+        with patch("gramps.gui.dialog.ErrorDialog") as error_dialog:
+            with self.assertLogs("gramps.plugins.tool.gwizard_common", "ERROR"):
+                self.assertIsNone(dialog.cb_apply(None))
+            self.assertEqual(dialog.cb_ok(None), "done")
+        error_dialog.assert_called_once()
+        self.assertIn("nothing was changed", error_dialog.call_args.args[1])
+        self.assertIn("disk full", error_dialog.call_args.args[1])
 
 
 if __name__ == "__main__":

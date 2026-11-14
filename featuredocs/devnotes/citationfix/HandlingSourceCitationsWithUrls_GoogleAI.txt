@@ -1,0 +1,84 @@
+
+In a GEDCOM file are source/citations associate with only events, or also individuals and families?
+
+In a GEDCOM file, source citations can be associated with events, individuals, and families alike.
+GEDCOM is a highly flexible format designed to let researchers document exactly where they found any piece of information. Because of this, citations can be linked at multiple levels of the file structure:
+• Individual Level (0 @I1@ INDI): You can attach a source to an entire person. This is typically used to cite a broad source—like a comprehensive biography or a specific family tree book—that validates the person's identity or overall existence.
+• Family Level (0 @F1@ FAM): You can link a source directly to a family record. This is often used for sources that prove the family structure or relationship as a whole, such as a census record showing parents and children living together.
+• Event Level: This is the most common use. You can attach a citation to specific events within an individual or family record, such as a birth (BIRT), marriage (MARR), or death (DEAT). For example, a birth certificate source would be attached directly to the birth event rather than the person as a whole.
+• Attribute Level: You can also attach sources to specific characteristics or attributes, such as a person's occupation (OCCU), physical description (DSCR), or religion (RELI).
+If you are working on a specific genealogy project, let me know:
+• Are you writing a program to parse a GEDCOM file, or manually cleaning up your tree?
+• Which genealogy software are you using to export or import the file?
+I can provide specific examples of the GEDCOM tag syntax if that would help.
+
+I am working with Gramps genealogy software.  In GEDCOM, is there a URL field which is associated with a source/citation reference?
+
+In the traditional and widely used GEDCOM 5.5 and 5.5.1 standards, there is no official, dedicated URL field directly inside a source citation reference.
+Because of this limitation in the GEDCOM specification, genealogy programs handle citation URLs using various structural workarounds.
+
+How Gramps Handles Citation URLs
+
+Gramps users frequently run into this issue when exporting their family trees. In the Gramps interface, the citation object traditionally lacks a designated "Internet/URL" field. Community consensus on Gramps Discourse shows three common workarounds to ensure URLs export properly into a GEDCOM file:
+1. The Volume/Page Field Appending Method (Most Common):
+Many users paste the direct permalink directly into the Volume/Page field, appending it right after the page number or location. When Gramps exports to GEDCOM, this data maps to the standard PAGE tag.gedcom
+3 PAGE Page 42, https://example.com
+Use code with caution.
+This is highly recommended if you are transferring data to websites like WikiTree, which parse strings inside the PAGE tag and automatically turn valid URLs into hotlinks.
+2. Attaching a Note to the Citation:
+You can create a text Note in Gramps, paste your URL inside it, and link that Note to your Citation. During export, Gramps generates a native GEDCOM NOTE block nested under the citation.gedcom
+2 SOUR @S1@
+3 PAGE Page 42
+3 NOTE https://example.com
+Use code with caution.
+The downside is that external software treats notes as separate entities, meaning the URL might display further down the page rather than beautifully inline with the citation text.
+3. Media Object Links:
+If the URL links to a concrete image or digital file, you can add it as a Media item attached to the citation, setting the path structure to an internet address.
+
+The Future: GEDCOM 7.0
+
+If you are planning workflows around modern genealogy tools, the GEDCOM 7.0 standard officially resolved this structural gap. It natively introduces the WWW tag, allowing software to associate web addresses directly with a specific citation structure without burying it inside page or text fields.
+If you want to streamline this, let me know:
+• Is your primary goal to manually clean up your data fields so they format beautifully inside Gramps?
+• Or are you prepping a GEDCOM export for a specific web platform (like WikiTree, Ancestry, or FamilySearch)?
+I can give you the quickest way to batch-manage or format these entries.
+Try without personalization
+• 
+Discourse
+URL in source citation - Help
+I planned to include “URL” and “Date Accessed” fields. For GEDCOM 7 I believe there is a URL tag. guess it should be stored in the...
+• 
+Discourse
+How do you include a URL for a citation? - Gramps Discourse
+Jul 11, 2022 — there are a couple of places where a WWW tag is already used, like for the site of a repository.
+• 
+Discourse
+Web URL in Source Citations - Help - Gramps Discourse
+March 7, 2023 — To ensure URLs are included in GEDCOM export for platforms like WikiTree, one user's method is to append the URL to the Vol/Page f...
+Show all
+
+Does gramps support gedcom 7.0?
+
+Gramps does not officially support GEDCOM 7.0 out of the box as a core feature, though full compatibility is a major ongoing objective.
+How GEDCOM 7.0 capability breaks down depends on the platform version:
+
+1. The Core Desktop Application (Gramps 6.0+)
+
+If you use the standard Gramps desktop application, it still uses GEDCOM 5.5.1 as its default standard for standard file imports and exports.
+• Partial 7.0 Features: Modern releases like Gramps 6.0 have slowly adopted specific GEDCOM 7.0 concepts. For example, it natively supports GEDCOM 7.0-styled association roles (like Neighbor, Officiator, and Friend) within the software.
+• The Structural Hurdle: Gramps and GEDCOM have fundamental data model differences. In Gramps, events are "first-class" independent objects that multiple people can share, whereas older GEDCOM files treat events strictly as attributes embedded under a single person. Gramps developers are actively working alongside FamilySearch on GEDCOM 7 extensions to finally resolve these gaps.
+
+2. The Community Workaround: gramps-gedcom7
+
+For desktop users needing immediate compatibility, there is a highly functional third-party Python library called gramps-gedcom7 on GitHub developed by David Straub.
+• Importing: It provides robust, tested, and reliable capability to import GEDCOM 7.0 files into a Gramps database.
+• Exporting: The export feature in this tool is newer and handles conversions well, though a few minor variables (like the registered researcher metadata) are still being refined.
+• Limitation: It functions primarily as a command-line tool or a Python script interface rather than a clickable, native "Addon" menu button inside the desktop program. However, a standalone web converter tool is provided where you can upload a GEDCOM 7 file and convert it into a native Gramps XML file to open smoothly in your database.
+
+3. Gramps Web Natively Supports It
+
+If you run Gramps Web (the collaborative web app ecosystem built for Gramps), GEDCOM 7.0 imports are natively supported! The platform has directly integrated the standalone library into its core backend, automatically detecting if an uploaded tree is a legacy version or a newer GEDCOM 7 file.
+If you are planning to handle a GEDCOM 7.0 file, let me know:
+• Do you need to import a 7.0 file into Gramps, or are you hoping to export out of Gramps in the 7.0 format?
+• Are you comfortable using a web converter tool, or do you strictly need a desktop solution?
+I can provide the step-by-step instructions to convert your data safely.

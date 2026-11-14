@@ -1,0 +1,143 @@
+what kinds of sources are good examples in a GED file - is there more than one style?
+Good examples of sources in a GEDCOM file (.ged) are records that document an individual's life events with clear provenance, categorized primarily by reliability and type.
+
+Good Examples of Sources by Category
+
+• Primary / Original Sources (Created at or near the time of the event):
+	• Vital Records: Birth certificates, marriage licenses, and death certificates.
+	• Government & Legal Records: U.S. Federal Censuses (e.g., 1850–1950), land deeds, probate/wills, and military draft/service records.
+	• Church & Parish Records: Baptismal registers, church marriage ledgers, and burial logs.
+• Secondary / Derivative Sources (Created long after the event or compiled from other records):
+	• Published Works: Family histories, county history books, and local genealogies.
+	• Derived Documents: Delayed birth certificates, compiled memorial or obituary notices, and online user-submitted family trees.
+
+Is There More Than One Style?
+
+Yes. While a GEDCOM file stores data as plain text using standard tags (such as SOUR, TITL, AUTH, and PUBL), the citation style and formatting inside those source fields vary depending on the researcher or software:
+1. Evidence Explained (EE) Style:
+	• Created by Elizabeth Shown Mills, this is the gold standard and most popular framework in modern genealogy.
+	• It expands upon the Chicago Manual of Style to handle complex historical repositories, digital database images (e.g., Ancestry or FamilySearch collections), and microfilms.
+2. Chicago / Turabian Style:
+	• Frequently used in academic, historical, and traditional publishing contexts. Many genealogy programs build footnotes and bibliographies based on Chicago A/B variations.
+3. Short / Informal Free-Form Style:
+	• Many casual hobbyists or older software templates use a simple, non-standardized string (e.g., "1930 US Census, Chicago, Cook, IL, p. 4B") rather than a strict academic or archival template.
+4. Platform-Generated Style:
+	• Major platforms like FamilySearch or Ancestry auto-generate citations using built-in citation builders (often loosely adapted from Evidence Explained or proprietary formats), which sometimes drop specific church denominations, localities, or repository details.
+If you want, tell me which genealogy software or platform you are using (like Ancestry, RootsMagic, Gramps, or Family Tree Maker), and I can help you format your sources to match its best practices.
+• 
+Evidence Explained
+Evidence Explained: Citing History Sources from Artifacts to Cyberspace | Evidence Explained
+Main navigation * QuickLesson 4: NARA Citations & Finding Aids How do we cite a archived record when we don't have all the details...
+• 
+RootsMagic Community
+Sources & citations
+Sources & citations Some people like free form better depending. Kevin TomH March 10, 2025, 4:37pm 7 thejerrybryan: These two fiel...
+• 
+Behold Genealogy
+Standardizing Sources and Citation Templates
+Even within one method, there may be many different ways to format a single source. Some examples include formatting for a bibliog...
+Show all
+
+I am using gramps
+
+In Gramps, managing sources is unique because the software uses a strict three-tier structural hierarchy rather than rigid, pre-baked text fields. Because Gramps doesn't force you into a specific academic citation style out of the box, you have the flexibility to format your records however you prefer.
+Understanding how to map your sources into the Gramps database structure and implementing popular formatting styles like Evidence Explained or Chicago Style can optimize your workflow.
+
+1. The Gramps Structural Hierarchy
+
+To make your sources clean and reusable, Gramps splits a historical record into three connected parts:
+ [ Repository ]  --> Where is it kept? (e.g., National Archives, FamilySearch website)
+       ↓
+   [ Source ]    --> What is the overall collection/book? (e.g., 1930 US Census, Smith Family Bible)
+       ↓
+  [ Citation ]   --> Where exactly is the piece of info? (e.g., Page 4B, Image 12, Entry #402)
+By organizing data this way, you only have to type the Source once, and you can create dozens of individual Citations that point back to it.
+
+2. Formatting Styles inside Gramps
+
+Since Gramps provides generic fields (like Title, Author, Publication info for Sources, and Volume/Page, Date, Confidence for Citations), you must choose a text style to fill them in. Two primary methods are widely adopted by Gramps users:
+
+Style A: "Evidence Explained" (The Split-Sourcing Method)
+
+This is the most popular method for serious genealogists because it treats major collections as single sources and leaves specific identifiers to the citation level.
+• Repository: FamilySearch or Ancestry.com
+• Source Title: United States Census, 1930
+• Source Publication Info: Washington, D.C.: National Archives and Records Administration, microfilm publication T626.
+• Citation Volume/Page: Illinois, Cook County, Chicago, Ward 12, Enumeration District (ED) 16-432, Sheet 4B, household 92, line 14, John Smith.
+• Citation Note: Paste the full transcription or the platform-generated permalink (ARK/URL).
+
+Style B: "Chicago / Traditional" (The Lumped-Sourcing Method)
+
+Common among users migrating from other platforms or those who run book-style reports. They prefer to put more descriptive text into the Source title itself.
+• Repository: Cook County Clerk's Office (Chicago, IL)
+• Source Title: Cook County, Illinois, Birth Certificates, 1871-1922
+• Source Author: Illinois. Cook County. County Clerk
+• Citation Volume/Page: Certificate No. 14205 (1895), Mary Higgins.
+
+3. Gramps-Specific Source Features to Utilize
+
+• Citation Format Preferences: Starting in recent updates (Gramps 5.2 and 6.0), you can go to Edit > Preferences to change your default Source/Citation handler. You can download "Enhanced Citation" or expert add-ons from the Gramps Plugin Manager to automatically pull Repository names directly into your generated reports.
+• Source/Citation Attributes: You can add custom key-value pairs (Attributes) to a citation. A great convention used by Gramps community members is creating a Quality or EvidenceType attribute to categorize whether a document provides Direct, Indirect, or Primary information.
+• Centralized Media: Instead of attaching images randomly, attach your digitized record images (like a scanned PDF of a marriage license) directly to the Citation object. This links the visual evidence to the specific text citation it proves.
+Would you like an exact step-by-step example of how to enter a specific record type (like an online census record or a physical family bible) using the Gramps interface?
+Try without personalization
+• 
+Discourse
+Sources and Citations: some thoughts - Gramps Discourse
+The source-citation allows any key-value pairs to be stored in the PAGE tag. This makes citations quite flexible. Each layer shoul...
+• 
+YouTube·TechTutorials
+Gramps Tutorial #8: Adding Media
+Apr 15, 2023 — To attach media, open the "Media" window, click the blue plus sign, and select the desired file. Gramps will use the file name as ...
+45s
+• 
+YouTube·Family Tree Support
+Creating Your First Family Tree in Gramps | Adding People ...
+Aug 13, 2025 — Before adding individuals, check preferences under "Edit" > "Preferences" to set display formats for names, dates, and places, ens...
+18s
+Show all
+
+What do you do when you have a source with an actual picture of a birth or death certificate or headstone, marriage license, etc?
+
+When you have an actual digital image of a record, you want to link it so that anyone viewing your tree can instantly see the proof. In Gramps, the absolute best practice is to attach the image file directly to the Citation, not the person and not the overall Source.
+This ensures that the image is tied directly to the specific piece of data it extracts (e.g., the birth date or burial location), and keeps your database cleanly organized.
+
+The Workflow in Gramps
+
+
+1. Save and Name Your Image File (Outside of Gramps)
+
+Before importing the image, save it to a dedicated folder on your computer (e.g., Documents/Genealogy/Media). Give it a clean, descriptive file name so it is easy to search later.
+• Good Name: smith_john_birth_certificate_1920.jpg
+• Bad Name: IMG_4829.jpg
+
+2. Create the Hierarchy (Inside Gramps)
+
+1. Go to the Sources view and open or create the overarching Source (e.g., "Illinois Vital Records").
+2. Inside that Source, create a Citation for this specific person (e.g., “Birth Certificate #12345 for John Smith”).
+
+3. Attach the Image to the Citation
+
+1. Double-click to open your newly created Citation window.
+2. Click on the Gallery tab at the top of the Citation window.
+3. Click the + (Add) button. This will open the Media Reference Editor.
+4. Click the folder icon next to the Path field to browse your computer and select your image file.
+5. Gramps will prompt you to create a new Media Object. Give the media object a clean title (e.g., "John Smith Birth Certificate Image").
+6. Click OK to save.
+
+Where the Hierarchy Connects
+
+When you are finished, Gramps links your digital artifact cleanly down the chain:
+text
+ [ Person: John Smith ] 
+       ↓ (Linked to Birth Event)
+ [ Citation: Birth Certificate #12345 ]
+       ↳ 📂 Gallery Tab: [ smith_john_birth_certificate_1920.jpg ] 
+       ↓ (Points to)
+ [ Source: Illinois Vital Records ]
+Use code with caution.
+
+Pro-Tips for Handling Document Images in Gramps
+
+• Set the Attributes: Within the Media Reference Editor window, you can change the Attribute or Type of the image to Document, Tombstone, or Certificate. This helps Gramps categorize it properly when generating graphic reports or websites.
+• Transcribe it in the Notes: Do not just rely on the picture. Open the Notes tab inside that same Citation, create a new note, and type out an exact transcription of what the certificate or headstone says. This makes the text fully searchable within Gramps, which a picture file is not.
