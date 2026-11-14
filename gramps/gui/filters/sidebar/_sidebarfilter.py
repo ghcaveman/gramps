@@ -127,18 +127,12 @@ class SidebarFilter(DbGUIElement):
         self.clear_btn.connect("clicked", self.clear)
         self.clear_btn.set_halign(Gtk.Align.END)
 
-        settings = Gtk.Settings.get_default()
-        alt_order = settings.get_property("gtk-alternative-button-order")
         hbox = Gtk.ButtonBox()
         hbox.set_layout(Gtk.ButtonBoxStyle.START)
         hbox.set_spacing(6)
         hbox.set_border_width(12)
-        if alt_order:
-            hbox.add(self.clear_btn)
-            hbox.add(self.apply_btn)
-        else:
-            hbox.add(self.apply_btn)
-            hbox.add(self.clear_btn)
+        hbox.add(self.apply_btn)
+        hbox.add(self.clear_btn)
         hbox.show()
         self.vbox.pack_start(hbox, False, False, 0)
 

@@ -276,18 +276,14 @@ register("interface.toolbar-preference", True)
 register("interface.toolbar-reports", True)
 register("interface.toolbar-tools", True)
 register("interface.view", True)
-# View helper buttons: order of action buttons in dialogs and position of
-# the titlebar window controls. These follow the operating system's
-# convention so the application looks native on each platform.
-# When True, the affirmative (OK) button is placed to the left of
-# Cancel, which is the Windows arrangement. The default (False) keeps the
-# platform's native ordering.
-register("ui.dialog-button-order", False)
-# gtk-decoration-layout: a colon separates the buttons on the left from
-# the buttons on the right. ":minimize,maximize,close" places the
-# titlebar controls (minimize, maximize, close) on the right with no
-# left-side menu button, matching the Windows arrangement.
-register("ui.window-controls", ":minimize,maximize,close")
+# Order of the action buttons in dialogs:
+#   0 = automatic: affirmative (OK) button first on Windows, native elsewhere
+#   1 = GNOME: affirmative button on the right, after Cancel
+#   2 = Windows: affirmative button on the left, before Cancel
+register("interface.dialog-button-order", 0)
+# gtk-decoration-layout applied on Windows: the colon separates title-bar
+# buttons on the left from those on the right.
+register("interface.window-controls", ":minimize,maximize,close")
 
 register("interface.surname-box-height", 150)
 register("interface.treemodel-cache-size", 1000)
