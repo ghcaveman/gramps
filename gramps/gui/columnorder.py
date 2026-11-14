@@ -115,12 +115,7 @@ class ColumnOrder(Gtk.Box):
         self.apply_button = Gtk.Button.new_with_mnemonic(_("_Apply"))
         btns = Gtk.ButtonBox()
         btns.set_layout(Gtk.ButtonBoxStyle.END)
-        # Honor gtk-alternative-button-order (Windows button order)
-        settings = Gtk.Settings.get_default()
-        if settings.get_property("gtk-alternative-button-order"):
-            btns.pack_start(self.apply_button, True, True, 0)
-        else:
-            btns.pack_start(self.apply_button, True, True, 0)
+        btns.pack_start(self.apply_button, True, True, 0)
         hbox.pack_start(btns, False, True, 0)
         self.pack_start(hbox, True, True, 0)
 
