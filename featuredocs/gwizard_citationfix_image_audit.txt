@@ -1,11 +1,35 @@
 
-Image Audit for: C:\workspace\gramps\featuredocs\gwizard_citationfix.mediawiki
-Checking folder: C:\workspace\gramps\featuredocs\images
+Image Audit for: C:/gramps_dev/gramps_gwizard_citationfix_plugin/gramps_gwizard_citationfix/featuredocs/gwizard_citationfix.mediawiki
+Checking folder: C:/gramps_dev/gramps_gwizard_citationfix_plugin/gramps_gwizard_citationfix/featuredocs/images
 --------------------------------------------------------------------
-  [MISSING] <PluginName>-main.png
-             Capture: <Plugin Display Name> main interface
-  [MISSING] gwizard_citationfix-main.png
-             Capture: GWizard citation fix main dialog
+  [MISSING]  gwizard_citationfix-main.png
+             Capture: GWizard Citation Fix main interface
+  [MISSING]  gwizard_citationfix-generate-report-save.png
+             Capture: Save the citation analysis report as a text file
+  [MISSING]  gwizard_citationfix-generate-report.png
+             Capture: Citation analysis report window
+  [MISSING]  gwizard_citationfix-unpack-conflated-source.png
+             Capture: Review hints that unpack mixed source titles
+  [MISSING]  gwizard_citationfix-repository-consolidate.png
+             Capture: Review duplicate repositories to consolidate
+  [MISSING]  gwizard_citationfix-fix-repositories.png
+             Capture: Review repository links for sources
+  [MISSING]  gwizard_citationfix-fix-sources.png
+             Capture: Review near-duplicate sources to merge
+  [MISSING]  gwizard_citationfix-unpack-conflated-citation.png
+             Capture: Review citation text to unpack dates and URLs
+  [MISSING]  gwizard_citationfix-fix-citations.png
+             Capture: Review citation page, date, and confidence fixes
+  [MISSING]  gwizard_citationfix-citation-attributes.png
+             Capture: Review GPS attribute assignments for citations
+  [MISSING]  gwizard_citationfix-link-citation-media.png
+             Capture: Review media-to-citation link proposals in the Link Inspector
+  [MISSING]  gwizard_citationfix-fix-notes.png
+             Capture: Review citation notes to clean
+  [MISSING]  gwizard_citationfix-accept-all-hints.png
+             Capture: Confirm running all nine citation fix steps
+  [MISSING]  gwizard_citationfix-accept-all-hints-complete.png
+             Capture: Accept All Hints results window
 --------------------------------------------------------------------
-Summary: 0/2 present, 2 missing.
+Summary: 0/14 present, 14 missing.
 

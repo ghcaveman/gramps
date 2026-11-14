@@ -1,8 +1,8 @@
 {{Third-party plugin}}
-{{Languages|Addon:<PluginName>}}
+{{Languages|Addon:gwizard_citationfix}}
 
 {| class="wikitable" style="float:right; margin-left: 1em; width: 280px;"
-! colspan="2" style="background:#e8eef5; text-align:center;" | <Plugin Display Name>
+! colspan="2" style="background:#e8eef5; text-align:center;" | GWizard Citation Fix
 |-
 
 | '''Addon ID''' || <code><plugin_id></code>
@@ -20,58 +20,131 @@
 | '''Source Code''' || {{github_url|<PluginDirectory>}}
 |}
 
-'''<Plugin Display Name>''' is a third-party [[Addons|addon]] that <one-sentence summary of the genealogical problem it solves>.
+'''GWizard Citation Fix''' is a third-party [[Addons|addon]] that <one-sentence summary of the genealogical problem it solves>.
 
-[[File:<PluginName>-main.png|thumb|right|350px|<Plugin Display Name> main interface]]
+[[File:gwizard_citationfix-main.png|thumb|right|350px|GWizard Citation Fix main interface]]
 
 == Overview ==
 
-The '''GWizard citation fix''' tool helps genealogists clean up and standardise citation data across the entire database. It analyses sources, repositories, and citations, offering suggestions to merge duplicate entries, assign correct repositories, unpack conflated titles, and add missing citation attributes. The tool also generates a detailed report of the analysis.
-
-[[File:gwizard_citationfix-main.png|thumb|GWizard citation fix main dialog]]
+The '''GWizard citation fix''' tool helps genealogists clean up and standardise citation data across the entire Family Tree. It analyses sources, repositories, citations, citations' notes, and attached media, then presents hints you can review before applying: unpack mixed source and citation titles, create missing repositories, consolidate duplicate repositories, fix source links, clean citation details, assign Genealogical Proof Standard (GPS) attributes, link documentary media to citations, and clean up citation notes. Every step runs inside a single transaction, so it can be reversed with '''Edit > Undo'''. The tool can also generate a citation analysis report (<code>CitationFixReport.txt</code>) and display it in a report window.
 
 == Usage ==
 
-# Open Gramps and navigate to '''[VERIFY MENU PATH]'''.
-# In the dialog you will see a series of buttons:
-* '''Generate report''' – creates a plain‑text citation analysis report.
-* '''Unpack Conflated Source''' – separates mixed or ambiguous source titles.
-* '''Repository Consolidate''' – groups similar repository entries.
-* '''Fix Repositories''' – assigns the best‑matching repository to sources.
-* '''Fix Sources''' – merges duplicate sources and trims excess data.
-* '''Unpack Conflated Citation''' – separates merged citation text.
-* '''Fix Citations''' – refines citation details such as volume/page and confidence.
-* '''Citation Attributes''' – adds or updates structured attributes (e.g., evidence type, confidence).
-* '''Link Citation Media''' – discovers documentary scans in galleries, master sources, or orphan files, validates compatibility, and links them directly to citations.
-* '''Fix Notes''' – cleans up notes attached to citations.
-* '''Accept all hints''' – runs all 9 steps automatically, applying safe fixes in one transaction per step.
-# Click the desired button(s) to perform the action. Most actions display a preview table where you can review and edit the suggested changes before applying them.
-# After completing the steps, you can close the dialog.
+# Open Gramps, load your Family Tree, then open '''Tools > Family Tree Processing > GWizard citation fix'''.
+   The "GWizard citation fix" dialog opens.
+# Click one of the buttons below to run a step. Most steps open a review dialog listing hints you can inspect and correct before applying them.
+# Applied changes are grouped in one transaction per step: choose '''Edit > Undo''' to reverse the most recent step.
+# When you are finished, click '''Close''' to leave the dialog.
+
+Buttons in screen order:
+
+* '''Generate report''' — writes a citation analysis report to a text file you choose.
+* '''Unpack Conflated Source''' — separates mixed source titles and extracts repository details.
+* '''Repository Consolidate''' — merges duplicate repositories against gold-standard names.
+* '''Fix Repositories''' — links orphan sources to repositories and creates missing ones.
+* '''Fix Sources''' — merges near-duplicate sources and quarantines non-sources.
+* '''Unpack Conflated Citation''' — extracts dates and URLs from volume/page fields and notes.
+* '''Fix Citations''' — cleans page, date, and confidence values on citations.
+* '''Citation Attributes''' — assigns GPS quality attributes and confidence ratings.
+* '''Link Citation Media''' — links documentary media from galleries and sources to citations.
+* '''Fix Notes''' — removes import debris and bare-URL notes.
+* '''Accept all hints''' — runs all nine steps automatically, one transaction per step.
+
+=== Generate report ===
+
+# Click '''Generate report'''. The "Save Citation Fix Report" file chooser opens.
+   [[File:gwizard_citationfix-generate-report-save.png|thumb|Save the citation analysis report as a text file]]
+# Choose the folder and file name (the default is <code>CitationFixReport.txt</code>), then click '''Save'''.
+# The report is written. A "Report Generated" message confirms the location, and the "GWizard citation fix report" window opens automatically showing the report text.
+   [[File:gwizard_citationfix-generate-report.png|thumb|Citation analysis report window]]
+# Click '''Close''' to leave the report window and return to the main dialog.
+
+=== Unpack Conflated Source ===
+
+# Click '''Unpack Conflated Source'''. The "Unpack Conflated Source" review dialog opens.
+   [[File:gwizard_citationfix-unpack-conflated-source.png|thumb|Review hints that unpack mixed source titles]]
+# Review each hint row and correct any values that need editing.
+# Click '''Apply''' to apply the accepted hints as one transaction, or '''Close''' to return to the main dialog without changes. A message confirms what was applied, or that there was nothing to apply.
+
+=== Repository Consolidate ===
+
+# Click '''Repository Consolidate'''. The "Repository Consolidate" review dialog opens.
+   [[File:gwizard_citationfix-repository-consolidate.png|thumb|Review duplicate repositories to consolidate]]
+# For each problem repository, pick the target repository from the combo boxes.
+# Click '''Apply''' to merge the chosen repositories as one transaction, or '''Close''' to return to the main dialog without changes.
+
+=== Fix Repositories ===
+
+# Click '''Fix Repositories'''. The "Fix Repositories" review dialog opens.
+   [[File:gwizard_citationfix-fix-repositories.png|thumb|Review repository links for sources]]
+# Review each suggested repository link and correct anything that needs editing.
+# Click '''Apply''' to apply the accepted links as one transaction, or '''Close''' to return to the main dialog without changes.
+
+=== Fix Sources ===
+
+# Click '''Fix Sources'''. The "Fix Sources" review dialog opens.
+   [[File:gwizard_citationfix-fix-sources.png|thumb|Review near-duplicate sources to merge]]
+# Review each merge hint and confirm or correct the pairs.
+# Click '''Apply''' to merge the accepted near-duplicate sources as one transaction, or '''Close''' to return to the main dialog without changes.
+
+=== Unpack Conflated Citation ===
+
+# Click '''Unpack Conflated Citation'''. The "Unpack Conflated Citation" review dialog opens.
+   [[File:gwizard_citationfix-unpack-conflated-citation.png|thumb|Review citation text to unpack dates and URLs]]
+# Review each hint row showing dates and URLs extracted from volume/page fields or notes.
+# Click '''Apply''' to unpack the accepted citations as one transaction, or '''Close''' to return to the main dialog without changes.
+
+=== Fix Citations ===
+
+# Click '''Fix Citations'''. The "Fix Citations" review dialog opens.
+   [[File:gwizard_citationfix-fix-citations.png|thumb|Review citation page, date, and confidence fixes]]
+# Review each suggested fix for page, date, and confidence values.
+# Click '''Apply''' to apply the accepted fixes as one transaction, or '''Close''' to return to the main dialog without changes.
+
+=== Citation Attributes ===
+
+# Click '''Citation Attributes'''. The "Citation Attributes" review dialog opens.
+   [[File:gwizard_citationfix-citation-attributes.png|thumb|Review GPS attribute assignments for citations]]
+# Review the suggested Genealogical Proof Standard attributes: source type, information type, evidence type, and QUAY confidence.
+# Click '''Apply''' to assign the accepted attributes as one transaction, or '''Close''' to return to the main dialog without changes.
+
+=== Link Citation Media ===
+
+# Click '''Link Citation Media'''. The "Link Citation Media" dialog opens.
+   [[File:gwizard_citationfix-link-citation-media.png|thumb|Review media-to-citation link proposals in the Link Inspector]]
+# Review each row in the grid; click '''Inspect''' to show a row in the Link Inspector pane with its thumbnail and compatibility score.
+# Confirm the links you want, then click '''Apply''' to link the accepted media to citations as one transaction, or '''Close''' to return to the main dialog without changes.
+
+=== Fix Notes ===
+
+# Click '''Fix Notes'''. The "Fix Notes" review dialog opens.
+   [[File:gwizard_citationfix-fix-notes.png|thumb|Review citation notes to clean]]
+# Review each note flagged as import debris or as a bare web address.
+# Click '''Apply''' to remove the accepted notes as one transaction, or '''Close''' to return to the main dialog without changes.
+
+=== Accept all hints ===
+
+# Click '''Accept all hints'''. The "Accept all hints" confirmation dialog opens and lists the nine steps that will run automatically.
+   [[File:gwizard_citationfix-accept-all-hints.png|thumb|Confirm running all nine citation fix steps]]
+# Click '''Accept all''' to run every step in order: unpack sources, consolidate repositories, fix repositories, fix sources, unpack citations, fix citations, citation attributes, link citation media, and fix notes. Each step runs as one transaction.
+# When all steps finish, the "Accept All Hints Complete" window opens showing what changed and listing anything that still needs human review.
+   [[File:gwizard_citationfix-accept-all-hints-complete.png|thumb|Accept All Hints results window]]
+# Click '''Close''' to return to the main dialog. Use '''Edit > Undo''' to reverse any step, one at a time.
 
 == Configure Options ==
 
-''This tool does not expose additional checkboxes or configuration fields; all behaviour is driven by the buttons above.''
+* No tool-level configuration. <code>GWizardCitationFixOptions</code> defines no checkboxes, fields, or other settings; all behaviour is driven by the buttons on the main window.
+* Each step dialog carries its own controls — typically '''Apply''' to apply the accepted hints as one transaction, and '''Close''' to return to the main dialog.
 
 == Features ==
 
-* '''Automated analysis''' of sources, repositories, citations, and attached evidence media.
-* '''Generate a comprehensive report''' (<code>CitationFixReport.txt</code>), including media layout and citation evidence coverage.
-* '''Unpack conflated source titles''' to separate distinct source information.
-* '''Consolidate similar repositories''' and assign gold‑standard repository names.
-* '''Merge duplicate sources''' and trim unnecessary data.
-* '''Unpack conflated citations''' for clearer citation records.
-* '''Refine citation details''' such as volume/page and confidence levels.
-* '''Add structured citation attributes''' (e.g., evidence type, confidence).
-* '''Link Citation Media''' – matches documentary media to citations with mismatch prevention heuristics:
-** ''Chronological check:'' flags date discrepancies between image and citation/source.
-** ''Category compatibility:'' prevents incompatible pairings (e.g., death certificate on census citation).
-** ''Surname & sheet/page verification:'' checks family names and sheet numbers.
-** ''Inspector side-panel:'' interactive thumbnail preview and full compatibility score breakdown.
-** ''Owner detachment:'' option to promote scans out of Person/Event galleries into citations, preserving locked media (<code>GWizard: Locked</code>).
-* '''Clean up citation notes''' automatically.
-* '''Accept all hints''' – one‑click execution of all 9 steps with preview and human intervention reporting.
-
-[[File:gwizard_citationfix-main.png|thumb|GWizard citation fix main dialog]]
+* Analyses the whole Family Tree: sources, repositories, citations, citations' notes, and attached media.
+* Nine review steps: Unpack Conflated Source, Repository Consolidate, Fix Repositories, Fix Sources, Unpack Conflated Citation, Fix Citations, Citation Attributes, Link Citation Media, and Fix Notes.
+* Generates a citation analysis report saved to <code>CitationFixReport.txt</code> (or a file name and location you choose) and shows it in the "GWizard citation fix report" window.
+* Review before you apply: every step shows a hint grid you can edit, then applies accepted hints as a single transaction reversible with '''Edit > Undo''' (one undo per step, up to nine steps).
+* '''Accept all hints''' runs all nine steps automatically and reports the changes made plus any items still needing human intervention.
+* '''Link Citation Media''' scores media/citation pairs (document category compatibility, chronological year matching) and shows thumbnails and scores in the Link Inspector pane, then links accepted scans to citations, detaching them from Person or Event galleries where needed.
+* '''Citation Attributes''' assigns Genealogical Proof Standard quality attributes and QUAY confidence ratings to citations.
 == Prerequisites ==
 * Gramps 6.1.x
 * <Optional external Python dependencies, e.g., Pillow, networkx — omit if none>
