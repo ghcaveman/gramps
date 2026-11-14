@@ -296,6 +296,8 @@ class _FakeButton(_Lenient):
         if args and isinstance(args[0], str):
             self._label = args[0]
         self._sensitive = True
+        self._tooltip = ""
+        self._clicked: list[tuple[Any, tuple[Any, ...]]] = []
 
     def set_label(self, val: str) -> None:
         self._label = val
@@ -312,8 +314,20 @@ class _FakeButton(_Lenient):
     def set_hexpand(self, val: bool) -> None:
         pass
 
-    def connect(self, *args: Any, **kwargs: Any) -> None:
-        pass
+    def set_tooltip_text(self, val: str) -> None:
+        self._tooltip = val
+
+    def get_tooltip_text(self) -> str:
+        return self._tooltip
+
+    def connect(self, signal: str, callback: Any, *args: Any) -> None:
+        if signal == "clicked":
+            self._clicked.append((callback, args))
+
+    def clicked(self) -> None:
+        """Run the "clicked" handlers, as pressing the button would."""
+        for callback, args in self._clicked:
+            callback(self, *args)
 
     def add(self, *args: Any, **kwargs: Any) -> None:
         pass

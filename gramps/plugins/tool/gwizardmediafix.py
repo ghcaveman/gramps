@@ -2010,6 +2010,16 @@ def confirm_plan(parent: Any, text: str) -> bool:
     return resp == Gtk.ResponseType.OK
 
 
+def missing_file_name(raw_path: str) -> str:
+    """Return the file name of a stored media path (either slash style)."""
+    return os.path.basename(clean_path(raw_path).replace("\\", "/"))
+
+
+def missing_file_dir(raw_path: str) -> str:
+    """Return a comparable key for the folder part of a stored media path."""
+    return path_key(os.path.dirname(clean_path(raw_path).replace("\\", "/")))
+
+
 # ------------------------------------------------------------
 #
 # FindMissingMediaDialog
@@ -2041,6 +2051,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.rows: list[dict[str, Any]] = []
         self.row_targets: list[dict[str, Any]] = []
+        self._last_pick_dir = ""
         self.set_default_size(1360, 520)
         curr_mpath = (
             self.dbstate.db.get_mediapath()
@@ -2163,7 +2174,9 @@ class FindMissingMediaDialog(Gtk.Dialog):
             label=str(
                 _(
                     "Review media records whose files are missing on disk. "
-                    "Type the updated path or click 'Accept hints' if found in the media directory, then press 'Apply'."
+                    "Type the updated path, choose the file with the folder button next to it, "
+                    "or click 'Accept hints' if found in the media directory, then press 'Apply'. "
+                    "Choosing a file also fills in other records missing a file of the same name."
                 )
             )
         )
@@ -2261,14 +2274,25 @@ class FindMissingMediaDialog(Gtk.Dialog):
             )
             grid.attach(curr_label, 1, row_index, 1, 1)
 
-            # Column 2: New Path entry (2.5x wider)
+            # Column 2: New Path entry (2.5x wider) with a file picker button
             path_entry = Gtk.Entry()
             path_entry.set_width_chars(70)
             path_entry.set_hexpand(True)
             path_entry.set_text("")
-            if entry.get("locked") and hasattr(path_entry, "set_sensitive"):
+            browse_button = Gtk.Button()
+            browse_button.set_tooltip_text(
+                str(_("Choose the file for this media record"))
+            )
+            browse_image = Gtk.Image()
+            browse_image.set_from_icon_name("document-open", Gtk.IconSize.BUTTON)
+            browse_button.add(browse_image)
+            if entry.get("locked"):
                 path_entry.set_sensitive(False)
-            grid.attach(path_entry, 2, row_index, 1, 1)
+                browse_button.set_sensitive(False)
+            path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            path_box.pack_start(path_entry, True, True, 0)
+            path_box.pack_start(browse_button, False, False, 0)
+            grid.attach(path_box, 2, row_index, 1, 1)
 
             # Column 3: Hint label
             hint_label = TableLabel(
@@ -2279,16 +2303,16 @@ class FindMissingMediaDialog(Gtk.Dialog):
             if row_index == 0 and hasattr(self, "column_sizegroups"):
                 self.column_sizegroups[0].add_widget(media_label)
                 self.column_sizegroups[1].add_widget(curr_label)
-                self.column_sizegroups[2].add_widget(path_entry)
+                self.column_sizegroups[2].add_widget(path_box)
                 self.column_sizegroups[3].add_widget(hint_label)
 
-            self.row_targets.append(
-                {
-                    "entry": entry,
-                    "path_entry": path_entry,
-                    "hint_label": hint_label,
-                }
-            )
+            target = {
+                "entry": entry,
+                "path_entry": path_entry,
+                "hint_label": hint_label,
+            }
+            browse_button.connect("clicked", self.cb_pick_file, target)
+            self.row_targets.append(target)
             row_index += 1
 
         scrolled = Gtk.ScrolledWindow()
@@ -2322,6 +2346,110 @@ class FindMissingMediaDialog(Gtk.Dialog):
             ),
             parent=self,
         )
+
+    def cb_pick_file(self, _button: Gtk.Button, target: dict[str, Any]) -> None:
+        """
+        Choose the file for one record, then fill in the other records that
+        are missing a file with the same name.
+
+        :param _button: The row's folder button.
+        :param target: The row the button belongs to.
+        """
+        entry = target["entry"]
+        missing_name = missing_file_name(entry.get("raw_path", ""))
+        chooser = Gtk.FileChooserDialog(
+            title=str(_("Select the file for %s"))
+            % (entry.get("gramps_id") or missing_name),
+            transient_for=self,
+            action=Gtk.FileChooserAction.OPEN,
+            buttons=(
+                str(_("_Cancel")),
+                Gtk.ResponseType.CANCEL,
+                str(_("_Open")),
+                Gtk.ResponseType.OK,
+            ),
+        )
+        chooser.set_default_size(800, 500)
+        start_dir = self._last_pick_dir or self.base_dir
+        if start_dir and os.path.isdir(start_dir):
+            chooser.set_current_folder(start_dir)
+        picked = (
+            chooser.get_filename() if chooser.run() == Gtk.ResponseType.OK else None
+        )
+        chooser.destroy()
+        if not picked:
+            return
+        self._last_pick_dir = os.path.dirname(picked)
+        chosen = str(_("Chosen: %s")) % picked
+        self.set_picked_file(target, picked, chosen)
+        filled = self.fill_same_name(target, picked)
+        if filled:
+            target["hint_label"].set_text(
+                chosen
+                + " "
+                + ngettext(
+                    "Also filled %d other record missing a file of this name.",
+                    "Also filled %d other records missing a file of this name.",
+                    filled,
+                )
+                % filled
+            )
+
+    def set_picked_file(self, target: dict[str, Any], picked: str, hint: str) -> None:
+        """
+        Put a chosen file into a row's New Path entry.
+
+        A file inside the media base path is shown relative to it, as Gramps
+        stores it.  Any copy queued by "Copy from folder..." is dropped, because
+        the chosen file is used where it is.
+
+        :param target: The row to fill.
+        :param picked: Full path of the chosen file.
+        :param hint: Text for the row's hint column.
+        """
+        text = to_db_path(picked, self.base_dir)
+        target.pop("copy_src", None)
+        target["picked"] = picked
+        target["picked_text"] = text
+        target["path_entry"].set_text(text)
+        target["hint_label"].set_text(hint)
+
+    def fill_same_name(self, source: dict[str, Any], picked: str) -> int:
+        """
+        Fill every other empty, unlocked row whose missing file has the same
+        name as the chosen file.
+
+        :param source: The row the file was chosen for.
+        :param picked: Full path of the chosen file.
+        :returns: How many rows were filled.
+        """
+        wanted = os.path.normcase(os.path.basename(picked))
+        source_dir = missing_file_dir(source["entry"].get("raw_path", ""))
+        source_id = source["entry"].get("gramps_id") or picked
+        filled = 0
+        for target in self.row_targets:
+            if target is source or target["entry"].get("locked"):
+                continue
+            if target["path_entry"].get_text().strip():
+                continue  # never overwrite a path already entered
+            raw = target["entry"].get("raw_path", "")
+            if os.path.normcase(missing_file_name(raw)) != wanted:
+                continue
+            if missing_file_dir(raw) == source_dir:
+                hint = str(_("Same file as %s")) % source_id
+            else:
+                hint = (
+                    str(
+                        _(
+                            "Same file name as %s, but it was in a different "
+                            "folder: check it is the same file"
+                        )
+                    )
+                    % source_id
+                )
+            self.set_picked_file(target, picked, hint)
+            filled += 1
+        return filled
 
     def cb_set_mediapath(self, *_args: Any) -> None:
         """Track the base path to use for copies and save it when changes are applied."""
@@ -2461,6 +2589,10 @@ class FindMissingMediaDialog(Gtk.Dialog):
                 new_path = clean_path(target["path_entry"].get_text())
                 if not new_path:
                     continue
+                if target.get("picked") and new_path == target.get("picked_text"):
+                    # A chosen file: store it relative to the base path in
+                    # force now, in case the base path was changed afterwards.
+                    new_path = to_db_path(target["picked"], base)
                 try:
                     media = self.dbstate.db.get_media_from_handle(
                         target["entry"].get("handle")

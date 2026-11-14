@@ -103,6 +103,7 @@ from gramps.gen.utils.pypi import (
 from gramps.gen.const import USER_PLUGINS, LIB_PATH
 from gramps.gen.constfunc import win
 from gramps.version import major_version
+from gramps.gui.buttonorder import apply_button_order
 
 
 def display_message(message):
@@ -930,9 +931,7 @@ class AddonManager(ManagedWindow):
         dialog.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_OK"), Gtk.ResponseType.OK
         )
-        dialog.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-        )
+        apply_button_order(dialog)
         dialog.set_default_response(Gtk.ResponseType.OK)
         dialog.vbox.show_all()
 
@@ -1151,19 +1150,13 @@ class PluginStatus(ManagedWindow):
 
         scrolled_window_reg.add(self.list_reg)
         vbox_reg.pack_start(scrolled_window_reg, True, True, 0)
-        settings = Gtk.Settings.get_default()
-        alt_order = settings.get_property("gtk-alternative-button-order")
         hbutbox = Gtk.ButtonBox()
         hbutbox.set_layout(Gtk.ButtonBoxStyle.SPREAD)
         self.__info_btn = Gtk.Button(label=_("Info"))
-        self.__hide_btn = Gtk.Button(label=_("Hide/Unhide"))
-        if alt_order:
-            hbutbox.add(self.__hide_btn)
-            hbutbox.add(self.__info_btn)
-        else:
-            hbutbox.add(self.__info_btn)
-            hbutbox.add(self.__hide_btn)
+        hbutbox.add(self.__info_btn)
         self.__info_btn.connect("clicked", self.__info, self.list_reg, 4)  # id_col
+        self.__hide_btn = Gtk.Button(label=_("Hide/Unhide"))
+        hbutbox.add(self.__hide_btn)
         self.__hide_btn.connect(
             "clicked", self.__hide, self.list_reg, 4, 1
         )  # list, id_col, hide_col
@@ -1215,19 +1208,13 @@ class PluginStatus(ManagedWindow):
 
         scrolled_window.add(self.list)
         vbox_loaded.pack_start(scrolled_window, True, True, 0)
-        settings = Gtk.Settings.get_default()
-        alt_order = settings.get_property("gtk-alternative-button-order")
         hbutbox = Gtk.ButtonBox()
         hbutbox.set_layout(Gtk.ButtonBoxStyle.SPREAD)
         self.__info_btn = Gtk.Button(label=_("Info"))
-        self.__hide_btn = Gtk.Button(label=_("Hide/Unhide"))
-        if alt_order:
-            hbutbox.add(self.__hide_btn)
-            hbutbox.add(self.__info_btn)
-        else:
-            hbutbox.add(self.__info_btn)
-            hbutbox.add(self.__hide_btn)
+        hbutbox.add(self.__info_btn)
         self.__info_btn.connect("clicked", self.__info, self.list, 4)  # id_col
+        self.__hide_btn = Gtk.Button(label=_("Hide/Unhide"))
+        hbutbox.add(self.__hide_btn)
         self.__hide_btn.connect(
             "clicked", self.__hide, self.list, 4, 5
         )  # list, id_col, hide_col
@@ -1294,23 +1281,16 @@ class PluginStatus(ManagedWindow):
         # path to addon path line
         install_page.pack_start(install_row, False, False, 0)
 
-        settings = Gtk.Settings.get_default()
-        alt_order = settings.get_property("gtk-alternative-button-order")
         hbutbox = Gtk.ButtonBox()
         hbutbox.set_layout(Gtk.ButtonBoxStyle.SPREAD)
         self.__add_btn = Gtk.Button(label=_("Install Addon"))
-        self.__add_all_btn = Gtk.Button(label=_("Install All Addons"))
-        self.__refresh_btn = Gtk.Button(label=_("Refresh Addon List"))
-        if alt_order:
-            hbutbox.add(self.__refresh_btn)
-            hbutbox.add(self.__add_all_btn)
-            hbutbox.add(self.__add_btn)
-        else:
-            hbutbox.add(self.__add_btn)
-            hbutbox.add(self.__add_all_btn)
-            hbutbox.add(self.__refresh_btn)
+        hbutbox.add(self.__add_btn)
         self.__add_btn.connect("clicked", self.__get_addon_top)
+        self.__add_all_btn = Gtk.Button(label=_("Install All Addons"))
+        hbutbox.add(self.__add_all_btn)
         self.__add_all_btn.connect("clicked", self.__get_all_addons)
+        self.__refresh_btn = Gtk.Button(label=_("Refresh Addon List"))
+        hbutbox.add(self.__refresh_btn)
         self.__refresh_btn.connect("clicked", self.__refresh_addon_list)
         install_page.pack_start(hbutbox, False, True, 5)
         # notebook.append_page(install_page,
@@ -1515,9 +1495,7 @@ class PluginStatus(ManagedWindow):
         fcd.add_buttons(
             _("_Cancel"), Gtk.ResponseType.CANCEL, _("_Open"), Gtk.ResponseType.OK
         )
-        fcd.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-        )
+        apply_button_order(fcd)
         name = self.install_addon_path.get_text()
         dir = os.path.dirname(name)
         if not os.path.isdir(dir):
@@ -1870,9 +1848,6 @@ class ToolManagedWindowBase(ManagedWindow):
 
         self.ok = self.window.add_button(_("_Execute"), Gtk.ResponseType.OK)
         self.ok.connect("clicked", self.on_ok_clicked)
-        self.window.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-        )
 
         self.window.set_default_size(600, -1)
 
