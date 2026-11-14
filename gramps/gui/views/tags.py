@@ -55,6 +55,7 @@ import gramps.gui.widgets.progressdialog as progressdlg
 from ..uimanager import ActionGroup
 from ..managedwindow import ManagedWindow
 from gramps.gen.config import config
+from gramps.gui.buttonorder import apply_button_order
 
 # -------------------------------------------------------------------------
 #
@@ -488,8 +489,6 @@ class OrganizeTagsDialog(ManagedWindow):
         slist.add(self.namelist)
         slist.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         box.pack_start(slist, 1, 1, 5)
-        settings = Gtk.Settings.get_default()
-        alt_order = settings.get_property("gtk-alternative-button-order")
         bbox = Gtk.ButtonBox(orientation=Gtk.Orientation.VERTICAL)
         bbox.set_layout(Gtk.ButtonBoxStyle.START)
         bbox.set_spacing(6)
@@ -505,18 +504,11 @@ class OrganizeTagsDialog(ManagedWindow):
         remove.connect("clicked", self.cb_remove_clicked, top)
         top.add_button(_("_Close"), Gtk.ResponseType.CLOSE)
         top.add_button(_("_Help"), Gtk.ResponseType.HELP)
-        if alt_order:
-            bbox.add(remove)
-            bbox.add(edit)
-            bbox.add(add)
-            bbox.add(down)
-            bbox.add(up)
-        else:
-            bbox.add(up)
-            bbox.add(down)
-            bbox.add(add)
-            bbox.add(edit)
-            bbox.add(remove)
+        bbox.add(up)
+        bbox.add(down)
+        bbox.add(add)
+        bbox.add(edit)
+        bbox.add(remove)
         box.pack_start(bbox, 0, 0, 5)
         return top
 
@@ -735,7 +727,5 @@ class EditTag(ManagedWindow):
         top.add_button(_("_Help"), Gtk.ResponseType.HELP)
         top.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
         top.add_button(_("_OK"), Gtk.ResponseType.OK)
-        top.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL, Gtk.ResponseType.HELP]
-        )
+        apply_button_order(top)
         return top
