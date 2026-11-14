@@ -1,0 +1,49 @@
+# GWizard File Merge addon -- built by package_addon.py (from gramps_devutil).
+# See addon_package.example.toml in gramps_devutil for every option.
+
+package = "GWizardFileMerge"
+
+[registration]
+id = "gwizardmerge"
+name = "GWizard File Merge"
+description = "Family Tree Processing Tool to compare another genealogy file (GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree and merge selected differences person by person."
+fname = "gwizardmerge.py"
+toolclass = "GWizardMergeTool"
+optionclass = "GWizardMergeToolOptions"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
+gramps_versions = ["5.2.0", "6.2.0"]
+
+[files]
+modules = [
+    "gramps/gen/gwizard/*.py",
+    "gramps/gui/gwizard/*.py",
+    "gramps/plugins/tool/gwizardmerge.py",
+]
+tests = [
+    "gramps/gen/gwizard/test/*_test.py",
+    "gramps/gui/gwizard/test/*_test.py",
+    "gramps/plugins/tool/test/gwizardmerge*_test.py",
+]
+# gwizardmerge.py imports the launcher flat, and falls back to the core
+# location when run from the source tree; keep that fallback as written.
+keep_unrewritten = [
+    '^\s*from\s+gramps\.gui\.gwizard\.gwizardlauncher\s+import\s*\(\s*$',
+]
+
+[files.test_data]
+source = "gramps/gen/gwizard/test/data"
+target = "data"
+required = ["gwizard_mergefrom_sources.ged"]
+
+[check]
+base = "master"
+ignore = [
+    "featuredocs/**",
+    "gwizard_filemerge_*.txt",
+    "package_gwizard_filemerge.py",
+    "gramps/plugins/tool/tools.gpr.py",
+    "po/POTFILES.in",
+    "po/POTFILES.skip",
+]
