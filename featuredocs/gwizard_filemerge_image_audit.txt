@@ -1,0 +1,17 @@
+
+Image Audit for: C:/gramps_dev/gramps_gwizard_filemerge_plugin/gramps_gwizard_filemerge/featuredocs/gwizard_filemerge.mediawiki
+Checking folder: C:/gramps_dev/gramps_gwizard_filemerge_plugin/gramps_gwizard_filemerge/featuredocs/images
+--------------------------------------------------------------------
+  [MISSING]  gwizard_filemerge-main.png
+             Capture: GWizard File Merge main interface
+  [EXISTS]  gwizard_filemerge-compare.png
+             Capture: The GWizard Compare window shows the incoming file (left) beside the open Family Tree (right).
+  [MISSING]  gwizard_filemerge-add-as-new.png
+             Capture: The Add as New Person dialog previews the relatives that will be linked.
+  [MISSING]  gwizard_filemerge-add-as-new-complete.png
+             Capture: The warning lists any relationships that could not be linked.
+  [EXISTS]  gwizard_filemerge-merge.png
+             Capture: The GWizard Merge dialog lists each differing field with an arrow to copy the incoming value into the tree.
+--------------------------------------------------------------------
+Summary: 2/5 present, 3 missing.
+
