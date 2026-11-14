@@ -26,6 +26,7 @@ set -euo pipefail
 
 # Feature slug – must match the name used throughout the docs.
 FEATURE="gwizard_mediafix"
+PLUGIN_DISPLAY_NAME="GWizard Media Fix"
 
 # Parent branch for the isolated git diff.  Adjust if you work off a different
 # base (e.g. a release branch).
@@ -80,6 +81,7 @@ python "$REPO_ROOT/featuredocs/build_feature_docs.py" \
 # patched Python script.
 python "$REPO_ROOT/featuredocs/build_feature_docs.py" \
     "$FEATURE" \
+    --plugin-display-name "$PLUGIN_DISPLAY_NAME" \
     --parent "$PARENT_BRANCH" \
     --build
 

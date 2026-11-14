@@ -95,12 +95,6 @@ from gramps.plugins.tool.gwizard_common import (
 from gramps.plugins.tool.gw_fixmediareferencesdialog import (
     find_duplicate_media_groups,
 )
-from gramps.plugins.tool.fixmediareferencesdialog import (
-    find_duplicate_media_groups,
-)
-from gramps.plugins.tool.gw_fixmediareferencesdialog import (
-    find_duplicate_media_groups,
-)
 
 
 def setUpModule() -> None:
