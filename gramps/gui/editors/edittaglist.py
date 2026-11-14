@@ -39,6 +39,7 @@ from ..managedwindow import ManagedWindow
 from gramps.gen.const import URL_MANUAL_PAGE
 from ..display import display_help
 from ..listmodel import ListModel, TOGGLE
+from gramps.gui.buttonorder import apply_button_order
 
 # -------------------------------------------------------------------------
 #
@@ -121,9 +122,7 @@ class EditTagList(ManagedWindow):
         top.add_button(_("_Help"), Gtk.ResponseType.HELP)
         top.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
         top.add_button(_("_OK"), Gtk.ResponseType.OK)
-        top.set_alternative_button_order_from_array(
-            [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL, Gtk.ResponseType.HELP]
-        )
+        apply_button_order(top)
         return top
 
     def build_menu_names(self, obj):  # meaningless while it's modal
