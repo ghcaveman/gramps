@@ -70,6 +70,7 @@ from . import ui as fs_ui
 from .compare.window import CompareWindow
 from .fs_import.importer import FSToGrampsImporter
 from .person import fsg_sync as FSG_Sync
+from gramps.gui.buttonorder import apply_button_order
 
 _ = glocale.translation.gettext
 
@@ -173,9 +174,7 @@ def link_familysearch_id(dbstate, uistate, track, person, session, parent, edito
     fs_ui.set_headerbar(dlg, _("Link FamilySearch ID"))
     dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     dlg.add_button(_("OK"), Gtk.ResponseType.OK)
-    dlg.set_alternative_button_order_from_array(
-        [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-    )
+    apply_button_order(dlg)
 
     box = dlg.get_content_area()
     box.set_spacing(8)
@@ -291,9 +290,7 @@ def _pick_fsid_list(parent, title: str, rows: list[tuple[str, str, bool]]) -> li
 
     dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     dlg.add_button(_("Import selected"), Gtk.ResponseType.OK)
-    dlg.set_alternative_button_order_from_array(
-        [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-    )
+    apply_button_order(dlg)
 
     box = dlg.get_content_area()
     box.get_style_context().add_class("fs-rel-import-wrap")
@@ -683,9 +680,7 @@ def _bulk_import_options_dialog(
 
     dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     import_button = dlg.add_button(_("Import"), Gtk.ResponseType.OK)
-    dlg.set_alternative_button_order_from_array(
-        [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-    )
+    apply_button_order(dlg)
     import_button.get_style_context().add_class("suggested-action")
 
     box = dlg.get_content_area()
@@ -795,9 +790,7 @@ def _empty_tree_start_person_dialog(
 
     dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     import_button = dlg.add_button(_("Continue"), Gtk.ResponseType.OK)
-    dlg.set_alternative_button_order_from_array(
-        [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL]
-    )
+    apply_button_order(dlg)
     import_button.get_style_context().add_class("suggested-action")
     import_button.set_sensitive(False)
     dlg.set_default_response(Gtk.ResponseType.OK)

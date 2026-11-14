@@ -75,6 +75,7 @@ from gramps.gen.constfunc import get_env_var
 from gramps.version import VERSION
 from ..display import display_help, display_url
 from ..managedwindow import ManagedWindow
+from gramps.gui.utils import fix_assistant_button_order
 
 
 # -------------------------------------------------------------------------
@@ -90,6 +91,7 @@ class ErrorReportAssistant(ManagedWindow, Gtk.Assistant):
 
     def __init__(self, error_detail, rotate_handler, ownthread=False, parent=None):
         Gtk.Assistant.__init__(self)
+        fix_assistant_button_order(self)
         ManagedWindow.__init__(self, None, [], self.__class__, modal=True)
         if parent is not None:  # the next two will not be set in ManagedWindow
             self.parent_window = parent
@@ -352,19 +354,13 @@ class ErrorReportAssistant(ManagedWindow, Gtk.Assistant):
         clear = Gtk.Button(label="Clear")
         clear.connect("clicked", self._clear_error_details)
 
-        settings = Gtk.Settings.get_default()
-        alt_order = settings.get_property("gtk-alternative-button-order")
         button_box = Gtk.ButtonBox()
         button_box.set_border_width(6)
         button_box.set_spacing(6)
         button_box.set_layout(Gtk.ButtonBoxStyle.END)
 
-        if alt_order:
-            button_box.pack_end(clear, False, False, 0)
-            button_box.pack_end(reset, False, False, 0)
-        else:
-            button_box.pack_end(reset, False, False, 0)
-            button_box.pack_end(clear, False, False, 0)
+        button_box.pack_end(reset, False, False, 0)
+        button_box.pack_end(clear, False, False, 0)
 
         error_details_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         error_details_box.pack_start(label, False, False, 0)
@@ -447,19 +443,13 @@ class ErrorReportAssistant(ManagedWindow, Gtk.Assistant):
         clear = Gtk.Button(label="Clear")
         clear.connect("clicked", self._clear_sys_information)
 
-        settings = Gtk.Settings.get_default()
-        alt_order = settings.get_property("gtk-alternative-button-order")
         button_box = Gtk.ButtonBox()
         button_box.set_border_width(6)
         button_box.set_spacing(6)
         button_box.set_layout(Gtk.ButtonBoxStyle.END)
 
-        if alt_order:
-            button_box.pack_end(clear, False, False, 0)
-            button_box.pack_end(reset, False, False, 0)
-        else:
-            button_box.pack_end(reset, False, False, 0)
-            button_box.pack_end(clear, False, False, 0)
+        button_box.pack_end(reset, False, False, 0)
+        button_box.pack_end(clear, False, False, 0)
 
         sys_information_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         sys_information_box.pack_start(label, False, False, 0)
@@ -535,17 +525,12 @@ class ErrorReportAssistant(ManagedWindow, Gtk.Assistant):
         clear = Gtk.Button(label="Clear")
         clear.connect("clicked", self._clear_user_information)
 
-        settings = Gtk.Settings.get_default()
-        alt_order = settings.get_property("gtk-alternative-button-order")
         button_box = Gtk.ButtonBox()
         button_box.set_border_width(6)
         button_box.set_spacing(6)
         button_box.set_layout(Gtk.ButtonBoxStyle.END)
 
-        if alt_order:
-            button_box.pack_end(clear, False, False, 0)
-        else:
-            button_box.pack_end(clear, False, False, 0)
+        button_box.pack_end(clear, False, False, 0)
 
         user_information_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         user_information_box.pack_start(label, False, False, 0)

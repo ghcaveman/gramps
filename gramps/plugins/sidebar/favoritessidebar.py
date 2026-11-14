@@ -86,9 +86,6 @@ class FavoriteViews(ManagedWindow):
         self.window.add_button(_("Select All"), SETALL)
         self.window.add_button(_("Clear All"), CLEAR)
         self.window.add_button(_("_Close"), Gtk.ResponseType.CLOSE)
-        self.window.set_alternative_button_order_from_array(
-            [SETALL, CLEAR, Gtk.ResponseType.CLOSE, Gtk.ResponseType.HELP]
-        )
         self.window.connect("response", self.on_response)
         scroll = Gtk.ScrolledWindow()
         scroll.set_min_content_width(-1)
