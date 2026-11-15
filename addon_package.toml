@@ -1,8 +1,9 @@
 # GWizard Media Fix addon -- built by package_addon.py (from gramps_devutil).
 # See addon_package.example.toml in gramps_devutil for every option.
 #
-# CitationFix depends on this addon. Build MediaFix from this repo only; the
-# citation-fix branch picks up these files by merging gwizard_mediafix.
+# The citation-fix repo builds this addon too (CitationFix depends on it):
+# there, save this file as addon_package_mediafix.toml and run
+#   python package_addon.py --config addon_package_mediafix.toml <version>
 
 package = "MediaFix"
 
@@ -11,7 +12,7 @@ id = "gwizardmediafix"
 name = "Media Fix"
 description = "Fix media references in a Gramps database."
 fname = "gwizardmediafix.py"
-toolclass = "GWizardMediaFixTool"
+toolclass = "GWizardMediaFix"
 optionclass = "GWizardMediaFixOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
