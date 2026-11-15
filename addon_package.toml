@@ -1,8 +1,9 @@
 # GWizard Citation Fix addon -- built by package_addon.py (from gramps_devutil).
 # See addon_package.example.toml in gramps_devutil for every option.
 #
-# Depends on the GWizard Media Fix addon. Build that one from this same tree
-# with addon_package_mediafix.toml so the two stay in step.
+# Depends on the GWizard Media Fix addon, which is built from the
+# gwizard_mediafix branch (its own addon_package.toml). Merge that branch into
+# this one before a release so the two stay in step.
 
 package = "CitationFix"
 
@@ -54,6 +55,9 @@ ignore = [
     "*.txt",
     "check_banner.bash",
     "environment_create.py",
+    # Media Fix tests come with the dependency; MediaFix ships them.
+    "gramps/plugins/tool/test/gwizardmediafix*_test.py",
+    "gramps/plugins/tool/test/gwizard_common_test.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",
