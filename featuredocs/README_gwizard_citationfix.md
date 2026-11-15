@@ -1,11 +1,11 @@
 ## Overview
 
-The **GWizard citation fix** tool helps genealogists clean up and standardise citation data across the entire Family Tree. It analyses sources, repositories, citations, citations' notes, and attached media, then presents hints you can review before applying: unpack mixed source and citation titles, create missing repositories, consolidate duplicate repositories, fix source links, clean citation details, assign Genealogical Proof Standard (GPS) attributes, link documentary media to citations, and clean up citation notes. Every step runs inside a single transaction, so it can be reversed with **Edit > Undo**. The tool can also generate a citation analysis report (`CitationFixReport.txt`) and display it in a report window.
+The **GWizard Citation Fix** tool helps genealogists clean up and standardise citation data across the entire Family Tree. It analyses sources, repositories, citations, citations' notes, and attached media, then presents hints you can review before applying: unpack mixed source and citation titles, create missing repositories, consolidate duplicate repositories, fix source links, clean citation details, assign Genealogical Proof Standard (GPS) attributes, link documentary media to citations, and clean up citation notes. Every step runs inside a single transaction, so it can be reversed with **Edit > Undo**. The tool can also generate a citation analysis report (`CitationFixReport.txt`) and display it in a report window.
 
 ## Usage
 
-1. Open Gramps, load your Family Tree, then open **Tools > Family Tree Processing > GWizard citation fix**.
-   The "GWizard citation fix" dialog opens.
+1. Open Gramps, load your Family Tree, then open **Tools > Family Tree Processing > GWizard Citation Fix**.
+   The "GWizard Citation Fix" dialog opens.
 2. Click one of the buttons below to run a step. Most steps open a review dialog listing hints you can inspect and correct before applying them.
 3. Applied changes are grouped in one transaction per step: choose **Edit > Undo** to reverse the most recent step.
 4. When you are finished, click **Close** to leave the dialog.
@@ -29,7 +29,7 @@ Buttons in screen order:
 1. Click **Generate report**. The "Save Citation Fix Report" file chooser opens.
    ![Save the citation analysis report as a text file](images/gwizard_citationfix-generate-report-save.png)
 2. Choose the folder and file name (the default is `CitationFixReport.txt`), then click **Save**.
-3. The report is written. A "Report Generated" message confirms the location, and the "GWizard citation fix report" window opens automatically showing the report text.
+3. The report is written, and the "GWizard Citation Fix report" window opens automatically showing the report text.
    ![Citation analysis report window](images/gwizard_citationfix-generate-report.png)
 4. Click **Close** to leave the report window and return to the main dialog.
 
@@ -114,7 +114,7 @@ Buttons in screen order:
 
 - Analyses the whole Family Tree: sources, repositories, citations, citations' notes, and attached media.
 - Nine review steps: Unpack Conflated Source, Repository Consolidate, Fix Repositories, Fix Sources, Unpack Conflated Citation, Fix Citations, Citation Attributes, Link Citation Media, and Fix Notes.
-- Generates a citation analysis report saved to `CitationFixReport.txt` (or a file name and location you choose) and shows it in the "GWizard citation fix report" window.
+- Generates a citation analysis report saved to `CitationFixReport.txt` (or a file name and location you choose) and shows it in the "GWizard Citation Fix report" window.
 - Review before you apply: every step shows a hint grid you can edit, then applies accepted hints as a single transaction reversible with **Edit > Undo** (one undo per step, up to nine steps).
 - **Accept all hints** runs all nine steps automatically and reports the changes made plus any items still needing human intervention.
 - **Link Citation Media** scores media/citation pairs (document category compatibility, chronological year matching) and shows thumbnails and scores in the Link Inspector pane, then links accepted scans to citations, detaching them from Person or Event galleries where needed.

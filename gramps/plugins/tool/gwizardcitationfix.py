@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Tools/Family Tree Processing/GWizard citation fix."""
+"""Tools/Family Tree Processing/GWizard Citation Fix."""
 
 # The step dialogs import this module, so they are imported inside the
 # functions that open them to avoid a circular import.
@@ -372,18 +372,18 @@ def run_auto_layer(layer: str, db: DbWriteBase) -> str:
     if layer == "link_citation_media":
         from gramps.plugins.tool.gw_linkcitationmediadialog import (
             auto_link_citation_media,
-            unlocked_media_message,
+            media_problems_message,
         )
 
-        stats: dict[str, int] = {}
+        stats: dict[str, Any] = {}
         linked = auto_link_citation_media(db, stats)
         text = ngettext(
             "Linked {number_of} media object to citations.",
             "Linked {number_of} media objects to citations.",
             linked,
         ).format(number_of=linked)
-        unlocked = unlocked_media_message(stats.get("unlocked_media", 0))
-        return text + (" " + unlocked if unlocked else "")
+        problems = media_problems_message(stats.get("media_problems", []))
+        return text + ("\n" + problems if problems else "")
     if layer == "notes":
         from gramps.plugins.tool.gw_notesfixdialog import auto_fix_notes
 
@@ -532,7 +532,7 @@ def find_items_needing_review(db: DbReadBase) -> list[str]:
             build_link_citation_media_rows,
         )
 
-        link_stats: dict[str, int] = {}
+        link_stats: dict[str, Any] = {}
         add(
             label,
             len(
@@ -546,11 +546,11 @@ def find_items_needing_review(db: DbReadBase) -> list[str]:
         )
         add(
             label,
-            link_stats.get("unlocked_media", 0),
+            len(link_stats.get("media_problems", [])),
             str(
                 _(
-                    "media files are not locked yet, so they were not offered. "
-                    "Check and lock them in Media Fix first."
+                    "media files do not follow the Media Fix rules yet, so they "
+                    "were not offered. Fix them in Media Fix first."
                 )
             ),
         )
@@ -832,7 +832,7 @@ class GWizardCitationFixOptions(tool.ToolOptions):
 #
 # ------------------------------------------------------------
 class GWizardCitationFix(tool.Tool, ManagedWindow):
-    """Show the GWizard citation fix dialog."""
+    """Show the GWizard Citation Fix dialog."""
 
     def __init__(
         self,
@@ -853,7 +853,7 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
 
     def _build_window(self, uistate: Any) -> None:
         dialog = Gtk.Dialog(
-            title=str(_("GWizard citation fix")),
+            title=str(_("GWizard Citation Fix")),
             transient_for=uistate.window,
             modal=True,
             destroy_with_parent=True,
@@ -882,12 +882,12 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
         dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         dialog.connect("response", self.cb_close)
 
-        self.set_window(dialog, None, str(_("GWizard citation fix")))
+        self.set_window(dialog, None, str(_("GWizard Citation Fix")))
         self.setup_configs("interface.gwizardcitationfix", 420, 260)
         dialog.show_all()
 
     def build_menu_names(self, obj: Any) -> tuple[str, str]:
-        return (_("GWizard citation fix"), " ")
+        return (_("GWizard Citation Fix"), " ")
 
     def cb_close(self, dialog: Gtk.Dialog, response: int) -> None:
         """Close the window and release it from the window manager."""
@@ -1129,11 +1129,20 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             modal=True,
             destroy_with_parent=True,
         )
+        report_dialog.set_default_size(900, 500)
         report_dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
         content = report_dialog.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
         report_text = "\n".join(report_sections)
         label = SelectableLabel(label=report_text)
-        content.add(label)
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_min_content_height(300)
+        scrolled.set_min_content_width(900)
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+        scrolled.add(label)
+        content.pack_start(scrolled, True, True, 0)
         report_dialog.show_all()
         report_dialog.run()
         report_dialog.destroy()
@@ -1207,11 +1216,6 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             with open(target_path, "w", encoding="utf-8") as handle:
                 handle.write(text)
             self.report_path = target_path
-            OkDialog(
-                str(_("Report Generated")),
-                str(_("Report written to {path}.").format(path=target_path)),
-                parent=self.window,
-            )
             self.cb_view_report()
         except OSError as error:
             LOG.error("Failed to write citation report: %s", error)
@@ -1231,7 +1235,7 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             return
 
         dialog = Gtk.Dialog(
-            title=str(_("GWizard citation fix report")),
+            title=str(_("GWizard Citation Fix report")),
             transient_for=self.window,
             modal=True,
             destroy_with_parent=True,

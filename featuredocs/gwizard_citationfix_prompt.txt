@@ -647,16 +647,16 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard citation fix
+# GWizard Citation Fix
 #
 # ------------------------------------------------------------------------
 
 register(
     TOOL,
     id="gwizardcitationfix",
-    name=_("GWizard citation fix"),
+    name=_("GWizard Citation Fix"),
     description=_(
-        "Open the GWizard citation fix dialog to generate " "and view citation reports."
+        "Open the GWizard Citation Fix dialog to generate " "and view citation reports."
     ),
     version="0.0.1",
     gramps_target_version=MODULE_VERSION,
@@ -848,7 +848,7 @@ reports_apply_errors.wrapper:
 
 --- gramps/plugins/tool/gwizardcitationfix.py ---
 GWizardCitationFix._build_window:
-  line 855: window title: GWizard citation fix
+  line 855: window title: GWizard Citation Fix
   line 878: button: Accept all hints
   line 882: dialog button: Close
 GWizardCitationFix.show_fix_dialog:
@@ -869,7 +869,7 @@ GWizardCitationFix.cb_generate_report:
   line 1210: message title: Report Generated
   line 1218: message title: Report Failed
 GWizardCitationFix.cb_view_report:
-  line 1233: window title: GWizard citation fix report
+  line 1233: window title: GWizard Citation Fix report
   line 1239: dialog button: Close
 
 --- gramps/plugins/tool/gwizardcitationreport.py ---

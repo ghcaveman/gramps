@@ -29,6 +29,7 @@ from __future__ import annotations
 # -------------------------------------------------------------------------
 import logging
 import os
+import re
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -48,7 +49,14 @@ from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.utils.file import media_path_full
 from gramps.gen.utils.thumbnails import get_thumbnail_image
 from gramps.gui.dialog import OkDialog
-from gramps.plugins.tool.gwizard_common import escape_markup, reports_apply_errors
+from gramps.plugins.tool.gwizard_common import (
+    clean_path,
+    escape_markup,
+    full_media_path,
+    is_absolute_path,
+    path_key,
+    reports_apply_errors,
+)
 from gramps.plugins.tool.gwizardcitationmediaengine import (
     apply_link_media_to_citation,
     apply_promote_media_to_citation,
@@ -65,26 +73,120 @@ LOG = logging.getLogger(__name__)
 
 # -------------------------------------------------------------------------
 #
+# Media Fix rules check
+#
+# -------------------------------------------------------------------------
+def _file_unreadable(path: str) -> bool:
+    """Return True if the file, or a folder above it, cannot be read.
+
+    Uses Media Fix's own permission check when it can be imported.
+    """
+    try:
+        from gramps.plugins.tool.gwizardmediafix import check_path_permission
+    except Exception:  # Media Fix not importable: fall back to os.access
+        return os.path.exists(path) and not os.access(path, os.R_OK)
+    denied, _where = check_path_permission(path)
+    return denied
+
+
+def build_media_path_index(db: DbReadBase) -> dict[str, list[str]]:
+    """Map each media file on disk to the Gramps IDs of the records using it.
+
+    :param db: The database.
+    :returns: ``path_key(full path) -> [media Gramps IDs]``.
+    """
+    index: dict[str, list[str]] = {}
+    for media in db.iter_media():
+        raw = clean_path(str(media.get_path() or ""))
+        if raw:
+            key = path_key(full_media_path(db, raw))
+            index.setdefault(key, []).append(str(media.get_gramps_id() or ""))
+    return index
+
+
+def media_fix_problems(
+    db: DbReadBase, media: Any, path_index: dict[str, list[str]] | None = None
+) -> list[str]:
+    """Return the Media Fix rules a media record does not follow yet.
+
+    The rules are the ones Media Fix's steps enforce: a base media path is
+    set, the stored path is relative and inside it (Consolidate media
+    location), the file can be found and read (Find missing media), and no
+    other media record points at the same file (Fix media references).
+    The filename template is not a rule, because Media Fix lets the user keep
+    the original names.
+
+    :param db: The database.
+    :param media: The media record.
+    :param path_index: Result of :func:`build_media_path_index` (built on
+        demand when omitted).
+    :returns: One short description per broken rule; empty when it passes.
+    """
+    problems: list[str] = []
+    try:
+        base_set = bool((db.get_mediapath() or "").strip())
+    except Exception:
+        base_set = False
+    if not base_set:
+        problems.append(str(_("no base media path is set")))
+
+    raw = clean_path(str(media.get_path() or ""))
+    if not raw:
+        problems.append(str(_("no file path")))
+        return problems
+    if is_absolute_path(raw):
+        problems.append(str(_("absolute path (run 'Consolidate media location')")))
+    elif ".." in re.split(r"[\\/]+", raw):
+        problems.append(
+            str(_("outside the base media path (run 'Consolidate media " "location')"))
+        )
+
+    full = full_media_path(db, raw)
+    if not os.path.exists(full):
+        if _file_unreadable(full):
+            problems.append(str(_("file cannot be read (permission denied)")))
+        else:
+            problems.append(str(_("file not found (run 'Find missing media')")))
+    elif _file_unreadable(full):
+        problems.append(str(_("file cannot be read (permission denied)")))
+
+    if path_index is None:
+        path_index = build_media_path_index(db)
+    gid = str(media.get_gramps_id() or "")
+    others = [g for g in path_index.get(path_key(full), []) if g != gid]
+    if others:
+        problems.append(
+            str(_("same file as {media_ids} (run 'Fix media references')")).format(
+                media_ids=", ".join(others)
+            )
+        )
+    return problems
+
+
+# -------------------------------------------------------------------------
+#
 # Data builder
 #
 # -------------------------------------------------------------------------
 def build_link_citation_media_rows(
-    db: DbReadBase, stats: dict[str, int] | None = None
+    db: DbReadBase, stats: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
     """Scan the database and build candidate rows for media-to-citation linking.
 
-    Only locked media is offered. The lock is set in Media Fix once a file
-    has been checked, so media is fixed before it is linked to a citation,
-    and a user can lock media over several sessions and run this step again.
-    A candidate whose citation already has the media is left out.
+    Media is only offered once it follows the Media Fix rules (see
+    :func:`media_fix_problems`), so media is fixed before it is linked to a
+    citation.  Media that would have been offered but breaks a rule is
+    reported instead, with the rules it breaks.  A candidate whose citation
+    already has the media is left out.
 
     :param db: The database.
-    :param stats: Optional dict that receives ``unlocked_media``, the number
-        of different media files left out because they are not locked yet.
+    :param stats: Optional dict that receives ``media_problems``: one entry
+        per media record left out, as a dict with ``gramps_id``, ``desc``,
+        ``path`` and ``problems`` (list of strings), sorted by Gramps ID.
     :returns: The candidate rows, safe matches first.
     """
     if stats is not None:
-        stats["unlocked_media"] = 0
+        stats["media_problems"] = []
     if not db:
         return []
 
@@ -93,15 +195,30 @@ def build_link_citation_media_rows(
     candidates.extend(find_unpackable_source_media(db))
     candidates.extend(find_orphan_media_matches(db))
 
-    unlocked: set[str] = set()
+    path_index = build_media_path_index(db) if candidates else {}
+    checked: dict[str, list[str]] = {}
+    failed: dict[str, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
     for item in candidates:
         m_id = item["media_identity"]
         c_id = item["citation_identity"]
         compat = item["compatibility"]
         action = item["action"]
-        if not m_id.is_locked:
-            unlocked.add(str(item["media_handle"]))
+        m_handle = str(item["media_handle"])
+        if m_handle not in checked:
+            media_obj = db.get_media_from_handle(m_handle)
+            checked[m_handle] = (
+                media_fix_problems(db, media_obj, path_index)
+                if media_obj is not None
+                else [str(_("media record not found"))]
+            )
+        if checked[m_handle]:
+            failed[m_handle] = {
+                "gramps_id": m_id.gramps_id,
+                "desc": m_id.desc,
+                "path": m_id.path,
+                "problems": checked[m_handle],
+            }
             continue
         if str(item["media_handle"]) in c_id.media_handles:
             continue
@@ -196,28 +313,49 @@ def build_link_citation_media_rows(
         )
 
     if stats is not None:
-        stats["unlocked_media"] = len(unlocked)
+        stats["media_problems"] = sorted(
+            failed.values(), key=lambda p: str(p["gramps_id"])
+        )
     # Sort: safe first, then review, then conflict
     order = {"safe": 0, "ambiguous": 1, "conflict": 2}
     rows.sort(key=lambda r: (order.get(r["status"], 3), -r["score"]))
     return rows
 
 
-def unlocked_media_message(count: int) -> str:
-    """Return the note shown when media was left out because it is unlocked.
+def media_problems_message(problems: list[dict[str, Any]], limit: int = 10) -> str:
+    """Return the note listing media left out because it breaks Media Fix rules.
 
-    :param count: Number of media files that are not locked yet.
-    :returns: The message, or an empty string when ``count`` is 0.
+    :param problems: ``stats["media_problems"]`` from
+        :func:`build_link_citation_media_rows`.
+    :param limit: Most records to list by name.
+    :returns: The message, or an empty string when there are no problems.
     """
-    if not count:
+    if not problems:
         return ""
-    return ngettext(
-        "{number_of} media file was left out because it is not locked yet. "
-        "Check it in Media Fix and lock it, then run this step again.",
-        "{number_of} media files were left out because they are not locked "
-        "yet. Check them in Media Fix and lock them, then run this step again.",
-        count,
-    ).format(number_of=count)
+    lines = [
+        ngettext(
+            "{number_of} media file was left out because it does not follow "
+            "the Media Fix rules yet. Fix it in Media Fix, then run this step "
+            "again:",
+            "{number_of} media files were left out because they do not follow "
+            "the Media Fix rules yet. Fix them in Media Fix, then run this "
+            "step again:",
+            len(problems),
+        ).format(number_of=len(problems))
+    ]
+    for prob in problems[:limit]:
+        lines.append(
+            "  • [{media_id}] {desc}: {problems}".format(
+                media_id=prob["gramps_id"],
+                desc=prob["desc"] or os.path.basename(prob["path"]),
+                problems="; ".join(prob["problems"]),
+            )
+        )
+    if len(problems) > limit:
+        lines.append(
+            "  " + _("... and {number_of} more").format(number_of=len(problems) - limit)
+        )
+    return "\n".join(lines)
 
 
 # -------------------------------------------------------------------------
@@ -285,17 +423,17 @@ def apply_citation_media_fixes(
 
 
 def auto_link_citation_media(
-    db: DbWriteBase, stats: dict[str, int] | None = None
+    db: DbWriteBase, stats: dict[str, Any] | None = None
 ) -> int:
     """Headless auto-linker for 'Accept all hints'.
 
     Applies only safe (🟢) candidates with zero conflicts in one transaction.
-    Only locked media is used; see :func:`build_link_citation_media_rows`
-    for ``stats``.
+    Only media that follows the Media Fix rules is used; see
+    :func:`build_link_citation_media_rows` for ``stats``.
     """
     if not db:
         if stats is not None:
-            stats["unlocked_media"] = 0
+            stats["media_problems"] = []
         return 0
 
     rows = build_link_citation_media_rows(db, stats)
@@ -342,7 +480,7 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
             destroy_with_parent=True,
         )
         self.dbstate = dbstate
-        self.stats: dict[str, int] = {"unlocked_media": 0}
+        self.stats: dict[str, Any] = {"media_problems": []}
         self.rows = (
             build_link_citation_media_rows(dbstate.db, self.stats)
             if dbstate and dbstate.db
@@ -364,22 +502,23 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
         content.set_border_width(12)
         content.set_spacing(8)
 
-        unlocked_text = unlocked_media_message(self.stats["unlocked_media"])
-        if unlocked_text:
-            unlocked_label = Gtk.Label(label=unlocked_text)
-            unlocked_label.set_line_wrap(True)
-            unlocked_label.set_halign(Gtk.Align.START)
-            content.pack_start(unlocked_label, False, False, 0)
+        problems_text = media_problems_message(self.stats["media_problems"])
+        if problems_text:
+            problems_label = Gtk.Label(label=problems_text)
+            problems_label.set_line_wrap(True)
+            problems_label.set_selectable(True)
+            problems_label.set_halign(Gtk.Align.START)
+            content.pack_start(problems_label, False, False, 0)
 
         if not self.rows:
-            done = Gtk.Label(
-                label=str(
-                    _(
-                        "No candidate media links found. All citations and media "
-                        "attachments are well-aligned."
-                    )
+            if problems_text:
+                done_text = _("No other candidate media links found.")
+            else:
+                done_text = _(
+                    "No candidate media links found. All citations and media "
+                    "attachments are well-aligned."
                 )
-            )
+            done = Gtk.Label(label=str(done_text))
             done.set_halign(Gtk.Align.START)
             content.add(done)
             self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
@@ -519,7 +658,7 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
     def _build_inspector_pane(self) -> Gtk.Box:
         """Build the inspector pane showing thumbnail and compatibility details."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.set_min_content_width(380)
+        box.set_size_request(380, -1)  # Gtk.Box has no set_min_content_width
         box.set_border_width(6)
 
         title = Gtk.Label()
@@ -529,8 +668,7 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
 
         # Thumbnail image display
         self.preview_image = Gtk.Image()
-        self.preview_image.set_min_content_height(140)
-        self.preview_image.set_min_content_width(200)
+        self.preview_image.set_size_request(200, 140)
         box.pack_start(self.preview_image, False, False, 0)
 
         # Score badge

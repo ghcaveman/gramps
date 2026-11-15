@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Repository consolidate dialog for the GWizard citation fix tool."""
+"""Repository consolidate dialog for the GWizard Citation Fix tool."""
 
 # -------------------------------------------------------------------------
 #

@@ -177,7 +177,6 @@ class GWizardCitationFixTest(unittest.TestCase):
                     "gramps.plugins.tool.gwizardcitationfix.GWizardCitationReport",
                     return_value=mock_engine,
                 ),
-                patch("gramps.plugins.tool.gwizardcitationfix.OkDialog") as mock_ok,
                 patch.object(tool_instance, "cb_view_report") as mock_view,
             ):
                 tool_instance.cb_generate_report()
@@ -187,7 +186,6 @@ class GWizardCitationFixTest(unittest.TestCase):
                     content = handle.read()
                 self.assertIn("Test Report Content", content)
                 self.assertEqual(tool_instance.report_path, target_path)
-                mock_ok.assert_called_once()
                 mock_view.assert_called_once()
 
     def test_cb_view_report(self) -> None:

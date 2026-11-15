@@ -1026,8 +1026,9 @@ def apply_promote_media_to_citation(
 ) -> bool:
     """Link media to citation and optionally detach from Person or Event gallery.
 
-    Only locked media (checked in Media Fix) reach this step, so the lock
-    does not stop the detach; detaching changes the owner, not the media.
+    Only media that follows the Media Fix rules reaches this step.  A
+    ``GWizard: Locked`` tag does not stop the detach: detaching changes the
+    owner, not the media.
     """
     linked = apply_link_media_to_citation(db, trans, citation_handle, media_handle)
     if not linked:

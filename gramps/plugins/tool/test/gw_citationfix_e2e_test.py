@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""End-to-end tests for the GWizard citation fix: every step on one tree.
+"""End-to-end tests for the GWizard Citation Fix: every step on one tree.
 
 These replace the old ``gw_smoke_import.py`` and ``gw_run_e2e.py`` scripts,
 so they run with the rest of the suite and fail the build when they break.

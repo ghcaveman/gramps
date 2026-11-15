@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Shared pure-logic helpers for the GWizard citation fix tool (no GUI, no DB)."""
+"""Shared pure-logic helpers for the GWizard Citation Fix tool (no GUI, no DB)."""
 
 # -------------------------------------------------------------------------
 #
