@@ -222,10 +222,13 @@ class SourceFixDialog(Gtk.Dialog):
             padding: 2px;
         }
         """
+        screen = Gdk.Screen.get_default()
+        if screen is None:
+            return
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
+            screen,
             provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
