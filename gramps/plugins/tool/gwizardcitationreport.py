@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Database scanning and report text for the GWizard citation fix tool."""
+"""Database scanning and report text for the GWizard Citation Fix tool."""
 
 # -------------------------------------------------------------------------
 #
@@ -1164,8 +1164,8 @@ class GWizardCitationReport:
             _("Run 'Fix Citations' to lower the confidence of online tree citations."),
             _("Run 'Citation Attributes' to add GPS quality attributes."),
             _(
-                "Run 'Link Citation Media' to link checked (locked) document "
-                "scans to citations."
+                "Run 'Link Citation Media' to link document scans that pass "
+                "Media Fix to citations."
             ),
             _("Run 'Fix Notes' to remove leftover import logs from notes."),
         ]

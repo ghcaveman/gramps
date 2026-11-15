@@ -533,16 +533,16 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard citation fix
+# GWizard Citation Fix
 #
 # ------------------------------------------------------------------------
 
 register(
     TOOL,
     id="gwizardcitationfix",
-    name=_("GWizard citation fix"),
+    name=_("GWizard Citation Fix"),
     description=_(
-        "Open the GWizard citation fix dialog to generate " "and view citation reports."
+        "Open the GWizard Citation Fix dialog to generate " "and view citation reports."
     ),
     version="0.0.1",
     gramps_target_version=MODULE_VERSION,

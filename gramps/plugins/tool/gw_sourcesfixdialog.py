@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Source-record fix dialog for the GWizard citation fix tool."""
+"""Source-record fix dialog for the GWizard Citation Fix tool."""
 
 # -------------------------------------------------------------------------
 #

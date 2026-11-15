@@ -46,7 +46,6 @@ from typing import Any
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbReadBase, DbWriteBase
 from gramps.gen.lib import MediaRef
-from gramps.plugins.tool.gwizard_common import is_locked
 
 _ = glocale.translation.sgettext
 ngettext = glocale.translation.ngettext
@@ -189,7 +188,6 @@ class MediaIdentity:
     given: str = ""
     sheet_page: str = ""
     is_portrait: bool = False
-    is_locked: bool = False
     raw_tokens: list[str] = field(default_factory=list)
 
 
@@ -335,8 +333,6 @@ def extract_media_identity(media: Any, db: DbReadBase | None = None) -> MediaIde
             surname = clean_name_token(part1)
             given = clean_name_token(part2)
 
-    locked = is_locked(db, media) if db else False
-
     tokens = [t.lower() for t in re.split(r"[\W_]+", f"{stem} {desc}") if len(t) >= 3]
 
     return MediaIdentity(
@@ -352,7 +348,6 @@ def extract_media_identity(media: Any, db: DbReadBase | None = None) -> MediaIde
         given=given,
         sheet_page=sheet_page,
         is_portrait=is_portrait,
-        is_locked=locked,
         raw_tokens=tokens,
     )
 
@@ -730,7 +725,6 @@ def find_promotable_gallery_media(db: DbReadBase) -> list[dict[str, Any]]:
                                 "media_identity": m_id,
                                 "citation_identity": c_id,
                                 "compatibility": compat,
-                                "is_locked": m_id.is_locked,
                             }
                         )
 
@@ -784,7 +778,6 @@ def find_promotable_gallery_media(db: DbReadBase) -> list[dict[str, Any]]:
                                 "media_identity": m_id,
                                 "citation_identity": c_id,
                                 "compatibility": compat,
-                                "is_locked": m_id.is_locked,
                             }
                         )
 
@@ -850,7 +843,6 @@ def find_unpackable_source_media(db: DbReadBase) -> list[dict[str, Any]]:
                         "media_identity": m_id,
                         "citation_identity": extract_citation_identity(db, best_cit),
                         "compatibility": best_compat,
-                        "is_locked": m_id.is_locked,
                     }
                 )
 
@@ -907,7 +899,6 @@ def find_orphan_media_matches(db: DbReadBase) -> list[dict[str, Any]]:
                         "media_identity": m_id,
                         "citation_identity": c_id,
                         "compatibility": compat,
-                        "is_locked": m_id.is_locked,
                     }
                 )
 
@@ -1026,8 +1017,7 @@ def apply_promote_media_to_citation(
 ) -> bool:
     """Link media to citation and optionally detach from Person or Event gallery.
 
-    Only locked media (checked in Media Fix) reach this step, so the lock
-    does not stop the detach; detaching changes the owner, not the media.
+    Only media that follows the Media Fix rules reaches this step.
     """
     linked = apply_link_media_to_citation(db, trans, citation_handle, media_handle)
     if not linked:

@@ -27,6 +27,9 @@ from __future__ import annotations
 # Standard Python modules
 #
 # -------------------------------------------------------------------------
+import os
+import shutil
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -73,9 +76,9 @@ from gramps.plugins.tool.gw_linkcitationmediadialog import (
     apply_citation_media_fixes,
     auto_link_citation_media,
     build_link_citation_media_rows,
-    unlocked_media_message,
+    media_fix_problems,
+    media_problems_message,
 )
-from gramps.plugins.tool.gwizard_common import lock_media
 
 
 class DummyDbState:
@@ -92,9 +95,29 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
         self.db: DbWriteBase = make_database("sqlite")
         self.db.load(":memory:")
         self.dbstate = DummyDbState(self.db)
+        # Media that passes Media Fix: relative path, file inside the base
+        # media path, one record per file.
+        self.base_dir = tempfile.mkdtemp(prefix="gw_linkmedia_")
+        self.db.set_mediapath(self.base_dir)
 
     def tearDown(self) -> None:
         self.db.close()
+        shutil.rmtree(self.base_dir, ignore_errors=True)
+
+    def _media(self, filename: str, create: bool = True) -> Media:
+        """
+        Return a new media record with a path relative to the base path.
+
+        :param filename: The file name.
+        :param create: Whether to create the file on disk.
+        :returns: The (not yet added) media record.
+        """
+        if create:
+            with open(os.path.join(self.base_dir, filename), "wb") as handle:
+                handle.write(b"scan")
+        media = Media()
+        media.set_path(filename)
+        return media
 
     def test_build_rows_empty_db(self) -> None:
         """build_link_citation_media_rows returns empty list when no candidates exist."""
@@ -122,9 +145,7 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
             person.set_primary_name(name)
             person.add_citation(c_h)
 
-            m = Media()
-            m.set_path("Adams_John_1940_Census_Sheet_12A.jpg")
-            lock_media(self.db, m, txn=trans)
+            m = self._media("Adams_John_1940_Census_Sheet_12A.jpg")
             m_h = self.db.add_media(m, trans)
 
             mref = MediaRef()
@@ -155,8 +176,7 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
             c_h = self.db.add_citation(cit, trans)
 
             person = Person()
-            m = Media()
-            m.set_path("Baker_1930_Census_Sheet_1A.jpg")
+            m = self._media("Baker_1930_Census_Sheet_1A.jpg")
             m_h = self.db.add_media(m, trans)
 
             ref = MediaRef()
@@ -172,7 +192,6 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
                 "media_handle": m_h,
                 "owner_handle": p_h,
                 "owner_type": "Person",
-                "is_locked": False,
             }
         ]
 
@@ -188,8 +207,17 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
         p_obj = self.db.get_person_from_handle(p_h)
         self.assertEqual(len(p_obj.get_media_list()), 0)
 
-    def _add_census_candidate(self, surname: str, year: str, locked: bool) -> tuple:
-        """Add a person gallery scan that matches one of their citations."""
+    def _add_census_candidate(
+        self, surname: str, year: str, file_present: bool = True, path: str = ""
+    ) -> tuple:
+        """Add a person gallery scan that matches one of their citations.
+
+        :param surname: The person's surname (also used in the file name).
+        :param year: The census year.
+        :param file_present: Whether the scan exists in the base media path.
+        :param path: Store this path instead (e.g. an absolute one).
+        :returns: ``(citation handle, media handle)``.
+        """
         with DbTxn("Setup candidate", self.db) as trans:
             src = Source()
             src.set_title("%s Federal Census" % year)
@@ -205,10 +233,11 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
             name.add_surname(sname)
             person.set_primary_name(name)
             person.add_citation(c_h)
-            m = Media()
-            m.set_path("%s_%s_Census_Sheet_3B.jpg" % (surname, year))
-            if locked:
-                lock_media(self.db, m, txn=trans)
+            m = self._media(
+                "%s_%s_Census_Sheet_3B.jpg" % (surname, year), create=file_present
+            )
+            if path:
+                m.set_path(path)
             m_h = self.db.add_media(m, trans)
             ref = MediaRef()
             ref.set_reference_handle(m_h)
@@ -216,53 +245,97 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
             self.db.add_person(person, trans)
         return c_h, m_h
 
-    def test_unlocked_media_is_not_offered(self) -> None:
-        """Media not yet locked in Media Fix is left out and counted."""
-        c_h, _m_h = self._add_census_candidate("Evans", "1930", locked=False)
-        stats: dict[str, int] = {}
+    def test_media_breaking_rules_is_not_offered(self) -> None:
+        """Media whose file is missing is left out and listed with the reason."""
+        c_h, _m_h = self._add_census_candidate("Evans", "1930", file_present=False)
+        stats: dict = {}
         self.assertEqual(build_link_citation_media_rows(self.db, stats), [])
-        self.assertEqual(stats["unlocked_media"], 1)
+        self.assertEqual(len(stats["media_problems"]), 1)
+        self.assertIn("file not found", stats["media_problems"][0]["problems"][0])
         stats = {}
         self.assertEqual(auto_link_citation_media(self.db, stats), 0)
-        self.assertEqual(stats["unlocked_media"], 1)
+        self.assertEqual(len(stats["media_problems"]), 1)
         c_obj = self.db.get_citation_from_handle(c_h)
         self.assertEqual(len(c_obj.get_media_list()), 0)
-        self.assertIn("1 media file was left out", unlocked_media_message(1))
-        self.assertEqual(unlocked_media_message(0), "")
+        msg = media_problems_message(stats["media_problems"])
+        self.assertIn("1 media file was left out", msg)
+        self.assertIn("Evans_1930_Census_Sheet_3B.jpg", msg)
+        self.assertIn("Find missing media", msg)
+        self.assertEqual(media_problems_message([]), "")
 
-    def test_rerun_picks_up_newly_locked_media(self) -> None:
-        """Locking more media later and running again links only the new ones."""
-        c1, _m1 = self._add_census_candidate("Fox", "1920", locked=True)
-        c2, m2 = self._add_census_candidate("Gray", "1910", locked=False)
-        stats: dict[str, int] = {}
+    def test_media_fix_rules(self) -> None:
+        """Each Media Fix rule is reported on its own."""
+        with DbTxn("Setup rules", self.db) as trans:
+            good = self._media("good.jpg")
+            self.db.add_media(good, trans)
+            absolute = self._media("abs.jpg")
+            absolute.set_path(os.path.join(self.base_dir, "abs.jpg"))
+            self.db.add_media(absolute, trans)
+            outside = self._media("out.jpg", create=False)
+            outside.set_path("../out.jpg")
+            self.db.add_media(outside, trans)
+            dup1 = self._media("shared.jpg")
+            self.db.add_media(dup1, trans)
+            dup2 = self._media("shared.jpg")
+            self.db.add_media(dup2, trans)
+        self.assertEqual(media_fix_problems(self.db, good), [])
+        self.assertIn("absolute path", media_fix_problems(self.db, absolute)[0])
+        out_problems = " ".join(media_fix_problems(self.db, outside))
+        self.assertIn("outside the base media path", out_problems)
+        self.assertIn("file not found", out_problems)
+        dup_problems = media_fix_problems(self.db, dup1)
+        self.assertEqual(len(dup_problems), 1)
+        self.assertIn(dup2.get_gramps_id(), dup_problems[0])
+        self.assertIn("Fix media references", dup_problems[0])
+
+    def test_no_base_media_path_is_a_problem(self) -> None:
+        """Without a base media path nothing passes Media Fix."""
+        with DbTxn("Setup no base", self.db) as trans:
+            m = self._media("nobase.jpg")
+            self.db.add_media(m, trans)
+        self.db.set_mediapath(None)
+        self.assertIn("no base media path is set", media_fix_problems(self.db, m))
+
+    def test_rerun_picks_up_fixed_media(self) -> None:
+        """Fixing more media later and running again links only the new ones."""
+        c1, _m1 = self._add_census_candidate("Fox", "1920")
+        c2, _m2 = self._add_census_candidate("Gray", "1910", file_present=False)
+        stats: dict = {}
         self.assertEqual(auto_link_citation_media(self.db, stats), 1)
-        self.assertEqual(stats["unlocked_media"], 1)
+        self.assertEqual(len(stats["media_problems"]), 1)
 
-        lock_media(self.db, self.db.get_media_from_handle(m2), commit=True)
+        # The user finds the file (Media Fix: Find missing media).
+        self._media("Gray_1910_Census_Sheet_3B.jpg")
         stats = {}
         self.assertEqual(auto_link_citation_media(self.db, stats), 1)
-        self.assertEqual(stats["unlocked_media"], 0)
+        self.assertEqual(stats["media_problems"], [])
         for c_h in (c1, c2):
             c_obj = self.db.get_citation_from_handle(c_h)
             self.assertEqual(len(c_obj.get_media_list()), 1)
         # Nothing left to offer: the linked citations are not listed again.
         self.assertEqual(build_link_citation_media_rows(self.db), [])
 
-    def test_wizard_reports_unlocked_media(self) -> None:
-        """The auto step and the review list both name media left unlocked."""
+    def test_wizard_reports_media_problems(self) -> None:
+        """The auto step and the review list both name media that breaks rules."""
         # pylint: disable=import-outside-toplevel
         from gramps.plugins.tool import gwizardcitationfix as fix
 
-        self._add_census_candidate("Irwin", "1940", locked=False)
+        self._add_census_candidate(
+            "Irwin", "1940", path="C:/Users/someone/Irwin_1940_Census_Sheet_3B.jpg"
+        )
         msg = fix.run_auto_layer("link_citation_media", self.db)
         self.assertIn("Linked 0 media objects", msg)
         self.assertIn("1 media file was left out", msg)
+        self.assertIn("absolute path", msg)
         review = "\n".join(fix.find_items_needing_review(self.db))
-        self.assertIn("Link Citation Media (1): media files are not locked", review)
+        self.assertIn(
+            "Link Citation Media (1): media files do not follow the Media Fix rules",
+            review,
+        )
 
-    def test_locked_media_can_be_detached(self) -> None:
-        """The lock means "checked", so the user may still detach from a gallery."""
-        c_h, m_h = self._add_census_candidate("Hall", "1900", locked=True)
+    def test_gallery_media_can_be_detached(self) -> None:
+        """Media that passes Media Fix may be detached from a gallery."""
+        c_h, m_h = self._add_census_candidate("Hall", "1900")
         rows = build_link_citation_media_rows(self.db)
         self.assertEqual(len(rows), 1)
         self.assertIn("link_detach", [code for _label, code in rows[0]["options"]])
@@ -292,9 +365,7 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
             person.set_primary_name(name)
             person.add_citation(c_h)
 
-            m = Media()
-            m.set_path("Clark_1920_Census_Sheet_02A.jpg")
-            lock_media(self.db, m, txn=trans)
+            m = self._media("Clark_1920_Census_Sheet_02A.jpg")
             m_h = self.db.add_media(m, trans)
 
             ref = MediaRef()
@@ -328,9 +399,7 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
             person.set_primary_name(name)
             person.add_citation(c_h)
 
-            m = Media()
-            m.set_path("Davis_1910_Census_Sheet_5A.jpg")
-            lock_media(self.db, m, txn=trans)
+            m = self._media("Davis_1910_Census_Sheet_5A.jpg")
             m_h = self.db.add_media(m, trans)
 
             ref = MediaRef()

@@ -1,38 +1,47 @@
-# GWizard Media Fix addon -- built by package_addon.py (from gramps_devutil).
+# GWizard Citation Fix addon -- built by package_addon.py (from gramps_devutil).
 # See addon_package.example.toml in gramps_devutil for every option.
 #
-# CitationFix depends on this addon. Build MediaFix from this repo only; the
-# citation-fix branch picks up these files by merging gwizard_mediafix.
+# Depends on the GWizard Media Fix addon, which is built from the
+# gwizard_mediafix branch (its own addon_package.toml). Merge that branch into
+# this one before a release so the two stay in step.
 
-package = "MediaFix"
+package = "CitationFix"
 
 [registration]
-id = "gwizardmediafix"
-name = "Media Fix"
-description = "Fix media references in a Gramps database."
-fname = "gwizardmediafix.py"
-toolclass = "GWizardMediaFixTool"
-optionclass = "GWizardMediaFixOptions"
+id = "gwizardcitationfix"
+name = "GWizard Citation Fix"
+description = "Wizard-style cleanup of repositories, sources, citations and notes in the open Family Tree."
+fname = "gwizardcitationfix.py"
+toolclass = "GWizardCitationFixTool"
+optionclass = "GWizardCitationFixOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
-help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardMediaFix_Tool"
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardCitationFix_Tool"
 gramps_versions = ["5.2.0", "6.2.0"]
 
 [files]
-# Listed explicitly: in the citation-fix tree gw_*.py also matches the
-# citation-fix dialogs. gwizard_common.py is owned by this addon; CitationFix
-# uses this copy through its dependency.
+modules = [
+    "gramps/plugins/tool/gwizardcitation*.py",
+    "gramps/plugins/tool/gw_*.py",
+]
+tests = [
+    "gramps/plugins/tool/test/gw_*_test.py",
+]
+test_helpers = [
+    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
+]
+# Media-fix dialog: ships in MediaFix (listed under the dependency below).
+exclude = [
+    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+]
+
+[[dependencies]]
+id = "gwizardmediafix"
+package = "MediaFix"
 modules = [
     "gramps/plugins/tool/gwizardmediafix.py",
     "gramps/plugins/tool/gwizard_common.py",
     "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
-]
-tests = [
-    "gramps/plugins/tool/test/gwizardmediafix*_test.py",
-    "gramps/plugins/tool/test/gwizard_common_test.py",
-]
-test_helpers = [
-    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
 ]
 
 [check]
@@ -46,7 +55,9 @@ ignore = [
     "*.txt",
     "check_banner.bash",
     "environment_create.py",
-    "package_gwizard_mediafix.py",
+    # Media Fix tests come with the dependency; MediaFix ships them.
+    "gramps/plugins/tool/test/gwizardmediafix*_test.py",
+    "gramps/plugins/tool/test/gwizard_common_test.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",

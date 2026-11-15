@@ -68,7 +68,6 @@ from gramps.gen.lib import (
     Source,
     Surname,
 )
-from gramps.plugins.tool.gwizard_common import lock_media
 from gramps.plugins.tool.gwizardcitationmediaengine import (
     CitationIdentity,
     MediaIdentity,
@@ -164,11 +163,6 @@ class GWizardCitationMediaEngineTest(unittest.TestCase):
             m2.set_description("Profile photograph of Jane Doe")
             h2 = self.db.add_media(m2, trans)
 
-            m3 = Media()
-            m3.set_path("Miller_William_1880.png")
-            lock_media(self.db, m3, txn=trans)
-            h3 = self.db.add_media(m3, trans)
-
         id1 = extract_media_identity(self.db.get_media_from_handle(h1), self.db)
         self.assertEqual(id1.year, "1940")
         self.assertEqual(id1.category, "census")
@@ -176,14 +170,11 @@ class GWizardCitationMediaEngineTest(unittest.TestCase):
         self.assertEqual(id1.given, "john")
         self.assertEqual(id1.sheet_page, "12A")
         self.assertFalse(id1.is_portrait)
-        self.assertFalse(id1.is_locked)
+        self.assertFalse(hasattr(id1, "is_locked"))
 
         id2 = extract_media_identity(self.db.get_media_from_handle(h2), self.db)
         self.assertTrue(id2.is_portrait)
         self.assertEqual(id2.category, "portrait")
-
-        id3 = extract_media_identity(self.db.get_media_from_handle(h3), self.db)
-        self.assertTrue(id3.is_locked)
 
     def test_extract_citation_identity(self) -> None:
         """extract_citation_identity extracts source metadata and backlinked person names."""
@@ -342,15 +333,14 @@ class GWizardCitationMediaEngineTest(unittest.TestCase):
         self.assertEqual(item["citation_handle"], c_handle)
         self.assertEqual(item["action"], "promote_from_person")
 
-    def test_apply_promote_locked_media_detaches(self) -> None:
-        """Locked (checked) media is linked to the citation and can leave the gallery."""
-        with DbTxn("Setup locked media promote test", self.db) as trans:
+    def test_apply_promote_media_detaches(self) -> None:
+        """Promoted media is linked to the citation and can leave the gallery."""
+        with DbTxn("Setup media promote test", self.db) as trans:
             cit = Citation()
             c_handle = self.db.add_citation(cit, trans)
 
             m = Media()
             m.set_path("Certificate_1912.jpg")
-            lock_media(self.db, m, txn=trans)
             m_handle = self.db.add_media(m, trans)
 
             person = Person()
@@ -376,8 +366,8 @@ class GWizardCitationMediaEngineTest(unittest.TestCase):
         c_refs = [str(r.ref) for r in cit_after.get_media_list() or []]
         self.assertIn(m_handle, c_refs)
 
-        # The lock means "checked in Media Fix"; detaching changes the
-        # person, not the media, so the gallery reference is removed.
+        # Detaching changes the person, not the media, so the gallery
+        # reference is removed.
         person_after = self.db.get_person_from_handle(p_handle)
         p_refs = [str(r.ref) for r in person_after.get_media_list() or []]
         self.assertNotIn(m_handle, p_refs)

@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Database repair engine for the GWizard citation fix tool (no GUI)."""
+"""Database repair engine for the GWizard Citation Fix tool (no GUI)."""
 
 # -------------------------------------------------------------------------
 #

@@ -50,11 +50,11 @@ from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Media, Tag
 from gramps.plugins.tool.gwizard_common import (
-    reports_apply_errors,
     SelectableLabel,
     TableLabel,
     HeaderLabel,
     create_table_grid,
+    reports_apply_errors,
     clean_path,
     is_absolute_path,
     path_key,

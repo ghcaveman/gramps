@@ -35,13 +35,12 @@ Save your output into: C:/gramps_dev/gramps_gwizard_citationfix_plugin/gramps_gw
 - MediaAndCitationRferences_Devin.md
 - WikiTree_ImprovementList.md
 - _apply_changes.py
+- addon_package.toml
 - diagnose_duplicate_sources.py
 - featuredocs/.gitignore
 - featuredocs/README_gwizard_citationfix.md
-- featuredocs/README_gwizard_mediafix.md
 - featuredocs/ToolComparison.md
-- featuredocs/build_gwizard_citationfix_wiki.bash
-- featuredocs/create_gwizard_mediafix_wiki.bash
+- featuredocs/create_gwizard_citationfix_wiki.bash
 - featuredocs/devnotes/citationfix/CitationAttributes_GoogleAi.md
 - featuredocs/devnotes/citationfix/GeminiRepositorySourcesCitationDescription.txt
 - featuredocs/devnotes/citationfix/HandlingSourceCitationsWithUrls_GoogleAI.txt
@@ -51,9 +50,20 @@ Save your output into: C:/gramps_dev/gramps_gwizard_citationfix_plugin/gramps_gw
 - featuredocs/gwizard_citationfix.mediawiki
 - featuredocs/gwizard_citationfix_image_audit.txt
 - featuredocs/gwizard_citationfix_prompt.txt
-- featuredocs/gwizard_mediafix.mediawiki
-- featuredocs/gwizard_mediafix_image_audit.txt
-- featuredocs/gwizard_mediafix_prompt.txt
+- featuredocs/images/gwizard_citationfix-accept-all-hints-complete.png
+- featuredocs/images/gwizard_citationfix-accept-all-hints.png
+- featuredocs/images/gwizard_citationfix-citation-attributes.png
+- featuredocs/images/gwizard_citationfix-fix-citations.png
+- featuredocs/images/gwizard_citationfix-fix-notes.png
+- featuredocs/images/gwizard_citationfix-fix-repositories.png
+- featuredocs/images/gwizard_citationfix-fix-sources.png
+- featuredocs/images/gwizard_citationfix-generate-report-save.png
+- featuredocs/images/gwizard_citationfix-generate-report.png
+- featuredocs/images/gwizard_citationfix-link-citation-media.png
+- featuredocs/images/gwizard_citationfix-main.png
+- featuredocs/images/gwizard_citationfix-repository-consolidate.png
+- featuredocs/images/gwizard_citationfix-unpack-conflated-citation.png
+- featuredocs/images/gwizard_citationfix-unpack-conflated-source.png
 - featuredocs/images/gwizard_mediafix-accept-all-hints-complete.png
 - featuredocs/images/gwizard_mediafix-accept-all-hints.png
 - featuredocs/images/gwizard_mediafix-clean-import-notes.png
@@ -103,11 +113,9 @@ Save your output into: C:/gramps_dev/gramps_gwizard_citationfix_plugin/gramps_gw
 - gramps/plugins/tool/test/gwizardmediafix_pickfile_test.py
 - gramps/plugins/tool/test/gwizardmediafix_test.py
 - gramps/plugins/tool/tools.gpr.py
-- gramps/version.py
-- package_gwizard_mediafix.py
+- package_addon.py
 - po/POTFILES.in
 - po/POTFILES.skip
-- po/sk.po
 - test_import.py
 
 ### Plugin Registration Metadata (.gpr.py):
@@ -647,16 +655,16 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard citation fix
+# GWizard Citation Fix
 #
 # ------------------------------------------------------------------------
 
 register(
     TOOL,
     id="gwizardcitationfix",
-    name=_("GWizard citation fix"),
+    name=_("GWizard Citation Fix"),
     description=_(
-        "Open the GWizard citation fix dialog to generate " "and view citation reports."
+        "Open the GWizard Citation Fix dialog to generate " "and view citation reports."
     ),
     version="0.0.1",
     gramps_target_version=MODULE_VERSION,
@@ -755,25 +763,25 @@ CitationFixDialog.cb_apply:
 
 --- gramps/plugins/tool/gw_fixmediareferencesdialog.py ---
 FixMediaReferencesDialog.__init__:
-  line 271: button: Accept hints (%d)
-  line 276: button: Apply
-  line 281: dialog button: Close
+  line 269: button: Accept hints (%d)
+  line 274: button: Apply
+  line 279: dialog button: Close
 FixMediaReferencesDialog.cb_accept_hints:
-  line 507: message title: Hints accepted
+  line 505: message title: Hints accepted
 FixMediaReferencesDialog.cb_apply:
-  line 694: message title: Nothing was changed
-  line 700: message title: Nothing to apply
-  line 724: message title: Media References Resolved
+  line 657: message title: Nothing was changed
+  line 663: message title: Nothing to apply
+  line 687: message title: Media References Resolved
 
 --- gramps/plugins/tool/gw_linkcitationmediadialog.py ---
 GWLinkCitationMediaDialog.__init__:
-  line 385: dialog button: Close
-  line 430: button: Apply
-  line 435: dialog button: Close
+  line 523: dialog button: Close
+  line 568: button: Apply
+  line 573: dialog button: Close
 GWLinkCitationMediaDialog._build_data_grid:
-  line 504: button: Inspect
+  line 642: button: Inspect
 GWLinkCitationMediaDialog.cb_apply:
-  line 680: message title: Media Linking Complete
+  line 817: message title: Media Linking Complete
 
 --- gramps/plugins/tool/gw_notesfixdialog.py ---
 NotesFixDialog.__init__:
@@ -848,7 +856,7 @@ reports_apply_errors.wrapper:
 
 --- gramps/plugins/tool/gwizardcitationfix.py ---
 GWizardCitationFix._build_window:
-  line 855: window title: GWizard citation fix
+  line 855: window title: GWizard Citation Fix
   line 878: button: Accept all hints
   line 882: dialog button: Close
 GWizardCitationFix.show_fix_dialog:
@@ -861,16 +869,15 @@ GWizardCitationFix.cb_auto_all:
   line 1056: dialog button: Accept all
   line 1056: dialog button: Cancel
   line 1126: window title: Accept All Hints Complete
-  line 1132: dialog button: Close
+  line 1133: dialog button: Close
 GWizardCitationFix.cb_generate_report:
-  line 1154: window title: Save Citation Fix Report
-  line 1160: dialog button: Cancel
-  line 1160: dialog button: Save
-  line 1210: message title: Report Generated
-  line 1218: message title: Report Failed
+  line 1163: window title: Save Citation Fix Report
+  line 1169: dialog button: Cancel
+  line 1169: dialog button: Save
+  line 1222: message title: Report Failed
 GWizardCitationFix.cb_view_report:
-  line 1233: window title: GWizard citation fix report
-  line 1239: dialog button: Close
+  line 1237: window title: GWizard Citation Fix report
+  line 1243: dialog button: Close
 
 --- gramps/plugins/tool/gwizardcitationreport.py ---
 GWizardCitationReport._format_placement:
@@ -880,94 +887,106 @@ GWizardCitationReport._format_placement:
 
 --- gramps/plugins/tool/gwizardmediafix.py ---
 (module):
-  line 134: list item (button or choice): Reference ID + Community Standard ({ref_id}_{surname}_{given}-{doc_type}-{year})
-  line 140: list item (button or choice): Community Standard ({surname}_{given}-{doc_type}-{year})
-  line 144: list item (button or choice): Reference ID + Document Type ({ref_id}_{doc_type}-{year})
-  line 148: list item (button or choice): Media ID + Document Type ({id}_{doc_type}-{year})
-  line 152: list item (button or choice): Media ID + Original Name ({id}_{orig})
-  line 156: list item (button or choice): Sanitized Original Name ({orig})
-  line 160: list item (button or choice): Community Standard + content hash (never clashes for different files)
+  line 132: list item (button or choice): Reference ID + Community Standard ({ref_id}_{surname}_{given}-{doc_type}-{year})
+  line 138: list item (button or choice): Community Standard ({surname}_{given}-{doc_type}-{year})
+  line 142: list item (button or choice): Reference ID + Document Type ({ref_id}_{doc_type}-{year})
+  line 146: list item (button or choice): Media ID + Document Type ({id}_{doc_type}-{year})
+  line 150: list item (button or choice): Media ID + Original Name ({id}_{orig})
+  line 154: list item (button or choice): Sanitized Original Name ({orig})
+  line 158: list item (button or choice): Community Standard + content hash (never clashes for different files)
 confirm_plan:
-  line 1988: window title: Accept all hints - preview
-  line 1995: dialog button: Cancel
-  line 1996: dialog button: Accept all
+  line 1928: window title: Accept all hints - preview
+  line 1935: dialog button: Cancel
+  line 1936: dialog button: Accept all
 FindMissingMediaDialog.__init__:
-  line 2152: button: Accept hints (%d)
-  line 2157: button: Copy from folder...
-  line 2162: button: Apply
-  line 2167: dialog button: Close
+  line 2085: button: Accept hints (%d)
+  line 2090: button: Copy from folder...
+  line 2095: button: Apply
+  line 2100: dialog button: Close
 FindMissingMediaDialog.cb_accept_hints:
-  line 2341: message title: Hints accepted
+  line 2269: message title: Hints accepted
 FindMissingMediaDialog.cb_pick_file:
-  line 2360: window title: Select the file for %s
+  line 2288: window title: Select the file for %s
 FindMissingMediaDialog.cb_select_mediapath:
-  line 2467: window title: Select media directory
+  line 2395: window title: Select media directory
 FindMissingMediaDialog.cb_copy_from_folder:
-  line 2498: message title: Set a base media path first
-  line 2509: window title: Select folder containing the missing files
-  line 2528: message title: Folder not readable
-  line 2548: message title: Copies queued
+  line 2426: message title: Set a base media path first
+  line 2437: window title: Select folder containing the missing files
+  line 2456: message title: Folder not readable
+  line 2476: message title: Copies queued
 FindMissingMediaDialog.cb_apply:
-  line 2651: message title: Nothing to apply
-  line 2676: message title: Media Paths Updated
+  line 2575: message title: Nothing to apply
+  line 2600: message title: Media Paths Updated
 ConsolidateMediaLocationDialog.__init__:
-  line 2815: button: Use naming standard
-  line 2818: button: Keep original filename
-  line 2832: button: Move files
-  line 2835: button: Make a copy
-  line 2917: button: Accept hints (%d)
-  line 2922: button: Apply
-  line 2927: dialog button: Close
+  line 2739: button: Use naming standard
+  line 2742: button: Keep original filename
+  line 2756: button: Move files
+  line 2759: button: Make a copy
+  line 2826: button: Accept hints (%d)
+  line 2831: button: Apply
+  line 2836: dialog button: Close
 ConsolidateMediaLocationDialog.cb_select_mediapath:
-  line 3052: window title: Select media directory
+  line 2959: window title: Select media directory
 ConsolidateMediaLocationDialog.cb_accept_hints:
-  line 3233: message title: Hints accepted
+  line 3136: message title: Hints accepted
 ConsolidateMediaLocationDialog.cb_apply:
-  line 3261: message title: Duplicate Source Files Detected
-  line 3376: message title: Base media path saved
-  line 3382: message title: Nothing to apply
-  line 3402: message title: Media Locations Consolidated
+  line 3164: message title: Duplicate Source Files Detected
+  line 3270: message title: Base media path saved
+  line 3276: message title: Nothing to apply
+  line 3296: message title: Media Locations Consolidated
 MediaFixReportDialog.__init__:
-  line 3448: dialog button: Close
+  line 3342: dialog button: Close
 AcceptAllHintsReportDialog.__init__:
-  line 3512: dialog button: Close
+  line 3406: dialog button: Close
 GWizardMediaFix._build_window:
-  line 3952: window title: GWizard Media Fix
-  line 3978: list item (button or choice): Generate report
-  line 3979: list item (button or choice): Find missing media
-  line 3980: list item (button or choice): Fix media references
-  line 3981: list item (button or choice): Consolidate media location
-  line 3982: list item (button or choice): Clean import notes
-  line 3983: list item (button or choice): Undo last file moves
-  line 3995: button: Accept all hints
-  line 4000: dialog button: Close
+  line 3832: window title: GWizard Media Fix
+  line 3858: list item (button or choice): Generate report
+  line 3859: list item (button or choice): Find missing media
+  line 3860: list item (button or choice): Fix media references
+  line 3861: list item (button or choice): Consolidate media location
+  line 3862: list item (button or choice): Clean import notes
+  line 3863: list item (button or choice): Undo last file moves
+  line 3875: button: Accept all hints
+  line 3880: dialog button: Close
 GWizardMediaFix.cb_generate_report:
-  line 4018: window title: Save Media Fix Report
-  line 4024: dialog button: Cancel
-  line 4024: dialog button: Save
-  line 4056: message title: Report Not Written
+  line 3898: window title: Save Media Fix Report
+  line 3904: dialog button: Cancel
+  line 3904: dialog button: Save
+  line 3936: message title: Report Not Written
 GWizardMediaFix.cb_button:
-  line 4093: window title: Find Missing Media
-  line 4100: window title: Fix Media References
-  line 4109: window title: Consolidate Media Location
+  line 3973: window title: Find Missing Media
+  line 3980: window title: Fix Media References
+  line 3989: window title: Consolidate Media Location
 GWizardMediaFix.cb_undo_moves:
-  line 4343: message title: No file moves to undo
-  line 4352: message title: Undo last file moves
-  line 4352: dialog button: Undo moves
-  line 4352: dialog button: Cancel
-  line 4375: message title: File moves undone
+  line 4197: message title: No file moves to undo
+  line 4206: message title: Undo last file moves
+  line 4206: dialog button: Undo moves
+  line 4206: dialog button: Cancel
+  line 4229: message title: File moves undone
 GWizardMediaFix.cb_clean_notes:
-  line 4382: message title: No stale import notes
-  line 4394: message title: Clean import notes
-  line 4394: dialog button: Delete
-  line 4394: dialog button: Cancel
-  line 4416: message title: Import notes cleaned
+  line 4236: message title: No stale import notes
+  line 4248: message title: Clean import notes
+  line 4248: dialog button: Delete
+  line 4248: dialog button: Cancel
+  line 4270: message title: Import notes cleaned
 GWizardMediaFix.cb_auto_all:
-  line 4453: message title: Nothing to change automatically
-  line 4607: window title: Accept All Hints Complete
+  line 4308: message title: Nothing to change automatically
+  line 4462: window title: Accept All Hints Complete
 
 ### Existing Screenshots (already captured in featuredocs/images/; the header's gwizard_citationfix-main.png is not listed):
-(None yet - use the naming rule above.)
+- images/gwizard_citationfix-accept-all-hints-complete.png
+- images/gwizard_citationfix-accept-all-hints.png
+- images/gwizard_citationfix-citation-attributes.png
+- images/gwizard_citationfix-fix-citations.png
+- images/gwizard_citationfix-fix-notes.png
+- images/gwizard_citationfix-fix-repositories.png
+- images/gwizard_citationfix-fix-sources.png
+- images/gwizard_citationfix-generate-report-save.png
+- images/gwizard_citationfix-generate-report.png
+- images/gwizard_citationfix-link-citation-media.png
+- images/gwizard_citationfix-repository-consolidate.png
+- images/gwizard_citationfix-unpack-conflated-citation.png
+- images/gwizard_citationfix-unpack-conflated-source.png
 
 ### Isolated Feature Diff (against functionality_base):
 (git diff warning: fatal: bad revision 'functionality_base...HEAD')
