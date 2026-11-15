@@ -264,7 +264,7 @@ class SplitConflatedTitleTest(unittest.TestCase):
     def test_unpack_step_is_stable(self) -> None:
         """Running the unpack step again changes nothing and adds no repository."""
         db: DbWriteBase = make_database("sqlite")
-        db.load(":memory:")
+        db.load(":memory:", None)
         try:
             with DbTxn("Setup", db) as trans:
                 for title, _expected in self.CASES:

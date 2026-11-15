@@ -132,7 +132,7 @@ class RepoMergeApplyTest(unittest.TestCase):
     def test_merge_and_rename_undo_together(self) -> None:
         """A merge and a rename made by one Apply are undone by one undo."""
         db: DbWriteBase = make_database("sqlite")
-        db.load(tempfile.mkdtemp())
+        db.load(tempfile.mkdtemp(), None)
         try:
             with DbTxn("Setup", db) as trans:
                 for name in ("FamilySearch", "Family Search", "Ancestry"):
