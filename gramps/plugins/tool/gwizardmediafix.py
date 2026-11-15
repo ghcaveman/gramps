@@ -81,7 +81,6 @@ try:
         escape_markup,
         full_media_path,
         is_bare_media,
-        is_media_locked,
         has_media_fixed_tag,
         add_media_fixed_tag,
     )
@@ -106,7 +105,6 @@ except (ImportError, ValueError):
         escape_markup,
         full_media_path,
         is_bare_media,
-        is_media_locked,
         has_media_fixed_tag,
         add_media_fixed_tag,
     )
@@ -1453,7 +1451,7 @@ def remove_import_notes(db: DbWriteBase, items: list[tuple[str, str, str, str]])
     with DbTxn(_("Remove stale import notes"), db) as trans:
         for mh, _mgid, nh, _ngid in items:
             media = db.get_media_from_handle(mh)
-            if media is None or is_media_locked(db, media):
+            if media is None:
                 continue
             media.remove_note(nh)
             db.commit_media(media, trans)
@@ -1498,7 +1496,7 @@ def keep_records_pointing_at_files(
     snapshot: dict[MediaHandle, str],
     trans: Any,
     skip: set[MediaHandle],
-) -> tuple[int, list[MediaGrampsID]]:
+) -> int:
     """
     Repoint records that a base-path change would otherwise break.
 
@@ -1513,11 +1511,10 @@ def keep_records_pointing_at_files(
         the change.
     :param trans: The open transaction.
     :param skip: Handles already repointed in this batch.
-    :returns: ``(number repointed, Gramps IDs of locked records left broken)``.
+    :returns: Number of records repointed.
     """
     new_base = media_path(db)
     fixed = 0
-    locked: list[MediaGrampsID] = []
     for handle, old_full in snapshot.items():
         if handle in skip:
             continue
@@ -1530,14 +1527,11 @@ def keep_records_pointing_at_files(
         raw = clean_path(str(media.get_path() or ""))
         if path_key(full_media_path(db, raw)) == path_key(old_full):
             continue  # still finds its file (e.g. the base did not really move)
-        if is_media_locked(db, media):
-            locked.append(MediaGrampsID(_gid_of(media)))
-            continue
         media.set_path(to_db_path(old_full, new_base))
         add_media_fixed_tag(db, media, txn=trans)
         db.commit_media(media, trans)
         fixed += 1
-    return fixed, locked
+    return fixed
 
 
 def move_log_summary(move_log: MoveLog) -> str:
@@ -1573,12 +1567,11 @@ def move_log_summary(move_log: MoveLog) -> str:
     )
 
 
-def base_change_summary(fixed: int, locked: list[MediaGrampsID]) -> str:
+def base_change_summary(fixed: int) -> str:
     """
     Describe what a base-path change did to records outside the batch.
 
     :param fixed: Records repointed by :func:`keep_records_pointing_at_files`.
-    :param locked: Locked records that could not be repointed.
     :returns: Text for the result dialog ("" when there is nothing to say).
     """
     parts: list[str] = []
@@ -1592,17 +1585,6 @@ def base_change_summary(fixed: int, locked: list[MediaGrampsID]) -> str:
                 fixed,
             )
             % fixed
-        )
-    if locked:
-        parts.append(
-            ngettext(
-                "Locked record not updated, now resolving against the new "
-                "base path: %s",
-                "Locked records not updated, now resolving against the new "
-                "base path: %s",
-                len(locked),
-            )
-            % ", ".join(locked[:10])
         )
     return "\n\n".join(parts)
 
@@ -1687,9 +1669,6 @@ def plan_consolidation_moves(
         members.sort(key=lambda item: namer_rank(db, item[0]))
         namer, namer_raw, src_full = members[0]
         gids = ", ".join(_gid_of(m) for m, _r, _s in members)
-        any_locked = any(is_media_locked(db, m) for m, _r, _s in members)
-        if any_locked and len(members) == 1:
-            continue  # a locked record on its own is simply left alone
 
         std = sanitize_standard_filename(
             namer_raw, db=db, media=namer, template=template, cache=cache
@@ -1700,11 +1679,6 @@ def plan_consolidation_moves(
             raw == target_rel for _m, raw, _s in members
         ):
             claimed.add(path_key(dest_full))  # already consolidated
-            continue
-        if any_locked:
-            held.append(
-                (gids, namer_raw, str(_("shared with a locked record - not moved")))
-            )
             continue
         if not os.path.exists(src_full):
             # Missing or unreadable: reported once, with the right reason,
@@ -1761,8 +1735,6 @@ def build_accept_all_plan(
         if not raw:
             continue
         effective[handle] = raw
-        if is_media_locked(db, media):
-            continue
         try:
             full = media_path_full(db, raw)
         except Exception:
@@ -1796,20 +1768,10 @@ def build_accept_all_plan(
             else keeper.get("media")
         )
         if group.get("type", "duplicate") == "duplicate":
-            if is_media_locked(db, keeper_media):
-                continue
             others = [
                 r
                 for r in group["records"]
                 if r["handle"] != keeper["handle"]
-                and not is_media_locked(
-                    db,
-                    (
-                        db.get_media_from_handle(r["handle"])
-                        if hasattr(db, "get_media_from_handle")
-                        else r.get("media")
-                    ),
-                )
             ]
             if not others:
                 continue
@@ -1823,9 +1785,7 @@ def build_accept_all_plan(
                 )
             )
         else:
-            if is_media_locked(db, keeper_media):
-                plan["keep_unref"].append((keeper["gramps_id"], group["raw_path"]))
-            elif is_bare_media(keeper["media"]):
+            if is_bare_media(keeper["media"]):
                 plan["delete"].append((keeper["gramps_id"], group["raw_path"]))
                 gone.add(keeper["handle"])
             else:
@@ -2092,26 +2052,22 @@ class FindMissingMediaDialog(Gtk.Dialog):
                 basename = os.path.basename(clean_raw.replace("\\", "/"))
                 sug_path = ""
                 hint = _("File not found on disk")
-                locked = is_media_locked(dbstate.db, media)
                 perm_issue = False
                 inaccess_dir = None
 
-                if locked:
-                    hint = _("Media is locked (GWizard: Locked)")
-                else:
-                    # Check for permission denied along the directory path
-                    perm_issue, inaccess_dir = check_path_permission(full_path)
-                    if not perm_issue and is_absolute_path(clean_raw):
-                        perm_issue, inaccess_dir = check_path_permission(clean_raw)
+                # Check for permission denied along the directory path
+                perm_issue, inaccess_dir = check_path_permission(full_path)
+                if not perm_issue and is_absolute_path(clean_raw):
+                    perm_issue, inaccess_dir = check_path_permission(clean_raw)
 
-                    if perm_issue and inaccess_dir:
-                        hint = _("Permission denied: cannot read '%s'") % inaccess_dir
-                    else:
-                        sug_path = find_in_media_dir(base_dir, basename, name_index)
-                        if sug_path:
-                            hint = (
-                                _("Found in media directory: suggest '%s'") % sug_path
-                            )
+                if perm_issue and inaccess_dir:
+                    hint = _("Permission denied: cannot read '%s'") % inaccess_dir
+                else:
+                    sug_path = find_in_media_dir(base_dir, basename, name_index)
+                    if sug_path:
+                        hint = (
+                            _("Found in media directory: suggest '%s'") % sug_path
+                        )
 
                 self.rows.append(
                     {
@@ -2124,7 +2080,6 @@ class FindMissingMediaDialog(Gtk.Dialog):
                         "hint_text": hint,
                         "perm_denied": perm_issue,
                         "inaccess_dir": inaccess_dir,
-                        "locked": locked,
                     }
                 )
 
@@ -2600,9 +2555,6 @@ class FindMissingMediaDialog(Gtk.Dialog):
                     media = None
                 if media is None:
                     continue
-                if is_media_locked(self.dbstate.db, media):
-                    skipped.append("%s (%s)" % (new_path, _("locked")))
-                    continue
                 store_path = new_path
                 copy_src = target.get("copy_src")
                 if copy_src:
@@ -2641,11 +2593,11 @@ class FindMissingMediaDialog(Gtk.Dialog):
                 applied += 1
 
             if snapshot:
-                rebased, rebase_locked = keep_records_pointing_at_files(
+                rebased = keep_records_pointing_at_files(
                     self.dbstate.db, snapshot, trans, repointed
                 )
 
-        extra = base_change_summary(rebased, rebase_locked)
+        extra = base_change_summary(rebased)
         if applied == 0 and not skipped and not extra:
             OkDialog(
                 str(_("Nothing to apply")),
@@ -2861,18 +2813,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                 for m in members
             ):
                 continue
-            locked_ids = [_gid_of(m) for m in members if is_media_locked(dbstate.db, m)]
-            locked = bool(locked_ids)
-            if locked and len(members) > 1:
-                hint_text = ngettext(
-                    "Shared with locked record %s: will not move",
-                    "Shared with locked records %s: will not move",
-                    len(locked_ids),
-                ) % ", ".join(locked_ids)
-            elif locked:
-                hint_text = _("Locked: will not modify (GWizard: Locked)")
-            else:
-                hint_text = hint_val
+            hint_text = hint_val
             desc = str(media.get_description() or "")
             if len(members) > 1:
                 self.shared_count += 1
@@ -3310,12 +3251,6 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                         records.append(found)
                 if not records:
                     continue
-                if any(is_media_locked(db, m) for m in records):
-                    failures.append(
-                        "[%s] %s: %s"
-                        % (gid, entry.get("raw_path", ""), _("locked: skipping"))
-                    )
-                    continue
 
                 src_full = entry.get("src_full", "")
                 dest_full = (
@@ -3366,11 +3301,11 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                     applied += 1
 
             if snapshot:
-                rebased, rebase_locked = keep_records_pointing_at_files(
+                rebased = keep_records_pointing_at_files(
                     db, snapshot, trans, repointed
                 )
 
-        if applied == 0 and not failures and not rebased and not rebase_locked:
+        if applied == 0 and not failures and not rebased:
             if base_changed:
                 OkDialog(
                     str(_("Base media path saved")),
@@ -3562,7 +3497,6 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
     outside_default_list: list[tuple[str, str, str]] = []
     multi_ref_media: list[tuple[str, str, str, int, list[tuple[str, str]]]] = []
     zero_ref_media: list[tuple[str, str, str]] = []
-    locked_media: list[tuple[str, str, str]] = []
     fixed_media: list[tuple[str, str, str]] = []
 
     # Detect duplicate media records pointing to the same file
@@ -3595,8 +3529,6 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
         ctx = resolve_media_reference_context(db, media, ctx_cache)
 
         first_raw = raw_paths[0] if raw_paths else ""
-        if is_media_locked(db, media):
-            locked_media.append((m_gid, desc, first_raw))
         if has_media_fixed_tag(db, media):
             fixed_media.append((m_gid, desc, first_raw))
 
@@ -3742,7 +3674,6 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
             _("Shared media records:"),
             _("%d (info)") % len(multi_ref_media),
         ),
-        metric(_("Locked media records:"), len(locked_media)),
         metric(_("Fixed media records:"), len(fixed_media)),
         metric(_("Name mismatches:"), len(name_mismatches)),
         metric(
@@ -3885,16 +3816,6 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
                 lines.append(field(_("Association:"), assoc_str, 12))
             lines.append(field(_("Current:"), path, 12))
             lines.append(field(_("Standard:"), std_p, 12))
-        lines.append("")
-
-    if locked_media:
-        heading(
-            _("LOCKED MEDIA RECORDS (%d items skipped from modifications):")
-            % len(locked_media)
-        )
-        for gid, desc, path in locked_media:
-            lines.append(f"  [{gid}] {desc or unnamed}")
-            lines.append(field(_("Path:"), path))
         lines.append("")
 
     return "\n".join(lines)
@@ -4142,8 +4063,6 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         # file wanted by several different records can be held back.
         matches: list[tuple[Any, str, str, str, str]] = []  # media,gid,desc,raw,rel
         for media in list(db.iter_media()):
-            if is_media_locked(db, media):
-                continue
             m_gid = str(media.get_gramps_id() or "")
             desc = str(media.get_description() or "")
             raw_path = str(media.get_path() or "")
@@ -4210,21 +4129,11 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 h = group["keeper"]["handle"]
                 try:
                     cand = db.get_media_from_handle(h)
-                    if (
-                        cand is None
-                        or not is_bare_media(cand)
-                        or is_media_locked(db, cand)
-                    ):
-                        if cand is not None and is_media_locked(db, cand):
-                            errors.append(
-                                "[%s] unreferenced, but tagged GWizard: Locked - kept"
-                                % group["keeper"].get("gramps_id", "")
-                            )
-                        else:
-                            errors.append(
-                                "[%s] unreferenced, but has notes/attributes/tags/date - kept; review manually"
-                                % group["keeper"].get("gramps_id", "")
-                            )
+                    if cand is None or not is_bare_media(cand):
+                        errors.append(
+                            "[%s] unreferenced, but has notes/attributes/tags/date - kept; review manually"
+                            % group["keeper"].get("gramps_id", "")
+                        )
                         continue
                     with DbTxn(_("Remove Unreferenced Media"), db) as trans:
                         db.remove_media(h, trans)
@@ -4237,24 +4146,12 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 keeper_media = db.get_media_from_handle(keeper["handle"])
                 if not keeper_media:
                     continue
-                if is_media_locked(db, keeper_media):
-                    errors.append(
-                        "[%s] duplicate keeper is tagged GWizard: Locked - skipped merge"
-                        % keeper.get("gramps_id", "")
-                    )
-                    continue
                 for other in group["records"]:
                     if other["handle"] == keeper["handle"]:
                         continue
                     try:
                         other_media = db.get_media_from_handle(other["handle"])
                         if other_media:
-                            if is_media_locked(db, other_media):
-                                errors.append(
-                                    "[%s] duplicate record is tagged GWizard: Locked - skipped merge"
-                                    % other.get("gramps_id", "")
-                                )
-                                continue
                             query = MergeMediaQuery(
                                 self.dbstate, keeper_media, other_media
                             )
