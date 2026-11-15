@@ -30,7 +30,7 @@ This document provides a comprehensive comparison between the **Built-in Media M
 | **Unreferenced Files on Disk** | Scans directories and **bulk-adds** unindexed images as new database records | Detects unreferenced disk files and flags them in the comprehensive diagnostic report |
 | **File Naming & Standardization** | Arbitrary substring replacement (`from_text` $\rightarrow$ `to_text`) | Contextual naming templates using metadata tokens (`{surname}`, `{given}`, `{year}`, `{doc_type}`, `{ref_id}`, `{hash}`) |
 | **Stale Import Notes Cleanup** | None | Automatically detects and removes stale GEDCOM import notes (*"Records not imported into OBJE"*) once resolved |
-| **Safety & Protection** | Progress bar and transaction rollback | Transaction safety, dry-run previews, collision-proof filename hashing, permission checks, and `GWizard: Locked` / `GWizard: Media Fixed` tags |
+| **Safety & Protection** | Progress bar and transaction rollback | Transaction safety, dry-run previews, collision-proof filename hashing, permission checks, an undoable file-move log, and the `GWizard: MediaFixed` tag |
 | **Diagnostic Reporting** | None (simple success/fail summary page) | Generates and displays a detailed diagnostic health report (`GWizardMediaFixReport.txt`) |
 
 ---

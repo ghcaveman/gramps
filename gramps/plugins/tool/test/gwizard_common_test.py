@@ -275,7 +275,7 @@ class GWizardCommonTest(unittest.TestCase):
             with DbTxn("Create media", db) as trans:
                 media = Media()
                 media.set_path("test.jpg")
-                h = db.add_media(media, trans)
+                db.add_media(media, trans)
 
             self.assertFalse(has_media_fixed_tag(db, media))
 

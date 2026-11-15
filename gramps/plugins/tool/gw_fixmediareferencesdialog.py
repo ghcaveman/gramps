@@ -519,7 +519,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         """
         Merge, split or delete according to each row's chosen action.
 
-        Locked records are never changed; failures are listed in the result.
+        Failures are listed in the result.
 
         :param _button: The button that was clicked.
         """
@@ -605,8 +605,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                         other_media = self.dbstate.db.get_media_from_handle(
                             rec["handle"]
                         )
-                        if other_media:
-                            new_rel = f"{base}_{rec['gramps_id']}{ext}"
+                        new_rel = f"{base}_{rec['gramps_id']}{ext}"
                         try:
                             expected = media_path_full(self.dbstate.db, new_rel)
                         except Exception:
@@ -653,7 +652,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
 
         if merged_count == 0 and copied_count == 0 and deleted_count == 0:
             if errors:
-                # Every selected action failed (e.g. all locked): say why,
+                # Every selected action failed: say why,
                 # instead of claiming nothing was selected.
                 OkDialog(
                     str(_("Nothing was changed")),

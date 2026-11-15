@@ -578,9 +578,6 @@ def add_tag_to(
     return True
 
 
-
-
-
 def add_fixed_tag(
     db: DbWriteBase,
     obj: Any,
@@ -822,7 +819,7 @@ def undo_logged_run(db: DbWriteBase, log_path: str) -> tuple[int, int, list[str]
       (copies are left in place; only the records are repointed);
     - a record is repointed only if its path is still the one the run stored
       (or already the old one, e.g. after Edit > Undo); a record changed
-      since, or locked, is left alone and reported.
+      since is left alone and reported.
 
     The run is then marked as undone in the log, so the next call reverses
     the run before it.

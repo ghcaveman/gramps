@@ -190,17 +190,17 @@ class PickFileTest(unittest.TestCase):
             self.target_for(dlg, h_typed)["path_entry"].get_text(), "keep/this.jpg"
         )
 
-    def test_filled_rows_are_filled_for_all(self) -> None:
-        """A pick fills every row missing the same file name."""
+    def test_every_same_name_row_is_filled(self) -> None:
+        """A pick fills every other row missing the same file name."""
         h_first = self.add_media("Old/census.jpg", "First")
-        h_locked = self.add_media("Old/census.jpg", "Locked")
+        h_second = self.add_media("Old/census.jpg", "Second")
         picked = self.touch("MediaBase", "census.jpg")
 
         dlg = self.open_dialog()
         self.pick(dlg, self.target_for(dlg, h_first), picked)
 
         self.assertEqual(
-            self.target_for(dlg, h_locked)["path_entry"].get_text(), "scans/census.jpg"
+            self.target_for(dlg, h_second)["path_entry"].get_text(), "census.jpg"
         )
 
     def test_cancel_changes_nothing(self) -> None:
