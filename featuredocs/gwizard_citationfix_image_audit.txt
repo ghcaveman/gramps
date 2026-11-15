@@ -2,34 +2,34 @@
 Image Audit for: C:/gramps_dev/gramps_gwizard_citationfix_plugin/gramps_gwizard_citationfix/featuredocs/gwizard_citationfix.mediawiki
 Checking folder: C:/gramps_dev/gramps_gwizard_citationfix_plugin/gramps_gwizard_citationfix/featuredocs/images
 --------------------------------------------------------------------
-  [MISSING]  gwizard_citationfix-main.png
+  [EXISTS]  gwizard_citationfix-main.png
              Capture: GWizard Citation Fix main interface
-  [MISSING]  gwizard_citationfix-generate-report-save.png
-             Capture: Save the citation analysis report as a text file
-  [MISSING]  gwizard_citationfix-generate-report.png
-             Capture: Citation analysis report window
-  [MISSING]  gwizard_citationfix-unpack-conflated-source.png
-             Capture: Review hints that unpack mixed source titles
-  [MISSING]  gwizard_citationfix-repository-consolidate.png
-             Capture: Review duplicate repositories to consolidate
-  [MISSING]  gwizard_citationfix-fix-repositories.png
-             Capture: Review repository links for sources
-  [MISSING]  gwizard_citationfix-fix-sources.png
-             Capture: Review near-duplicate sources to merge
-  [MISSING]  gwizard_citationfix-unpack-conflated-citation.png
-             Capture: Review citation text to unpack dates and URLs
-  [MISSING]  gwizard_citationfix-fix-citations.png
-             Capture: Review citation page, date, and confidence fixes
-  [MISSING]  gwizard_citationfix-citation-attributes.png
-             Capture: Review GPS attribute assignments for citations
-  [MISSING]  gwizard_citationfix-link-citation-media.png
-             Capture: Review media-to-citation link proposals in the Link Inspector
-  [MISSING]  gwizard_citationfix-fix-notes.png
-             Capture: Review citation notes to clean
-  [MISSING]  gwizard_citationfix-accept-all-hints.png
-             Capture: Confirm running all nine citation fix steps
-  [MISSING]  gwizard_citationfix-accept-all-hints-complete.png
-             Capture: Accept All Hints results window
+  [EXISTS]  gwizard_citationfix-generate-report-save.png
+             Capture: The Save Citation Fix Report file chooser with the report filename
+  [EXISTS]  gwizard_citationfix-generate-report.png
+             Capture: The GWizard Citation Fix report window displaying the generated report
+  [EXISTS]  gwizard_citationfix-unpack-conflated-source.png
+             Capture: The Unpack Conflated Source dialog showing source-field suggestions
+  [EXISTS]  gwizard_citationfix-repository-consolidate.png
+             Capture: The Repository Consolidate dialog showing repositories to consolidate
+  [EXISTS]  gwizard_citationfix-fix-repositories.png
+             Capture: The Fix Repositories dialog showing source and repository suggestions
+  [EXISTS]  gwizard_citationfix-fix-sources.png
+             Capture: The Fix Sources dialog showing source cleanup suggestions
+  [EXISTS]  gwizard_citationfix-unpack-conflated-citation.png
+             Capture: The Unpack Conflated Citation dialog showing citation-field suggestions
+  [EXISTS]  gwizard_citationfix-fix-citations.png
+             Capture: The Fix Citations dialog showing page, date, and confidence suggestions
+  [EXISTS]  gwizard_citationfix-citation-attributes.png
+             Capture: The Citation Attributes dialog showing suggested citation attributes
+  [EXISTS]  gwizard_citationfix-link-citation-media.png
+             Capture: The Link Citation Media dialog showing media-to-citation link suggestions
+  [EXISTS]  gwizard_citationfix-fix-notes.png
+             Capture: The Fix Notes dialog showing citation notes for review
+  [EXISTS]  gwizard_citationfix-accept-all-hints.png
+             Capture: The Accept all hints confirmation dialog
+  [EXISTS]  gwizard_citationfix-accept-all-hints-complete.png
+             Capture: The Accept All Hints Complete window showing the run results
 --------------------------------------------------------------------
-Summary: 0/14 present, 14 missing.
+Summary: 14/14 present, 0 missing.
 
