@@ -1,6 +1,6 @@
 
-Image Audit for: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_mediafix/featuredocs/gwizard_mediafix.mediawiki
-Checking folder: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_mediafix/featuredocs/images
+Image Audit for: C:\gramps_dev\gramps_gwizard_mediafix_plugin\gramps_gwizard_mediafix\featuredocs\gwizard_mediafix.mediawiki
+Checking folder: C:\gramps_dev\gramps_gwizard_mediafix_plugin\gramps_gwizard_mediafix\featuredocs\images
 --------------------------------------------------------------------
   [EXISTS]  gwizard_mediafix-main.png
              Capture: GWizard Media Fix main interface

@@ -32,6 +32,7 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 
 ### Feature Files (from changed_files.txt):
 - WikiTree_ImprovementList.md
+- addon_package.toml
 - featuredocs/.gitignore
 - featuredocs/README_gwizard_mediafix.md
 - featuredocs/ToolComparison.md
@@ -62,11 +63,9 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 - gramps/plugins/tool/test/gwizardmediafix_pickfile_test.py
 - gramps/plugins/tool/test/gwizardmediafix_test.py
 - gramps/plugins/tool/tools.gpr.py
-- gramps/version.py
 - package_gwizard_mediafix.py
 - po/POTFILES.in
 - po/POTFILES.skip
-- po/sk.po
 
 ### Plugin Registration Metadata (.gpr.py):
 --- gramps/plugins/tool/tools.gpr.py ---
@@ -660,103 +659,103 @@ register(
 ### UI Inventory (window titles and buttons extracted from the code, grouped by the function that creates them):
 --- gramps/plugins/tool/gw_fixmediareferencesdialog.py ---
 FixMediaReferencesDialog.__init__:
-  line 271: button: Accept hints (%d)
-  line 276: button: Apply
-  line 281: dialog button: Close
+  line 269: button: Accept hints (%d)
+  line 274: button: Apply
+  line 279: dialog button: Close
 FixMediaReferencesDialog.cb_accept_hints:
-  line 507: message title: Hints accepted
+  line 505: message title: Hints accepted
 FixMediaReferencesDialog.cb_apply:
-  line 694: message title: Nothing was changed
-  line 700: message title: Nothing to apply
-  line 724: message title: Media References Resolved
+  line 658: message title: Nothing was changed
+  line 664: message title: Nothing to apply
+  line 688: message title: Media References Resolved
 
 --- gramps/plugins/tool/gwizardmediafix.py ---
 (module):
-  line 134: list item (button or choice): Reference ID + Community Standard ({ref_id}_{surname}_{given}-{doc_type}-{year})
-  line 140: list item (button or choice): Community Standard ({surname}_{given}-{doc_type}-{year})
-  line 144: list item (button or choice): Reference ID + Document Type ({ref_id}_{doc_type}-{year})
-  line 148: list item (button or choice): Media ID + Document Type ({id}_{doc_type}-{year})
-  line 152: list item (button or choice): Media ID + Original Name ({id}_{orig})
-  line 156: list item (button or choice): Sanitized Original Name ({orig})
-  line 160: list item (button or choice): Community Standard + content hash (never clashes for different files)
+  line 132: list item (button or choice): Reference ID + Community Standard ({ref_id}_{surname}_{given}-{doc_type}-{year})
+  line 138: list item (button or choice): Community Standard ({surname}_{given}-{doc_type}-{year})
+  line 142: list item (button or choice): Reference ID + Document Type ({ref_id}_{doc_type}-{year})
+  line 146: list item (button or choice): Media ID + Document Type ({id}_{doc_type}-{year})
+  line 150: list item (button or choice): Media ID + Original Name ({id}_{orig})
+  line 154: list item (button or choice): Sanitized Original Name ({orig})
+  line 158: list item (button or choice): Community Standard + content hash (never clashes for different files)
 confirm_plan:
-  line 1987: window title: Accept all hints - preview
-  line 1994: dialog button: Cancel
-  line 1995: dialog button: Accept all
+  line 1947: window title: Accept all hints - preview
+  line 1954: dialog button: Cancel
+  line 1955: dialog button: Accept all
 FindMissingMediaDialog.__init__:
-  line 2151: button: Accept hints (%d)
-  line 2156: button: Copy from folder...
-  line 2161: button: Apply
-  line 2166: dialog button: Close
+  line 2106: button: Accept hints (%d)
+  line 2111: button: Copy from folder...
+  line 2116: button: Apply
+  line 2121: dialog button: Close
 FindMissingMediaDialog.cb_accept_hints:
-  line 2340: message title: Hints accepted
+  line 2295: message title: Hints accepted
 FindMissingMediaDialog.cb_pick_file:
-  line 2359: window title: Select the file for %s
+  line 2314: window title: Select the file for %s
 FindMissingMediaDialog.cb_select_mediapath:
-  line 2466: window title: Select media directory
+  line 2421: window title: Select media directory
 FindMissingMediaDialog.cb_copy_from_folder:
-  line 2497: message title: Set a base media path first
-  line 2508: window title: Select folder containing the missing files
-  line 2527: message title: Folder not readable
-  line 2547: message title: Copies queued
+  line 2452: message title: Set a base media path first
+  line 2463: window title: Select folder containing the missing files
+  line 2482: message title: Folder not readable
+  line 2502: message title: Copies queued
 FindMissingMediaDialog.cb_apply:
-  line 2650: message title: Nothing to apply
-  line 2675: message title: Media Paths Updated
+  line 2602: message title: Nothing to apply
+  line 2627: message title: Media Paths Updated
 ConsolidateMediaLocationDialog.__init__:
-  line 2814: button: Use naming standard
-  line 2817: button: Keep original filename
-  line 2831: button: Move files
-  line 2834: button: Make a copy
-  line 2916: button: Accept hints (%d)
-  line 2921: button: Apply
-  line 2926: dialog button: Close
+  line 2766: button: Use naming standard
+  line 2769: button: Keep original filename
+  line 2783: button: Move files
+  line 2786: button: Make a copy
+  line 2857: button: Accept hints (%d)
+  line 2862: button: Apply
+  line 2867: dialog button: Close
 ConsolidateMediaLocationDialog.cb_select_mediapath:
-  line 3051: window title: Select media directory
+  line 2992: window title: Select media directory
 ConsolidateMediaLocationDialog.cb_accept_hints:
-  line 3232: message title: Hints accepted
+  line 3173: message title: Hints accepted
 ConsolidateMediaLocationDialog.cb_apply:
-  line 3260: message title: Duplicate Source Files Detected
-  line 3375: message title: Base media path saved
-  line 3381: message title: Nothing to apply
-  line 3401: message title: Media Locations Consolidated
+  line 3201: message title: Duplicate Source Files Detected
+  line 3310: message title: Base media path saved
+  line 3316: message title: Nothing to apply
+  line 3336: message title: Media Locations Consolidated
 MediaFixReportDialog.__init__:
-  line 3447: dialog button: Close
+  line 3382: dialog button: Close
 AcceptAllHintsReportDialog.__init__:
-  line 3511: dialog button: Close
+  line 3446: dialog button: Close
 GWizardMediaFix._build_window:
-  line 3957: window title: GWizard Media Fix
-  line 3983: list item (button or choice): Generate report
-  line 3984: list item (button or choice): Find missing media
-  line 3985: list item (button or choice): Fix media references
-  line 3986: list item (button or choice): Consolidate media location
-  line 3987: list item (button or choice): Clean import notes
-  line 3988: list item (button or choice): Undo last file moves
-  line 4000: button: Accept all hints
-  line 4005: dialog button: Close
+  line 3878: window title: GWizard Media Fix
+  line 3904: list item (button or choice): Generate report
+  line 3905: list item (button or choice): Find missing media
+  line 3906: list item (button or choice): Fix media references
+  line 3907: list item (button or choice): Consolidate media location
+  line 3908: list item (button or choice): Clean import notes
+  line 3909: list item (button or choice): Undo last file moves
+  line 3921: button: Accept all hints
+  line 3926: dialog button: Close
 GWizardMediaFix.cb_generate_report:
-  line 4023: window title: Save Media Fix Report
-  line 4029: dialog button: Cancel
-  line 4029: dialog button: Save
-  line 4061: message title: Report Not Written
+  line 3944: window title: Save Media Fix Report
+  line 3950: dialog button: Cancel
+  line 3950: dialog button: Save
+  line 3982: message title: Report Not Written
 GWizardMediaFix.cb_button:
-  line 4098: window title: Find Missing Media
-  line 4105: window title: Fix Media References
-  line 4114: window title: Consolidate Media Location
+  line 4019: window title: Find Missing Media
+  line 4026: window title: Fix Media References
+  line 4035: window title: Consolidate Media Location
 GWizardMediaFix.cb_undo_moves:
-  line 4348: message title: No file moves to undo
-  line 4357: message title: Undo last file moves
-  line 4357: dialog button: Undo moves
-  line 4357: dialog button: Cancel
-  line 4380: message title: File moves undone
+  line 4245: message title: No file moves to undo
+  line 4254: message title: Undo last file moves
+  line 4254: dialog button: Undo moves
+  line 4254: dialog button: Cancel
+  line 4277: message title: File moves undone
 GWizardMediaFix.cb_clean_notes:
-  line 4387: message title: No stale import notes
-  line 4399: message title: Clean import notes
-  line 4399: dialog button: Delete
-  line 4399: dialog button: Cancel
-  line 4421: message title: Import notes cleaned
+  line 4284: message title: No stale import notes
+  line 4296: message title: Clean import notes
+  line 4296: dialog button: Delete
+  line 4296: dialog button: Cancel
+  line 4318: message title: Import notes cleaned
 GWizardMediaFix.cb_auto_all:
-  line 4458: message title: Nothing to change automatically
-  line 4612: window title: Accept All Hints Complete
+  line 4355: message title: Nothing to change automatically
+  line 4509: window title: Accept All Hints Complete
 
 ### Existing Screenshots (already captured in featuredocs/images/; the header's gwizard_mediafix-main.png is not listed):
 - images/gwizard_mediafix-accept-all-hints-complete.png
