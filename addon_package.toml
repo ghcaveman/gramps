@@ -38,7 +38,9 @@ target = "data"
 required = ["gwizard_mergefrom_sources.ged"]
 
 [check]
-base = "master"
+# The branch this feature branch was started from (local name first, then
+# the remote one, whichever exists).
+base = ["functionality_base", "origin/functionality_base"]
 ignore = [
     "featuredocs/**",
     "gwizard_filemerge_*.txt",

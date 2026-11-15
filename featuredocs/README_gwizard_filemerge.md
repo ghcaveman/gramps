@@ -1,79 +1,81 @@
 ## Overview
 
-The GWizard File Merge tool compares another genealogy file (GEDCOM, Gramps XML, or another supported format) side by side with the open Family Tree and lets you merge selected differences person by person. The incoming file is loaded into a temporary source database and displayed next to your tree in the **GWizard Compare** window. You step through the people that differ, then choose, for each person, to copy individual fields into your tree or add the incoming person as a brand-new person. Nothing is merged automatically — you control exactly what is applied.
-
-![The GWizard Compare window shows the incoming file (left) beside the open Family Tree (right).](images/gwizard_filemerge-compare.png)
+GWizard File Merge is a Family Tree Processing tool for Gramps. It loads an external genealogy file — GEDCOM, Gramps XML, or any other supported import format — into a temporary source database and shows it side by side with the open Family Tree in the GWizard Compare window. You can then review each incoming person against a matched person in your tree and merge selected differences person by person, or add an incoming person as a brand-new record. Matches are suggested automatically, differing fields are offered one by one, and references that would otherwise become broken links (notes, media, citations, sources, repositories) are detected and offered for import before anything is written.
 
 ## Usage
 
-1. Open Gramps and load the Family Tree you want to merge into.
-2. Choose **Tools > Family Tree Processing > GWizard File Merge**.
-   - The **Select File to Compare** file chooser opens immediately; there is no separate options dialog.
-3. Browse to and select the source genealogy file (for example, a GEDCOM or Gramps XML file), then click **OK**. Gramps reads the file and opens the **GWizard Compare** window.
-4. Select a person pair to compare. The left panel shows the incoming person and the right panel shows the matching person in your Family Tree (or is empty when the person is new). Use the detail sections — **Individual Details**, **Family Relations**, **Children**, and **Events & Other Records** — to review the differences.
-5. Work through the pairs with the toolbar buttons:
-   - **Previous**: Move to the previous record that has differences.
-   - **Next**: Move to the next record that has differences.
-   - **Add as New...**: Add the selected incoming person as a new person in the Family Tree.
-   - **Merge...**: Open the field-by-field merge dialog for the selected person pair.
-6. Repeat until you have reviewed everyone you want to merge, then click **Close**.
+1. With your Family Tree open, choose **Tools → Family Tree Processing → GWizard File Merge** from the menu.
+2. In the **Select File to Compare** file chooser, browse to the external genealogy file and click **OK**. The chooser offers **All supported files** and **All files** filters.
+3. While the file is read, a **Loading Data Merge** progress meter appears ("Reading the selected file...", then "Building the comparison window..."). If the file cannot be read, a **Load Failed** error is shown and nothing changes.
+4. The **GWizard Compare** window opens, showing incoming people on the left and your Family Tree on the right. Difference status is shown per row; use the category sections to show **Individual Details**, **Family Relations**, **Children**, or **Events & Other Records**.
+
+   ![GWizard Compare window showing the incoming file side by side with the open Family Tree](images/gwizard_filemerge-compare.png)
+
+5. Step through the people that have differences using the **Previous** and **Next** buttons.
+6. For each person, choose one of:
+   - **Merge...** — open the field-by-field merge dialog for a matched person.
+   - **Add as New...** — copy an unmatched incoming person into your Family Tree as a new person.
+
+The main window toolbar buttons (left to right, excluding **Close**) are:
+
+- **Previous** — Move to the previous person that has differences (wraps to the last).
+- **Next** — Move to the next person that has differences (wraps to the first).
+- **Add as New...** — Add the selected incoming person as a new person in your Family Tree.
+- **Merge...** — Open the field-by-field merge dialog for the currently selected matched person pair.
 
 ### Previous
 
-1. In the **GWizard Compare** window, select a person pair.
+1. Make sure a person pair is shown in the compare window.
 2. Click **Previous**.
-   - The window moves to the previous record that has differences and re-highlights it.
+3. The compare window re-highlights the previous person pair with differences and scrolls both panels to it. No new window opens.
 
 ### Next
 
-1. In the **GWizard Compare** window, select a person pair.
+1. Make sure a person pair is shown in the compare window.
 2. Click **Next**.
-   - The window moves to the next record that has differences and re-highlights it.
+3. The compare window re-highlights the next person pair with differences and scrolls both panels to it. No new window opens.
 
 ### Add as New...
 
-1. In the **GWizard Compare** window, select the incoming person you want to add.
+1. In the left panel, select an incoming person that has no match in your Family Tree.
 2. Click **Add as New...**.
-   - If the person is currently paired with a person in your tree, the pairing is removed (rejected) so the person is treated as unmatched.
-   - Otherwise, the **Add as New Person** dialog opens.
-   ![The Add as New Person dialog previews the relatives that will be linked.](images/gwizard_filemerge-add-as-new.png)
-3. The **Link family relationships** checkbox is on by default. Leave it checked to link relatives who are already in your tree to the new person; clear it if you do not want relationships linked.
-4. Click **Add**. The incoming person is copied into your Family Tree as a brand-new person.
-5. If some relationships could not be linked, a **Some relationships were not linked** warning opens; review the message and dismiss it.
-   ![The warning lists any relationships that could not be linked.](images/gwizard_filemerge-add-as-new-complete.png)
+3. The **Add as New Person** dialog opens, showing the incoming person's name and a preview of relatives already in your tree.
+
+   ![Add as New Person dialog with the Link family relationships checkbox](images/gwizard_filemerge-add-as-new.png)
+
+4. The **Link family relationships** checkbox is checked by default. Leave it checked to link the new person's relatives (father, mother, spouse, children) to matching people already in your tree; relatives with no match are linked when they are added.
+5. Click **Add**. The incoming person, with their birth and death events and places, is copied into your Family Tree and the compare window refreshes.
+6. If some relationships could not be linked, a **Some relationships were not linked** warning lists them after the add completes.
 
 ### Merge...
 
-1. In the **GWizard Compare** window, select a person pair that exists in both the incoming file and your Family Tree.
-2. Click **Merge...**. The **GWizard Merge** dialog opens, showing the incoming person on the left and your tree's person on the right.
-   ![The GWizard Merge dialog lists each differing field with an arrow to copy the incoming value into the tree.](images/gwizard_filemerge-merge.png)
-3. For each field you want to take from the incoming file, click the **⇒** arrow button beside it (the tooltip reads "Move &lt;field&gt; to current family tree"). The button changes to **✓** and becomes insensitive.
-4. Review the **Father**, **Mother**, and **Spouse** relationship rows and link any relatives that are not yet matched.
-5. Click **Apply** to commit the selected resolutions to your Family Tree. The merge runs in a single transaction, so if it fails, a **Merge failed** error dialog appears and no changes are made.
+1. In the compare window, select a matched person pair (a person found in both the incoming file and your Family Tree). **Merge...** does nothing for an unmatched person.
+2. Click **Merge...**.
+3. The **GWizard Merge** dialog opens, showing each field of the incoming person on the left against the same field of your tree person on the right.
+
+   ![GWizard Merge dialog with field-by-field source versus target values and => arrow buttons](images/gwizard_filemerge-merge.png)
+
+4. Fields are grouped under **Individual Details**, **Family Relations** (Father, Mother, Spouse), **Children**, and **Events & Other Records**.
+5. For any field where you want the incoming value, click the **=>** ("Move X to current family tree") arrow button next to that row. Clicked buttons change to a check mark and become insensitive, recording that the source value will be taken. Fields you leave alone keep your tree's current value.
+6. Click **Apply**.
+7. Before anything is written, the dialog checks for references (notes, media, citations, sources, repositories) that exist in the incoming file but not in your tree. If any are missing, a **Confirm Importing Missing References** warning asks whether to import them — answer **Yes** to import them along with the merge, or **No** to cancel and change your selection.
+8. The merge runs in a single transaction, so either all accepted changes are written or none are. On success the dialog closes and the compare window refreshes; on failure a **Merge failed** error is shown and no changes are made.
 
 ## Configure Options
 
-The tool has no separate configuration dialog (its option set is empty). You configure the merge through these controls as you work:
-
-- **Select File to Compare** — file chooser that opens when the tool starts; choose the source genealogy file (GEDCOM, Gramps XML, or another supported format) and click **OK**, or **Cancel** to abort.
-- **Previous** — move to the previous record that has differences.
-- **Next** — move to the next record that has differences.
-- **Add as New...** — add the selected incoming person as a new person in the Family Tree.
-- **Merge...** — open the field-by-field merge dialog for the selected person pair.
-- **Close** — close the GWizard Compare window.
-- **Detail sections** — collapsible panels showing **Individual Details**, **Family Relations**, **Children**, and **Events & Other Records** for the selected pair.
-- **Link family relationships** — checkbox in the **Add as New Person** dialog (checked by default); links relatives already in the tree to the newly added person.
-- **⇒ arrow button** — in the **GWizard Merge** dialog, copies the incoming value for one differing field into the Family Tree; becomes **✓** and is disabled after use.
-- **Father / Mother / Spouse** — relationship rows in the merge dialog used to link relatives between the two trees.
-- **Apply** — commit the selected field resolutions to the Family Tree.
-- **Cancel** — close the **Add as New Person** or **GWizard Merge** dialog without applying changes.
+- **Category sections** — switch the detail panels between **Individual Details**, **Family Relations**, **Children**, and **Events & Other Records**.
+- **Link family relationships** checkbox — in the **Add as New Person** dialog, checked by default; links matched relatives to existing people in your tree.
+- **=> arrow buttons** — one per comparable field in the **GWizard Merge** dialog; clicking one selects the incoming value for that field ("Move X to current family tree").
+- **File filters** — in the **Select File to Compare** chooser, choose **All supported files** (based on installed importers) or **All files**.
+- No separate tool options dialog — the tool's options class defines no configurable options, so the tool launches directly from the menu.
 
 ## Features
 
-- Compare a source genealogy file (GEDCOM, Gramps XML, and other supported formats) side by side with the open Family Tree.
-- Review paired people in collapsible sections: Individual Details, Family Relations, Children, and Events & Other Records.
-- Step through the records that have differences using **Previous** and **Next**.
-- Merge selected fields person by person from the incoming file into the Family Tree using field-by-field **⇒** arrows.
-- Add an incoming person as a brand-new person in the tree, optionally linking family relationships.
-- Selective, person-by-person merging — you choose exactly which differences to apply; nothing is merged automatically.
-- Changes are committed in a single database transaction that is rolled back if the merge fails, so a failed merge leaves your tree unchanged.
+- Compare an external genealogy file (GEDCOM, Gramps XML, ...) side by side with the open Family Tree.
+- Merge differences person by person, field by field: given name, surname, surname prefix, nickname, call name, gender, birth, death, FamilySearch ID, sources, and relationships.
+- Add an incoming person as a new record in your tree, duplicating their events and places.
+- Link family relationships (father, mother, spouse, children) when adding a new person.
+- Accept only chosen differences with per-field **=>** arrow buttons; everything else stays as-is in your tree.
+- Automatic detection of dangling references (notes, media, citations, sources, repositories) with an option to import them before merging, preventing broken links.
+- All changes are applied in one database transaction that is rolled back if anything fails.
+- Progress meter while loading, and error handling for files that cannot be read.

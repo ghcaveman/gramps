@@ -5,13 +5,11 @@ Checking folder: C:/gramps_dev/gramps_gwizard_filemerge_plugin/gramps_gwizard_fi
   [MISSING]  gwizard_filemerge-main.png
              Capture: GWizard File Merge main interface
   [EXISTS]  gwizard_filemerge-compare.png
-             Capture: The GWizard Compare window shows the incoming file (left) beside the open Family Tree (right).
+             Capture: GWizard Compare window showing the incoming file side by side with the open Family Tree
   [MISSING]  gwizard_filemerge-add-as-new.png
-             Capture: The Add as New Person dialog previews the relatives that will be linked.
-  [MISSING]  gwizard_filemerge-add-as-new-complete.png
-             Capture: The warning lists any relationships that could not be linked.
+             Capture: Add as New Person dialog with the Link family relationships checkbox
   [EXISTS]  gwizard_filemerge-merge.png
-             Capture: The GWizard Merge dialog lists each differing field with an arrow to copy the incoming value into the tree.
+             Capture: GWizard Merge dialog with field-by-field source versus target values and => arrow buttons
 --------------------------------------------------------------------
-Summary: 2/5 present, 3 missing.
+Summary: 2/4 present, 2 missing.
 

@@ -291,8 +291,9 @@ class DialogRelativeRowsTest(unittest.TestCase):
             return MagicMock()
 
         # No real widgets are built, so the test needs no display.
-        with patch.object(gwizardmergedialog, "Gtk", MagicMock()), patch.object(
-            gwizardmergedialog, "create_diff_cell", record
+        with (
+            patch.object(gwizardmergedialog, "Gtk", MagicMock()),
+            patch.object(gwizardmergedialog, "create_diff_cell", record),
         ):
             dialog._populate_fields()
         return keys, cells
