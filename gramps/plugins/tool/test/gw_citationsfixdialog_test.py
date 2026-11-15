@@ -196,7 +196,7 @@ class CitationFixDialogTest(unittest.TestCase):
             page="https://www.familysearch.org/ark:/61903/1:1:M9123",
             confidence=2,
         )
-        db = FakeDb(sources=[src], citations=[cit])
+        db: Any = FakeDb(sources=[src], citations=[cit])
 
         rows = build_citation_fix_rows(db)
         self.assertEqual(len(rows), 1)
@@ -221,7 +221,7 @@ class CitationFixDialogTest(unittest.TestCase):
             page="",
             confidence=3,
         )
-        db = FakeDb(sources=[src], citations=[cit])
+        db: Any = FakeDb(sources=[src], citations=[cit])
 
         rows = build_citation_fix_rows(db)
         self.assertEqual(len(rows), 1)
@@ -242,7 +242,7 @@ class CitationFixDialogTest(unittest.TestCase):
         )
         cit.get_note_list = lambda: ["n1"]  # type: ignore[assignment]
         note = FakeNote(text="Household record for Lincoln family")
-        db = FakeDb(sources=[src], citations=[cit], notes={"n1": note})
+        db: Any = FakeDb(sources=[src], citations=[cit], notes={"n1": note})
 
         rows = build_citation_fix_rows(db)
         self.assertEqual(len(rows), 1)
@@ -270,7 +270,7 @@ class CitationFixDialogTest(unittest.TestCase):
         )
         cit.get_note_list = lambda: ["n2"]  # type: ignore[assignment]
         note = FakeNote(text="Marriage on 15 June 1895 accessed 15 June 1895")
-        db = FakeDb(sources=[src], citations=[cit], notes={"n2": note})
+        db: Any = FakeDb(sources=[src], citations=[cit], notes={"n2": note})
 
         rows = build_citation_fix_rows(db)
         self.assertEqual(len(rows), 1)
@@ -293,7 +293,7 @@ class CitationFixDialogTest(unittest.TestCase):
         )
         cit.get_note_list = lambda: ["n3"]  # type: ignore[assignment]
         note = FakeNote(text="See https://www.example.org/records/5678")
-        db = FakeDb(sources=[src], citations=[cit], notes={"n3": note})
+        db: Any = FakeDb(sources=[src], citations=[cit], notes={"n3": note})
 
         rows = build_citation_fix_rows(db)
         self.assertEqual(len(rows), 1)
@@ -414,7 +414,7 @@ class CitationFixDialogTest(unittest.TestCase):
             confidence=2,
         )
         cit2.get_note_list = lambda: []  # type: ignore[assignment]
-        db = FakeDb(sources=[src], citations=[cit1, cit2], notes={})
+        db: Any = FakeDb(sources=[src], citations=[cit1, cit2], notes={})
 
         rows = build_citation_fix_rows(db)
         self.assertEqual(len(rows), 2)
@@ -440,7 +440,7 @@ class CitationFixDialogTest(unittest.TestCase):
             page="p. 1",
             confidence=2,
         )
-        db = FakeDb(sources=[src], citations=[cit], notes={})
+        db: Any = FakeDb(sources=[src], citations=[cit], notes={})
 
         class DummyDbState:
             def __init__(self, db_obj: Any) -> None:

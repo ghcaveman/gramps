@@ -454,7 +454,7 @@ class SourceFixTransactionTest(unittest.TestCase):
     def test_trim_is_one_undo_step(self) -> None:
         """Trimming runs once, inside the caller's transaction."""
         db: DbWriteBase = make_database("sqlite")
-        db.load(tempfile.mkdtemp())
+        db.load(tempfile.mkdtemp(), None)
         try:
             with DbTxn("Setup", db) as trans:
                 src = Source()
