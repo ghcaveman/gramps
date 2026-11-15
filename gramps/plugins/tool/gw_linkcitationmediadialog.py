@@ -308,7 +308,6 @@ def build_link_citation_media_rows(
                 "options": options,
                 "hint_target": default_action,
                 "chosen_action": default_action,
-                "is_locked": m_id.is_locked,
             }
         )
 

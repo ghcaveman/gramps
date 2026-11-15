@@ -79,7 +79,6 @@ from gramps.plugins.tool.gw_linkcitationmediadialog import (
     media_fix_problems,
     media_problems_message,
 )
-from gramps.plugins.tool.gwizard_common import lock_media
 
 
 class DummyDbState:
@@ -193,7 +192,6 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
                 "media_handle": m_h,
                 "owner_handle": p_h,
                 "owner_type": "Person",
-                "is_locked": False,
             }
         ]
 
@@ -297,14 +295,6 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
             self.db.add_media(m, trans)
         self.db.set_mediapath(None)
         self.assertIn("no base media path is set", media_fix_problems(self.db, m))
-
-    def test_locked_media_is_still_offered(self) -> None:
-        """The GWizard lock is not needed, and does not stop linking either."""
-        with DbTxn("Setup locked", self.db) as trans:
-            m = self._media("locked.jpg")
-            lock_media(self.db, m, txn=trans)
-            self.db.add_media(m, trans)
-        self.assertEqual(media_fix_problems(self.db, m), [])
 
     def test_rerun_picks_up_fixed_media(self) -> None:
         """Fixing more media later and running again links only the new ones."""

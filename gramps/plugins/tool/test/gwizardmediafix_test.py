@@ -86,10 +86,7 @@ from gramps.plugins.tool.gwizardmediafix import (
     build_accept_all_plan,
 )
 from gramps.plugins.tool.gwizard_common import (
-    is_media_locked,
     has_media_fixed_tag,
-    lock_media,
-    unlock_media,
     add_media_fixed_tag,
 )
 from gramps.plugins.tool.gw_fixmediareferencesdialog import (
@@ -1459,8 +1456,8 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertTrue(dlg.report_label.selectable)
         self.assertEqual(dlg.report_label.text, sample_report)
 
-    def test_find_missing_media_tagging_and_locking(self) -> None:
-        """FindMissingMediaDialog tags repaired media with GWizard: MediaFixed and skips locked media."""
+    def test_find_missing_media_tagging(self) -> None:
+        """FindMissingMediaDialog tags repaired media with GWizard: MediaFixed."""
         temp_dir = tempfile.mkdtemp()
         try:
             base_dir = os.path.join(temp_dir, "MediaBase")
@@ -1472,59 +1469,37 @@ class GWizardMediaFixTest(unittest.TestCase):
                 f.write("image data")
 
             with DbTxn("Create missing media", self.db) as trans:
-                m_unlocked = Media()
-                m_unlocked.set_description("Unlocked Missing")
-                m_unlocked.set_path("missing/photo.jpg")
-                h_unlocked = self.db.add_media(m_unlocked, trans)
+                m_first = Media()
+                m_first.set_description("First Missing")
+                m_first.set_path("missing/photo.jpg")
+                h_first = self.db.add_media(m_first, trans)
 
-                m_locked = Media()
-                m_locked.set_description("Locked Missing")
-                m_locked.set_path("missing/photo.jpg")
-                h_locked = self.db.add_media(m_locked, trans)
-
-            lock_media(self.db, m_locked, commit=True)
-            self.assertTrue(is_media_locked(self.db, m_locked))
-            self.assertFalse(is_media_locked(self.db, m_unlocked))
+                m_second = Media()
+                m_second.set_description("Second Missing")
+                m_second.set_path("missing/photo.jpg")
+                h_second = self.db.add_media(m_second, trans)
 
             dlg = FindMissingMediaDialog(dbstate=self.dbstate)
             self.assertEqual(len(dlg.rows), 2)
-
-            locked_rows = [r for r in dlg.rows if r.get("locked")]
-            unlocked_rows = [r for r in dlg.rows if not r.get("locked")]
-            self.assertEqual(len(locked_rows), 1)
-            self.assertEqual(len(unlocked_rows), 1)
-            self.assertIn("Locked", locked_rows[0]["hint_text"])
-            self.assertEqual(locked_rows[0]["suggested_path"], "")
+            for row in dlg.rows:
+                self.assertNotIn("locked", row)
+                self.assertEqual(row["suggested_path"], "photo.jpg")
 
             with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
-                # Accept hints should only populate unlocked row
                 dlg.cb_accept_hints(MagicMock())
                 for target_row in dlg.row_targets:
-                    if target_row["entry"].get("locked"):
-                        self.assertEqual(target_row["path_entry"].get_text(), "")
-                    else:
-                        self.assertEqual(
-                            target_row["path_entry"].get_text(), "photo.jpg"
-                        )
-
+                    self.assertEqual(target_row["path_entry"].get_text(), "photo.jpg")
                 dlg.cb_apply(MagicMock())
 
-            # Unlocked media path was updated and received GWizard: MediaFixed tag
-            updated_unlocked = self.db.get_media_from_handle(h_unlocked)
-            self.assertEqual(updated_unlocked.get_path(), "photo.jpg")
-            self.assertTrue(has_media_fixed_tag(self.db, updated_unlocked))
-
-            # Locked media path was not modified
-            updated_locked = self.db.get_media_from_handle(h_locked)
-            self.assertEqual(
-                updated_locked.get_path().replace("\\", "/"), "missing/photo.jpg"
-            )
-            self.assertFalse(has_media_fixed_tag(self.db, updated_locked))
+            for handle in (h_first, h_second):
+                updated = self.db.get_media_from_handle(handle)
+                self.assertEqual(updated.get_path(), "photo.jpg")
+                self.assertTrue(has_media_fixed_tag(self.db, updated))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_consolidate_media_location_tagging_and_locking(self) -> None:
-        """ConsolidateMediaLocationDialog tags consolidated media and skips locked media."""
+    def test_consolidate_media_location_tagging(self) -> None:
+        """ConsolidateMediaLocationDialog consolidates and tags every listed record."""
         temp_dir = tempfile.mkdtemp()
         try:
             base_dir = os.path.join(temp_dir, "MediaBase")
@@ -1540,45 +1515,40 @@ class GWizardMediaFixTest(unittest.TestCase):
 
             with DbTxn("Create media for consolidation", self.db) as trans:
                 m1 = Media()
-                m1.set_description("Unlocked Consol")
+                m1.set_description("First Consol")
                 m1.set_path(src1)
                 h1 = self.db.add_media(m1, trans)
 
                 m2 = Media()
-                m2.set_description("Locked Consol")
+                m2.set_description("Second Consol")
                 m2.set_path(src2)
                 h2 = self.db.add_media(m2, trans)
 
-            lock_media(self.db, m2, commit=True)
-            self.assertTrue(is_media_locked(self.db, m2))
-
             dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
-            locked_rows = [r for r in dlg.rows if r.get("locked")]
-            unlocked_rows = [r for r in dlg.rows if not r.get("locked")]
-            self.assertEqual(len(locked_rows), 1)
-            self.assertEqual(len(unlocked_rows), 1)
+            self.assertEqual(len(dlg.rows), 2)
+            for row in dlg.rows:
+                self.assertNotIn("locked", row)
+                self.assertNotEqual(row["suggested_path"], "")
 
             with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
                 dlg.cb_accept_hints(MagicMock())
                 for target_row in dlg.row_targets:
-                    if target_row["entry"].get("locked"):
-                        self.assertEqual(target_row["path_entry"].get_text(), "")
-                    else:
-                        self.assertNotEqual(target_row["path_entry"].get_text(), "")
-
+                    self.assertNotEqual(target_row["path_entry"].get_text(), "")
                 dlg.cb_apply(MagicMock())
 
-            updated_m1 = self.db.get_media_from_handle(h1)
-            self.assertTrue(has_media_fixed_tag(self.db, updated_m1))
-
-            updated_m2 = self.db.get_media_from_handle(h2)
-            self.assertEqual(updated_m2.get_path(), src2)
-            self.assertFalse(has_media_fixed_tag(self.db, updated_m2))
+            for handle, src in ((h1, src1), (h2, src2)):
+                updated = self.db.get_media_from_handle(handle)
+                self.assertFalse(os.path.isabs(updated.get_path()))
+                self.assertTrue(
+                    os.path.exists(os.path.join(base_dir, updated.get_path()))
+                )
+                self.assertFalse(os.path.exists(src))
+                self.assertTrue(has_media_fixed_tag(self.db, updated))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_auto_find_missing_skips_locked_and_tags_fixed(self) -> None:
-        """_auto_find_missing skips locked media and tags resolved media with GWizard: MediaFixed."""
+    def test_auto_find_missing_tags_fixed(self) -> None:
+        """_auto_find_missing repoints found media and tags it with GWizard: MediaFixed."""
         temp_dir = tempfile.mkdtemp()
         try:
             base_dir = os.path.join(temp_dir, "MediaBase")
@@ -1590,38 +1560,25 @@ class GWizardMediaFixTest(unittest.TestCase):
                 f.write("auto found")
 
             with DbTxn("Create missing media", self.db) as trans:
-                m_unlocked = Media()
-                m_unlocked.set_description("Auto Missing Unlocked")
-                m_unlocked.set_path("old/auto_found.jpg")
-                h_unlocked = self.db.add_media(m_unlocked, trans)
-
-                m_locked = Media()
-                m_locked.set_description("Auto Missing Locked")
-                m_locked.set_path("old/auto_found.jpg")
-                h_locked = self.db.add_media(m_locked, trans)
-
-            lock_media(self.db, m_locked, commit=True)
+                m_missing = Media()
+                m_missing.set_description("Auto Missing")
+                m_missing.set_path("old/auto_found.jpg")
+                h_missing = self.db.add_media(m_missing, trans)
 
             tool_instance = GWizardMediaFix.__new__(GWizardMediaFix)
             tool_instance.dbstate = self.dbstate
 
             resolved, unresolved, denied = tool_instance._auto_find_missing(self.db)
-            self.assertEqual(resolved, 1)
+            self.assertEqual((resolved, unresolved, denied), (1, [], []))
 
-            res_unlocked = self.db.get_media_from_handle(h_unlocked)
-            self.assertEqual(res_unlocked.get_path(), "auto_found.jpg")
-            self.assertTrue(has_media_fixed_tag(self.db, res_unlocked))
-
-            res_locked = self.db.get_media_from_handle(h_locked)
-            self.assertEqual(
-                res_locked.get_path().replace("\\", "/"), "old/auto_found.jpg"
-            )
-            self.assertFalse(has_media_fixed_tag(self.db, res_locked))
+            res = self.db.get_media_from_handle(h_missing)
+            self.assertEqual(res.get_path(), "auto_found.jpg")
+            self.assertTrue(has_media_fixed_tag(self.db, res))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_auto_consolidate_location_skips_locked_and_tags_fixed(self) -> None:
-        """_auto_consolidate_location skips locked media and tags consolidated media."""
+    def test_auto_consolidate_location_tags_fixed(self) -> None:
+        """_auto_consolidate_location moves media into the base path and tags it."""
         temp_dir = tempfile.mkdtemp()
         try:
             base_dir = os.path.join(temp_dir, "MediaBase")
@@ -1633,42 +1590,29 @@ class GWizardMediaFixTest(unittest.TestCase):
                 f.write("png data")
 
             with DbTxn("Create media", self.db) as trans:
-                m_unlocked = Media()
-                m_unlocked.set_description("Raw Unlocked")
-                m_unlocked.set_path(src_file)
-                h_unlocked = self.db.add_media(m_unlocked, trans)
+                m_raw = Media()
+                m_raw.set_description("Raw Photo")
+                m_raw.set_path(src_file)
+                h_raw = self.db.add_media(m_raw, trans)
 
             tool_instance = GWizardMediaFix.__new__(GWizardMediaFix)
             tool_instance.dbstate = self.dbstate
 
             count, uncons = tool_instance._auto_consolidate_location(self.db)
-            self.assertEqual(count, 1)
+            self.assertEqual((count, uncons), (1, []))
 
-            res = self.db.get_media_from_handle(h_unlocked)
+            res = self.db.get_media_from_handle(h_raw)
+            self.assertFalse(os.path.isabs(res.get_path()))
+            self.assertTrue(os.path.exists(os.path.join(base_dir, res.get_path())))
             self.assertTrue(has_media_fixed_tag(self.db, res))
 
-            # Now test locked media
-            src_locked = os.path.join(temp_dir, "raw_locked.png")
-            with open(src_locked, "w") as f:
-                f.write("png data locked")
-
-            with DbTxn("Create locked media", self.db) as trans:
-                m_locked = Media()
-                m_locked.set_description("Raw Locked")
-                m_locked.set_path(src_locked)
-                h_locked = self.db.add_media(m_locked, trans)
-
-            lock_media(self.db, m_locked, commit=True)
-            count2, uncons2 = tool_instance._auto_consolidate_location(self.db)
-            self.assertEqual(count2, 0)
-            res_locked = self.db.get_media_from_handle(h_locked)
-            self.assertEqual(res_locked.get_path(), src_locked)
-            self.assertFalse(has_media_fixed_tag(self.db, res_locked))
+            # A second run has nothing left to do
+            self.assertEqual(tool_instance._auto_consolidate_location(self.db), (0, []))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_auto_fix_references_skips_locked_and_tags_merged(self) -> None:
-        """_auto_fix_references skips locked media and tags merged keeper."""
+    def test_auto_fix_references_tags_merged(self) -> None:
+        """_auto_fix_references merges duplicates and tags the keeper."""
         temp_dir = tempfile.mkdtemp()
         try:
             shared = os.path.join(temp_dir, "shared.jpg")
@@ -1695,16 +1639,8 @@ class GWizardMediaFixTest(unittest.TestCase):
             tool_instance = GWizardMediaFix.__new__(GWizardMediaFix)
             tool_instance.dbstate = self.dbstate
 
-            # Lock other record: merge must be skipped
-            lock_media(self.db, m2, commit=True)
             merged, deleted, errs = tool_instance._auto_fix_references(self.db)
-            self.assertEqual(merged, 0)
-            self.assertIsNotNone(self.db.get_media_from_handle(h2))
-
-            # Unlock other record: merge succeeds and keeper gets GWizard: MediaFixed tag
-            unlock_media(self.db, m2, commit=True)
-            merged, deleted, errs = tool_instance._auto_fix_references(self.db)
-            self.assertEqual(merged, 1)
+            self.assertEqual((merged, deleted, errs), (1, 0, []))
             with self.assertRaises(HandleError):
                 self.db.get_media_from_handle(h2)
             keeper_res = self.db.get_media_from_handle(h1)
@@ -1712,8 +1648,8 @@ class GWizardMediaFixTest(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_build_accept_all_plan_excludes_locked(self) -> None:
-        """build_accept_all_plan excludes locked media records from all actions."""
+    def test_build_accept_all_plan_includes_all_media(self) -> None:
+        """build_accept_all_plan plans a find and a move for every eligible record."""
         temp_dir = tempfile.mkdtemp()
         try:
             base_dir = os.path.join(temp_dir, "MediaBase")
@@ -1730,44 +1666,49 @@ class GWizardMediaFixTest(unittest.TestCase):
             with DbTxn("Create records", self.db) as trans:
                 m_missing = Media()
                 m_missing.set_path("lost/found.jpg")
-                self.db.add_media(m_missing, trans)
+                h_missing = self.db.add_media(m_missing, trans)
 
                 m_move = Media()
                 m_move.set_path(f2)
-                self.db.add_media(m_move, trans)
+                h_move = self.db.add_media(m_move, trans)
 
-            lock_media(self.db, m_missing, commit=True)
-            lock_media(self.db, m_move, commit=True)
+                # Referenced, so step 2 does not plan to delete them
+                person = Person()
+                for handle in (h_missing, h_move):
+                    mref = MediaRef()
+                    mref.set_reference_handle(handle)
+                    person.add_media_reference(mref)
+                self.db.add_person(person, trans)
 
             plan = build_accept_all_plan(self.db, base_dir, base_set=True)
+            self.assertNotIn("held", plan)
+            self.assertEqual(plan["delete"], [])
             find_gids = [x[0] for x in plan["find"]]
             move_gids = [x[0] for x in plan["moves"]]
-            self.assertNotIn(m_missing.get_gramps_id(), find_gids)
-            self.assertNotIn(m_move.get_gramps_id(), move_gids)
+            self.assertIn(m_missing.get_gramps_id(), find_gids)
+            self.assertIn(m_move.get_gramps_id(), move_gids)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_report_locked_and_fixed_metrics(self) -> None:
-        """generate_media_fix_report includes locked and fixed media metrics and sections."""
-        with DbTxn("Create locked and fixed media", self.db) as trans:
-            m_lock = Media()
-            m_lock.set_description("Secure Photo")
-            m_lock.set_path("secure.jpg")
-            self.db.add_media(m_lock, trans)
+    def test_report_fixed_metrics(self) -> None:
+        """generate_media_fix_report counts fixed media and has no lock section."""
+        with DbTxn("Create media", self.db) as trans:
+            m_plain = Media()
+            m_plain.set_description("Plain Photo")
+            m_plain.set_path("plain.jpg")
+            self.db.add_media(m_plain, trans)
 
             m_fix = Media()
             m_fix.set_description("Clean Photo")
             m_fix.set_path("clean.jpg")
             self.db.add_media(m_fix, trans)
 
-        lock_media(self.db, m_lock, commit=True)
         add_media_fixed_tag(self.db, m_fix, commit=True)
 
         report = generate_media_fix_report(self.db)
-        self.assertIn("Locked media records:      1", report)
         self.assertIn("Fixed media records:       1", report)
-        self.assertIn("LOCKED MEDIA RECORDS", report)
-        self.assertIn("Secure Photo", report)
+        self.assertNotIn("Locked", report)
+        self.assertNotIn("LOCKED", report)
 
 
 if __name__ == "__main__":
