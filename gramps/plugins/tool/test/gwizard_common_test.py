@@ -256,13 +256,13 @@ class GWizardCommonTest(unittest.TestCase):
         db.load(":memory:")
         try:
             t_fixed = ensure_gwizard_tags(db)
-            self.assertIsNotNone(t_fixed)
+            assert t_fixed is not None
             self.assertEqual(t_fixed.get_name(), TAG_MEDIA_FIXED)
             self.assertEqual(t_fixed.get_color(), TAG_MEDIA_FIXED_COLOR)
 
             # Calling again returns existing tag without duplicating
             t_fixed2 = ensure_gwizard_tags(db)
-            self.assertIsNotNone(t_fixed2)
+            assert t_fixed2 is not None
             self.assertEqual(t_fixed.get_handle(), t_fixed2.get_handle())
         finally:
             db.close()
