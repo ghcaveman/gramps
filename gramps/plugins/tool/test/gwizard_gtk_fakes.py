@@ -24,8 +24,9 @@ The GWizard dialogs subclass Gtk classes and build widgets, which needs a
 display.  These lightweight fakes stand in for the few widgets the tests
 inspect.  Every GWizard test module calls :func:`install` *before* importing
 a GWizard module (so the dialog classes subclass the fakes) and again in
-``setUpModule``, and :func:`uninstall` in ``tearDownModule``, so the real
-``Gtk`` module is not left patched for other Gramps tests in the same run.
+``setUpModule``, and :func:`uninstall` at the end of the module and in
+``tearDownModule``, so the real ``Gtk`` module is not left patched for other
+Gramps tests in the same run (test discovery imports every module first).
 
 This module is not named ``*_test.py`` and so is not collected as a test.
 """
@@ -419,6 +420,9 @@ _FAKES: dict[str, Any] = {
     "FileChooserDialog": _FakeFileChooserDialog,
     "Image": _FakeWidget,
     "Paned": _FakeWidget,
+    # Gramps' ProgressMeter (used by the media fix) builds a progress bar;
+    # a real one needs a display and crashes a headless test run.
+    "ProgressBar": _FakeWidget,
     "SizeGroup": _FakeWidget,
     "TextView": _FakeWidget,
     # Gramps' ProgressMeter drains events with "while events_pending()"; on a
