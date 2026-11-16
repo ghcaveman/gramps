@@ -149,14 +149,16 @@ def _person(first: str, surnames: list[tuple[str, str]]) -> Person:
     return person
 
 
-def _mock_event(handle: str, event_type: str, date: Date | None = None) -> Mock:
+def _mock_event(
+    handle: str, event_type: str, date: Date | None = None, description: str = ""
+) -> Mock:
     """Build a mock event with the fields used by merge dialog comparisons."""
     return Mock(
         handle=handle,
         get_type=Mock(return_value=event_type),
         get_date_object=Mock(return_value=date or Date()),
         get_place_handle=Mock(return_value=None),
-        get_description=Mock(return_value=""),
+        get_description=Mock(return_value=description),
         get_citation_list=Mock(return_value=[]),
     )
 
@@ -417,14 +419,16 @@ class GWizardEventGroupingTest(unittest.TestCase):
         dialog._spouses = lambda db, person: []
         dialog._parents = lambda db, person, role: []
         dialog._children = lambda db, person: []
+        dialog._sorted_relatives = lambda db, persons: persons
 
+        # Events need some data: empty events are not listed.
         s_events = {
-            "s_res": _mock_event("s_res", "Residence"),
-            "s_cen": _mock_event("s_cen", "Census"),
+            "s_res": _mock_event("s_res", "Residence", description="Farm"),
+            "s_cen": _mock_event("s_cen", "Census", description="1900"),
         }
         t_events = {
-            "t_cen": _mock_event("t_cen", "Census"),
-            "t_res": _mock_event("t_res", "Residence"),
+            "t_cen": _mock_event("t_cen", "Census", description="1900"),
+            "t_res": _mock_event("t_res", "Residence", description="Farm"),
         }
         dialog.source_db.get_event_from_handle.side_effect = s_events.get
         dialog.target_db.get_event_from_handle.side_effect = t_events.get
@@ -458,6 +462,61 @@ class GWizardEventGroupingTest(unittest.TestCase):
         GWizardMergeDialog._populate_fields(dialog)
         self.assertEqual(recorded_labels, ["Census", "Residence"])
 
+    def test_cancelled_merge_does_not_rebuild_the_compare_window(self) -> None:
+        """
+        Closing the merge dialog without merging leaves the compare
+        window's lists alone; a completed merge rebuilds them.
+        """
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from gramps.gui.gwizard import gwizardcompare, gwizardmergedialog
+        from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
+
+        # Fixed response codes, so the test runs with or without real GTK.
+        codes = SimpleNamespace(OK=-5, CANCEL=-6, DELETE_EVENT=-4)
+        for response, rebuilt in (
+            (codes.CANCEL, False),
+            (codes.DELETE_EVENT, False),
+            (codes.OK, True),
+        ):
+            window = Mock()
+            window._get_selected_pair.return_value = ("s1", "t1")
+            dialog = Mock()
+            dialog.run.return_value = response
+            with patch.object(
+                gwizardmergedialog, "GWizardMergeDialog", return_value=dialog
+            ), patch.object(gwizardcompare.Gtk, "ResponseType", codes):
+                GWizardCompareWindow.cb_merge_dialog(window, Mock())
+            dialog.destroy.assert_called_once_with()
+            window.present.assert_called_once_with()
+            self.assertEqual(window.select_category.called, rebuilt, response)
+
+    def test_relatives_sorted_by_name_then_birth_year(self) -> None:
+        """
+        Relatives come out in one order whatever order a tree stores them
+        in: by name, then birth year, undated last.
+        """
+        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
+
+        people = {
+            "zed": (_person("Zed", [("Doe", "")]), "1890"),
+            "ann_late": (_person("Ann", [("Doe", "")]), "1905"),
+            "ann_undated": (_person("Ann", [("Doe", "")]), ""),
+            "ann_early": (_person("Ann", [("Doe", "")]), "1899"),
+        }
+        years = {id(person): year for person, year in people.values()}
+        dialog = Mock(spec=GWizardMergeDialog)
+        dialog._event_year = lambda db, person, kind: years[id(person)]
+
+        ordered = GWizardMergeDialog._sorted_relatives(
+            dialog, Mock(), [person for person, _year in people.values()]
+        )
+
+        self.assertEqual(
+            [years[id(person)] for person in ordered], ["1899", "1905", "", "1890"]
+        )
+
     def test_merge_dialog_aligns_events_with_different_date_quality(self) -> None:
         from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
 
@@ -485,6 +544,7 @@ class GWizardEventGroupingTest(unittest.TestCase):
         dialog._spouses = lambda db, person: []
         dialog._parents = lambda db, person, role: []
         dialog._children = lambda db, person: []
+        dialog._sorted_relatives = lambda db, persons: persons
 
         def date(
             day: int = 0,
@@ -561,14 +621,61 @@ class GWizardEventGroupingTest(unittest.TestCase):
         dialog._format_diff_line = record_diff_line
 
         GWizardMergeDialog._populate_fields(dialog)
+        # The empty Birth events on both sides are not listed at all.
         self.assertEqual(
             rendered_events,
-            [
-                ("", ""),
-                ("1864-10-02 Luderup", "estimated 1864-10-02 Luderup"),
-            ],
+            [("1864-10-02 Luderup", "estimated 1864-10-02 Luderup")],
         )
         self.assertIn("birth_event", arrow_keys)
+        self.assertNotIn("event:s_empty", arrow_keys)
+
+    def test_empty_events_are_not_listed(self) -> None:
+        """
+        Events with no date, place or description are left out of both
+        the merge dialog's grouping and the compare window's lines.
+        """
+        from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
+
+        dated = Date()
+        dated.set(
+            Date.QUAL_NONE, Date.MOD_NONE, Date.CAL_GREGORIAN, (0, 0, 1900, False)
+        )
+        text_only = Date()
+        text_only.set_as_text("about the war")
+        described = _mock_event("described", "Burial")
+        described.get_description.return_value = "Old churchyard"
+        placed = _mock_event("placed", "Census")
+        placed.get_place_handle.return_value = "P0001"
+        events = {
+            "empty": _mock_event("empty", "Birth"),
+            "blank_desc": _mock_event("blank_desc", "Death"),
+            "dated": _mock_event("dated", "Birth", dated),
+            "text_only": _mock_event("text_only", "Residence", text_only),
+            "described": described,
+            "placed": placed,
+        }
+        events["blank_desc"].get_description.return_value = "  \n "
+        db = Mock()
+        db.get_event_from_handle.side_effect = events.__getitem__
+        person = Mock()
+        person.get_event_ref_list.return_value = [Mock(ref=h) for h in events]
+
+        self.assertEqual(
+            person_events_by_type(db, person),
+            {
+                "Birth": ["dated"],
+                "Residence": ["text_only"],
+                "Burial": ["described"],
+                "Census": ["placed"],
+            },
+        )
+
+        window = Mock(spec=GWizardCompareWindow)
+        window._format_event_line = lambda event, db: event.handle
+        self.assertEqual(
+            GWizardCompareWindow._event_lines(window, person, db),
+            ["dated", "described", "placed", "text_only"],
+        )
 
 
 if __name__ == "__main__":

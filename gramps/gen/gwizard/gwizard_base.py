@@ -196,19 +196,72 @@ def safe_get_repository(db: Any, handle: str | None) -> Any | None:
     return safe_get(db, handle, "get_repository_from_handle", "repository")
 
 
+def is_empty_event(event: Any, db: Any = None) -> bool:
+    """
+    Return True when an event has nothing to show: no date, no place and
+    no description.
+
+    The compare window and merge dialog leave such events out of their
+    Events & Other Records lists. Empty events (a bare "Birth" with no
+    details, say) carry no information to compare, and when both sides
+    have one they could not be ordered or paired meaningfully.
+
+    :param event: The event to test, or None.
+    :param db: The event's database. When given, a place whose name and
+        title are both blank counts as no place.
+    :returns: True if the event is missing or has no displayable data.
+    """
+    if event is None:
+        return True
+    try:
+        date = event.get_date_object()
+        if date is not None and date.is_empty() is not True:
+            return False
+        place_handle = event.get_place_handle()
+        if place_handle:
+            place = safe_get_place(db, place_handle) if db is not None else None
+            if place is None:
+                return False
+            name = place.get_name().get_value()
+            title = place.get_title()
+            if not isinstance(name, str) or name.strip():
+                return False
+            if not isinstance(title, str) or title.strip():
+                return False
+        description = event.get_description()
+        if not isinstance(description, str) or description.strip():
+            return False
+    except Exception:
+        # When in doubt, show the event.
+        return False
+    return True
+
+
 def vital_event_ref(db: Any, person: Person | None, kind: str) -> Any | None:
+    """
+    Return the reference to the person's birth or death event.
+
+    The person's own birth/death reference is used when it has data;
+    otherwise the first Birth/Death event in the person's list that has
+    data. Only when every candidate is empty (no date, place or
+    description) is the empty one returned, the person's own reference
+    first. ``kind`` is 'birth' or 'death'.
+    """
     if person is None or db is None:
         return None
     try:
         ref = person.get_birth_ref() if kind == "birth" else person.get_death_ref()
     except Exception:
         ref = None
-    if ref is not None:
+    if ref is not None and not is_empty_event(
+        safe_get_event(db, getattr(ref, "ref", None)), db
+    ):
         return ref
+    first_empty = ref
     try:
         refs = person.get_event_ref_list() or []
     except Exception:
-        return None
+        return first_empty
     want_birth = kind == "birth"
     for cand in refs:
         try:
@@ -225,9 +278,13 @@ def vital_event_ref(db: Any, person: Person | None, kind: str) -> Any | None:
             is_match = etype.is_birth() if want_birth else etype.is_death()
         except Exception:
             continue
-        if is_match:
+        if not is_match:
+            continue
+        if not is_empty_event(event, db):
             return cand
-    return None
+        if first_empty is None:
+            first_empty = cand
+    return first_empty
 
 
 # ------------------------------------------------------------

@@ -264,6 +264,22 @@ class GWizardExtraItemsTest(unittest.TestCase):
             ["First note text"],
         )
 
+    def test_blank_notes_are_not_compared(self) -> None:
+        """A note with no text (or only whitespace) is left out."""
+        self._open()
+        kid = self._kid(self.db)
+        with DbTxn("blank notes", self.db) as trans:
+            for text in ("", "  \n\t "):
+                note = Note(text)
+                self.db.add_note(note, trans)
+                kid.add_note(note.handle)
+            self.db.commit_person(kid, trans)
+
+        self.assertEqual(
+            [n.get() for _i, n in extra_items("note", kid, self.db)],
+            ["First note text"],
+        )
+
     def test_items_only_in_the_tree_are_reported(self) -> None:
         """An item only the tree has is a target_only row."""
         self._open()

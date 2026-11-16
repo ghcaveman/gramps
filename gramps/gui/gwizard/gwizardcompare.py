@@ -54,6 +54,7 @@ from gramps.gen.errors import HandleError
 from gramps.gen.gwizard.gwizardgedcom import EXTRA_KINDS, GedGWizard
 from gramps.gen.gwizard.gwizard_base import (
     CandidateMatcher,
+    is_empty_event,
     safe_get_event,
     safe_get_family,
     safe_get_person,
@@ -1848,7 +1849,8 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         fact of the person, such as birth, death, occupation, residence,
         etc. Empty ``_PPEXCLUDE`` marker events and ``_FSLINK`` events
         are not shown; the FamilySearch ID appears in the Individual
-        Details section instead.
+        Details section instead. Events with no date, place or
+        description are not shown either: they have nothing to compare.
         """
         lines = []
         for ref in person.get_event_ref_list():
@@ -1858,6 +1860,8 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                     continue
                 type_name = str(event.get_type())
                 if type_name in ("_PPEXCLUDE", "_FSLINK"):
+                    continue
+                if is_empty_event(event, db):
                     continue
                 lines.append(self._format_event_line(event, db))
             except Exception as e:
@@ -1970,7 +1974,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         def sort_key(related: Person) -> tuple[str, str]:
             try:
                 birth_year = GWizardCompareWindow._get_event_year(
-                    related.get_birth_ref(), db
+                    vital_event_ref(db, related, "birth"), db
                 )
             except Exception:
                 birth_year = ""
@@ -2046,13 +2050,13 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         try:
             birth_year = GWizardCompareWindow._get_event_year(
-                related.get_birth_ref(), db
+                vital_event_ref(db, related, "birth"), db
             )
         except Exception:
             birth_year = ""
         try:
             death_year = GWizardCompareWindow._get_event_year(
-                related.get_death_ref(), db
+                vital_event_ref(db, related, "death"), db
             )
         except Exception:
             death_year = ""
@@ -2145,14 +2149,19 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             parent=self,
         )
         try:
-            dialog.run()
+            response = dialog.run()
         finally:
             dialog.destroy()
         # Re-activate the compare window: it is the transient parent of
         # the merge dialog, so presenting it restores focus without
         # requiring a click.
         self.present()
-        # Rebuild both panels so any merged data and the diff list
+        # The dialog answers OK only once a merge has been applied; Cancel,
+        # the title-bar X and Escape change nothing, so the panels are
+        # left as they are instead of being rebuilt.
+        if response != Gtk.ResponseType.OK:
+            return
+        # Rebuild both panels so the merged data and the diff list
         # reflect the new state.
         self.select_category("person")
 

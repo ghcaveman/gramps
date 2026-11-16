@@ -74,6 +74,7 @@ from .gwizard_base import (
     GWizardBase,
     GWizardCompareRow,
     CandidateMatcher,
+    is_empty_event,
     safe_get,
     surname_prefix_text,
     surname_text,
@@ -172,8 +173,66 @@ def extra_items(kind: str, person: Any, db: Any) -> list[tuple[int, Any]]:
 
     The index is the item's place in the person's own list, which is what
     the merge dialog's keys refer to. The FamilySearch ID attribute has its
-    own row, so it is left out of the attributes.
+    own row, so it is left out of the attributes. Items with nothing to
+    show (a note with no text, an attribute with no value, an address with
+    every field blank...) are left out too.
     """
+    return [
+        (index, item)
+        for index, item in _all_extra_items(kind, person, db)
+        if not is_blank_extra_item(kind, item)
+    ]
+
+
+def is_blank_extra_item(kind: str, item: Any) -> bool:
+    """
+    Return True when an item has nothing to show or compare: every field
+    but its type is blank. When in doubt the item counts as not blank.
+    """
+    try:
+        if kind == "note":
+            return not (item.get() or "").strip()
+        if kind == "attribute":
+            return not _norm_text(item.get_value())
+        if kind == "url":
+            return not (
+                _norm_text(item.get_path()) or _norm_text(item.get_description())
+            )
+        if kind == "media":
+            return not (
+                _norm_text(item.get_path()) or _norm_text(item.get_description())
+            )
+        if kind == "lds":
+            return (
+                item.get_date_object().is_empty()
+                and not _norm_text(item.get_temple())
+                and not item.get_place_handle()
+                and not item.get_family_handle()
+                and not item.get_status()
+            )
+        if kind == "altname":
+            # Everything but the name type is blank.
+            return not any(
+                (
+                    _norm_text(item.get_first_name()),
+                    any(
+                        _norm_text(s.get_prefix()) or _norm_text(s.get_surname())
+                        for s in item.get_surname_list()
+                    ),
+                    _norm_text(item.get_suffix()),
+                    _norm_text(item.get_title()),
+                    _norm_text(item.get_nick_name()),
+                    _norm_text(item.get_call_name()),
+                )
+            )
+        # Addresses: every field and the date are blank.
+        return not any(extra_signature(kind, item))
+    except Exception:  # pylint: disable=broad-except
+        return False
+
+
+def _all_extra_items(kind: str, person: Any, db: Any) -> list[tuple[int, Any]]:
+    """Return every (index, item) pair of one kind, blank items included."""
     if kind == "altname":
         return list(enumerate(person.get_alternate_names()))
     if kind == "attribute":
@@ -205,8 +264,9 @@ def extra_items(kind: str, person: Any, db: Any) -> list[tuple[int, Any]]:
             note = db.get_note_from_handle(handle)
         except Exception:  # pylint: disable=broad-except
             continue
-        if note is not None and str(note.get_type()) != _IMPORT_NOTE_TYPE:
-            items.append((index, note))
+        if note is None or str(note.get_type()) == _IMPORT_NOTE_TYPE:
+            continue
+        items.append((index, note))
     return items
 
 
@@ -340,7 +400,12 @@ def event_signature(db: Any, handle: str) -> tuple[str, int, str] | None:
 
 
 def family_summary(db: Any, family: Any) -> str:
-    """Return a one-line description of a family: partners, type, events."""
+    """
+    Return a one-line description of a family: partners, type, events.
+
+    Events are listed in date order, undated ones last; events with no
+    date, place or description are left out.
+    """
     names = []
     for handle in (family.get_father_handle(), family.get_mother_handle()):
         person = safe_get_person(db, handle) if handle else None
@@ -349,11 +414,18 @@ def family_summary(db: Any, family: Any) -> str:
     details = []
     if family.get_relationship() != FamilyRelType.UNKNOWN:
         details.append(str(family.get_relationship()))
+    # Events in date order (undated last), then by text, so both sides of
+    # a comparison list them the same way; empty events are left out.
+    events = []
     for ref in family.get_event_ref_list():
         event = safe_get_event(db, ref.ref)
-        if event is not None:
-            date = glocale.date_displayer.display(event.get_date_object())
-            details.append(("%s %s" % (event.get_type(), date)).strip())
+        if event is None or is_empty_event(event, db):
+            continue
+        date = " ".join(glocale.date_displayer.display(event.get_date_object()).split())
+        text = " ".join(("%s %s" % (event.get_type(), date)).split())
+        sort_value = event.get_date_object().get_sort_value()
+        events.append((sort_value == 0, sort_value, text.casefold(), text))
+    details.extend(text for *_key, text in sorted(events))
     text = _(" and ").join(names) or _("(no partners)")
     return "%s: %s" % (text, "; ".join(details) if details else _("(no details)"))
 
@@ -921,7 +993,11 @@ class GedGWizard(GWizardBase):
         def collect_generic_events(
             db: DbWriteBase, person: Person
         ) -> list[tuple[str, Event]]:
-            """Return (handle, Event) pairs for non-Birth/Death events."""
+            """
+            Return (handle, Event) pairs for non-Birth/Death events. Empty
+            events (no date, place or description) are left out, as they
+            are in the compare window and merge dialog.
+            """
             result: list[tuple[str, Event]] = []
             for ref in person.get_event_ref_list():
                 try:
@@ -931,6 +1007,8 @@ class GedGWizard(GWizardBase):
                 if not event:
                     continue
                 if event.get_type() in (EventType.BIRTH, EventType.DEATH):
+                    continue
+                if is_empty_event(event, db):
                     continue
                 result.append((ref.ref, event))
             return result
@@ -1196,6 +1274,9 @@ class GedGWizard(GWizardBase):
                 else set()
             )
             for ref in s_family.get_event_ref_list():
+                # An empty incoming event adds nothing to the tree's family.
+                if is_empty_event(safe_get_event(source_db, ref.ref), source_db):
+                    continue
                 signature = event_signature(source_db, ref.ref)
                 if signature is not None and signature not in known:
                     event_handles.append(ref.ref)

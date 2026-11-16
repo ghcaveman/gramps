@@ -114,11 +114,11 @@ class GWizardFamilyCompareTest(unittest.TestCase):
         self._paths.append(handle.name)
         return handle.name
 
-    def _open(self, target_ged: str) -> None:
+    def _open(self, target_ged: str, source_ged: str = SOURCE_GED) -> None:
         self.db = import_as_dict(self._write(target_ged), User())
         self.gwizard = GedGWizard(self.db)
         self.assertTrue(
-            self.gwizard.run_step("connect", gedcom_path=self._write(SOURCE_GED))
+            self.gwizard.run_step("connect", gedcom_path=self._write(source_ged))
         )
         self.gwizard.run_step("load")
 
@@ -192,6 +192,28 @@ class GWizardFamilyCompareTest(unittest.TestCase):
 
         self.assertEqual(entry["differences"], [])
         self.assertEqual(self._rows(), [])
+
+    def test_empty_events_are_ignored_and_events_listed_in_date_order(
+        self,
+    ) -> None:
+        """
+        Empty family events on either side are not shown or offered, and
+        the summaries list events by date whatever their stored order.
+        """
+        empty = "1 MARR\n"
+        source_ged = SOURCE_GED.replace(MARRIAGE, empty + MARRIAGE)
+        self._open(linked(events=DIVORCE + MARRIAGE + empty), source_ged)
+
+        (entry,) = self._entries()
+
+        self.assertEqual(entry["differences"], [])
+        self.assertEqual(entry["event_handles"], [])
+        self.assertEqual(entry["source_text"], entry["target_text"])
+        self.assertEqual(entry["source_text"].count("Marriage"), 1)
+        self.assertLess(
+            entry["source_text"].index("Marriage"),
+            entry["source_text"].index("Divorce"),
+        )
 
     def test_family_missing_from_the_tree_is_listed(self) -> None:
         """Dad and Mom are in the tree but not linked: the family is missing."""

@@ -68,6 +68,7 @@ from gramps.gen.gwizard.gwizardgedcom import (
     pair_extra_items,
 )
 from gramps.gen.gwizard.gwizard_base import (
+    is_empty_event,
     safe_get_event,
     safe_get_family,
     safe_get_person,
@@ -367,7 +368,12 @@ def pair_relatives(
 
 
 def person_events_by_type(db: Any, person: Person) -> dict[str, list[str]]:
-    """Return visible event handles grouped by event type, preserving order."""
+    """
+    Return visible event handles grouped by event type, preserving order.
+
+    Internal ``_PPEXCLUDE``/``_FSLINK`` markers and empty events (no date,
+    place or description) are left out, matching the compare window.
+    """
     groups: dict[str, list[str]] = {}
     for event_ref in person.get_event_ref_list():
         try:
@@ -376,6 +382,8 @@ def person_events_by_type(db: Any, person: Person) -> dict[str, list[str]]:
                 continue
             event_type = str(event.get_type())
             if event_type in ("_PPEXCLUDE", "_FSLINK"):
+                continue
+            if is_empty_event(event, db):
                 continue
             groups.setdefault(event_type, []).append(event.handle)
         except Exception:
@@ -785,10 +793,14 @@ class GWizardMergeDialog(Gtk.Dialog):
 
         def rel_items(db: Any, person: Person, role: str) -> list[Person]:
             if role == "spouse":
-                return self._spouses(db, person)
-            if role == "child":
-                return self._children(db, person)
-            return self._parents(db, person, role)
+                items = self._spouses(db, person)
+            elif role == "child":
+                items = self._children(db, person)
+            else:
+                items = self._parents(db, person, role)
+            # By name, then birth year, as in the compare window, so rows
+            # that do not pair up still line up in the same order.
+            return self._sorted_relatives(db, items)
 
         def rel_sources(
             db: Any, person: Person | None, other: Person | None, role: str
@@ -1145,13 +1157,17 @@ class GWizardMergeDialog(Gtk.Dialog):
             event = safe_get_event(db, ref.ref)
             if not event:
                 return "", None, None
-            date_str = glocale.date_displayer.display(event.get_date_object())
+            # Same place name and spacing as the Events & Other Records
+            # lines, so one event reads the same in both places.
+            date_str = " ".join(
+                glocale.date_displayer.display(event.get_date_object()).split()
+            )
             place = ""
             ph = event.get_place_handle()
             if ph:
                 place_obj = safe_get_place(db, ph)
                 if place_obj:
-                    place = place_obj.get_title() or ""
+                    place = " ".join((place_obj.get_name().get_value() or "").split())
             return date_str, place or None, event.handle
         except Exception:
             return "", None, None
@@ -1162,17 +1178,24 @@ class GWizardMergeDialog(Gtk.Dialog):
         return ", ".join(p for p in (date_str, place or "") if p)
 
     def _event_line_from(self, db: Any, event: Any) -> str:
-        """Return an event's date, place, and description for display."""
+        """
+        Return an event's date, place, and description for display.
+
+        Each part has its whitespace collapsed (leading, trailing and
+        embedded runs), matching the compare window's event lines.
+        """
         if not event:
             return ""
-        date_str = glocale.date_displayer.display(event.get_date_object())
+        date_str = " ".join(
+            glocale.date_displayer.display(event.get_date_object()).split()
+        )
         place = ""
         ph = event.get_place_handle()
         if ph:
             try:
                 place_obj = safe_get_place(db, ph)
                 if place_obj:
-                    place = place_obj.get_name().get_value() or ""
+                    place = " ".join((place_obj.get_name().get_value() or "").split())
             except Exception:
                 pass
         details = ", ".join(p for p in (date_str, place) if p)
@@ -1211,6 +1234,22 @@ class GWizardMergeDialog(Gtk.Dialog):
         name = name_displayer.display(person)
         vitals = self._vitals_text(person, db)
         return "%s (%s)" % (name, vitals) if vitals else name
+
+    def _sorted_relatives(self, db: Any, persons: list[Person]) -> list[Person]:
+        """
+        Return relatives sorted by display name, then birth year (undated
+        last), whatever order the tree stores them in.
+        """
+
+        def sort_key(related: Person) -> tuple[str, bool, str]:
+            try:
+                name = name_displayer.display(related).casefold()
+            except Exception:
+                name = ""
+            year = self._event_year(db, related, "birth")
+            return (name, not year, year.zfill(4))
+
+        return sorted(persons, key=sort_key)
 
     def _parents(self, db: Any, person: Person, role: str) -> list[Person]:
         out = []
@@ -1328,13 +1367,14 @@ class GWizardMergeDialog(Gtk.Dialog):
         else:
             # Merging
             # Check birth_event
+            # The same events the Birth/Death rows show and the merge copies.
             if self._resolutions.get("birth_event") == "source":
-                sb_ref = self.source_person.get_birth_ref()
+                sb_ref = vital_event_ref(self.source_db, self.source_person, "birth")
                 if sb_ref:
                     events_to_scan.append(sb_ref.ref)
             # Check death_event
             if self._resolutions.get("death_event") == "source":
-                sd_ref = self.source_person.get_death_ref()
+                sd_ref = vital_event_ref(self.source_db, self.source_person, "death")
                 if sd_ref:
                     events_to_scan.append(sd_ref.ref)
             # Check other custom events
