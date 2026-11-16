@@ -205,9 +205,7 @@ INCLUDE_FILES.append("dist/gramps")
 # includes the GoatGramps local version ("gramps-6.1.0+gg.1.data"), so find
 # it rather than rebuilding the name from VERSION_TUPLE and VERSION_QUALIFIER.
 DATA_DIRS = [
-    d
-    for d in os.listdir("dist")
-    if d.startswith("gramps-") and d.endswith(".data")
+    d for d in os.listdir("dist") if d.startswith("gramps-") and d.endswith(".data")
 ]
 if len(DATA_DIRS) != 1:
     sys.exit("expected one gramps-*.data folder in dist, found %r" % DATA_DIRS)
