@@ -1486,7 +1486,11 @@ def snapshot_resolved_paths(db: DbReadBase) -> dict[MediaHandle, str]:
         raw = clean_path(str(media.get_path() or ""))
         if not raw or is_absolute_path(raw):
             continue
-        full = full_media_path(db, raw)
+        # Resolve against the tool's own base path, not Gramps' media_path_full:
+        # Gramps lower-cases the base on Windows (os.path.normcase), and this
+        # path is written back to the record by keep_records_pointing_at_files,
+        # so "MediaBase/a.jpg" would be stored as "mediabase/a.jpg".
+        full = os.path.normpath(os.path.join(get_media_base_path(db), raw))
         if os.path.exists(full):
             snapshot[media.get_handle()] = full
     return snapshot
