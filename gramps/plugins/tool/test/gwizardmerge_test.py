@@ -112,10 +112,10 @@ from gramps.gui.gwizard.gwizardlauncher import _case_insensitive_pattern
 
 # ------------------------------------------------------------------
 #
-# GWizardMergeToolHelperTest
+# GWizardFileMergeHelperTest
 #
 # ------------------------------------------------------------------
-class GWizardMergeToolHelperTest(unittest.TestCase):
+class GWizardFileMergeHelperTest(unittest.TestCase):
     """Test the GTK-free helpers used by the GWizard merge flow."""
 
     def test_case_insensitive_pattern(self) -> None:

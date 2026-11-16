@@ -43,10 +43,10 @@ LOG = logging.getLogger(__name__)
 
 # ------------------------------------------------------------
 #
-# GWizardMergeToolOptions
+# GWizardFileMergeOptions
 #
 # ------------------------------------------------------------
-class GWizardMergeToolOptions(tool.ToolOptions):
+class GWizardFileMergeOptions(tool.ToolOptions):
     """Defines options and provides handling interface."""
 
     def __init__(self, name: str, person_id: str | None = None) -> None:
@@ -58,10 +58,10 @@ class GWizardMergeToolOptions(tool.ToolOptions):
 
 # ------------------------------------------------------------
 #
-# GWizardMergeTool
+# GWizardFileMerge
 #
 # ------------------------------------------------------------
-class GWizardMergeTool(tool.Tool):
+class GWizardFileMerge(tool.Tool):
     """
     Launch the GWizard Data Merge flow.
 

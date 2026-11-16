@@ -528,8 +528,8 @@ register(
     authors=["Kevin White"],
     authors_email=["gocaveman@gmail.com"],
     category=TOOL_DBPROC,
-    toolclass="GWizardMergeTool",
-    optionclass="GWizardMergeToolOptions",
+    toolclass="GWizardFileMerge",
+    optionclass="GWizardFileMergeOptions",
     tool_modes=[TOOL_MODE_GUI],
     help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
 )
