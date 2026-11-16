@@ -652,6 +652,7 @@ gramps/gui/glade/styleeditor.glade
 gramps/gui/glade/tipofday.glade
 gramps/gui/glade/updateaddons.glade
 gramps/gui/grampsgui.py
+gramps/gui/gwizard/gwizardaltcompare.py
 gramps/gui/gwizard/gwizardcompare.py
 gramps/gui/gwizard/gwizardlauncher.py
 gramps/gui/gwizard/gwizardmergedialog.py

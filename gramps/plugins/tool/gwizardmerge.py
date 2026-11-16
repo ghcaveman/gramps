@@ -66,9 +66,11 @@ class GWizardFileMerge(tool.Tool):
     Launch the GWizard Data Merge flow.
 
     Thin wrapper around the shared launcher: ask for a source file,
-    load it, and open the side-by-side compare window. Identical to
-    the Family Trees menu entry.
+    load it, and open the side-by-side compare window.
     """
+
+    # Open the alternate compare window (see GWizardFileMergeAlt).
+    alternate = False
 
     def __init__(
         self,
@@ -99,4 +101,24 @@ class GWizardFileMerge(tool.Tool):
                 run_gwizard_merge_flow,
             )
 
-        run_gwizard_merge_flow(uistate, dbstate, parent=uistate.window)
+        run_gwizard_merge_flow(
+            uistate, dbstate, parent=uistate.window, alternate=self.alternate
+        )
+
+
+# ------------------------------------------------------------
+#
+# GWizardFileMergeAlt
+#
+# ------------------------------------------------------------
+class GWizardFileMergeAlt(GWizardFileMerge):
+    """
+    Launch the GWizard Data Merge flow with the alternate compare window.
+
+    The alternate window has match settings at the top, lists every
+    incoming person on the left, and on the right lists only the tree
+    people similar to the selected one, closest first and preselected.
+    It opens the same merge dialog.
+    """
+
+    alternate = True

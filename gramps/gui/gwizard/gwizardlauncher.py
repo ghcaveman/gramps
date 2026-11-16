@@ -179,23 +179,42 @@ def load_source_gwizard(db: Any, path: str) -> Any:
 
 
 def open_compare_window(
-    uistate: Any, dbstate: Any, gwizard: Any, parent: Any = None
+    uistate: Any,
+    dbstate: Any,
+    gwizard: Any,
+    parent: Any = None,
+    alternate: bool = False,
 ) -> Any:
     """
     Open the side-by-side comparison window for a loaded session.
-    """
-    from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
 
-    window = GWizardCompareWindow(uistate, dbstate, gwizard, parent=parent)
+    :param alternate: Open the alternate window, whose right panel lists
+        only the tree people similar to the selected incoming person.
+    """
+    if alternate:
+        from gramps.gui.gwizard.gwizardaltcompare import (
+            GWizardAltCompareWindow as window_class,
+        )
+    else:
+        from gramps.gui.gwizard.gwizardcompare import (
+            GWizardCompareWindow as window_class,
+        )
+
+    window = window_class(uistate, dbstate, gwizard, parent=parent)
     window.show()
     return window
 
 
-def run_gwizard_merge_flow(uistate: Any, dbstate: Any, parent: Any = None) -> bool:
+def run_gwizard_merge_flow(
+    uistate: Any, dbstate: Any, parent: Any = None, alternate: bool = False
+) -> bool:
     """
     Run the full flow: ask for a file, load it, open compare.
 
-    Shared by the Family Trees menu entry and the Tools plugin.
+    Shared by the Tools plugin entries.
+
+    :param alternate: Open the alternate compare window (see
+        open_compare_window).
     """
     from gramps.gui.dialog import ErrorDialog
     from gramps.gui.utils import ProgressMeter
@@ -227,7 +246,9 @@ def run_gwizard_merge_flow(uistate: Any, dbstate: Any, parent: Any = None) -> bo
     meter.set_header(str(_("Building the comparison window...")))
     meter.step()
     try:
-        open_compare_window(uistate, dbstate, gwizard, parent=parent)
+        open_compare_window(
+            uistate, dbstate, gwizard, parent=parent, alternate=alternate
+        )
     finally:
         meter.close()
     return True
