@@ -42,7 +42,9 @@ from gi.repository import Gtk
 # Gramps modules
 #
 # -------------------------------------------------------------------------
+from gramps.gen.config import config
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.const import USER_HOME
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -138,11 +140,20 @@ def ask_source_file(parent: Any, title: str | None = None) -> str | None:
     )
     for file_filter in build_source_file_filters():
         dialog.add_filter(file_filter)
+    # Start in the folder the Import dialog last used (comparing a file is a
+    # form of import), then the last export folder, then the home folder.
+    start_dir = config.get("paths.recent-import-dir")
+    if not (start_dir and os.path.isdir(start_dir)):
+        start_dir = config.get("paths.recent-export-dir")
+    if not (start_dir and os.path.isdir(start_dir)):
+        start_dir = USER_HOME
+    dialog.set_current_folder(start_dir)
     response = dialog.run()
     path = dialog.get_filename()
     dialog.destroy()
     if response != Gtk.ResponseType.OK or not path:
         return None
+    config.set("paths.recent-import-dir", os.path.dirname(path))
     return str(path)
 
 
