@@ -276,6 +276,12 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         # to avoid freezing on large databases.
         self._syncing_scroll = False
         self._scroll_debounce_id: int | None = None
+        # Set while Prev/Next (or any other programmatic jump) is placing
+        # both panels, until the rows are revealed once GTK has laid the
+        # lists out. Scroll events in that window are the jump's own and
+        # must not trigger a scroll sync that moves a panel again.
+        self._suppress_scroll_sync = False
+        self._reveal_idle_id: int | None = None
         self.connect("delete-event", self.cb_delete_event)
         # Fit the window to the screen once it is first mapped, and undo any
         # maximized/fullscreen state the window manager inherits from a
@@ -566,6 +572,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             best_path = None
         selection = panel["tree"].get_selection()
         selection.unselect_all()
+        panel["reveal_path"] = best_path
         if best_path is not None:
             panel["tree"].scroll_to_cell(best_path, None, False, 0, 0)
 
@@ -589,6 +596,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         # The TreeStore is sorted, so iteration order matches the view.
         target = (group.lower(), name_str.lower())
         best_path = self._find_insertion_path(store, target)
+        panel["reveal_path"] = best_path
         if best_path is not None:
             panel["tree"].set_cursor(best_path)
             panel["tree"].scroll_to_cell(best_path, None, False, 0, 0)
@@ -1431,7 +1439,17 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         if not (0 <= self.diff_index < len(self.diff_list)):
             return
         entry = self.diff_list[self.diff_index]
+        # Both panels are placed here, explicitly. The selection mirroring
+        # (cb_record_selected, cb_*_selection_changed) and the debounced
+        # scroll sync would otherwise react to each programmatic change and
+        # move the other panel again: to a different counterpart, or to an
+        # insertion point with its selection cleared.
+        self._cancel_pending_scroll_sync()
+        self._suppress_scroll_sync = True
+        self.left_panel["reveal_path"] = None
+        self.right_panel["reveal_path"] = None
         self._syncing = True
+        self._syncing_selection = True
         try:
             self._select_handle(self.left_panel, entry["source_handle"])
             if entry["target_handle"]:
@@ -1446,10 +1464,44 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                     )
         finally:
             self._syncing = False
+            self._syncing_selection = False
+        self._schedule_reveal()
         # Ensure button states reflect the current selection, especially when
         # the counterpart panel is deselected (e.g., unmatched person). This
         # refreshes the "Merge..." and "Add as New..." sensitivities.
         self._update_diff_status()
+
+    def _schedule_reveal(self) -> None:
+        """
+        Bring both panels' current rows into view once GTK has laid the
+        lists out, then allow scroll syncing again.
+
+        ``scroll_to_cell`` right after a selection change can be lost when
+        the list has not been laid out yet (just after a rebuild, say), and
+        the minimal scroll it does can leave the row at the very edge. The
+        rows are therefore scrolled again, centred, at low priority (after
+        layout and redraw), while scroll syncing is still suppressed.
+        """
+        if self._reveal_idle_id is not None:
+            GLib.source_remove(self._reveal_idle_id)
+
+        def reveal() -> bool:
+            self._reveal_idle_id = None
+            try:
+                for panel in (self.left_panel, self.right_panel):
+                    path = panel.get("reveal_path")
+                    if path is None:
+                        continue
+                    tree = panel["tree"]
+                    tree.expand_to_path(path)
+                    tree.scroll_to_cell(path, None, True, 0.5, 0.0)
+            finally:
+                # Drop any scroll sync the reveal itself scheduled.
+                self._cancel_pending_scroll_sync()
+                self._suppress_scroll_sync = False
+            return False
+
+        self._reveal_idle_id = GLib.idle_add(reveal, priority=GLib.PRIORITY_LOW)
 
     def _select_handle(self, panel: dict[str, Any], handle: str) -> bool:
         """
@@ -1464,8 +1516,12 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             while iter_:
                 if store.get_value(iter_, 0) == handle:
                     path = store.get_path(iter_)
+                    # A row inside a collapsed group can be neither shown
+                    # nor selected, so open its group first.
+                    panel["tree"].expand_to_path(path)
                     panel["tree"].set_cursor(path)
                     panel["tree"].scroll_to_cell(path, None, False, 0, 0)
+                    panel["reveal_path"] = path
                     return True
                 if visit(store, iter_):
                     return True
@@ -1528,7 +1584,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             if not person:
                 return
             other_db = self.dbstate.db if is_left else self.source_db
-            counterpart = self._get_counterpart(handle)
+            counterpart = self._get_counterpart(handle, from_source=is_left)
             mirrored = False
             if counterpart:
                 other_person = safe_get_person(other_db, counterpart)
@@ -1550,15 +1606,25 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             self._syncing = False
         self._update_diff_status()
 
-    def _get_counterpart(self, handle: str) -> str | None:
+    def _get_counterpart(
+        self, handle: str, from_source: bool | None = None
+    ) -> str | None:
         """
         Return the handle of the counterpart person in the other panel,
         or None when the person has no matched pair.
 
         Uses the full pairing map (matched pairs regardless of whether
         they differ), falling back to the difference list for robustness.
+
+        :param from_source: True when ``handle`` is from the incoming file
+            (left panel), False when it is from the tree (right panel).
+            Handles are per database and the same handle can exist in both
+            (a Gramps XML export of the tree, say), so callers that know
+            the side should say which; None guesses from the source index.
         """
-        if handle in self.source_index:
+        if from_source is None:
+            from_source = handle in self.source_index
+        if from_source:
             pair_map = getattr(self, "_pair_map", {})
             if handle in pair_map:
                 return pair_map[handle]
@@ -1582,18 +1648,15 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         individual_text = family_text = children_text = events_text = ""
         if self.current_category == "person":
-            db = self.source_db if handle in self.source_index else self.dbstate.db
+            is_left = panel is self.left_panel
+            db = self.source_db if is_left else self.dbstate.db
             person = safe_get_person(db, handle)
             if person:
-                other_handle = self._get_counterpart(handle)
+                other_handle = self._get_counterpart(handle, from_source=is_left)
                 other_person = None
                 other_db = None
                 if other_handle:
-                    other_db = (
-                        self.dbstate.db
-                        if other_handle not in self.source_index
-                        else self.source_db
-                    )
+                    other_db = self.dbstate.db if is_left else self.source_db
                     other_person = safe_get_person(other_db, other_handle)
                 # The ID line always differs between the source and the
                 # target database, so it is excluded from highlighting.
@@ -2256,6 +2319,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         Handle window close button.
         """
         self._cancel_pending_scroll_sync()
+        self._cancel_pending_reveal()
         self.close()
 
     def cb_delete_event(self, *args: Any) -> bool:
@@ -2268,8 +2332,19 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         (close() itself destroys the window via close_track).
         """
         self._cancel_pending_scroll_sync()
+        self._cancel_pending_reveal()
         self.close()
         return True
+
+    def _cancel_pending_reveal(self) -> None:
+        """Cancel a pending row reveal (see _schedule_reveal)."""
+        pending = getattr(self, "_reveal_idle_id", None)
+        if pending is not None:
+            try:
+                GLib.source_remove(pending)
+            except Exception:  # pragma: no cover - already fired/removed
+                pass
+            self._reveal_idle_id = None
 
     def _cancel_pending_scroll_sync(self) -> None:
         """
@@ -2354,7 +2429,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         name_str = name_displayer.display(person)
 
         # Look up counterpart in the pairing map
-        counterpart = self._get_counterpart(handle)
+        counterpart = self._get_counterpart(handle, from_source=is_source_left)
 
         if counterpart:
             # Counterpart exists; select and scroll to it. The pairing map
@@ -2390,7 +2465,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         Schedules a sync after scrolling stops (200ms debounce) to avoid
         excessive processing during continuous scroll operations.
         """
-        if self._syncing_scroll:
+        if self._syncing_scroll or self._suppress_scroll_sync:
             return
         self._schedule_scroll_sync(self.left_panel, self.right_panel)
 
@@ -2401,7 +2476,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         Schedules a sync after scrolling stops (200ms debounce) to avoid
         excessive processing during continuous scroll operations.
         """
-        if self._syncing_scroll:
+        if self._syncing_scroll or self._suppress_scroll_sync:
             return
         self._schedule_scroll_sync(self.right_panel, self.left_panel)
 
@@ -2465,7 +2540,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             name_str = name_displayer.display(person)
 
             # Look up counterpart in the pairing map
-            counterpart = self._get_counterpart(handle)
+            counterpart = self._get_counterpart(handle, from_source=is_source_left)
 
             if counterpart:
                 # Counterpart exists; select and scroll to it
@@ -2495,7 +2570,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         Debounced horizontal scroll sync from left to right.
         """
-        if self._syncing_scroll:
+        if self._syncing_scroll or self._suppress_scroll_sync:
             return
         self._schedule_scroll_sync(self.left_panel, self.right_panel)
 
@@ -2503,6 +2578,6 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         Debounced horizontal scroll sync from right to left.
         """
-        if self._syncing_scroll:
+        if self._syncing_scroll or self._suppress_scroll_sync:
             return
         self._schedule_scroll_sync(self.right_panel, self.left_panel)

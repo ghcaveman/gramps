@@ -492,6 +492,108 @@ class GWizardEventGroupingTest(unittest.TestCase):
             window.present.assert_called_once_with()
             self.assertEqual(window.select_category.called, rebuilt, response)
 
+    def test_prev_next_places_both_panels_without_sync_interference(
+        self,
+    ) -> None:
+        """
+        While Prev/Next places both panels, selection mirroring and scroll
+        syncing are held off, and both rows are revealed afterwards.
+        """
+        from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
+
+        window = Mock()
+        window.diff_list = [{"source_handle": "s1", "target_handle": "t1"}]
+        window.diff_index = 0
+        window.left_panel = {"name": "left"}
+        window.right_panel = {"name": "right"}
+        flags_during_select = []
+
+        def select(panel: dict, handle: str) -> bool:
+            flags_during_select.append(
+                (
+                    handle,
+                    window._syncing,
+                    window._syncing_selection,
+                    window._suppress_scroll_sync,
+                )
+            )
+            return True
+
+        window._select_handle.side_effect = select
+
+        GWizardCompareWindow._highlight_diff(window)
+
+        self.assertEqual(
+            flags_during_select, [("s1", True, True, True), ("t1", True, True, True)]
+        )
+        self.assertFalse(window._syncing)
+        self.assertFalse(window._syncing_selection)
+        window._cancel_pending_scroll_sync.assert_called_with()
+        window._schedule_reveal.assert_called_once_with()
+
+    def test_scroll_sync_is_ignored_while_suppressed(self) -> None:
+        """Scroll events caused by Prev/Next do not schedule a scroll sync."""
+        from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
+
+        for callback in (
+            GWizardCompareWindow.cb_left_vscroll_changed,
+            GWizardCompareWindow.cb_right_vscroll_changed,
+            GWizardCompareWindow.cb_left_hscroll_changed,
+            GWizardCompareWindow.cb_right_hscroll_changed,
+        ):
+            for suppressed in (True, False):
+                window = Mock(_syncing_scroll=False, _suppress_scroll_sync=suppressed)
+                callback(window, Mock())
+                self.assertEqual(
+                    window._schedule_scroll_sync.called, not suppressed, callback
+                )
+
+    def test_reveal_centres_rows_then_allows_scroll_sync(self) -> None:
+        """
+        After layout, both panels' rows are scrolled into view, centred,
+        and scroll syncing is allowed again.
+        """
+        from unittest.mock import patch
+
+        from gramps.gui.gwizard import gwizardcompare
+        from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
+
+        window = Mock(_reveal_idle_id=None, _suppress_scroll_sync=True)
+        window.left_panel = {"tree": Mock(), "reveal_path": "0:3"}
+        window.right_panel = {"tree": Mock(), "reveal_path": None}
+        with patch.object(
+            gwizardcompare.GLib,
+            "idle_add",
+            side_effect=lambda func, **_kwargs: func(),
+        ):
+            GWizardCompareWindow._schedule_reveal(window)
+
+        window.left_panel["tree"].scroll_to_cell.assert_called_once_with(
+            "0:3", None, True, 0.5, 0.0
+        )
+        window.right_panel["tree"].scroll_to_cell.assert_not_called()
+        self.assertFalse(window._suppress_scroll_sync)
+        window._cancel_pending_scroll_sync.assert_called_with()
+
+    def test_counterpart_lookup_uses_the_panel_side(self) -> None:
+        """
+        A handle present in both databases is looked up on the side it was
+        selected on, not guessed from the incoming file's index.
+        """
+        from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
+
+        window = Mock()
+        window.source_index = {"h1": "Ann Doe"}
+        window._pair_map = {"h1": "t9"}
+        window._pair_map_rev = {"h1": "s5"}
+        window.diff_list = []
+
+        lookup = GWizardCompareWindow._get_counterpart
+        self.assertEqual(lookup(window, "h1", from_source=True), "t9")
+        self.assertEqual(lookup(window, "h1", from_source=False), "s5")
+        # Without a side, the old guess (the source index) still applies.
+        self.assertEqual(lookup(window, "h1"), "t9")
+
     def test_relatives_sorted_by_name_then_birth_year(self) -> None:
         """
         Relatives come out in one order whatever order a tree stores them
