@@ -50,7 +50,9 @@ from gi.repository import Gtk
 # Gramps modules
 #
 # -------------------------------------------------------------------------
+from gramps.gen.config import config
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.const import USER_HOME
 from gramps.gen.db import DbReadBase, DbWriteBase
 from gramps.gui.dialog import ErrorDialog, OkDialog, QuestionDialog2
 from gramps.gui.managedwindow import ManagedWindow
@@ -1173,16 +1175,17 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             Gtk.ResponseType.OK,
         )
         chooser.set_current_name(REPORT_FILENAME)
+        chooser.set_do_overwrite_confirmation(True)
 
-        from gramps.gen.const import USER_DATA
-
-        base_dir = (
-            os.path.dirname(self.report_path)
-            if self.report_path and os.path.isdir(os.path.dirname(self.report_path))
-            else USER_DATA
-        )
-        if base_dir and os.path.isdir(base_dir):
-            chooser.set_current_folder(base_dir)
+        # Start in the same folder the Export assistant uses (the last
+        # folder exported to or saved a report in), so the report lands
+        # beside the .ged exports and the choice persists across sessions.
+        base_dir = config.get("paths.recent-export-dir")
+        if not (base_dir and os.path.isdir(base_dir)) and self.report_path:
+            base_dir = os.path.dirname(self.report_path)
+        if not (base_dir and os.path.isdir(base_dir)):
+            base_dir = USER_HOME
+        chooser.set_current_folder(base_dir)
 
         status = chooser.run()
         target_path = chooser.get_filename() if status == Gtk.ResponseType.OK else None
@@ -1190,6 +1193,8 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
 
         if not target_path:
             return
+
+        config.set("paths.recent-export-dir", os.path.dirname(target_path))
 
         stages = get_report_stages()
         meter = GWizardCitationFixProgressMeter(parent=self.window)
