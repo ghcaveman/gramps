@@ -21,7 +21,7 @@ name: Compile & Deploy Gramps Releases
 on:
   push:
     tags:
-      - 'v*'
+      - 'gg-*'
 
 jobs:
   build-windows:
