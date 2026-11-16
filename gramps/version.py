@@ -17,8 +17,14 @@
 # with this program; if not, see <https://www.gnu.org/licenses/>.
 #
 
-DEV_VERSION = True
+DEV_VERSION = False
 VERSION_TUPLE = (6, 1, 0)
-VERSION_QUALIFIER = "-beta2"
-VERSION = ".".join(map(str, VERSION_TUPLE)) + VERSION_QUALIFIER
+VERSION_QUALIFIER = ""
+# GoatGramps release on top of this Gramps version; matches tag gg-6.1.0-<n>.
+GOATGRAMPS_RELEASE = 1
+VERSION = (
+    ".".join(map(str, VERSION_TUPLE))
+    + VERSION_QUALIFIER
+    + "+gg.%d" % GOATGRAMPS_RELEASE
+)
 major_version = "%s.%s" % (VERSION_TUPLE[0], VERSION_TUPLE[1])
