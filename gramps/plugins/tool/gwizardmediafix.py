@@ -3914,13 +3914,21 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         chooser.set_current_name("GWizardMediaFixReport.txt")
         chooser.set_do_overwrite_confirmation(True)
 
-        base_dir = (
-            get_media_base_path(self.dbstate.db)
-            if self.dbstate and self.dbstate.db
-            else get_media_base_path(None)
-        )
-        if base_dir and os.path.isdir(base_dir):
-            chooser.set_current_folder(base_dir)
+        # Start in the same folder the Export assistant uses (the last
+        # folder exported to or saved a report in), so the report lands
+        # beside the .ged exports and the choice persists across sessions.
+        base_dir = config.get("paths.recent-export-dir")
+        if not (base_dir and os.path.isdir(base_dir)) and self.report_path:
+            base_dir = os.path.dirname(self.report_path)
+        if not (base_dir and os.path.isdir(base_dir)):
+            base_dir = (
+                get_media_base_path(self.dbstate.db)
+                if self.dbstate and self.dbstate.db
+                else get_media_base_path(None)
+            )
+        if not (base_dir and os.path.isdir(base_dir)):
+            base_dir = USER_HOME
+        chooser.set_current_folder(base_dir)
 
         status = chooser.run()
         target_path = chooser.get_filename() if status == Gtk.ResponseType.OK else None
@@ -3928,6 +3936,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
 
         if not target_path:
             return
+
+        config.set("paths.recent-export-dir", os.path.dirname(target_path))
 
         report_text = generate_media_fix_report(self.dbstate.db, self.window)
         try:
