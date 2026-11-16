@@ -201,9 +201,17 @@ for lib in MISSING_LIBS:
     INCLUDE_FILES.append((os.path.join(sys.base_prefix, lib), lib))
 
 INCLUDE_FILES.append("dist/gramps")
-INCLUDE_FILES.append(
-    ("dist/gramps-" + NORMALIZED_VERSION + ".data/data/share", "share")
-)
+# The wheel's data folder is named after the full package version, which
+# includes the GoatGramps local version ("gramps-6.1.0+gg.1.data"), so find
+# it rather than rebuilding the name from VERSION_TUPLE and VERSION_QUALIFIER.
+DATA_DIRS = [
+    d
+    for d in os.listdir("dist")
+    if d.startswith("gramps-") and d.endswith(".data")
+]
+if len(DATA_DIRS) != 1:
+    sys.exit("expected one gramps-*.data folder in dist, found %r" % DATA_DIRS)
+INCLUDE_FILES.append((os.path.join("dist", DATA_DIRS[0], "data", "share"), "share"))
 EXECUTABLES = [
     cx_Freeze.Executable(
         "grampsaioc.py",
