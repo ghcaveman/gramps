@@ -484,9 +484,12 @@ class GWizardEventGroupingTest(unittest.TestCase):
             window._get_selected_pair.return_value = ("s1", "t1")
             dialog = Mock()
             dialog.run.return_value = response
-            with patch.object(
-                gwizardmergedialog, "GWizardMergeDialog", return_value=dialog
-            ), patch.object(gwizardcompare.Gtk, "ResponseType", codes):
+            with (
+                patch.object(
+                    gwizardmergedialog, "GWizardMergeDialog", return_value=dialog
+                ),
+                patch.object(gwizardcompare.Gtk, "ResponseType", codes),
+            ):
                 GWizardCompareWindow.cb_merge_dialog(window, Mock())
             dialog.destroy.assert_called_once_with()
             window.present.assert_called_once_with()

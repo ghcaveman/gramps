@@ -438,11 +438,14 @@ class LauncherTest(unittest.TestCase):
 
         from gramps.gui.gwizard import gwizardlauncher
 
-        with mock.patch(
-            "gramps.gui.gwizard.gwizardaltcompare.GWizardAltCompareWindow"
-        ) as alt, mock.patch(
-            "gramps.gui.gwizard.gwizardcompare.GWizardCompareWindow"
-        ) as standard:
+        with (
+            mock.patch(
+                "gramps.gui.gwizard.gwizardaltcompare.GWizardAltCompareWindow"
+            ) as alt,
+            mock.patch(
+                "gramps.gui.gwizard.gwizardcompare.GWizardCompareWindow"
+            ) as standard,
+        ):
             gwizardlauncher.open_compare_window(
                 "uistate", "dbstate", "gwizard", parent=None, alternate=alternate
             )
