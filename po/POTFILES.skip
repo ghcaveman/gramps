@@ -750,3 +750,4 @@ gramps/plugins/tool/test/gw_sourcesfixdialog_test.py
 gramps/plugins/tool/test/gw_citationfix_e2e_test.py
 gramps/plugins/tool/test/gw_unpackcitationsdialog_test.py
 gramps/plugins/tool/test/gw_unpacksourcesdialog_test.py
+gramps/plugins/tool/test/gwizardmediafix_translation_test.py
