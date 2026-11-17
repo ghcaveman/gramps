@@ -51,7 +51,7 @@ from gi.repository import Gtk, Pango
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.lib import Tag
-from gramps.gen.utils.file import media_path_full
+from gramps.gen.utils.file import create_checksum, media_path_full
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -382,6 +382,187 @@ def build_basename_index(base_dir: str, limit: int = 50000) -> dict[str, list[st
             if seen >= limit:
                 return index
     return index
+
+
+# ------------------------------------------------------------
+#
+# Media checksums (MD5, exactly as Gramps and Media Verify store them)
+#
+# ------------------------------------------------------------
+#
+# Gramps keeps an MD5 checksum on each media record (Media.get_checksum()).
+# The media editor, the XML importer and the Media Verify addon fill it in;
+# the GEDCOM importer does not.  Gramps' Check and Repair tool recomputes it
+# and *clears* it when the file is missing, so a checksum is only ever written
+# here from a file that can be read, and never cleared.
+#
+# Hashes are cached by (path, size, modification time), so the Accept-all
+# preview and the run that follows read each file only once, and a file
+# changed in between is hashed again.
+#
+ChecksumCache = dict[tuple[str, int, int], str]
+_CHECKSUM_CACHE: ChecksumCache = {}
+_CHECKSUM_CACHE_LIMIT = 200000
+
+# Extensions that name the same kind of file: a renamed file often changes
+# ".jpeg" to ".jpg", so they are searched together.
+_EXTENSION_FAMILIES = (
+    (".jpg", ".jpeg", ".jpe", ".jfif"),
+    (".tif", ".tiff"),
+    (".mpg", ".mpeg"),
+    (".htm", ".html"),
+)
+_EXTENSION_KEY = {ext: fam[0] for fam in _EXTENSION_FAMILIES for ext in fam}
+
+
+def extension_key(path: str) -> str:
+    """
+    Return a comparable extension for a path (lower case; ".jpeg" -> ".jpg").
+
+    :param path: A file name or path (either slash style).
+    :returns: The extension key, ``""`` for a file without an extension.
+    """
+    ext = os.path.splitext(clean_path(path).replace("\\", "/"))[1].lower()
+    return _EXTENSION_KEY.get(ext, ext)
+
+
+def media_checksum(media: Any) -> str:
+    """
+    Return a media record's stored checksum (``""`` when it has none).
+
+    :param media: The media record.
+    :returns: The stored MD5 hex digest.
+    """
+    getter = getattr(media, "get_checksum", None)
+    return str(getter() or "") if callable(getter) else ""
+
+
+def file_checksum(full_path: str, cache: ChecksumCache | None = None) -> str:
+    """
+    Return the MD5 checksum of a file, as Gramps stores it.
+
+    :param full_path: The file's full path.
+    :param cache: Hash cache; the module-wide cache when ``None``.
+    :returns: The hex digest, or ``""`` if the file cannot be read.
+    """
+    if not full_path:
+        return ""
+    store = _CHECKSUM_CACHE if cache is None else cache
+    try:
+        info = os.stat(full_path)
+    except (OSError, ValueError):
+        return ""
+    if not os.path.isfile(full_path):
+        return ""
+    key = (path_key(full_path), info.st_size, info.st_mtime_ns)
+    if key in store:
+        return store[key]
+    digest = create_checksum(full_path)
+    if digest:
+        if len(store) >= _CHECKSUM_CACHE_LIMIT:
+            store.clear()
+        store[key] = digest
+    return digest
+
+
+def refresh_checksum(
+    media: Any,
+    full_path: str,
+    only_if_missing: bool = False,
+    cache: ChecksumCache | None = None,
+) -> bool:
+    """
+    Store the checksum of the record's file on the record (not committed).
+
+    Nothing changes when the file cannot be read: an existing checksum is
+    kept, because it still identifies the file the record is looking for.
+
+    :param media: The media record.
+    :param full_path: Full path of the file the record now points at.
+    :param only_if_missing: Only fill in an empty checksum.  Use this after a
+        move or copy, which cannot change the file's content.
+    :param cache: Hash cache; the module-wide cache when ``None``.
+    :returns: True if the record's checksum changed.
+    """
+    current = media_checksum(media)
+    if only_if_missing and current:
+        return False
+    digest = file_checksum(full_path, cache)
+    if not digest or digest == current:
+        return False
+    media.set_checksum(digest)
+    return True
+
+
+def build_checksum_index(
+    files: list[str],
+    wanted: set[str],
+    extensions: set[str] | None = None,
+    cache: ChecksumCache | None = None,
+    step: Any = None,
+) -> dict[str, list[str]]:
+    """
+    Map checksum -> full paths for the files whose checksum is wanted.
+
+    Only files whose extension (see :func:`extension_key`) is in
+    *extensions* are read, so a search for missing photos does not hash
+    every video in the folder.
+
+    :param files: Candidate files (full paths), e.g. the values of
+        :func:`build_basename_index`.
+    :param wanted: Checksums being looked for; nothing is read when empty.
+    :param extensions: Extension keys to read; every file when ``None``.
+    :param cache: Hash cache; the module-wide cache when ``None``.
+    :param step: Called once per file read (progress meter), or ``None``.
+    :returns: The index (only wanted checksums are kept).
+    """
+    index: dict[str, list[str]] = {}
+    if not wanted:
+        return index
+    for path in files:
+        if extensions is not None and extension_key(path) not in extensions:
+            continue
+        digest = file_checksum(path, cache)
+        if step is not None:
+            step()
+        if digest in wanted:
+            index.setdefault(digest, []).append(path)
+    return index
+
+
+def hash_candidates(files: list[str], extensions: set[str] | None = None) -> list[str]:
+    """
+    Return the files :func:`build_checksum_index` would read.
+
+    :param files: Candidate files (full paths).
+    :param extensions: Extension keys to read; every file when ``None``.
+    :returns: The files to hash (for sizing a progress meter).
+    """
+    if extensions is None:
+        return list(files)
+    return [path for path in files if extension_key(path) in extensions]
+
+
+def pick_content_match(hits: list[str], wanted_name: str) -> str:
+    """
+    Choose the file for a checksum match, or ``""`` when it is not safe.
+
+    One file with the checksum is the match.  Several identical copies are
+    only resolved when exactly one of them still has the record's file name
+    (as Media Verify does); otherwise the user must choose.
+
+    :param hits: Files with the record's checksum.
+    :param wanted_name: The file name the record had.
+    :returns: The chosen file's full path, or ``""``.
+    """
+    if len(hits) == 1:
+        return hits[0]
+    same_name = [
+        hit
+        for hit in hits
+        if os.path.basename(hit).casefold() == wanted_name.casefold()
+    ]
+    return same_name[0] if len(same_name) == 1 else ""
 
 
 # ------------------------------------------------------------
@@ -863,6 +1044,9 @@ def undo_logged_run(db: DbWriteBase, log_path: str) -> tuple[int, int, list[str]
                 problems.append("[%s] %s" % (gid, _("path changed since; left alone")))
                 continue
             media.set_path(old_db)
+            # The record may now point at a different file than the one its
+            # checksum describes (e.g. a copy is left behind).
+            refresh_checksum(media, full_media_path(db, old_db))
             commit_object(db, media, trans)
             records_back += 1
     marker = {field: "" for field in MOVE_LOG_FIELDS}

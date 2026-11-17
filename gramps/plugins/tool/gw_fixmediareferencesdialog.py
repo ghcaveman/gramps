@@ -43,7 +43,7 @@ from gi.repository import Gtk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.db import DbReadBase, DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.merge.mergemediaquery import MergeMediaQuery
 from gramps.gen.utils.file import media_path_full
 from gramps.gui.dialog import OkDialog
@@ -61,6 +61,8 @@ try:
         unique_destination,
         relocate_file,
         add_media_fixed_tag,
+        refresh_checksum,
+        media_checksum,
     )
 except (ImportError, ValueError):
     from gwizard_common import (  # type: ignore[import-not-found,no-redef]
@@ -75,6 +77,8 @@ except (ImportError, ValueError):
         unique_destination,
         relocate_file,
         add_media_fixed_tag,
+        refresh_checksum,
+        media_checksum,
     )
 
 _ = glocale.translation.sgettext
@@ -96,6 +100,29 @@ def media_base_path(db: DbReadBase) -> str:
             get_media_base_path,
         )
     return get_media_base_path(db)
+
+
+def fill_merged_checksum(db: DbWriteBase, keeper: Any, other: Any) -> None:
+    """
+    Give a merged keeper the checksum it lacks (committed in its own step).
+
+    The merged records pointed at the same file, so the other record's
+    checksum is used, or the file is read when neither had one.
+
+    :param db: The database.
+    :param keeper: The record that was kept (already merged and committed).
+    :param other: The record merged into it.
+    """
+    if media_checksum(keeper):
+        return
+    if other is not None and media_checksum(other):
+        keeper.set_checksum(media_checksum(other))
+    elif not refresh_checksum(
+        keeper, full_media_path(db, clean_path(str(keeper.get_path() or "")))
+    ):
+        return
+    with DbTxn(_("Store media checksum"), db) as trans:
+        db.commit_media(keeper, trans)
 
 
 def find_duplicate_media_groups(
@@ -581,6 +608,9 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                                 self.dbstate, keeper_media, other_media
                             )
                             query.execute()
+                            fill_merged_checksum(
+                                self.dbstate.db, keeper_media, other_media
+                            )
                             add_media_fixed_tag(
                                 self.dbstate.db, keeper_media, commit=True
                             )
@@ -640,6 +670,11 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                                 dest_full,
                             )
                             other_media.set_path(new_rel)
+                            # A copy has the same content: fill in a missing
+                            # checksum only.
+                            refresh_checksum(
+                                other_media, dest_full, only_if_missing=True
+                            )
                             add_media_fixed_tag(self.dbstate.db, other_media, txn=trans)
                             self.dbstate.db.commit_media(other_media, trans)
                 if len(move_log):
