@@ -28,6 +28,7 @@ from __future__ import annotations
 #
 # -------------------------------------------------------------------------
 import unittest
+from typing import Any
 
 # -------------------------------------------------------------------------
 #
@@ -61,6 +62,8 @@ from gramps.gen.db.utils import make_database
 from gramps.gen.lib import (
     Citation,
     Date,
+    Event,
+    EventType,
     Media,
     MediaRef,
     Name,
@@ -80,6 +83,7 @@ from gramps.plugins.tool.gwizardcitationmediaengine import (
     extract_media_identity,
     extract_sheet_page,
     extract_year,
+    extract_year_range,
     find_orphan_media_matches,
     find_promotable_gallery_media,
     find_unpackable_source_media,
@@ -175,6 +179,68 @@ class GWizardCitationMediaEngineTest(unittest.TestCase):
         id2 = extract_media_identity(self.db.get_media_from_handle(h2), self.db)
         self.assertTrue(id2.is_portrait)
         self.assertEqual(id2.category, "portrait")
+
+    def test_year_range_and_plural_categories(self) -> None:
+        """A title's date range is a range; plural keywords still count."""
+        self.assertEqual(
+            extract_year_range("Scotland, Marriages, 1561-1910"), (1561, 1910)
+        )
+        self.assertEqual(
+            extract_year_range("Obituary Index, 1800-current"), (1800, 9999)
+        )
+        self.assertIsNone(extract_year_range("1900 United States Federal Census"))
+        self.assertEqual(detect_category("Scotland, Marriages, 1561-1910"), "marriage")
+        self.assertEqual(detect_category("Ohio, Deaths, 1908-1953"), "death")
+
+    def _citation(self, title: str, page: str, event_type: Any = None) -> Any:
+        with DbTxn("Create citation", self.db) as trans:
+            src = Source()
+            src.set_title(title)
+            s_handle = self.db.add_source(src, trans)
+            cit = Citation()
+            cit.set_reference_handle(s_handle)
+            cit.set_page(page)
+            c_handle = self.db.add_citation(cit, trans)
+            if event_type is not None:
+                event = Event()
+                event.set_type(event_type)
+                event.add_citation(c_handle)
+                self.db.add_event(event, trans)
+        return extract_citation_identity(
+            self.db, self.db.get_citation_from_handle(c_handle)
+        )
+
+    def test_citation_year_comes_from_the_page_not_the_title_range(self) -> None:
+        """'Scotland, Marriages, 1561-1910' + page '..., 1912, ...' is 1912."""
+        c_id = self._citation(
+            "Scotland, Marriages, 1561-1910",
+            "Inverness, 1912, entry 33",
+            EventType.MARRIAGE,
+        )
+        self.assertEqual(c_id.year, "1912")
+        self.assertEqual(c_id.year_range, (1561, 1910))
+        self.assertEqual(c_id.category, "marriage")
+
+        media = MediaIdentity(year="1912", category="marriage", doc_type="marriage")
+        result = compute_citation_media_compatibility(media, c_id)
+        self.assertEqual(result.conflicts, [])
+        self.assertTrue(result.is_match)
+
+    def test_title_range_alone_bounds_the_year(self) -> None:
+        """With no year of its own, a citation uses its collection's years."""
+        c_id = self._citation("Scotland, Marriages, 1561-1910", "entry 33")
+        self.assertEqual(c_id.year, "")
+
+        inside = compute_citation_media_compatibility(MediaIdentity(year="1890"), c_id)
+        self.assertEqual(inside.conflicts, [])
+        outside = compute_citation_media_compatibility(MediaIdentity(year="1950"), c_id)
+        self.assertEqual(outside.status, "conflict")
+
+    def test_single_year_title_is_the_citation_year(self) -> None:
+        """'1900 United States Federal Census' still gives 1900."""
+        c_id = self._citation("1900 United States Federal Census", "Sheet 12B")
+        self.assertEqual(c_id.year, "1900")
+        self.assertIsNone(c_id.year_range)
 
     def test_extract_citation_identity(self) -> None:
         """extract_citation_identity extracts source metadata and backlinked person names."""

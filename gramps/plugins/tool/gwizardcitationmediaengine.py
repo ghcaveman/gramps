@@ -203,6 +203,9 @@ class CitationIdentity:
     source_pub: str = ""
     page: str = ""
     year: str = ""
+    #: Years the source collection covers ("Scotland, Marriages, 1561-1910"),
+    #: used when the citation itself gives no year. A range is never a year.
+    year_range: tuple[int, int] | None = None
     category: str = ""
     doc_type: str = ""
     surnames: list[str] = field(default_factory=list)
@@ -238,6 +241,27 @@ def extract_year(text: str) -> str:
     return match.group(1) if match else ""
 
 
+_YEAR_RANGE_RE = re.compile(
+    r"(?<!\d)(1\d{3}|20\d{2})\s*[-\u2013\u2014]\s*(1\d{3}|20\d{2}|current|present)"
+    r"(?![\w])",
+    re.IGNORECASE,
+)
+
+
+def extract_year_range(text: str) -> tuple[int, int] | None:
+    """Return the first year range in text, such as ``1561-1910``.
+
+    "current" and "present" as the end of a range are open-ended.
+    """
+    match = _YEAR_RANGE_RE.search(text or "")
+    if not match:
+        return None
+    start = int(match.group(1))
+    end_text = match.group(2).lower()
+    end = 9999 if end_text in ("current", "present") else int(end_text)
+    return (start, end) if start <= end else None
+
+
 _SHEET_PAGE_RE = re.compile(
     r"(?i)(?:^|[\W_])(?:sheet|page|p\.|cert|certificate|line)[\s_]*"
     r"([0-9]+[a-z]?)(?=$|[\W_])"
@@ -269,7 +293,8 @@ def detect_category(text: str) -> str:
     lower = re.sub(r"[\W_]+", " ", text).lower()
     for cat, kws in CATEGORY_KEYWORDS.items():
         for kw in kws:
-            if re.search(rf"\b{re.escape(kw)}\b", lower):
+            # Plurals count too: "Scotland, Marriages" is a marriage source.
+            if re.search(rf"\b{re.escape(kw)}(?:s|es)?\b", lower):
                 return cat
     return ""
 
@@ -373,13 +398,23 @@ def extract_citation_identity(db: DbReadBase, citation: Any) -> CitationIdentity
             src_pub = str(src.get_publication_info() or "").strip()
 
     combined_text = f"{src_title} {page} {src_pub}"
-    year = extract_year(combined_text)
+    # The citation's own year comes first: its page ("Inverness, 1912,
+    # entry 33"), then its date, then (below) its event's date. A source
+    # title usually names a whole collection ("Scotland, Marriages,
+    # 1561-1910"); its range is kept as bounds, never taken as the year.
+    # Only a single year in the title ("1900 United States Federal Census")
+    # stands for the citation's year.
+    title_text = f"{src_title} {src_pub}"
+    year_range = extract_year_range(title_text)
+    year = extract_year(page)
     if not year and hasattr(citation, "get_date_object"):
         date_obj = citation.get_date_object()
         if date_obj and hasattr(date_obj, "get_year"):
             y = date_obj.get_year()
             if y:
                 year = str(y)
+    if not year and year_range is None:
+        year = extract_year(title_text)
 
     cat = detect_category(combined_text)
     sheet_page = extract_sheet_page(page)
@@ -442,6 +477,10 @@ def extract_citation_identity(db: DbReadBase, citation: Any) -> CitationIdentity
         except Exception:
             pass
 
+    if not cat and event_types:
+        # A citation on a Marriage event is a marriage record.
+        cat = detect_category(" ".join(event_types))
+
     # Existing media links on this citation
     media_handles: list[str] = []
     if hasattr(citation, "get_media_list"):
@@ -465,6 +504,7 @@ def extract_citation_identity(db: DbReadBase, citation: Any) -> CitationIdentity
         source_pub=src_pub,
         page=page,
         year=year,
+        year_range=year_range,
         category=cat,
         doc_type=cat or "document",
         surnames=surnames,
@@ -551,6 +591,33 @@ def compute_citation_media_compatibility(
                         media_year=media.year,
                         citation_year=citation.year,
                         difference=diff,
+                    )
+                )
+        except ValueError:
+            pass
+    elif media.year and citation.year_range:
+        # No year for the citation itself: the collection's years still
+        # rule out an image from outside them.
+        try:
+            m_yr = int(media.year)
+            low, high = citation.year_range
+            if low <= m_yr <= high:
+                score += 10
+                reasons.append(
+                    _("Year {year} is within the collection's years (+10)").format(
+                        year=media.year
+                    )
+                )
+            else:
+                score -= 30
+                conflicts.append(
+                    _(
+                        "Year mismatch: image is {media_year}, outside the "
+                        "collection's years {low}-{high}"
+                    ).format(
+                        media_year=media.year,
+                        low=low,
+                        high=high if high != 9999 else _("present"),
                     )
                 )
         except ValueError:

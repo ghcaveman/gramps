@@ -238,6 +238,38 @@ class SplitConflatedTitleTest(unittest.TestCase):
                 "Vol 3",
             ),
         ),
+        # Only repository and citation in the title: the labelled Source
+        # value becomes the title.
+        (
+            "Find a Grave Memorial ID 45678 "
+            "(Repository: Find a Grave, Source: Find a Grave Index)",
+            ("Find a Grave", "Find a Grave Index", "Memorial ID 45678"),
+        ),
+        # Cutting the repository must not leave just "Index".
+        (
+            "Find a Grave Index; Memorial ID 45678 (Repository: Find a Grave)",
+            ("Find a Grave", "Find a Grave Index", "Memorial ID 45678"),
+        ),
+        # Citation details after a comma are moved too.
+        (
+            "Ancestry.com - 1920 United States Federal Census, page 7 line 22",
+            ("Ancestry.com", "1920 United States Federal Census", "page 7 line 22"),
+        ),
+        (
+            "FamilySearch.org - Ohio, Deaths, 1908-1953, cert 4521",
+            ("FamilySearch", "Ohio, Deaths, 1908-1953", "cert 4521"),
+        ),
+        # Citation-style quotes are cleaned after the split.
+        (
+            "\u201cPennsylvania, Church Records, 1680-1950,\u201d database, "
+            "FamilySearch",
+            ("FamilySearch", "Pennsylvania, Church Records, 1680-1950", "database"),
+        ),
+        # Markup is not kept, and the repository is not kept twice.
+        (
+            "<i>Newspapers.com</i> Obituary Index",
+            ("Newspapers.com", "Obituary Index", ""),
+        ),
     ]
 
     def test_split_results(self) -> None:
@@ -249,6 +281,10 @@ class SplitConflatedTitleTest(unittest.TestCase):
                 self.assertEqual(result["repo_name"], repo)
                 self.assertEqual(result["new_title"], new_title)
                 self.assertEqual(result["moved_text"], moved)
+
+    def test_title_that_is_already_right_is_left_alone(self) -> None:
+        """A collection named after its repository needs no split."""
+        self.assertIsNone(split_conflated_title("Find a Grave Index"))
 
     def test_second_split_finds_nothing(self) -> None:
         """The new title has no repository text left and no stray brackets."""

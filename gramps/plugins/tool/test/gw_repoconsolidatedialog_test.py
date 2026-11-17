@@ -262,6 +262,14 @@ class RepoConsolidateSafetyTest(unittest.TestCase):
         self.assertEqual(auto_consolidate_repositories(self.db)["merged"], 0)
         self.assertEqual(self._names(), sorted(names))
 
+    def test_names_with_different_years_are_not_grouped(self) -> None:
+        """'1940 Census Project' and '1950 Census Project' stay apart."""
+        self._add("1940 Census Project", "1950 Census Project")
+        rows = build_repo_consolidate_rows(self.db)
+        self.assertFalse(any(row["hint_target"] for row in rows))
+        self.assertEqual(auto_consolidate_repositories(self.db)["merged"], 0)
+        self.assertEqual(self._names(), ["1940 Census Project", "1950 Census Project"])
+
     def test_same_repository_names_are_merged(self) -> None:
         """Spellings of the same golden repository are merged without asking."""
         self._add(
