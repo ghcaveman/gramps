@@ -290,6 +290,9 @@ class TestWikiTreeLauncher(unittest.TestCase):
                 "birth_year": "",
                 "death_year": "",
                 "wt_id": "",
+                "gender": "",
+                "birth_location": "",
+                "death_location": "",
             },
         )
 
@@ -459,6 +462,9 @@ class TestWikiTreeLauncher(unittest.TestCase):
         dialog.last_name_entry.get_text.return_value = ""
         dialog.birth_year_entry.get_text.return_value = ""
         dialog.death_year_entry.get_text.return_value = ""
+        dialog.gender_entry.get_text.return_value = ""
+        dialog.birth_location_entry.get_text.return_value = ""
+        dialog.death_location_entry.get_text.return_value = ""
 
         dialog.cb_search()
 

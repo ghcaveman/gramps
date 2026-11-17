@@ -1801,6 +1801,7 @@ class WikiTreeGWizard(GedGWizard):
                     pdata.get("BirthDate"), birth_status, birth_decade
                 )
                 birth_loc = str(pdata.get("BirthLocation") or "").strip()
+                b_ref = None
                 if not b_date_obj.is_empty() or birth_loc:
                     b_evt = Event()
                     b_evt.set_type(EventType(EventType.BIRTH))
@@ -1826,6 +1827,7 @@ class WikiTreeGWizard(GedGWizard):
                     pdata.get("DeathDate"), death_status, death_decade
                 )
                 death_loc = str(pdata.get("DeathLocation") or "").strip()
+                d_ref = None
                 if not d_date_obj.is_empty() or death_loc:
                     d_evt = Event()
                     d_evt.set_type(EventType(EventType.DEATH))

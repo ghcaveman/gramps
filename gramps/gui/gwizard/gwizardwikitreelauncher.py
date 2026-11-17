@@ -78,6 +78,9 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
         "birth_year": "",
         "death_year": "",
         "wt_id": "",
+        "gender": "",
+        "birth_location": "",
+        "death_location": "",
     }
     if not person:
         return defaults
@@ -107,6 +110,31 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
             ddate = devt.get_date_object()
             if ddate and ddate.get_year() > 0:
                 defaults["death_year"] = str(ddate.get_year())
+            dplace = devt.get_place_handle()
+            if dplace and db:
+                dplace_obj = db.get_place_from_handle(dplace)
+                if dplace_obj:
+                    defaults["death_location"] = str(
+                        dplace_obj.get_name().get_value() or ""
+                    ).strip()
+
+    # Gender
+    gender = person.get_gender()
+    if gender:
+        defaults["gender"] = str(gender)
+
+    # Birth location
+    bref = person.get_birth_ref()
+    if bref and db:
+        bevt = db.get_event_from_handle(bref.ref)
+        if bevt:
+            bplace = bevt.get_place_handle()
+            if bplace and db:
+                bplace_obj = db.get_place_from_handle(bplace)
+                if bplace_obj:
+                    defaults["birth_location"] = str(
+                        bplace_obj.get_name().get_value() or ""
+                    ).strip()
 
     return defaults
 
@@ -174,24 +202,6 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         self.target_label.set_hexpand(True)
         header_box.pack_start(self.target_label, True, True, 0)
 
-        self.btn_change_target = Gtk.Button(
-            label=_("_Change Target..."), use_underline=True
-        )
-        self.btn_change_target.set_tooltip_text(
-            _("Select a different person in your Family Tree as the merge target.")
-        )
-        self.btn_change_target.connect("clicked", self.cb_change_target)
-        header_box.pack_start(self.btn_change_target, False, False, 0)
-
-        self.btn_new_target = Gtk.Button(label=_("_Add as New"), use_underline=True)
-        self.btn_new_target.set_tooltip_text(
-            _(
-                "Import selected WikiTree profile as a new person rather than merging into an existing record."
-            )
-        )
-        self.btn_new_target.connect("clicked", self.cb_set_target_none)
-        header_box.pack_start(self.btn_new_target, False, False, 0)
-
         content.pack_start(header_box, False, False, 0)
         self._update_target_label()
 
@@ -230,10 +240,24 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         self.last_name_entry.connect("activate", self.cb_entry_activate)
         search_grid.attach(self.last_name_entry, 1, 1, 1, 1)
 
+        # Gender
+        gen_label = Gtk.Label(label=_("Gender:"))
+        gen_label.set_xalign(0.0)
+        search_grid.attach(gen_label, 2, 0, 1, 1)
+
+        self.gender_entry = Gtk.Entry()
+        self.gender_entry.set_width_chars(10)
+        self.gender_entry.set_placeholder_text(_("e.g. Male"))
+        self.gender_entry.set_tooltip_text(
+            _("Filter by gender (Male, Female, Unknown).")
+        )
+        self.gender_entry.connect("activate", self.cb_entry_activate)
+        search_grid.attach(self.gender_entry, 2, 1, 1, 1)
+
         # Birth Year
         by_label = Gtk.Label(label=_("Birth Year:"))
         by_label.set_xalign(0.0)
-        search_grid.attach(by_label, 2, 0, 1, 1)
+        search_grid.attach(by_label, 3, 0, 1, 1)
 
         self.birth_year_entry = Gtk.Entry()
         self.birth_year_entry.set_width_chars(10)
@@ -242,12 +266,26 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             _("Birth year (4 digits) or full date (YYYY-MM-DD).")
         )
         self.birth_year_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.birth_year_entry, 2, 1, 1, 1)
+        search_grid.attach(self.birth_year_entry, 3, 1, 1, 1)
+
+        # Birth Location
+        bl_label = Gtk.Label(label=_("Birth Location:"))
+        bl_label.set_xalign(0.0)
+        search_grid.attach(bl_label, 4, 0, 1, 1)
+
+        self.birth_location_entry = Gtk.Entry()
+        self.birth_location_entry.set_width_chars(16)
+        self.birth_location_entry.set_placeholder_text(_("e.g. London"))
+        self.birth_location_entry.set_tooltip_text(
+            _("Filter by birth place (supports wildcards * and ?).")
+        )
+        self.birth_location_entry.connect("activate", self.cb_entry_activate)
+        search_grid.attach(self.birth_location_entry, 4, 1, 1, 1)
 
         # Death Year
         dy_label = Gtk.Label(label=_("Death Year:"))
         dy_label.set_xalign(0.0)
-        search_grid.attach(dy_label, 3, 0, 1, 1)
+        search_grid.attach(dy_label, 5, 0, 1, 1)
 
         self.death_year_entry = Gtk.Entry()
         self.death_year_entry.set_width_chars(10)
@@ -256,12 +294,26 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             _("Death year (4 digits) or full date (YYYY-MM-DD).")
         )
         self.death_year_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.death_year_entry, 3, 1, 1, 1)
+        search_grid.attach(self.death_year_entry, 5, 1, 1, 1)
+
+        # Death Location
+        dl_label = Gtk.Label(label=_("Death Location:"))
+        dl_label.set_xalign(0.0)
+        search_grid.attach(dl_label, 6, 0, 1, 1)
+
+        self.death_location_entry = Gtk.Entry()
+        self.death_location_entry.set_width_chars(16)
+        self.death_location_entry.set_placeholder_text(_("e.g. London"))
+        self.death_location_entry.set_tooltip_text(
+            _("Filter by death place (supports wildcards * and ?).")
+        )
+        self.death_location_entry.connect("activate", self.cb_entry_activate)
+        search_grid.attach(self.death_location_entry, 6, 1, 1, 1)
 
         # WikiTree ID
         wt_label = Gtk.Label(label=_("WikiTree ID:"))
         wt_label.set_xalign(0.0)
-        search_grid.attach(wt_label, 4, 0, 1, 1)
+        search_grid.attach(wt_label, 7, 0, 1, 1)
 
         self.wt_id_entry = Gtk.Entry()
         self.wt_id_entry.set_width_chars(16)
@@ -270,26 +322,17 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             _("Exact WikiTree ID for direct lookup (e.g. 'Franklin-1').")
         )
         self.wt_id_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.wt_id_entry, 4, 1, 1, 1)
+        search_grid.attach(self.wt_id_entry, 7, 1, 1, 1)
 
         # Search Button
-        search_grid.attach(Gtk.Label(label=""), 5, 0, 1, 1)
+        search_grid.attach(Gtk.Label(label=""), 8, 0, 1, 1)
         self.btn_search = Gtk.Button(label=_("_Search"), use_underline=True)
         self.btn_search.get_style_context().add_class("suggested-action")
         self.btn_search.set_tooltip_text(
             _("Search WikiTree using the parameters entered above.")
         )
         self.btn_search.connect("clicked", self.cb_search)
-        search_grid.attach(self.btn_search, 5, 1, 1, 1)
-
-        # Help Button in Search Bar
-        search_grid.attach(Gtk.Label(label=""), 6, 0, 1, 1)
-        self.btn_help = Gtk.Button(label=_("_Help"), use_underline=True)
-        self.btn_help.set_tooltip_text(
-            _("Learn how WikiTree search and wildcards work.")
-        )
-        self.btn_help.connect("clicked", self.cb_help)
-        search_grid.attach(self.btn_help, 6, 1, 1, 1)
+        search_grid.attach(self.btn_search, 9, 1, 1, 1)
 
         content.pack_start(search_grid, False, False, 0)
 
@@ -343,9 +386,6 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         # -----------------------------------------------------------------
         # 5. Action Bar
         # -----------------------------------------------------------------
-        btn_action_help = self.add_button(_("_Help"), Gtk.ResponseType.HELP)
-        btn_action_help.connect("clicked", self.cb_help)
-
         self.add_button(_("_Close"), Gtk.ResponseType.CLOSE)
 
         self.btn_merge = Gtk.Button(label=_("_Merge..."), use_underline=True)
@@ -409,6 +449,9 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             self.birth_year_entry.set_text(defaults["birth_year"])
             self.death_year_entry.set_text(defaults["death_year"])
             self.wt_id_entry.set_text(defaults["wt_id"])
+            self.gender_entry.set_text(defaults["gender"])
+            self.birth_location_entry.set_text(defaults["birth_location"])
+            self.death_location_entry.set_text(defaults["death_location"])
         elif default_query:
             query = default_query.strip()
             extracted_id = extract_wikitree_id(query)
@@ -444,36 +487,6 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             _("Merge WikiTree data into: <i>None (will add as a new person)</i>")
         )
 
-    def cb_change_target(self, _widget: Any = None) -> None:
-        """
-        Prompt the user to choose a different target person from the Family Tree.
-        """
-        if not self.dbstate or not self.dbstate.db:
-            return
-        try:
-            from gramps.gui.selectors.selectperson import SelectPerson
-
-            sel = SelectPerson(
-                self.dbstate,
-                self.uistate,
-                track=[],
-                title=_("Select Merge Target Person"),
-            )
-            handle = sel.run()
-            if handle:
-                self.target_handle = handle
-                self._update_target_label()
-                self._prefill_entries()
-        except Exception as err:
-            LOG.error("Failed to select target person: %s", err)
-
-    def cb_set_target_none(self, _widget: Any = None) -> None:
-        """
-        Set target person to None so selected profile will be added as new.
-        """
-        self.target_handle = None
-        self._update_target_label()
-
     def cb_entry_activate(self, _widget: Gtk.Entry) -> None:
         """
         Trigger search when pressing Enter in any search entry box.
@@ -489,6 +502,9 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         birth_year = self.birth_year_entry.get_text().strip()
         death_year = self.death_year_entry.get_text().strip()
         wt_id = self.wt_id_entry.get_text().strip()
+        gender = self.gender_entry.get_text().strip()
+        birth_location = self.birth_location_entry.get_text().strip()
+        death_location = self.death_location_entry.get_text().strip()
         extracted_wt = extract_wikitree_id(wt_id)
         if extracted_wt:
             wt_id = extracted_wt
@@ -505,7 +521,16 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                     wt_id = extracted_fn
                     first_name = ""
 
-        if not (first_name or last_name or birth_year or death_year or wt_id):
+        if not (
+            first_name
+            or last_name
+            or birth_year
+            or death_year
+            or wt_id
+            or gender
+            or birth_location
+            or death_location
+        ):
             self.status_label.set_text(
                 _("Please enter a name, year, or WikiTree ID to search.")
             )
@@ -528,13 +553,24 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                     if p_name:
                         seen_ids.add(p_name)
 
-            # 2. Search by name and dates if provided
-            if first_name or last_name or birth_year or death_year:
+            # 2. Search by name, dates, gender, and locations if provided
+            if (
+                first_name
+                or last_name
+                or birth_year
+                or death_year
+                or gender
+                or birth_location
+                or death_location
+            ):
                 search_matches = self.client.search_person(
                     first_name=first_name,
                     last_name=last_name,
                     birth_date=birth_year,
                     death_date=death_year,
+                    Gender=gender,
+                    BirthLocation=birth_location,
+                    DeathLocation=death_location,
                     limit=50,
                 )
                 for item in search_matches:
@@ -612,35 +648,6 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         if first_iter:
             self.tree_view.get_selection().select_iter(first_iter)
             self.btn_merge.set_sensitive(True)
-
-    def cb_help(self, _widget: Any = None) -> None:
-        """
-        Display information explaining WikiTree search features and syntax.
-        """
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            modal=True,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text=_("WikiTree Search Help"),
-        )
-        help_text = _(
-            "<b>Search Criteria:</b>\n"
-            "• <b>First Name & Last Name:</b> Search by given name and/or surname.\n"
-            "• <b>Wildcards:</b> WikiTree supports wildcards (* and ?). "
-            "For example, 'Frank*' matches Franklin, Frank, etc.\n"
-            "• <b>Birth & Death Years:</b> Enter a 4-digit year (e.g. 1706) or "
-            "full date (YYYY-MM-DD) to narrow results.\n"
-            "• <b>WikiTree ID:</b> If you know the exact ID (e.g. Franklin-1), "
-            "enter it directly for an exact profile lookup.\n\n"
-            "<b>Merging:</b>\n"
-            "Select a person from the search results table and click <b>Merge...</b> "
-            "(or double-click the row). This opens the side-by-side merge dialog "
-            "where you can compare fields and choose which details to merge into your Family Tree."
-        )
-        dialog.format_secondary_markup(help_text)
-        dialog.run()
-        dialog.destroy()
 
     def cb_selection_changed(self, selection: Gtk.TreeSelection) -> None:
         """
