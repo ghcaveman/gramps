@@ -63,6 +63,8 @@ try:
         add_media_fixed_tag,
         refresh_checksum,
         media_checksum,
+        gramps_id_key,
+        remove_media_with_import_notes,
     )
 except (ImportError, ValueError):
     from gwizard_common import (  # type: ignore[import-not-found,no-redef]
@@ -79,6 +81,8 @@ except (ImportError, ValueError):
         add_media_fixed_tag,
         refresh_checksum,
         media_checksum,
+        gramps_id_key,
+        remove_media_with_import_notes,
     )
 
 try:
@@ -89,8 +93,14 @@ except (ImportError, ValueError):
         number_regions,
     )
 
-_ = glocale.translation.sgettext
-ngettext = glocale.translation.ngettext
+# Addon translations (the package's locale/ folder) fall back to Gramps' own;
+# as a built-in tool there is no locale/ folder and Gramps' are used.
+try:
+    _trans = glocale.get_addon_translator(__file__)
+except ValueError:
+    _trans = glocale.translation
+_ = _trans.sgettext
+ngettext = _trans.ngettext
 LOG = logging.getLogger(__name__)
 
 
@@ -207,7 +217,7 @@ def find_duplicate_media_groups(
                 "perm_issue": perm_issue,
                 "inaccess_dir": inaccess_dir,
                 "media": media,
-                "bare": is_bare_media(media),
+                "bare": is_bare_media(media, db),
             }
         )
 
@@ -220,7 +230,7 @@ def find_duplicate_media_groups(
                     -rec["backlink_count"],
                     not rec["assoc"],
                     not rec["desc"],
-                    rec["gramps_id"],
+                    gramps_id_key(rec["gramps_id"]),
                 )
             )
             keeper = records[0]
@@ -627,7 +637,9 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                             with DbTxn(
                                 _("Remove Unreferenced Media"), self.dbstate.db
                             ) as trans:
-                                self.dbstate.db.remove_media(handle, trans)
+                                remove_media_with_import_notes(
+                                    self.dbstate.db, handle, trans
+                                )
                                 deleted_count += 1
                         except Exception as err:
                             LOG.exception(

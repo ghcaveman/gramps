@@ -279,6 +279,26 @@ class ContentMatchTest(_ChecksumDbTest):
         self.assertEqual(row["suggested_path"], "")
         self.assertIn("different content", row["hint_text"])
 
+    def test_accept_all_skips_same_name_different_content(self) -> None:
+        """Accept all hints neither plans nor makes a same-name, other-content match."""
+        other = self.write("IMG_0001.jpg", "a different camera's IMG_0001")
+        stored = hashlib.md5(b"the original photo").hexdigest()
+        handle = self.add_media("D:/Cam/IMG_0001.jpg", stored)
+        self.link_to_person(handle)  # else it would be removed as an orphan
+
+        plan = mf.build_accept_all_plan(self.db, self.base, True)
+        self.assertEqual(plan["find"], [])
+        gid = self.media(handle).gramps_id
+        self.assertIn(gid, [row[0] for row in plan["missing"]])
+
+        resolved, unresolved, _denied = self.tool()._auto_find_missing(self.db)
+        self.assertEqual(resolved, 0)
+        self.assertEqual([row[0] for row in unresolved], [gid])
+        media = self.media(handle)
+        self.assertEqual(media.get_path(), "D:/Cam/IMG_0001.jpg")
+        self.assertEqual(media.get_checksum(), stored)
+        self.assertNotEqual(md5_of(other), stored)
+
     def test_name_match_without_checksum_unchanged(self) -> None:
         """A record without a checksum is still matched by file name."""
         self.write("scan.jpg", "scan")

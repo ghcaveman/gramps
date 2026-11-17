@@ -53,7 +53,13 @@ from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.lib import Tag
 from gramps.gen.utils.file import create_checksum, media_path_full
 
-_ = glocale.translation.sgettext
+# Addon translations (the package's locale/ folder) fall back to Gramps' own;
+# as a built-in tool there is no locale/ folder and Gramps' are used.
+try:
+    _trans = glocale.get_addon_translator(__file__)
+except ValueError:
+    _trans = glocale.translation
+_ = _trans.sgettext
 LOG = logging.getLogger(__name__)
 
 # "C:\..." or "C:/..." - a Windows drive path, recognised on every platform
@@ -268,11 +274,68 @@ def full_media_path(db: DbReadBase, raw_path: str | None) -> str:
         return text
 
 
-def is_bare_media(media: Any) -> bool:
+#: Start of the note Gramps' GEDCOM import attaches to a media record whose
+#: file it could not find (or whose tags it could not read).
+IMPORT_NOTE_PREFIX = "Records not imported into OBJE"
+
+_GRAMPS_ID_RE = re.compile(r"^(\D*)(\d+)(.*)$")
+
+
+def gramps_id_key(gid: str) -> tuple[str, int, str]:
+    """Sort key that orders Gramps IDs by their number, so M7 comes before M17.
+
+    :param gid: A Gramps ID such as ``M7`` or ``I00012``.
+    :returns: ``(prefix, number, rest)``; IDs without a number sort by text.
+    """
+    text = str(gid or "")
+    found = _GRAMPS_ID_RE.match(text)
+    if not found:
+        return (text, -1, "")
+    return (found.group(1), int(found.group(2)), found.group(3))
+
+
+def import_note_handles(db: DbReadBase | None, media: Any) -> list[str]:
+    """Return the handles of a media record's GEDCOM-import debris notes.
+
+    :param db: The database (``None`` means no notes can be read).
+    :param media: A media record.
+    :returns: Handles of notes starting with :data:`IMPORT_NOTE_PREFIX`.
+    """
+    if db is None:
+        return []
+    handles: list[str] = []
+    for handle in list(media.get_note_list() or []):
+        try:
+            note = db.get_note_from_handle(handle)
+        except Exception:  # noqa: BLE001 - a broken note is not debris
+            continue
+        if note is not None and str(note.get()).lstrip().startswith(IMPORT_NOTE_PREFIX):
+            handles.append(handle)
+    return handles
+
+
+def remove_media_with_import_notes(db: DbWriteBase, handle: str, trans: DbTxn) -> None:
+    """Remove a media record and the import-debris notes only it used.
+
+    :param db: The database.
+    :param handle: Handle of the media record to remove.
+    :param trans: The open transaction.
+    """
+    media = db.get_media_from_handle(handle)
+    debris = import_note_handles(db, media) if media is not None else []
+    db.remove_media(handle, trans)
+    for note_handle in debris:
+        if not list(db.find_backlink_handles(note_handle)):
+            db.remove_note(note_handle, trans)
+
+
+def is_bare_media(media: Any, db: DbReadBase | None = None) -> bool:
     """Return True when a media record carries nothing worth keeping.
 
     A record with notes, attributes, tags, citations or a date is not bare and
-    must never be deleted automatically.
+    must never be deleted automatically. When *db* is given, the "Records not
+    imported into OBJE" notes left by the GEDCOM import don't count: they are
+    import debris, not the user's own notes.
     """
 
     def _has(name: str) -> bool:
@@ -280,9 +343,11 @@ def is_bare_media(media: Any) -> bool:
         method = getattr(media, name, None)
         return bool(method()) if callable(method) else False
 
+    notes = list(getattr(media, "get_note_list", lambda: [])() or [])
+    real_notes = set(notes) - set(import_note_handles(db, media)) if notes else set()
     date = media.get_date_object() if hasattr(media, "get_date_object") else None
     return not (
-        _has("get_note_list")
+        bool(real_notes)
         or _has("get_attribute_list")
         or _has("get_tag_list")
         or _has("get_citation_list")

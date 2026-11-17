@@ -62,7 +62,13 @@ except (ImportError, ValueError):
         escape_markup,
     )
 
-_ = glocale.translation.sgettext
+# Addon translations (the package's locale/ folder) fall back to Gramps' own;
+# as a built-in tool there is no locale/ folder and Gramps' are used.
+try:
+    _trans = glocale.get_addon_translator(__file__)
+except ValueError:
+    _trans = glocale.translation
+_ = _trans.sgettext
 LOG = logging.getLogger(__name__)
 
 # Outline colours, one per media record (or per reference), chosen to stay

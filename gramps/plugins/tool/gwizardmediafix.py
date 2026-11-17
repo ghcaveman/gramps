@@ -29,6 +29,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import logging
+import functools
 import os
 import re
 from typing import Any
@@ -46,6 +47,7 @@ from gi.repository import Gtk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.config import config
+from gramps.gen.mime import get_type, is_valid_type
 from gramps.gen.const import GRAMPS_LOCALE as glocale, USER_HOME, USER_PICTURES
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.types import EventHandle, MediaHandle, PersonHandle
@@ -90,6 +92,9 @@ try:
         pick_content_match,
         extension_key,
         media_checksum,
+        IMPORT_NOTE_PREFIX,
+        gramps_id_key,
+        remove_media_with_import_notes,
     )
 except (ImportError, ValueError):
     from gwizard_common import (  # type: ignore[import-not-found,no-redef]
@@ -121,6 +126,9 @@ except (ImportError, ValueError):
         pick_content_match,
         extension_key,
         media_checksum,
+        IMPORT_NOTE_PREFIX,
+        gramps_id_key,
+        remove_media_with_import_notes,
     )
 
 try:
@@ -144,13 +152,31 @@ except (ImportError, ValueError):
         fill_merged_checksum,
     )
 
-_ = glocale.translation.sgettext
-ngettext = glocale.translation.ngettext
+# Addon translations (the package's locale/ folder) fall back to Gramps' own;
+# as a built-in tool there is no locale/ folder and Gramps' are used.
+try:
+    _trans = glocale.get_addon_translator(__file__)
+except ValueError:
+    _trans = glocale.translation
+_ = _trans.sgettext
+ngettext = _trans.ngettext
 LOG = logging.getLogger(__name__)
 
 CONFIG_TEMPLATE_KEY = "preferences.gwizardmediafix-filename-template"
 DEFAULT_FILENAME_TEMPLATE = "{ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}"
 config.register(CONFIG_TEMPLATE_KEY, DEFAULT_FILENAME_TEMPLATE)
+
+# Most media files the report's search for unreferenced files reads before it
+# stops (0 = no limit).  When the limit is hit, Generate report offers to scan
+# everything, once or from then on.
+CONFIG_SCAN_LIMIT_KEY = "preferences.gwizardmediafix-scan-limit"
+DEFAULT_SCAN_LIMIT = 5000
+config.register(CONFIG_SCAN_LIMIT_KEY, DEFAULT_SCAN_LIMIT)
+
+# Whether Generate report reads every file to compare it with its stored
+# checksum (slower; set with the check box in the report's Save dialog).
+CONFIG_CHECK_CONTENT_KEY = "preferences.gwizardmediafix-report-check-content"
+config.register(CONFIG_CHECK_CONTENT_KEY, False)
 
 FILENAME_PRESETS: list[tuple[str, str]] = [
     (
@@ -343,16 +369,150 @@ def is_in_default_path(raw_path: str, base_dir: str) -> bool:
         return False
 
 
+# Document types kept with media (the MIME check covers images, audio, video).
+_MEDIA_DOCUMENT_TYPES = frozenset(
+    {
+        "application/pdf",
+        "application/rtf",
+        "text/rtf",
+        "text/plain",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.oasis.opendocument.text",
+    }
+)
+
+# Media extensions recognised even when the system knows no MIME type for
+# them (on Windows, MIME types come from the registry and depend on what is
+# installed), or knows a misleading one (".mts" video can map to "model/").
+_KNOWN_MEDIA_EXTENSIONS = frozenset(
+    {
+        # images
+        ".jpg",
+        ".jpeg",
+        ".jpe",
+        ".jfif",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tif",
+        ".tiff",
+        ".webp",
+        ".svg",
+        ".ico",
+        ".heic",
+        ".heif",
+        ".avif",
+        ".jxl",
+        ".jp2",
+        ".j2k",
+        ".djvu",
+        ".djv",
+        ".dng",
+        # audio
+        ".mp3",
+        ".wav",
+        ".ogg",
+        ".oga",
+        ".opus",
+        ".flac",
+        ".m4a",
+        ".aac",
+        ".wma",
+        ".aif",
+        ".aiff",
+        # video
+        ".mp4",
+        ".m4v",
+        ".avi",
+        ".mov",
+        ".wmv",
+        ".mkv",
+        ".webm",
+        ".mpg",
+        ".mpeg",
+        ".ogv",
+        ".3gp",
+        ".3g2",
+        ".mts",
+        ".m2ts",
+        # documents
+        ".pdf",
+        ".txt",
+        ".rtf",
+        ".doc",
+        ".docx",
+        ".odt",
+    }
+)
+
+
+@functools.lru_cache(maxsize=512)
+def _extension_mime(ext: str) -> str:
+    """Return the MIME type the system gives an extension (cached)."""
+    try:
+        return str(get_type("file" + ext) or "")
+    except Exception:  # a broken registry entry must not stop a scan
+        return ""
+
+
+def is_media_file(name: str) -> bool:
+    """
+    Tell whether a file is a kind of file Gramps media records hold.
+
+    Images, audio, video and common document types count, by MIME type,
+    plus a list of known media extensions for systems that do not know
+    their MIME type.
+
+    :param name: A file name or path.
+    :returns: True for a media file.
+    """
+    ext = os.path.splitext(name)[1].lower()
+    if not ext:
+        return False
+    if ext in _KNOWN_MEDIA_EXTENSIONS:
+        return True
+    mime = _extension_mime(ext)
+    if not mime or not is_valid_type(mime):
+        return False
+    return mime.split("/")[0] in ("image", "audio", "video") or (
+        mime in _MEDIA_DOCUMENT_TYPES
+    )
+
+
+def scan_limit() -> int:
+    """
+    Return the saved limit for the unreferenced-file search (0 = none).
+
+    :returns: The limit; a broken setting falls back to the default.
+    """
+    try:
+        return max(0, int(config.get(CONFIG_SCAN_LIMIT_KEY)))
+    except (TypeError, ValueError):
+        return DEFAULT_SCAN_LIMIT
+
+
 def find_unreferenced_default_path_files(
     db: DbReadBase,
     base_dir: str,
-    max_scan_files: int = 5000,
+    max_scan_files: int | None = None,
     stats: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Scan base_dir for multimedia files with no connection to database media objects.
-
-    Returns a sorted list of file paths relative to base_dir.
     """
+    Scan base_dir for media files that no media record points at.
+
+    :param db: The database.
+    :param base_dir: The base media directory.
+    :param max_scan_files: Most media files to read before stopping
+        (0 = no limit; ``None`` = the saved setting, see :func:`scan_limit`).
+    :param stats: Filled with ``scanned`` (media files read), ``limit``
+        (the limit used) and ``truncated`` (True when the limit stopped the
+        scan before every folder was read).
+    :returns: Sorted paths relative to base_dir.
+    """
+    limit = scan_limit() if max_scan_files is None else max(0, max_scan_files)
+    if stats is not None:
+        stats.update({"scanned": 0, "limit": limit, "truncated": False})
     if not base_dir or not os.path.isdir(base_dir) or not db:
         return []
 
@@ -383,40 +543,6 @@ def find_unreferenced_default_path_files(
                     )
                 except Exception:
                     pass
-
-    multimedia_exts = {
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".gif",
-        ".bmp",
-        ".tif",
-        ".tiff",
-        ".webp",
-        ".svg",
-        ".ico",
-        ".pdf",
-        ".mp3",
-        ".wav",
-        ".ogg",
-        ".flac",
-        ".m4a",
-        ".aac",
-        ".wma",
-        ".mp4",
-        ".avi",
-        ".mov",
-        ".wmv",
-        ".mkv",
-        ".webm",
-        ".mpg",
-        ".mpeg",
-        ".txt",
-        ".rtf",
-        ".doc",
-        ".docx",
-        ".odt",
-    }
 
     skip_dirs = {
         ".git",
@@ -460,6 +586,7 @@ def find_unreferenced_default_path_files(
 
     unreferenced: list[str] = []
     scanned_count = 0
+    truncated = False
 
     for root, dirs, files in os.walk(base_dir):
         rel_to_base = os.path.relpath(root, base_dir)
@@ -477,9 +604,12 @@ def find_unreferenced_default_path_files(
         for fname in files:
             if fname.startswith("."):
                 continue
-            _base, ext = os.path.splitext(fname)
-            if ext.lower() not in multimedia_exts:
+            if not is_media_file(fname):
                 continue
+            if limit and scanned_count >= limit:
+                # A media file beyond the limit: the scan really stopped early.
+                truncated = True
+                break
 
             full_file = os.path.join(root, fname)
             norm_file = os.path.normcase(os.path.normpath(os.path.abspath(full_file)))
@@ -491,13 +621,12 @@ def find_unreferenced_default_path_files(
                 unreferenced.append(rel_path)
 
             scanned_count += 1
-            if scanned_count >= max_scan_files:
-                if stats is not None:
-                    stats["truncated"] = True
-                break
-        if scanned_count >= max_scan_files:
+        if truncated:
             break
 
+    if stats is not None:
+        stats["scanned"] = scanned_count
+        stats["truncated"] = truncated
     unreferenced.sort()
     return unreferenced
 
@@ -1012,7 +1141,7 @@ def _best_person(db: DbReadBase, handles: list[PersonHandle], text: str) -> Any:
     people = [p for p in (_db_get(db, "Person", h) for h in handles) if p is not None]
     if not people:
         return None
-    people.sort(key=_gid_of)
+    people.sort(key=lambda p: gramps_id_key(_gid_of(p)))
     sur, giv, _rest = parse_name_from_text(text or "")
     if sur:
         # max() keeps the first of equal scores, i.e. the lowest Gramps ID
@@ -1051,7 +1180,7 @@ def _order_backlinks(
         obj = _db_get(db, b[0], b[1])
         return str(obj.get_gramps_id() or "") if obj is not None else ""
 
-    ordered = sorted(backlinks, key=lambda b: (b[0], gid(b), b[1]))
+    ordered = sorted(backlinks, key=lambda b: (b[0], gramps_id_key(gid(b)), b[1]))
     sur, giv, _rest = parse_name_from_text(text or "")
     if sur:
         matched = [
@@ -1648,7 +1777,7 @@ class _Progress:
 # Stale "Records not imported into OBJE" notes left by the Legacy import
 #
 # ------------------------------------------------------------
-IMPORT_NOTE_PREFIX = "Records not imported into OBJE"
+# IMPORT_NOTE_PREFIX now lives in gwizard_common (shared with is_bare_media).
 
 
 def find_stale_import_notes(
@@ -1851,12 +1980,12 @@ def base_change_summary(fixed: int) -> str:
 # Consolidation planner (shared by the preview and the real run)
 #
 # ------------------------------------------------------------
-def namer_rank(db: DbReadBase, media: Any) -> tuple[int, str]:
+def namer_rank(db: DbReadBase, media: Any) -> tuple[int, tuple[str, int, str]]:
     """
     Sort key choosing which of several records sharing a file names it.
 
     The record with the most references comes first, then the lowest Gramps
-    ID, so the choice is stable.
+    ID (by number, so M7 comes before M17), so the choice is stable.
 
     :param db: The database.
     :param media: A media record.
@@ -1866,7 +1995,7 @@ def namer_rank(db: DbReadBase, media: Any) -> tuple[int, str]:
         n_refs = len(list(db.find_backlink_handles(media.get_handle())))
     except Exception:
         n_refs = 0
-    return (-n_refs, _gid_of(media))
+    return (-n_refs, gramps_id_key(_gid_of(media)))
 
 
 def plan_consolidation_moves(
@@ -2034,7 +2163,7 @@ def build_accept_all_plan(
                 )
             )
         else:
-            if is_bare_media(keeper["media"]):
+            if is_bare_media(keeper["media"], db):
                 plan["delete"].append((keeper["gramps_id"], group["raw_path"]))
                 gone.add(keeper["handle"])
             else:
@@ -2234,6 +2363,41 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
             )
         )
     return "\n".join(lines)
+
+
+def ask_full_scan(parent: Any, limit: int) -> str:
+    """
+    Ask whether to scan every file after the report's scan hit its limit.
+
+    :param parent: Parent window.
+    :param limit: The limit that was reached.
+    :returns: ``"once"`` (scan all files for this report), ``"always"``
+        (also from now on) or ``""`` (keep the report as it is).
+    """
+    dlg = Gtk.MessageDialog(
+        transient_for=parent,
+        modal=True,
+        message_type=Gtk.MessageType.QUESTION,
+        text=str(_("Scan all files?")),
+    )
+    dlg.format_secondary_text(
+        str(
+            _(
+                "The search for media files that no record uses stopped after "
+                "%d files, so the report's list of unreferenced files may be "
+                "incomplete. Scanning everything can take a while on a large "
+                "folder."
+            )
+        )
+        % limit
+    )
+    dlg.add_button(str(_("_Keep this report")), Gtk.ResponseType.CANCEL)
+    dlg.add_button(str(_("Scan all files this _time")), 1)
+    dlg.add_button(str(_("_Always scan all files")), 2)
+    dlg.set_default_response(1)
+    response = dlg.run()
+    dlg.destroy()
+    return {1: "once", 2: "always"}.get(response, "")
 
 
 def confirm_plan(parent: Any, text: str) -> bool:
@@ -4089,8 +4253,27 @@ class AcceptAllHintsReportDialog(Gtk.Dialog):
         self.destroy()
 
 
-def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> str:
-    """Scan all media objects in database, check existence with os.path.exists(), and return formatted report."""
+def generate_media_fix_report(
+    db: DbReadBase,
+    progress_parent: Any = None,
+    scan_limit: int | None = None,
+    scan_stats: dict[str, Any] | None = None,
+    check_content: bool | None = None,
+) -> str:
+    """
+    Check every media record and its file, and return the report text.
+
+    :param db: The database.
+    :param progress_parent: Parent window for the progress meter.
+    :param scan_limit: Most media files the search for unreferenced files
+        reads (0 = no limit; ``None`` = the saved setting).
+    :param scan_stats: Filled with that search's ``scanned``, ``limit`` and
+        ``truncated`` values, so the caller can offer a full scan.
+    :param check_content: Read every file that has a stored checksum and
+        list those whose content no longer matches (``None`` = the saved
+        setting).
+    :returns: The report.
+    """
     base_dir = get_media_base_path(db) if db else get_media_base_path(None)
     curr_tmpl = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
     total = 0
@@ -4103,6 +4286,9 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
     outside_default_path = 0
     with_checksum = 0
     missing_with_checksum = 0
+    if check_content is None:
+        check_content = bool(config.get(CONFIG_CHECK_CONTENT_KEY))
+    changed_list: list[tuple[str, str, str]] = []
 
     missing_list: list[tuple[str, str, str]] = []
     perm_denied_list: list[tuple[str, str, str, str]] = []
@@ -4170,31 +4356,38 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
                 full_path = clean_raw
                 norm_key = os.path.normcase(os.path.normpath(clean_raw))
 
-            exists = os.path.exists(full_path) or (
-                is_absolute_path(clean_raw) and os.path.exists(clean_raw)
+            on_disk = ""
+            if os.path.exists(full_path):
+                on_disk = full_path
+            elif is_absolute_path(clean_raw) and os.path.exists(clean_raw):
+                on_disk = clean_raw
+            alt_path = (
+                os.path.join(base_dir, clean_raw)
+                if base_dir and not is_absolute_path(clean_raw)
+                else None
             )
-            if exists:
+            if not on_disk and alt_path and os.path.exists(alt_path):
+                on_disk = alt_path
+            if on_disk:
                 found += 1
+                # An edited or replaced file no longer has its stored
+                # checksum (a file that cannot be read is not reported).
+                if check_content and has_checksum:
+                    digest = file_checksum(on_disk)
+                    if digest and digest != media_checksum(media):
+                        changed_list.append((m_gid, desc, raw_path))
             else:
-                alt_path = (
-                    os.path.join(base_dir, clean_raw)
-                    if base_dir and not is_absolute_path(clean_raw)
-                    else None
-                )
-                if alt_path and os.path.exists(alt_path):
-                    found += 1
-                else:
-                    perm_issue, inaccess_dir = check_path_permission(full_path)
-                    if not perm_issue and alt_path:
-                        perm_issue, inaccess_dir = check_path_permission(alt_path)
+                perm_issue, inaccess_dir = check_path_permission(full_path)
+                if not perm_issue and alt_path:
+                    perm_issue, inaccess_dir = check_path_permission(alt_path)
 
-                    if perm_issue and inaccess_dir:
-                        permission_denied += 1
-                        perm_denied_list.append((m_gid, desc, raw_path, inaccess_dir))
-                    else:
-                        missing += 1
-                        missing_with_checksum += int(has_checksum)
-                        missing_list.append((m_gid, desc, raw_path))
+                if perm_issue and inaccess_dir:
+                    permission_denied += 1
+                    perm_denied_list.append((m_gid, desc, raw_path, inaccess_dir))
+                else:
+                    missing += 1
+                    missing_with_checksum += int(has_checksum)
+                    missing_list.append((m_gid, desc, raw_path))
 
             # Check absolute path
             if is_absolute_path(clean_raw):
@@ -4231,12 +4424,25 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
     # Scan default path for unreferenced multimedia files
     # (skipped when no media base path is configured: the fallback is the user's
     # home folder, and every stray PDF/TXT there would be reported as "unreferenced")
-    scan_stats: dict[str, Any] = {}
+    if scan_stats is None:
+        scan_stats = {}
     base_configured = bool((db.get_mediapath() or "").strip()) if db else False
     unref_disk_files = (
-        find_unreferenced_default_path_files(db, base_dir, stats=scan_stats)
+        find_unreferenced_default_path_files(
+            db, base_dir, max_scan_files=scan_limit, stats=scan_stats
+        )
         if base_configured
         else []
+    )
+    scan_stopped = (
+        _(
+            "Scan stopped at %(limit)d media files: the media folder holds more, "
+            "so this list may be incomplete. Run 'Generate report' again and "
+            "choose to scan all files."
+        )
+        % {"limit": scan_stats.get("limit", 0)}
+        if scan_stats.get("truncated")
+        else ""
     )
 
     rule = "-" * 72
@@ -4263,7 +4469,7 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
     else:
         unref_value = _("n/a (no media base path set)")
     if scan_stats.get("truncated"):
-        unref_value += " " + _("(scan truncated)")
+        unref_value += " " + _("(scan stopped at %d files)") % scan_stats["limit"]
 
     lines: list[str] = [
         "=" * 72,
@@ -4297,6 +4503,14 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
             _("%(with)d of %(total)d") % {"with": with_checksum, "total": total},
         ),
         metric(
+            _("Content changed:"),
+            (
+                str(len(changed_list))
+                if check_content
+                else _("not checked (option in the report's Save dialog)")
+            ),
+        ),
+        metric(
             _("Missing with checksum:"),
             _("%(with)d of %(missing)d (can be found by content)")
             % {"with": missing_with_checksum, "missing": missing},
@@ -4319,7 +4533,7 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
                 lines.append(f"      - [{gid}] {desc}{assoc_part}")
         lines.append("")
 
-    if unref_disk_files:
+    if unref_disk_files or scan_stopped:
         heading(
             _(
                 "UNREFERENCED FILES IN DEFAULT PATH (%d files with no database "
@@ -4327,6 +4541,9 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
             )
             % len(unref_disk_files)
         )
+        if scan_stopped:
+            lines.append("  " + scan_stopped)
+            lines.append("")
         for rel_f in unref_disk_files[:100]:
             lines.append(f"  {rel_f}")
         if len(unref_disk_files) > 100:
@@ -4417,6 +4634,25 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
     if missing_list:
         heading(_("MISSING FILES (%d items):") % len(missing_list))
         for gid, desc, path in missing_list:
+            lines.append(f"  [{gid}] {desc}")
+            lines.append(field(_("Path:"), path))
+        lines.append("")
+
+    if changed_list:
+        heading(
+            _("CONTENT CHANGED SINCE CHECKSUM (%d items, informational):")
+            % len(changed_list)
+        )
+        lines.append(
+            "  "
+            + _(
+                "These files no longer match the checksum stored on their record: "
+                "they were edited (e.g. rotated or re-saved) or replaced. If the "
+                "change was intended, 'Store checksums' records the new content."
+            )
+        )
+        lines.append("")
+        for gid, desc, path in changed_list:
             lines.append(f"  [{gid}] {desc}")
             lines.append(field(_("Path:"), path))
         lines.append("")
@@ -4580,6 +4816,19 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         )
         chooser.set_current_name("GWizardMediaFixReport.txt")
         chooser.set_do_overwrite_confirmation(True)
+        content_box = Gtk.CheckButton(
+            label=str(_("Check file contents against stored checksums (slower)"))
+        )
+        content_box.set_tooltip_text(
+            str(
+                _(
+                    "Reads every media file that has a checksum and lists the "
+                    "ones that were edited or replaced since."
+                )
+            )
+        )
+        content_box.set_active(bool(config.get(CONFIG_CHECK_CONTENT_KEY)))
+        chooser.set_extra_widget(content_box)
 
         # Start in the same folder the Export assistant uses (the last
         # folder exported to or saved a report in), so the report lands
@@ -4605,8 +4854,24 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             return
 
         config.set("paths.recent-export-dir", os.path.dirname(target_path))
+        check_content = bool(content_box.get_active())
+        config.set(CONFIG_CHECK_CONTENT_KEY, check_content)
 
-        report_text = generate_media_fix_report(self.dbstate.db, self.window)
+        stats: dict[str, Any] = {}
+        report_text = generate_media_fix_report(
+            self.dbstate.db, self.window, scan_stats=stats, check_content=check_content
+        )
+        if stats.get("truncated"):
+            choice = ask_full_scan(self.window, stats["limit"])
+            if choice == "always":
+                config.set(CONFIG_SCAN_LIMIT_KEY, 0)
+            if choice:
+                report_text = generate_media_fix_report(
+                    self.dbstate.db,
+                    self.window,
+                    scan_limit=0,
+                    check_content=check_content,
+                )
         try:
             with open(target_path, "w", encoding="utf-8") as handle:
                 handle.write(report_text)
@@ -4760,14 +5025,14 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 h = group["keeper"]["handle"]
                 try:
                     cand = db.get_media_from_handle(h)
-                    if cand is None or not is_bare_media(cand):
+                    if cand is None or not is_bare_media(cand, db):
                         errors.append(
                             "[%s] unreferenced, but has notes/attributes/tags/date - kept; review manually"
                             % group["keeper"].get("gramps_id", "")
                         )
                         continue
                     with DbTxn(_("Remove Unreferenced Media"), db) as trans:
-                        db.remove_media(h, trans)
+                        remove_media_with_import_notes(db, h, trans)
                         deleted_count += 1
                 except Exception as err:
                     LOG.exception("Auto remove unreferenced media failed: %s", err)

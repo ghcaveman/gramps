@@ -140,7 +140,7 @@ Main window: *Generate report*, *Find missing media*, *Fix media references*, *C
   * Every move is written to `GWizardMediaFix-moves.csv`, which *Undo last file moves* reverses safely.
 * **Clean import notes:** removes stale GEDCOM *"Records not imported into OBJE"* notes once the media has been relinked.
 * **Generate report:**
-  * Summary metrics, then sections for duplicates, permission problems, unreferenced records, name mismatches, files outside the default path, unreferenced disk files, missing files, absolute paths and non-standard filenames.
+  * Summary metrics (including how many records have a checksum, and how many missing files could be found by content), then sections for duplicates, permission problems, unreferenced records, name mismatches, files outside the default path, unreferenced disk files, missing files, absolute paths and non-standard filenames.
   * The unreferenced-disk-files scan uses a fixed list of multimedia extensions, skips system and hidden folders, and stops at 5,000 files.
 * **Store checksums:** reads every media file and stores its MD5 on the record (adds missing ones, updates changed ones). A checksum is never cleared when a file cannot be read, because that is what lets a renamed file be found again.
 * Fixed records get the **`GWizard: MediaFixed`** tag.

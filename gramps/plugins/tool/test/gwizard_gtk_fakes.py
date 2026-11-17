@@ -404,12 +404,27 @@ class _FakeScrolledWindow(_Lenient):
         self.children.append(child)
 
 
+class _FakeCheckButton(_Lenient):
+    """A check box: remembers whether it is ticked."""
+
+    def __init__(self, *args: Any, label: str = "", **kwargs: Any) -> None:
+        self.label = label
+        self._active = False
+
+    def set_active(self, val: bool) -> None:
+        self._active = bool(val)
+
+    def get_active(self) -> bool:
+        return self._active
+
+
 _FAKES: dict[str, Any] = {
     "Dialog": _FakeDialog,
     "Label": _FakeLabel,
     "Grid": _FakeGrid,
     "Entry": _FakeEntry,
     "RadioButton": _FakeRadioButton,
+    "CheckButton": _FakeCheckButton,
     "ComboBoxText": _FakeComboBoxText,
     "Button": _FakeButton,
     "ComboBox": _FakeComboBox,

@@ -12,6 +12,9 @@ Each item lists the gap, where the idea comes from, and a suggested approach. Pr
 | 1.2 Maintain the checksum field | ✅ Done |
 | 1.5 Verified folder remap | ✅ Done, as *Look in folder...* (also replaced *Copy from folder...*) |
 | 1.6 Image preview | ✅ Done |
+| 2.1 Addon translations | ✅ Done (modules and generated `.gpr.py`) |
+| 2.2 Disk-scan limits | ✅ Done |
+| 2.4 Changed-content awareness | ✅ Done |
 | 2.5 Check and Repair clears checksums (new) | ✅ Fixed in the separate `checkandrepair_checksumfix` branch |
 | 2.6 Accept all hints closed the main window (new) | ✅ Done |
 | 2.3 Search roots | ◐ Partly covered by *Look in folder...* |
@@ -110,7 +113,7 @@ Each item lists the gap, where the idea comes from, and a suggested approach. Pr
 
 ## 2. Robustness and Correctness
 
-### 2.1 Addon translations are not loaded — **H**
+### 2.1 Addon translations are not loaded — **H** ✅ Done
 * **Defect:**
   * `gwizardmediafix.py` uses `glocale.translation.sgettext`, and the `.gpr.py` uses `glocale.translation.gettext`.
   * Addons are expected to use `glocale.get_addon_translator(__file__)`, as every other media addon does.
@@ -125,8 +128,13 @@ Each item lists the gap, where the idea comes from, and a suggested approach. Pr
   ngettext = _trans.ngettext
   ```
   Also apply it in `gw_fixmediareferencesdialog.py`, `gwizard_common.py` and the new `gw_mediapreview.py`.
+* **Done:**
+  * All four modules use the pattern above (`ngettext` only where it is used). As a built-in tool there is no `locale/` folder, so Gramps' own translations are used as before.
+  * The generated `.gpr.py` had the same problem: it redefined `_` as `glocale.translation.gettext`, hiding the addon translator Gramps passes to it. `package_addon.py` (in `gramps_devutil`) no longer writes that line, so the tool's name and description are translated too.
+  * Checked by building the addon, adding a French `addon.mo`, and registering it with Gramps in French.
+  * Test: `gwizardmediafix_translation_test.py`.
 
-### 2.2 Disk-scan limits are hard-coded and only partly visible — **M**
+### 2.2 Disk-scan limits are hard-coded and only partly visible — **M** ✅ Done
 * **Gap:**
   * `find_unreferenced_default_path_files()` uses a fixed extension list, a fixed skip-folder list and a 5,000-file cap.
   * The cap sets `stats["truncated"]`, but the user can't raise it.
@@ -135,15 +143,25 @@ Each item lists the gap, where the idea comes from, and a suggested approach. Pr
   * Use the MIME type for the media check (`gramps.gen.mime.get_type` / `is_valid_type`) instead of the extension set.
   * Make the cap a preference.
   * Always print "scan stopped at N files" in the report when the cap is hit.
+* **Done:**
+  * A file counts as media when its MIME type is an image, audio or video type, or one of the document types the scan already covered (PDF, Word, ODT, RTF, plain text). A list of known media extensions backs this up, because on Windows MIME types come from the registry and may be missing. `.heic`, `.jfif`, `.jp2`, `.djvu`, `.3gp`, `.m4v` and `.ogv` are now found.
+  * The limit is a saved setting (`preferences.gwizardmediafix-scan-limit`, default 5,000, 0 = no limit). "Stopped" is reported only when a file beyond the limit was actually seen.
+  * When the limit stops the scan, the report says so in the summary and in the unreferenced-files section, and *Generate report* asks: keep this report, scan all files this time, or always scan all files.
+  * Test: `gwizardmediafix_scanlimit_test.py`.
 
 ### 2.3 Search roots — **L** ◐ Partly done
 * **Gap:** the recursive basename index runs only when a base media path is configured. That is a sensible guard, but it leaves users with no base path set without hints.
 * **Approach:** let the user add extra search folders in *Find missing media* (remembered in config).
 * **Partly done:** *Look in folder...* searches any folder the user picks, with or without a base path. Folders are not remembered between sessions.
 
-### 2.4 Changed-content awareness — **L**
+### 2.4 Changed-content awareness — **L** ✅ Done
 * **Gap:** when a file exists but its stored checksum no longer matches, the file was edited or replaced. Media Verify reports this (as "Missing"); GWizard does not.
 * **Approach:** now that 1.2 is in place, add a "Content changed since checksum" section to the report (informational). Reading every file makes the report slower, so it could be an option.
+* **Done:**
+  * The report's Save dialog has a **Check file contents against stored checksums (slower)** check box, remembered between runs (`preferences.gwizardmediafix-report-check-content`, off by default).
+  * When ticked, every file that has a stored checksum is read; files whose content no longer matches are listed in a "CONTENT CHANGED SINCE CHECKSUM" section, and the summary shows "Content changed: N" (or "not checked").
+  * Unlike Media Verify, an edited file is reported as changed, not as missing. Files that cannot be read and records without a checksum are not reported.
+  * Test: `gwizardmediafix_contentcheck_test.py`.
 
 ### 2.5 Gramps' Check and Repair clears checksums — **H** ✅ Fixed (separate branch)
 * **Defect:** Check and Repair recalculated every checksum and stored an empty one when the file was missing, erasing exactly what content matching needs.
@@ -212,9 +230,9 @@ While reading the other addons, these issues turned up. They could be offered up
 
 ## Suggested Order
 
-Done so far: 1.1, 1.2, 1.5, 1.6, 2.5, 2.6. Remaining, in suggested order:
+Done so far: 1.1, 1.2, 1.5, 1.6, 2.1, 2.2, 2.4, 2.5, 2.6. Remaining, in suggested order:
 
-1. **2.1** translations and **4.1** doc correction: small and defect-level.
+1. **4.1** doc correction: small.
 2. **1.3** duplicate content at different paths, now possible because checksums are maintained.
-3. **1.4** import unreferenced files, and **2.4** changed-content awareness.
+3. **1.4** import unreferenced files.
 4. The remaining M/L items.
