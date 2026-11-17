@@ -65,9 +65,17 @@ from gramps.gen.errors import HandleError
 from gramps.gen.lib import Source, Citation, Repository, RepoRef
 from gramps.plugins.tool.gw_sourcesfixdialog import (
     SourceFixDialog,
+    auto_fix_sources,
     build_source_fix_rows,
     plan_source_fixes,
     apply_source_fixes,
+)
+from gramps.plugins.tool.gwizardcitationshared import (
+    YEAR_TOLERANCE,
+    extract_years,
+    same_collection_titles,
+    suggest_source_merge_target,
+    years_compatible,
 )
 
 _ = glocale.translation.sgettext
@@ -446,6 +454,101 @@ class SourceFixDialogTest(unittest.TestCase):
                 for text in labels_created
             )
             self.assertTrue(footer_found)
+
+
+class SourceYearRuleTest(unittest.TestCase):
+    """Years in titles keep different collections apart."""
+
+    def setUp(self) -> None:
+        self.db: DbWriteBase = make_database("sqlite")
+        self.db.load(":memory:")
+
+    def tearDown(self) -> None:
+        self.db.close()
+
+    def test_extract_years(self) -> None:
+        """Four-digit numbers starting 1 or 20 are years; others are not."""
+        self.assertEqual(
+            extract_years("Scotland, Births and Baptisms, 1564-1950"), [1564, 1950]
+        )
+        self.assertEqual(extract_years("1900 Census, roll 3412, 20155"), [1900])
+        self.assertEqual(extract_years("Volume 3, page 112"), [])
+
+    def test_years_compatible(self) -> None:
+        """Years within YEAR_TOLERANCE agree; text without years agrees."""
+        cases = [
+            ("1900 Federal Census", "1930 Federal Census", False),
+            ("1900 Federal Census", "1910 Federal Census", False),
+            ("1900 Federal Census", "1904 Federal Census", True),
+            ("1900 Federal Census", "1905 Federal Census", False),
+            ("Marriages, 1852-1968", "Marriages, 1852-1970", True),
+            ("Marriages, 1852-1968", "Marriages, 1852", False),
+            ("Ohio Death Certificates", "Ohio Death Certificates, 1908-1953", True),
+        ]
+        self.assertEqual(YEAR_TOLERANCE, 4)
+        for title_a, title_b, expected in cases:
+            with self.subTest(a=title_a, b=title_b):
+                self.assertEqual(years_compatible(title_a, title_b), expected)
+                self.assertEqual(years_compatible(title_b, title_a), expected)
+
+    def test_same_collection_titles_uses_the_year_rule(self) -> None:
+        """Different census years are different collections."""
+        self.assertFalse(
+            same_collection_titles(
+                "1900 United States Federal Census", "1930 United States Federal Census"
+            )
+        )
+        self.assertTrue(
+            same_collection_titles(
+                "Pennsylvania, Marriages, 1852-1968",
+                "Pennsylvania, U.S., Marriages, 1852-1968",
+            )
+        )
+
+    def _sources(self, repo_name: str, *titles: str) -> list[str]:
+        handles = []
+        with DbTxn("Setup", self.db) as trans:
+            repo = Repository()
+            repo.set_name(repo_name)
+            repo_handle = self.db.add_repository(repo, trans)
+            for title in titles:
+                source = Source()
+                source.set_title(title)
+                ref = RepoRef()
+                ref.set_reference_handle(repo_handle)
+                source.add_repo_reference(ref)
+                handles.append(self.db.add_source(source, trans))
+        return handles
+
+    def test_shared_repository_does_not_merge_different_years(self) -> None:
+        """The 1900 and 1930 census at Ancestry.com are not duplicates."""
+        census_1900, census_1930, census_us = self._sources(
+            "Ancestry.com",
+            "1900 United States Federal Census",
+            "1930 United States Federal Census",
+            "1900 U.S. Federal Census",
+        )
+        match = suggest_source_merge_target(
+            census_1900, [census_1930, census_us], self.db
+        )
+        assert match is not None
+        self.assertEqual(match[0], census_us)
+        self.assertIsNone(
+            suggest_source_merge_target(census_1930, [census_1900], self.db)
+        )
+
+    def test_accept_all_hints_keeps_census_years_apart(self) -> None:
+        """Fix Sources' no-review path leaves both census sources in place."""
+        self._sources(
+            "Ancestry.com",
+            "1900 United States Federal Census",
+            "1930 United States Federal Census",
+        )
+        auto_fix_sources(self.db)
+        self.assertEqual(
+            sorted(s.get_title() for s in self.db.iter_sources()),
+            ["1900 United States Federal Census", "1930 United States Federal Census"],
+        )
 
 
 class SourceFixTransactionTest(unittest.TestCase):

@@ -55,6 +55,7 @@ from gramps.plugins.tool.gwizardcitationrepairengine import (
 from gramps.plugins.tool.gwizardcitationshared import (
     golden_repository_for,
     normalize_repo_name,
+    years_compatible,
 )
 from gramps.plugins.tool.gwizardcitationfix import rank_golden_repo_matches
 
@@ -440,6 +441,10 @@ def build_repo_consolidate_rows(db: DbReadBase) -> list[dict[str, Any]]:
             k2 = r2["norm_name"]
             if not k1 or not k2:
                 continue
+            # Names with different years are different repositories, however
+            # alike ("1940 Census Project" and "1950 Census Project").
+            if not years_compatible(r1["name"], r2["name"]):
+                continue
             if (
                 k1 in k2
                 or k2 in k1
@@ -540,7 +545,10 @@ def build_repo_consolidate_rows(db: DbReadBase) -> list[dict[str, Any]]:
                 norm_m = member["norm_name"]
                 norm_g = normalize_repo_name(best_golden)
                 ratio = difflib.SequenceMatcher(None, norm_m, norm_g).ratio()
-                if norm_m in norm_g or norm_g in norm_m or ratio >= 0.6:
+                similar = years_compatible(m_name, best_golden) and (
+                    norm_m in norm_g or norm_g in norm_m or ratio >= 0.6
+                )
+                if similar:
                     confident = golden_repository_for(m_name) == best_golden
                     if best_golden in existing_golden_handles:
                         target_h = existing_golden_handles[best_golden]

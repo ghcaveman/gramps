@@ -101,6 +101,54 @@ normalize_repo_name = normalize_text_key
 normalize_source_title = normalize_text_key
 
 
+# ------------------------------------------------------------
+#
+# Years in titles and names
+#
+# ------------------------------------------------------------
+#: Years further apart than this make two titles (or names) different
+#: collections. Collections are often a decade apart (the 1900 and 1910
+#: census), so this stays below 5.
+YEAR_TOLERANCE = 4
+
+# Any four-digit number starting with 1 or 20 counts as a year.
+_YEAR_IN_TEXT = re.compile(r"(?<!\d)(1\d{3}|20\d{2})(?!\d)")
+
+
+def extract_years(text: str) -> list[int]:
+    """Return every year in text: four-digit numbers starting 1 or 20.
+
+    >>> extract_years("Scotland, Births and Baptisms, 1564-1950")
+    [1564, 1950]
+    """
+    return [int(year) for year in _YEAR_IN_TEXT.findall(text or "")]
+
+
+def years_compatible(text_a: str, text_b: str, tolerance: int = YEAR_TOLERANCE) -> bool:
+    """Return False when two titles name different years.
+
+    Each year in one text must be within ``tolerance`` years of a year in
+    the other, both ways round. Text with no years at all says nothing about
+    the years, so it is compatible with anything.
+
+    * "1900 United States Federal Census" and "1930 United States Federal
+      Census" are not compatible (30 years apart).
+    * "Pennsylvania, Marriages, 1852-1968" and "Pennsylvania, Marriages,
+      1852-1970" are compatible (each year has a partner within 4).
+    * "Ohio Death Certificates" and "Ohio Death Certificates, 1908-1953" are
+      compatible (one side has no years).
+    """
+    years_a = extract_years(text_a)
+    years_b = extract_years(text_b)
+    if not years_a or not years_b:
+        return True
+
+    def covered(years: list[int], others: list[int]) -> bool:
+        return all(any(abs(y - o) <= tolerance for o in others) for y in years)
+
+    return covered(years_a, years_b) and covered(years_b, years_a)
+
+
 def note_text(note: Any) -> str:
     """Return the plain text of a Gramps note."""
     try:
@@ -431,13 +479,14 @@ _LABELLED_GROUP_RE = re.compile(
 _LABEL_RE = re.compile(r"\b(repository|source|citation)\s*:\s*", re.IGNORECASE)
 
 
-def _take_labelled_groups(title: str) -> tuple[str, str, list[str]]:
+def _take_labelled_groups(title: str) -> tuple[str, str, list[str], list[str]]:
     """Remove labelled groups such as ``(Repository: X, Source: Y)``.
 
-    :returns: ``(rest, repository_text, moved)``. ``rest`` is the title
-        with the groups cut out, ``repository_text`` the first value
-        labelled Repository, and ``moved`` the Citation values and any
-        Source value whose text is not already in the title.
+    :returns: ``(rest, repository_text, moved, source_values)``. ``rest``
+        is the title with the groups cut out, ``repository_text`` the first
+        value labelled Repository, ``moved`` the Citation values and any
+        Source value whose text is not already in the title, and
+        ``source_values`` every value labelled Source.
     """
     repo_text = ""
     moved: list[str] = []
@@ -460,7 +509,7 @@ def _take_labelled_groups(title: str) -> tuple[str, str, list[str]]:
     for value in source_values:
         if normalize_text_key(value) not in rest_key:
             moved.append(value)
-    return rest, repo_text, moved
+    return rest, repo_text, moved, source_values
 
 
 def _cut_repository_mentions(text: str) -> tuple[str, list[str], list[str]]:
@@ -515,6 +564,54 @@ def golden_repository_for(name: str) -> str:
     return gold if not leftover and gold in golden else ""
 
 
+# Words that do not name a collection on their own: when cutting a
+# repository out of "Find a Grave Index" leaves only these, the repository
+# name is part of the collection's name and stays.
+_GENERIC_TITLE_WORDS = {
+    "index",
+    "indexes",
+    "indices",
+    "database",
+    "databases",
+    "collection",
+    "collections",
+    "record",
+    "records",
+    "memorial",
+    "memorials",
+    "archive",
+    "archives",
+    "images",
+    "search",
+    "tree",
+    "trees",
+}
+
+
+def _split_comma_tail(fragment: str) -> tuple[str, list[str]]:
+    """Move trailing comma-separated citation details out of a fragment.
+
+    "1920 United States Federal Census, page 7 line 22" keeps the census
+    and moves "page 7 line 22"; "Ohio, Deaths, 1908-1953, cert 4521" keeps
+    "Ohio, Deaths, 1908-1953". Only parts at the end are moved, and only
+    while they are citation details and not source text.
+
+    :returns: ``(kept, moved)``.
+    """
+    parts = [part.strip() for part in fragment.split(",")]
+    moved: list[str] = []
+    while len(parts) > 1:
+        last = parts[-1]
+        if FIELD_CITATION_PATTERNS.search(last) and not FIELD_SOURCE_PATTERNS.search(
+            last
+        ):
+            moved.insert(0, last)
+            parts.pop()
+        else:
+            break
+    return ", ".join(parts), moved
+
+
 def split_conflated_title(title: str) -> dict[str, str] | None:
     """Split a source title that mixes repository/source/citation text.
 
@@ -527,7 +624,7 @@ def split_conflated_title(title: str) -> dict[str, str] | None:
     such as ``(Repository: X, Source: Y)``, so splitting the new title
     again finds nothing more to do.
     """
-    rest, repo_text, moved = _take_labelled_groups(title or "")
+    rest, repo_text, moved, source_values = _take_labelled_groups(title or "")
     remainder, mentioned, urls = _cut_repository_mentions(rest)
     repo_name = ""
     if repo_text:
@@ -546,6 +643,11 @@ def split_conflated_title(title: str) -> dict[str, str] | None:
         fragment = _clean_fragment(fragment)
         if not fragment:
             continue
+        fragment, tail = _split_comma_tail(fragment)
+        moved.extend(tail)
+        fragment = _clean_fragment(fragment)
+        if not fragment:
+            continue
         if FIELD_CITATION_PATTERNS.search(
             fragment
         ) and not FIELD_SOURCE_PATTERNS.search(fragment):
@@ -553,7 +655,34 @@ def split_conflated_title(title: str) -> dict[str, str] | None:
         else:
             kept.append(fragment)
     new_title = "; ".join(kept).strip()
+    if not new_title and source_values:
+        # "Find a Grave Memorial ID 1 (Repository: Find a Grave, Source:
+        # Find a Grave Index)": the labelled Source value is the title.
+        new_title = source_values[0]
+        moved = [value for value in moved if value != new_title]
     if not new_title:
+        return None
+    if set(normalize_text_key(new_title).split()) <= _GENERIC_TITLE_WORDS:
+        # Only "Index" left: the repository name is part of the collection
+        # name ("Find a Grave Index"), so it stays in the title.
+        new_title = "%s %s" % (repo_name, new_title)
+    # Citation-style quotes, markup and the like left around the kept text:
+    # '"Pennsylvania, Church Records, 1680-1950," database'.
+    cleaned, cleaned_moved, _site, _reason = clean_source_title(new_title)
+    if cleaned:
+        new_title = cleaned
+        if cleaned_moved:
+            moved.append(cleaned_moved)
+    # Moved text is kept as plain text, and the repository name itself is
+    # already the repository: "<i>Newspapers.com</i>" is not kept twice.
+    moved = [" ".join(html.unescape(_TAG_RE.sub("", value)).split()) for value in moved]
+    moved = [
+        value
+        for value in moved
+        if value and normalize_text_key(value) != normalize_text_key(repo_name)
+    ]
+    if not moved and normalize_text_key(new_title) == normalize_text_key(title):
+        # Nothing to change: "Find a Grave Index" is already the title.
         return None
     return {
         "repo_name": repo_name,
@@ -626,6 +755,8 @@ def closest_golden_name(
         return None
     best, best_score = None, 0.0
     for candidate in golden:
+        if not years_compatible(name, candidate):
+            continue
         key = normalize_repo_name(candidate)
         score = difflib.SequenceMatcher(None, plain, key).ratio()
         # A golden name inside a longer name (or the reverse) is a strong match,
@@ -748,15 +879,14 @@ def same_collection_titles(title_a: str, title_b: str) -> bool:
       "Pennsylvania, U.S., Marriages, 1852-1968" match, and "Philadelphia,
       Pennsylvania, Death Certificates" and "Pennsylvania, Death
       Certificates" do not), and
-    * they do not start with different years (the census of 1900 and 1940).
+    * their years agree (see ``years_compatible``): the census of 1900 and
+      1940 differ, while "1852-1968" and "1852-1970" agree.
     """
     key_a = normalize_source_title(title_a or "")
     key_b = normalize_source_title(title_b or "")
     if not key_a or not key_b:
         return False
-    lead_a = re.match(r"^(1[5-9]\d\d|20\d\d)\b", key_a)
-    lead_b = re.match(r"^(1[5-9]\d\d|20\d\d)\b", key_b)
-    if lead_a and lead_b and lead_a.group(1) != lead_b.group(1):
+    if not years_compatible(title_a or "", title_b or ""):
         return False
 
     def words(key: str) -> set[str]:
@@ -775,7 +905,11 @@ def suggest_source_merge_target(
     db: DbReadBase,
     cites_by_source: dict[str, int] | Counter[str] | None = None,
 ) -> tuple[str, str] | None:
-    """Suggest a merge target source with a reason, using fuzzy & heuristic matching."""
+    """Suggest a merge target source with a reason, using fuzzy & heuristic matching.
+
+    Titles whose years differ by more than ``YEAR_TOLERANCE`` are never
+    suggested, whatever else they share.
+    """
     if not selected_handle or not candidate_handles or not db:
         return None
 
@@ -813,6 +947,10 @@ def suggest_source_merge_target(
             continue
 
         target_title = str(target.get_title() or "")
+        # Different years are different collections, however similar the
+        # titles or shared the repository (the 1900 and 1930 census).
+        if not years_compatible(title, target_title):
+            continue
         target_norm = normalize_source_title(target_title)
         target_cites = cites_by_source.get(target_handle, 0) if cites_by_source else 0
         target_repos = set()
