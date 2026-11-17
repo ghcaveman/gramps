@@ -34,9 +34,9 @@ import unittest
 #
 # -------------------------------------------------------------------------
 try:
-    from gramps.plugins.tool.gwizardwikitree import (
-        GWizardWikiTreeMergeToolOptions,
-        GWizardWikiTreeMergeTool,
+    from gramps.plugins.tool.gwizardwikitreemerge import (
+        GWizardWikiTreeMergeOptions,
+        GWizardWikiTreeMerge,
     )
 
     _HAS_GTK = True
@@ -54,33 +54,40 @@ class GWizardWikiTreeToolTest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_GTK, "GTK (gi) is required for tool classes")
     def test_tool_options_init(self) -> None:
-        """Verify initialization of GWizardWikiTreeMergeToolOptions."""
-        options = GWizardWikiTreeMergeToolOptions("GWizard WikiTree Merge")
+        """Verify initialization of GWizardWikiTreeMergeOptions."""
+        options = GWizardWikiTreeMergeOptions("GWizard WikiTree Merge")
         self.assertEqual(options.name, "GWizard WikiTree Merge")
         self.assertIsInstance(options.options_dict, dict)
         self.assertIsInstance(options.options_help, dict)
 
     @unittest.skipUnless(_HAS_GTK, "GTK (gi) is required for tool classes")
     def test_tool_class_attributes(self) -> None:
-        """Verify GWizardWikiTreeMergeTool class attributes and docstring."""
-        self.assertTrue(issubclass(GWizardWikiTreeMergeTool, object))
-        self.assertIn("GWizard WikiTree Merge", GWizardWikiTreeMergeTool.__doc__ or "")
+        """Verify GWizardWikiTreeMerge class attributes and docstring."""
+        self.assertTrue(issubclass(GWizardWikiTreeMerge, object))
+        self.assertIn("GWizard WikiTree Merge", GWizardWikiTreeMerge.__doc__ or "")
 
     def test_tools_gpr_registration(self) -> None:
-        """Verify gwizardwikitree tool registration entry in tools.gpr.py."""
-        gpr_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "tools.gpr.py"
-        )
-        self.assertTrue(os.path.isfile(gpr_path))
+        """
+        Verify the gwizardwikitree registration: tools.gpr.py in the source
+        tree, or the generated GWizardWikiTreeMerge.gpr.py in the addon.
+        """
+        parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        candidates = [
+            os.path.join(parent, name)
+            for name in ("tools.gpr.py", "GWizardWikiTreeMerge.gpr.py")
+        ]
+        existing = [path for path in candidates if os.path.isfile(path)]
+        self.assertTrue(existing, "No registration file in %s" % parent)
+        gpr_path = existing[0]
 
         with open(gpr_path, "r", encoding="utf-8") as handle:
             content = handle.read()
 
         self.assertIn('id="gwizardwikitree"', content)
         self.assertIn('name=_("GWizard WikiTree Merge")', content)
-        self.assertIn('fname="gwizardwikitree.py"', content)
-        self.assertIn('toolclass="GWizardWikiTreeMergeTool"', content)
-        self.assertIn('optionclass="GWizardWikiTreeMergeToolOptions"', content)
+        self.assertIn('fname="gwizardwikitreemerge.py"', content)
+        self.assertIn('toolclass="GWizardWikiTreeMerge"', content)
+        self.assertIn('optionclass="GWizardWikiTreeMergeOptions"', content)
         self.assertIn("category=TOOL_DBPROC", content)
 
 

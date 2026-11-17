@@ -46,12 +46,13 @@ from gi.repository import Pango
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.gwizard.gwizard_base import (
-    surname_text,
-    get_wikitree_id,
+from gramps.gen.gwizard.gwizard_base import surname_text
+from gramps.gen.gwizard.gwizardwikitree import (
+    WikiTreeGWizard,
+    WikiTreeInterface,
     extract_wikitree_id,
+    get_wikitree_id,
 )
-from gramps.gen.gwizard.gwizardwikitree import WikiTreeGWizard, WikiTreeInterface
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -657,7 +658,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
 
     def cb_merge(self, _widget: Any = None) -> None:
         """
-        Load the selected WikiTree profile and launch the GWizardMergeDialog.
+        Load the selected WikiTree profile and launch the WikiTreeMergeDialog.
         """
         selection = self.tree_view.get_selection()
         model, tree_iter = selection.get_selected()
@@ -727,9 +728,11 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             )
             return
 
-        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
+        from gramps.gui.gwizard.gwizardwikitreemergedialog import (
+            WikiTreeMergeDialog,
+        )
 
-        merge_dialog = GWizardMergeDialog(
+        merge_dialog = WikiTreeMergeDialog(
             self.dbstate,
             gwizard,
             source_handle,

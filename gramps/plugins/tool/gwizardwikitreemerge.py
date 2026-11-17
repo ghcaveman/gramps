@@ -54,10 +54,10 @@ _ = glocale.translation.sgettext
 
 # ------------------------------------------------------------
 #
-# GWizardWikiTreeMergeToolOptions
+# GWizardWikiTreeMergeOptions
 #
 # ------------------------------------------------------------
-class GWizardWikiTreeMergeToolOptions(tool.ToolOptions):
+class GWizardWikiTreeMergeOptions(tool.ToolOptions):
     """Defines options and provides handling interface."""
 
     def __init__(self, name: str, person_id: str | None = None) -> None:
@@ -69,10 +69,10 @@ class GWizardWikiTreeMergeToolOptions(tool.ToolOptions):
 
 # ------------------------------------------------------------
 #
-# GWizardWikiTreeMergeTool
+# GWizardWikiTreeMerge
 #
 # ------------------------------------------------------------
-class GWizardWikiTreeMergeTool(tool.Tool):
+class GWizardWikiTreeMerge(tool.Tool):
     """
     Launch the GWizard WikiTree Merge flow.
 

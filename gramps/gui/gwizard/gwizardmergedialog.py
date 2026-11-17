@@ -79,7 +79,6 @@ from gramps.gen.gwizard.gwizard_base import (
     surname_prefix_text,
     surname_text,
     SourceMatcher,
-    get_wikitree_id,
 )
 from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
 
@@ -703,12 +702,9 @@ class GWizardMergeDialog(Gtk.Dialog):
             lab.set_markup("<b>%s</b>" % GLib.markup_escape_text(text))
             return lab
 
-        source_title = self.gwizard.context.get("source_title")
         source_path = self.gwizard.context.get("gedcom_path")
         incoming_title = _("Incoming GEDCOM")
-        if source_title:
-            incoming_title = _("Incoming: %s") % source_title
-        elif source_path:
+        if source_path:
             filename = truncate_display_name(
                 os.path.basename(source_path),
                 max_length=30,
@@ -937,16 +933,6 @@ class GWizardMergeDialog(Gtk.Dialog):
             get_fsftid(right),
             is_nullable_identity=True,
         )
-        wt_left = get_wikitree_id(left)
-        wt_right = get_wikitree_id(right)
-        if wt_left or wt_right:
-            add_row(
-                "wtid",
-                _("WikiTree ID"),
-                wt_left,
-                wt_right,
-                is_nullable_identity=True,
-            )
 
         add_row(
             "person_sources" if left.get_citation_list() else None,

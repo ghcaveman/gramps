@@ -82,11 +82,172 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 # Local imports
 #
 # -------------------------------------------------------------------------
-from .gwizard_base import is_wikitree_id, extract_wikitree_id, get_wikitree_id
 from .gwizardgedcom import GedGWizard
 
 LOG = logging.getLogger(__name__)
 _ = glocale.translation.gettext
+
+
+# ------------------------------------------------------------
+#
+# WikiTree ID utilities
+#
+# ------------------------------------------------------------
+# Kept here rather than in gwizard_base so the shared file-merge modules
+# stay identical to the gwizard_filemerge branch.
+_WT_ID_REGEX = re.compile(r"^[A-Za-z]+(?:[_-][A-Za-z]+)*-\d+$")
+
+
+def is_wikitree_id(value: str | None) -> bool:
+    """
+    Check if a string matches the standard WikiTree ID pattern.
+
+    :param value: String to test (e.g. 'Franklin-1').
+    :returns: True if value matches '<Surname>-<Number>'.
+    :rtype: bool
+    """
+    if not value:
+        return False
+    return bool(_WT_ID_REGEX.match(str(value).strip()))
+
+
+def extract_wikitree_id(text: str | None) -> str:
+    """
+    Extract a WikiTree ID from text, URL, or identifier string.
+
+    :param text: Text, URL, or identifier string.
+    :returns: Extracted WikiTree ID or empty string if not found.
+    :rtype: str
+    """
+    if not text:
+        return ""
+    clean = str(text).strip()
+    if is_wikitree_id(clean):
+        return clean
+
+    # Match URL pattern (e.g. https://www.wikitree.com/wiki/Franklin-1)
+    m = re.search(
+        r"wikitree\.com/(?:wiki/|index\.php\?title=)([^/#?&\s]+)",
+        clean,
+        re.IGNORECASE,
+    )
+    if m:
+        candidate = m.group(1).strip()
+        if is_wikitree_id(candidate):
+            return candidate
+
+    # Match prefix pattern (e.g. WikiTree: Franklin-1 or WikiTree ID: Franklin-1)
+    m = re.search(
+        r"wikitree(?:\s*id)?[:\s]+([A-Za-z]+(?:[_-][A-Za-z]+)*-\d+)",
+        clean,
+        re.IGNORECASE,
+    )
+    if m:
+        candidate = m.group(1).strip()
+        if is_wikitree_id(candidate):
+            return candidate
+
+    return ""
+
+
+def get_wikitree_id(gr_obj: Any) -> str:
+    """
+    Return the WikiTree ID of a Gramps object (e.g. Person), or empty string.
+    Checks custom attributes and Internet URLs.
+
+    :param gr_obj: Gramps object (Person, etc.).
+    :returns: WikiTree ID string or empty string.
+    :rtype: str
+    """
+    if not gr_obj:
+        return ""
+
+    # 1. Check custom attributes
+    try:
+        attrs = (
+            gr_obj.get_attribute_list()
+            if hasattr(gr_obj, "get_attribute_list")
+            else getattr(gr_obj, "attribute_list", []) or []
+        )
+    except Exception:
+        attrs = []
+
+    for attr in attrs or []:
+        try:
+            attr_type = str(attr.get_type() or "").lower()
+            val = str(attr.get_value() or "").strip()
+            if "wikitree" in attr_type or attr_type == "_wtid":
+                wt_id = extract_wikitree_id(val)
+                if wt_id:
+                    return wt_id
+                if val and is_wikitree_id(val):
+                    return val
+        except Exception:
+            continue
+
+    # 2. Check Internet / URL list (Web Home)
+    try:
+        urls = (
+            gr_obj.get_url_list()
+            if hasattr(gr_obj, "get_url_list")
+            else getattr(gr_obj, "urls", []) or []
+        )
+    except Exception:
+        urls = []
+
+    for url in urls or []:
+        try:
+            path = (
+                url.get_path() if hasattr(url, "get_path") else getattr(url, "path", "")
+            )
+            wt_id = extract_wikitree_id(path)
+            if wt_id:
+                return wt_id
+        except Exception:
+            continue
+
+    return ""
+
+
+def store_wikitree_id(person: Any, wt_id: str) -> bool:
+    """
+    Record a WikiTree ID on a person: a "WikiTree ID" attribute (updating
+    an existing WikiTree attribute) and a WikiTree profile Internet link,
+    unless the person already has a link to that profile.
+
+    :param person: Gramps Person to update (not committed here).
+    :param wt_id: WikiTree ID, e.g. 'Franklin-1'.
+    :returns: True if the person was changed.
+    :rtype: bool
+    """
+    changed = False
+    has_attr = False
+    for attr in person.get_attribute_list():
+        attr_type = str(attr.get_type() or "").lower()
+        if "wikitree" in attr_type or attr_type == "_wtid":
+            if attr.get_value() != wt_id:
+                attr.set_value(wt_id)
+                changed = True
+            has_attr = True
+            break
+    if not has_attr:
+        attr = Attribute()
+        attr.set_type(AttributeType("WikiTree ID"))
+        attr.set_value(wt_id)
+        person.add_attribute(attr)
+        changed = True
+
+    for url in person.get_url_list():
+        path = url.get_path() if hasattr(url, "get_path") else getattr(url, "path", "")
+        if wt_id.lower() in (path or "").lower():
+            return changed
+    wt_url = Url()
+    wt_url.set_path(f"https://www.wikitree.com/wiki/{wt_id}")
+    wt_url.set_type(UrlType(UrlType.WEB_HOME))
+    wt_url.set_description(_("WikiTree Profile"))
+    person.add_url(wt_url)
+    return True
+
 
 _DEFAULT_FIELDS = (
     "Id,Name,FirstName,MiddleName,MiddleInitial,LastNameBirth,LastNameCurrent,LastNameOther,"
@@ -1260,19 +1421,25 @@ class WikiTreeGWizard(GedGWizard):
 
         source_db = make_database("sqlite")
         source_db.load(":memory:")
-        source_db.set_prefixes(
-            config.get("preferences.iprefix"),
-            config.get("preferences.oprefix"),
-            config.get("preferences.fprefix"),
-            config.get("preferences.sprefix"),
-            config.get("preferences.cprefix"),
-            config.get("preferences.pprefix"),
-            config.get("preferences.eprefix"),
-            config.get("preferences.rprefix"),
-            config.get("preferences.nprefix"),
-            config.get("preferences.tprefix"),
-            config.get("preferences.mprefix"),
-        )
+        # The tprefix setting (and the set_prefixes argument for it) only
+        # exists in newer Gramps; as in GedGWizard, keep the database's
+        # default prefixes when this version differs.
+        try:
+            source_db.set_prefixes(
+                config.get("preferences.iprefix"),
+                config.get("preferences.oprefix"),
+                config.get("preferences.fprefix"),
+                config.get("preferences.sprefix"),
+                config.get("preferences.cprefix"),
+                config.get("preferences.pprefix"),
+                config.get("preferences.eprefix"),
+                config.get("preferences.rprefix"),
+                config.get("preferences.nprefix"),
+                config.get("preferences.tprefix"),
+                config.get("preferences.mprefix"),
+            )
+        except (AttributeError, TypeError):
+            LOG.debug("ID prefixes not set: this Gramps version differs")
 
         place_cache: dict[str, str] = {}
         source_cache: dict[str, str] = {}
@@ -2225,9 +2392,12 @@ class WikiTreeGWizard(GedGWizard):
         target_person_handle = kwargs.get("target_person_handle")
         source_person_handle = kwargs.get("source_person_handle")
 
-        if target_person_handle and resolutions is not None:
-            if "wtid" not in resolutions:
-                resolutions["wtid"] = "source"
+        # The WikiTree ID is stored unless explicitly rejected. The shared
+        # GedGWizard._apply does not know the "wtid" resolution, so it is
+        # taken out here and handled after the shared apply.
+        store_wtid = True
+        if resolutions is not None:
+            store_wtid = resolutions.pop("wtid", "source") == "source"
 
         applied = super()._apply(**kwargs)
 
@@ -2236,6 +2406,13 @@ class WikiTreeGWizard(GedGWizard):
             if source_db:
                 s_p = source_db.get_person_from_handle(source_person_handle)
                 t_p = self.db.get_person_from_handle(target_person_handle)
+                if s_p and t_p and store_wtid:
+                    wt_id = get_wikitree_id(s_p)
+                    if wt_id:
+                        with DbTxn(_("Store WikiTree ID"), self.db) as trans:
+                            if store_wikitree_id(t_p, wt_id):
+                                self.db.commit_person(t_p, trans)
+                        t_p = self.db.get_person_from_handle(target_person_handle)
                 if s_p and t_p:
                     metadata_attrs = {}
                     for a in s_p.get_attribute_list():

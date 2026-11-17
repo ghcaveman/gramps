@@ -118,7 +118,12 @@ from gramps.gen.lib import (
 # Local imports
 #
 # -------------------------------------------------------------------------
-from ..gwizard_base import get_wikitree_id, extract_wikitree_id, is_wikitree_id
+from ..gwizardwikitree import (
+    extract_wikitree_id,
+    get_wikitree_id,
+    is_wikitree_id,
+    store_wikitree_id,
+)
 from ..gwizardwikitree import WikiTreeInterface, WikiTreeGWizard
 
 
@@ -610,6 +615,60 @@ class TestWikiTreeGWizard(unittest.TestCase):
         # Ensure Internet Web Home URL was created
         self.assertTrue(
             any("Washington-11" in u.get_path() for u in updated.get_url_list())
+        )
+
+    def _washington_merge(self, resolutions: dict[str, str]) -> Person:
+        """Merge WikiTree's Washington-11 into a tree George Washington."""
+        target_p = Person()
+        pname = Name()
+        pname.set_first_name("George")
+        surn = Surname()
+        surn.set_surname("Washington")
+        pname.add_surname(surn)
+        target_p.set_primary_name(pname)
+        with DbTxn("Add target", self.db) as trans:
+            t_handle = self.db.add_person(target_p, trans)
+
+        gw = WikiTreeGWizard(self.db)
+        mock_person = {
+            "Id": 1,
+            "Name": "Washington-11",
+            "FirstName": "George",
+            "LastNameBirth": "Washington",
+            "Gender": "Male",
+        }
+        gw.run_step("connect", query="Washington-11", people_data=[mock_person])
+        people = gw.run_step("load")
+        self.assertTrue(
+            gw.run_step(
+                "apply",
+                source_person_handle=people[0].get_handle(),
+                target_person_handle=t_handle,
+                resolutions=resolutions,
+            )
+        )
+        return self.db.get_person_from_handle(t_handle)
+
+    def test_apply_stores_wikitree_id_by_default(self) -> None:
+        """Without a wtid resolution the WikiTree ID is still stored."""
+        updated = self._washington_merge({})
+        self.assertEqual(get_wikitree_id(updated), "Washington-11")
+
+    def test_apply_rejected_wtid_is_not_stored(self) -> None:
+        """A wtid resolution other than "source" keeps the ID off the person."""
+        updated = self._washington_merge({"wtid": "target"})
+        self.assertEqual(get_wikitree_id(updated), "")
+
+    def test_store_wikitree_id_does_not_duplicate(self) -> None:
+        """Storing the same ID twice leaves one attribute and one link."""
+        person = Person()
+        self.assertTrue(store_wikitree_id(person, "Franklin-1"))
+        self.assertFalse(store_wikitree_id(person, "Franklin-1"))
+        self.assertEqual(len(person.get_attribute_list()), 1)
+        self.assertEqual(len(person.get_url_list()), 1)
+        self.assertEqual(
+            person.get_url_list()[0].get_path(),
+            "https://www.wikitree.com/wiki/Franklin-1",
         )
 
     def test_load_parent_child_relationships_and_confidence(self) -> None:

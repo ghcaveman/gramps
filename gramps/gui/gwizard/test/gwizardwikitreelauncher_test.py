@@ -71,46 +71,118 @@ class DummyDialog:
         pass
 
 
-_gi = sys.modules.get("gi") or MagicMock()
-sys.modules["gi"] = _gi
+def _gtk_stub_modules() -> dict[str, Any]:
+    """
+    Build fresh GTK stand-ins for this test module only.
 
-_gi_repo = sys.modules.get("gi.repository") or MagicMock()
-sys.modules["gi.repository"] = _gi_repo
+    Never reuse a gi stub (or real GTK) another test module already put in
+    sys.modules: changing it there leaks into other tests, and a stub whose
+    events_pending() is truthy makes cb_search loop forever.
+    """
+    gi = MagicMock()
+    gi_repo = MagicMock()
 
-_glib = sys.modules.get("gi.repository.GLib") or MagicMock()
-_glib.markup_escape_text = lambda s: str(s)
-sys.modules["gi.repository.GLib"] = _glib
-_gi_repo.GLib = _glib
+    glib = MagicMock()
+    glib.markup_escape_text = lambda s: str(s)
 
-_gtk = sys.modules.get("gi.repository.Gtk") or MagicMock()
-_gtk.Dialog = DummyDialog
-_gtk.Entry.side_effect = lambda *a, **k: MagicMock()
-_gtk.Label.side_effect = lambda *a, **k: MagicMock()
-_gtk.Button.side_effect = lambda *a, **k: MagicMock()
-_gtk.Box.side_effect = lambda *a, **k: MagicMock()
-_gtk.Grid.side_effect = lambda *a, **k: MagicMock()
-_gtk.TreeView.side_effect = lambda *a, **k: MagicMock()
-_gtk.ScrolledWindow.side_effect = lambda *a, **k: MagicMock()
-_gtk.ListStore.side_effect = lambda *a, **k: MagicMock()
-_gtk.ResponseType.OK = 1
-_gtk.ResponseType.CANCEL = 2
-_gtk.ResponseType.CLOSE = 3
-_gtk.ResponseType.HELP = 4
-_gtk.ResponseType.APPLY = 5
-_gtk.SelectionMode.SINGLE = 1
-_gtk.PolicyType.AUTOMATIC = 1
-_gtk.Orientation.HORIZONTAL = 0
-_gtk.events_pending.return_value = False
-sys.modules["gi.repository.Gtk"] = _gtk
-_gi_repo.Gtk = _gtk
+    gtk = MagicMock()
+    gtk.Dialog = DummyDialog
+    gtk.Entry.side_effect = lambda *a, **k: MagicMock()
+    gtk.Label.side_effect = lambda *a, **k: MagicMock()
+    gtk.Button.side_effect = lambda *a, **k: MagicMock()
+    gtk.Box.side_effect = lambda *a, **k: MagicMock()
+    gtk.Grid.side_effect = lambda *a, **k: MagicMock()
+    gtk.TreeView.side_effect = lambda *a, **k: MagicMock()
+    gtk.ScrolledWindow.side_effect = lambda *a, **k: MagicMock()
+    gtk.ListStore.side_effect = lambda *a, **k: MagicMock()
+    gtk.ResponseType.OK = 1
+    gtk.ResponseType.CANCEL = 2
+    gtk.ResponseType.CLOSE = 3
+    gtk.ResponseType.HELP = 4
+    gtk.ResponseType.APPLY = 5
+    gtk.SelectionMode.SINGLE = 1
+    gtk.PolicyType.AUTOMATIC = 1
+    gtk.Orientation.HORIZONTAL = 0
+    gtk.events_pending.return_value = False
 
-_gdk = sys.modules.get("gi.repository.Gdk") or MagicMock()
-sys.modules["gi.repository.Gdk"] = _gdk
-_gi_repo.Gdk = _gdk
+    gdk = MagicMock()
+    pango = MagicMock()
+    gi.repository = gi_repo
+    gi_repo.GLib = glib
+    gi_repo.Gtk = gtk
+    gi_repo.Gdk = gdk
+    gi_repo.Pango = pango
+    return {
+        "gi": gi,
+        "gi.repository": gi_repo,
+        "gi.repository.GLib": glib,
+        "gi.repository.Gtk": gtk,
+        "gi.repository.Gdk": gdk,
+        "gi.repository.Pango": pango,
+    }
 
-_pango = sys.modules.get("gi.repository.Pango") or MagicMock()
-sys.modules["gi.repository.Pango"] = _pango
-_gi_repo.Pango = _pango
+
+def _uses_gtk(name: str) -> bool:
+    """
+    True for modules that must be imported again under the stand-ins.
+
+    Test modules stay put: unittest finds a module's tearDownModule through
+    sys.modules, and they do not use GTK themselves.
+    """
+    if ".test." in name or name.endswith(".test"):
+        return False
+    return (
+        name in ("gi", "gramps.gui")
+        or name.startswith("gi.")
+        or name.startswith("gramps.gui.")
+    )
+
+
+_SAVED_MODULES: dict[str, Any] = {}
+
+
+def setUpModule() -> None:  # pylint: disable=invalid-name
+    """
+    Import the launcher under this module's own GTK stand-ins.
+
+    Modules that use GTK (gi and gramps.gui.*) are set aside and imported
+    afresh, so neither the stand-ins nor anything imported with them is
+    seen by other test modules; tearDownModule puts the originals back.
+    """
+    global _extract_person_search_defaults, WikiTreeSearchDialog
+    global ask_wikitree_parameters, load_wikitree_gwizard
+    global run_gwizard_wikitree_flow
+
+    _SAVED_MODULES.clear()
+    _SAVED_MODULES.update(sys.modules)
+    for name in [name for name in sys.modules if _uses_gtk(name)]:
+        del sys.modules[name]
+    sys.modules.update(_gtk_stub_modules())
+
+    from gramps.gui.gwizard import gwizardwikitreelauncher as launcher
+
+    _extract_person_search_defaults = launcher._extract_person_search_defaults
+    WikiTreeSearchDialog = launcher.WikiTreeSearchDialog
+    ask_wikitree_parameters = launcher.ask_wikitree_parameters
+    load_wikitree_gwizard = launcher.load_wikitree_gwizard
+    run_gwizard_wikitree_flow = launcher.run_gwizard_wikitree_flow
+
+
+def tearDownModule() -> None:  # pylint: disable=invalid-name
+    """Put back the modules setUpModule set aside."""
+    sys.modules.clear()
+    sys.modules.update(_SAVED_MODULES)
+    # Importing afresh re-pointed package attributes (gramps.gui, ...) at
+    # the fresh modules; point them back at the originals.
+    for name, module in _SAVED_MODULES.items():
+        parent, _sep, child = name.rpartition(".")
+        if parent and _uses_gtk(name) and parent in _SAVED_MODULES:
+            try:
+                setattr(_SAVED_MODULES[parent], child, module)
+            except (AttributeError, TypeError):
+                pass
+    _SAVED_MODULES.clear()
+
 
 # -------------------------------------------------------------------------
 #
@@ -132,13 +204,13 @@ from gramps.gen.lib import (
     Url,
     UrlType,
 )
-from gramps.gui.gwizard.gwizardwikitreelauncher import (
-    _extract_person_search_defaults,
-    WikiTreeSearchDialog,
-    ask_wikitree_parameters,
-    load_wikitree_gwizard,
-    run_gwizard_wikitree_flow,
-)
+
+# Imported by setUpModule, under this module's GTK stand-ins.
+_extract_person_search_defaults: Any = None
+WikiTreeSearchDialog: Any = None
+ask_wikitree_parameters: Any = None
+load_wikitree_gwizard: Any = None
+run_gwizard_wikitree_flow: Any = None
 
 
 # ------------------------------------------------------------
@@ -396,7 +468,7 @@ class TestWikiTreeLauncher(unittest.TestCase):
         self.assertEqual(appended_row[0], "Washington-11")
 
     def test_dialog_merge_launches_merge_dialog(self) -> None:
-        """Verify that cb_merge connects to WikiTreeGWizard and launches GWizardMergeDialog."""
+        """Verify that cb_merge connects to WikiTreeGWizard and launches WikiTreeMergeDialog."""
         mock_client = Mock()
         mock_client.get_person.return_value = {
             "Id": 388,
@@ -444,7 +516,7 @@ class TestWikiTreeLauncher(unittest.TestCase):
                 side_effect=fake_run_step,
             ),
             patch(
-                "gramps.gui.gwizard.gwizardmergedialog.GWizardMergeDialog"
+                "gramps.gui.gwizard.gwizardwikitreemergedialog.WikiTreeMergeDialog"
             ) as mock_merge_cls,
         ):
             mock_merge_instance = Mock()
@@ -480,7 +552,7 @@ class TestWikiTreeLauncher(unittest.TestCase):
             mock_dialog.destroy.assert_called_once()
 
     def test_merge_dialog_displays_wtid_row(self) -> None:
-        """Verify GWizardMergeDialog creates the wtid row when source has WikiTree ID."""
+        """Verify WikiTreeMergeDialog adds the wtid row when the source has a WikiTree ID."""
         source_db = make_database("sqlite")
         source_db.load(":memory:")
         s_person = Person()
@@ -505,16 +577,26 @@ class TestWikiTreeLauncher(unittest.TestCase):
 
         from gramps.gen.gwizard.gwizardwikitree import WikiTreeGWizard
         from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
+        from gramps.gui.gwizard.gwizardwikitreemergedialog import (
+            WikiTreeMergeDialog,
+        )
 
         gw = WikiTreeGWizard(self.db)
         gw.context["source_db"] = source_db
+        gw.context["source_title"] = "WikiTree: Franklin-1"
 
         dbstate = Mock()
         dbstate.db = self.db
 
-        dialog = GWizardMergeDialog(dbstate, gw, s_handle, t_handle, parent=None)
-        # Should have detected the WikiTree ID on the left and empty on the right
-        self.assertGreater(dialog._mergeable_count, 0)
+        shared = GWizardMergeDialog(dbstate, gw, s_handle, t_handle, parent=None)
+        dialog = WikiTreeMergeDialog(dbstate, gw, s_handle, t_handle, parent=None)
+        # The WikiTree ID on the left (none on the right) adds one arrow
+        # beyond what the shared dialog offers.
+        self.assertEqual(dialog._mergeable_count, shared._mergeable_count + 1)
+        # The incoming column is headed with the WikiTree query.
+        heading = dialog._grid.get_child_at.return_value
+        markup = heading.set_markup.call_args[0][0]
+        self.assertIn("Incoming: WikiTree: Franklin-1", markup)
         source_db.close()
 
     def test_run_gwizard_wikitree_flow(self) -> None:
