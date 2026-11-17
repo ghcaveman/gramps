@@ -365,39 +365,6 @@ class ContentMatchTest(_ChecksumDbTest):
         self.assertEqual((resolved, unresolved), (1, []))
         self.assertEqual(self.media(handle).get_path(), "Smith.jpg")
 
-    def test_copy_from_folder_by_content(self) -> None:
-        """Copy from folder finds a renamed file in an outside folder."""
-        outside = os.path.join(self.tmp, "Backup")
-        src = self.write("2019/renamed.jpg", "old photo", root=outside)
-        handle = self.add_media("C:/Gone/IMG_5.jpg", md5_of(src))
-        dlg = mf.FindMissingMediaDialog(dbstate=self.dbstate)
-        chooser = MagicMock()
-        chooser.run.return_value = Gtk.ResponseType.OK
-        chooser.get_filename.return_value = outside
-        with patch(_CHOOSER, return_value=chooser), patch(_MF_DLG):
-            dlg.cb_copy_from_folder(MagicMock())
-        target = self.target(dlg, handle)
-        self.assertEqual(target["copy_src"], src)
-        with patch(_MF_DLG):
-            dlg.cb_apply(MagicMock())
-        media = self.media(handle)
-        self.assertEqual(media.get_path(), "renamed.jpg")
-        self.assertEqual(media.get_checksum(), md5_of(src))
-        self.assertTrue(os.path.exists(os.path.join(self.base, "renamed.jpg")))
-
-    def test_copy_from_folder_skips_same_name_other_content(self) -> None:
-        """Copy from folder does not queue a same-name file with other content."""
-        outside = os.path.join(self.tmp, "Backup")
-        self.write("IMG_5.jpg", "a different photo", root=outside)
-        handle = self.add_media("C:/Gone/IMG_5.jpg", "f" * 32)
-        dlg = mf.FindMissingMediaDialog(dbstate=self.dbstate)
-        chooser = MagicMock()
-        chooser.run.return_value = Gtk.ResponseType.OK
-        chooser.get_filename.return_value = outside
-        with patch(_CHOOSER, return_value=chooser), patch(_MF_DLG):
-            dlg.cb_copy_from_folder(MagicMock())
-        self.assertNotIn("copy_src", self.target(dlg, handle))
-
     def test_fill_same_name_checks_content(self) -> None:
         """Picking a file fills same-name rows only when the content agrees."""
         picked = self.write("chosen/photo.jpg", "the photo", root=self.tmp)
@@ -473,7 +440,7 @@ class ChecksumMaintenanceTest(_ChecksumDbTest):
         plan = mf.build_accept_all_plan(self.db, self.base, True)
         self.assertEqual(plan["checksums"], [(self.media(h_a).gramps_id, "a.jpg")])
         self.assertTrue(mf.plan_has_changes(plan))
-        self.assertIn("4. Store a checksum", mf.format_plan(plan))
+        self.assertIn("Store checksums: 1 record has none yet", mf.format_plan(plan))
         self.assertEqual(self.tool()._auto_store_checksums(self.db), 1)
 
     def test_split_copies_get_checksum(self) -> None:

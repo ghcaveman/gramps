@@ -73,7 +73,7 @@ from unittest.mock import MagicMock, patch
 # -------------------------------------------------------------------------
 from gramps.plugins.tool.test import gwizard_gtk_fakes as fakes
 
-fakes.install()
+Gtk = fakes.install()
 
 # -------------------------------------------------------------------------
 #
@@ -1001,6 +1001,68 @@ class DuplicateScanPerformanceTest(_DbTestCase):
 # Test discovery imports every test module before running any, so take the
 # fakes off Gtk again now that the GWizard modules are imported; other Gramps
 # tests need the real widgets.  setUpModule puts them back for this module.
+# ------------------------------------------------------------
+#
+# Accept all hints: the main window stays open, the preview is clear
+#
+# ------------------------------------------------------------
+class AcceptAllWindowTest(_DbTestCase):
+    """Accept all hints neither closes the tool nor shows unexplained steps."""
+
+    def tool(self) -> mf.GWizardMediaFix:
+        """Return the tool without building its window."""
+        tool = mf.GWizardMediaFix.__new__(mf.GWizardMediaFix)
+        tool.dbstate = self.dbstate
+        return tool
+
+    def test_accept_all_response_keeps_tool_open(self) -> None:
+        """The response GTK emits for 'Accept all hints' does not close the tool."""
+        tool = self.tool()
+        with patch.object(mf.GWizardMediaFix, "close") as close:
+            tool.cb_close(MagicMock(), Gtk.ResponseType.NONE)
+        close.assert_not_called()
+
+    def test_close_and_window_x_close_tool(self) -> None:
+        """Close, the window's X and Escape still close the tool."""
+        for response in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
+            tool = self.tool()
+            with patch.object(mf.GWizardMediaFix, "close") as close:
+                tool.cb_close(MagicMock(), response)
+            close.assert_called_once_with()
+
+    def test_no_base_path_explained_without_step_numbers(self) -> None:
+        """Without a base path the preview says why and how to fix it."""
+        self.add_media(self.touch("Elsewhere", "a.jpg"))
+        plan = mf.build_accept_all_plan(self.db, self.base, False)
+        text = mf.format_plan(plan)
+        self.assertIn("Consolidate media location: SKIPPED.", text)
+        self.assertIn("No base media path is set", text)
+        self.assertIn("Edit > Preferences > Family Tree > Base media path", text)
+        self.assertNotRegex(text, r"(?m)^\d\. ")  # no bare step numbers
+        self.assertNotIn("Notes:", text)  # nothing will be moved
+
+    def test_moves_keep_the_undo_note(self) -> None:
+        """When files will move, the preview still explains how to undo it."""
+        self.db.set_mediapath(self.base)
+        handle = self.add_media(self.touch("Elsewhere", "a.jpg"))
+        with DbTxn("add person", self.db) as trans:
+            person = Person()
+            ref = MediaRef()
+            ref.set_reference_handle(handle)
+            person.add_media_reference(ref)
+            self.db.add_person(person, trans)
+        plan = mf.build_accept_all_plan(self.db, self.base, True)
+        text = mf.format_plan(plan)
+        self.assertIn("Consolidate media location: move/rename files into", text)
+        self.assertIn("Undo last file moves", text)
+
+    def test_run_without_base_path_reports_no_fake_row(self) -> None:
+        """The run does not list a fake 'unconsolidated path' row."""
+        self.add_media(self.touch("Elsewhere", "a.jpg"))
+        moved, unconsolidated = self.tool()._auto_consolidate_location(self.db)
+        self.assertEqual((moved, unconsolidated), (0, []))
+
+
 fakes.uninstall()
 
 

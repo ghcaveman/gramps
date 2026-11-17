@@ -4,28 +4,55 @@ These opportunities come from comparing GWizard Media Fix (`addons-source/MediaF
 
 Each item lists the gap, where the idea comes from, and a suggested approach. Priority: **H** = fills a real functional gap or fixes a defect · **M** = noticeable usability or robustness gain · **L** = polish.
 
+## Status (updated 2026-11-17)
+
+| Item | Status |
+| :--- | :--- |
+| 1.1 Content-hash matching | ✅ Done |
+| 1.2 Maintain the checksum field | ✅ Done |
+| 1.5 Verified folder remap | ✅ Done, as *Look in folder...* (also replaced *Copy from folder...*) |
+| 1.6 Image preview | ✅ Done |
+| 2.5 Check and Repair clears checksums (new) | ✅ Fixed in the separate `checkandrepair_checksumfix` branch |
+| 2.6 Accept all hints closed the main window (new) | ✅ Done |
+| 2.3 Search roots | ◐ Partly covered by *Look in folder...* |
+| 4.1 Correct the comparison doc | Open: still says "similarity scoring", and now also describes the removed copy-from-folder action |
+| All other items | Open |
+
+"Done" items keep their original gap and approach text, followed by what was built.
+
 ---
 
 ## 1. Functional Gaps (features other tools have)
 
-### 1.1 Content-hash matching for renamed or moved files — **H**
+### 1.1 Content-hash matching for renamed or moved files — **H** ✅ Done
 * **Gap:**
   * *Find missing media* only suggests a file with the **same basename**, and only when it is unique.
   * Files renamed on disk (`IMG_0492.JPG` → `Smith_John_1910.jpg`) are never found.
   * Media Verify finds them by comparing MD5 hashes.
 * **Approach:**
-  * When a record has a stored checksum (`media.get_checksum()`), build a `{md5: [paths]}` index of the base dir (and of the *Copy from folder* source) and offer content matches as hints, ranked above name matches.
+  * When a record has a stored checksum (`media.get_checksum()`), build a `{md5: [paths]}` index of the base dir (and of any other folder searched) and offer content matches as hints, ranked above name matches.
   * Before hashing, filter candidates by file size and extension so large libraries stay fast.
   * Keep the `ambiguous_matches()` safety rule: if a checksum matches several files, offer no automatic hint.
+* **Done:**
+  * *Find missing media*, *Look in folder...* and Accept all hints match by stored checksum first, then by unique file name.
+  * Several identical copies are resolved only when exactly one still has the record's file name, as Media Verify does.
+  * A same-name file whose content differs from the stored checksum is no longer suggested, and picking a file only fills other same-name rows whose checksum agrees.
+  * Size filtering was not possible: Gramps stores no size for a missing file. Hashing is limited by extension family (`.jpg` and `.jpeg` together), and hashes are cached by path, size and modification time.
+  * Records imported from GEDCOM have no checksum, so they gain from this only after *Store checksums* (or Accept all hints) has run while their files were present.
 
-### 1.2 Maintain the media checksum field — **H**
+### 1.2 Maintain the media checksum field — **H** ✅ Done
 * **Gap:**
   * GWizard moves, copies and relinks files but never writes `media.set_checksum()`.
-  * Records relinked to a different file (*Find missing*, *Copy from folder*, *Split* copies) keep a stale checksum or none at all, which breaks Media Verify and Gramps' own checksum use.
+  * Records relinked to a different file (*Find missing*, files copied in from another folder, *Split* copies) keep a stale checksum or none at all, which breaks Media Verify and Gramps' own checksum use.
 * **Approach:**
   * After any relink or copy, recompute the MD5 with `gramps.gen.utils.file.create_checksum` and store it in the same transaction.
   * Optionally add a "Generate missing checksums" step to Accept all hints.
   * This also enables 1.1.
+* **Done:**
+  * A relink recalculates the checksum from the new file; a move, copy, split or merge fills in a missing one; undoing file moves recalculates it.
+  * New **Store checksums** button on the main window (adds missing checksums, updates changed ones) and a **Store checksums** step at the end of Accept all hints.
+  * A checksum is never cleared when a file cannot be read.
+  * The report shows "Records with checksum" and "Missing with checksum" counts.
 
 ### 1.3 Duplicate *content* at different paths — **M**
 * **Gap:**
@@ -48,21 +75,30 @@ Each item lists the gap, where the idea comes from, and a suggested approach. Pr
   * `GWizard: MediaFixed` tag.
   * Log the run so it can be undone.
 
-### 1.5 Verified folder-prefix remap for missing files — **M**
+### 1.5 Verified folder-prefix remap for missing files — **M** ✅ Done
 * **Gap:**
   * When many missing records share an old folder (`D:/OldPC/Pictures/...`), today the user picks files one by one or relies on unique basenames.
   * Media Manager's *Replace substrings* does this in bulk but blindly.
 * **Approach:**
   * In *Find missing media*, group missing rows by parent folder and offer "Map `D:/OldPC/Pictures` → *chosen folder*".
   * Preview how many records would resolve to an **existing** file, and apply only those.
+* **Done**, as **Look in folder...** in *Find missing media*:
+  * The user picks a folder; for each row without a new path, the old folder layout is mapped onto it (case-insensitive, verified on disk), then content, then unique name are tried.
+  * The old folder that explains the most records wins; a tie is not used.
+  * A preview groups the results by old folder (`D:/OldPC/Pictures -> <folder>: 37 records`) and lists what was not found or not used; only found files are filled in, used where they are, and saved on *Apply*.
+  * It replaced *Copy from folder...*. To copy files into the base path instead, use *Look in folder...* and then *Consolidate media location* with *Make a copy*.
 
-### 1.6 Image preview when choosing a match — **M**
+### 1.6 Image preview when choosing a match — **M** ✅ Done
 * **Gap:**
   * Users confirm a suggested file by its path only.
   * Media Browser and the Gramps `Photo` widget show the image (with region cropping).
 * **Approach:**
   * Add a small `gramps.gui.widgets.Photo` preview pane to *Find missing media* and *Fix media references* that updates on row focus.
   * For duplicate groups, show the region rectangle of each media reference so the user can see what a merge would combine.
+* **Done** (new module `gw_mediapreview.py`):
+  * A pane under the table in *Find missing media* and *Fix media references* shows the focused row's file, with each reference's region outlined, numbered and listed.
+  * In *Fix media references*, outlines are coloured per media record, and the caption says how many references a merge would keep on the keeper.
+  * Built from the same parts as Gramps' `Photo` widget (Gramps thumbnails; a double-click opens the file) rather than `Photo` itself, because `gramps.gui.widgets` cannot be imported under the test fakes.
 
 ### 1.7 Open the media editor from any row — **L**
 * **Gap:** Media Verify opens `EditMedia` when a record row is double-clicked and opens the file when a disk-file row is double-clicked. GWizard tables and the report viewer can't do either.
@@ -88,7 +124,7 @@ Each item lists the gap, where the idea comes from, and a suggested approach. Pr
   _ = _trans.sgettext
   ngettext = _trans.ngettext
   ```
-  Also apply it in `gw_fixmediareferencesdialog.py` and `gwizard_common.py`.
+  Also apply it in `gw_fixmediareferencesdialog.py`, `gwizard_common.py` and the new `gw_mediapreview.py`.
 
 ### 2.2 Disk-scan limits are hard-coded and only partly visible — **M**
 * **Gap:**
@@ -100,13 +136,22 @@ Each item lists the gap, where the idea comes from, and a suggested approach. Pr
   * Make the cap a preference.
   * Always print "scan stopped at N files" in the report when the cap is hit.
 
-### 2.3 Search roots — **L**
+### 2.3 Search roots — **L** ◐ Partly done
 * **Gap:** the recursive basename index runs only when a base media path is configured. That is a sensible guard, but it leaves users with no base path set without hints.
-* **Approach:** let the user add extra search folders in *Find missing media* (remembered in config), in addition to the existing *Copy from folder*.
+* **Approach:** let the user add extra search folders in *Find missing media* (remembered in config).
+* **Partly done:** *Look in folder...* searches any folder the user picks, with or without a base path. Folders are not remembered between sessions.
 
 ### 2.4 Changed-content awareness — **L**
 * **Gap:** when a file exists but its stored checksum no longer matches, the file was edited or replaced. Media Verify reports this (as "Missing"); GWizard does not.
-* **Approach:** once 1.2 is in place, add a "Content changed since checksum" section to the report (informational).
+* **Approach:** now that 1.2 is in place, add a "Content changed since checksum" section to the report (informational). Reading every file makes the report slower, so it could be an option.
+
+### 2.5 Gramps' Check and Repair clears checksums — **H** ✅ Fixed (separate branch)
+* **Defect:** Check and Repair recalculated every checksum and stored an empty one when the file was missing, erasing exactly what content matching needs.
+* **Fixed** in the `checkandrepair_checksumfix` branch (`gramps/plugins/tool/check.py`, with `gramps/plugins/test/check_checksum_test.py`): a stored checksum is kept when the file cannot be read. A candidate for an upstream Gramps pull request.
+
+### 2.6 Accept all hints closed the main window — **H** ✅ Done
+* **Defect:** the *Accept all hints* button sits in the main window's action area, so GTK also sends the window a response when it is used; the window closed on any response.
+* **Fixed:** the main window now closes only on *Close*, its X or Escape. The preview also names its steps instead of numbering them, and explains a skipped consolidation (no base media path) and how to fix it.
 
 ---
 
@@ -147,7 +192,7 @@ Each item lists the gap, where the idea comes from, and a suggested approach. Pr
 ### 4.3 Position against existing addons on the wiki — **M**
 State plainly on the wiki page that:
 * GWizard Media Fix covers Merge Media's function, adding preview, undo and keeper selection.
-* It complements Media Verify (content hashes) until 1.1–1.3 are done.
+* It now matches renamed files by content and maintains checksums, as Media Verify does; Media Verify still lists content-identical files at different paths (1.3).
 * It is unrelated to Media Report and Media Browser.
 
 ### 4.4 Upstream fixes noticed in the other addons — **L** (optional contributions)
@@ -167,8 +212,9 @@ While reading the other addons, these issues turned up. They could be offered up
 
 ## Suggested Order
 
+Done so far: 1.1, 1.2, 1.5, 1.6, 2.5, 2.6. Remaining, in suggested order:
+
 1. **2.1** translations and **4.1** doc correction: small and defect-level.
-2. **1.2** checksum maintenance, which is the foundation for 1.1 and 1.3.
-3. **1.1** content-hash matching for missing files.
-4. **1.5** folder-prefix remap and **1.6** preview, the biggest day-to-day usability gains.
-5. **1.3**, **1.4**, then the remaining M/L items.
+2. **1.3** duplicate content at different paths, now possible because checksums are maintained.
+3. **1.4** import unreferenced files, and **2.4** changed-content awareness.
+4. The remaining M/L items.

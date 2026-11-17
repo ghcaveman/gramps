@@ -27,6 +27,7 @@ modules = [
     "gramps/plugins/tool/gwizardmediafix.py",
     "gramps/plugins/tool/gwizard_common.py",
     "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/plugins/tool/gw_mediapreview.py",
 ]
 tests = [
     "gramps/plugins/tool/test/gwizardmediafix*_test.py",

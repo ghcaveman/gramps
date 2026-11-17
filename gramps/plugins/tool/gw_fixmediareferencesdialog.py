@@ -81,6 +81,14 @@ except (ImportError, ValueError):
         media_checksum,
     )
 
+try:
+    from .gw_mediapreview import PreviewRowsMixin, number_regions
+except (ImportError, ValueError):
+    from gw_mediapreview import (  # type: ignore[import-not-found,no-redef]
+        PreviewRowsMixin,
+        number_regions,
+    )
+
 _ = glocale.translation.sgettext
 ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
@@ -259,7 +267,7 @@ def find_duplicate_media_groups(
 # FixMediaReferencesDialog
 #
 # ------------------------------------------------------------
-class FixMediaReferencesDialog(Gtk.Dialog):
+class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
     """Review and resolve duplicate references where a single media file is used for multiple references, or unreferenced image tags."""
 
     def __init__(
@@ -267,6 +275,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         title: str | None = None,
         dbstate: Any = None,
         transient_for: Gtk.Window | None = None,
+        uistate: Any = None,
     ) -> None:
         """
         Scan the tree and build the review table.
@@ -274,6 +283,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         :param title: Window title (defaults to "Fix Media References").
         :param dbstate: The Gramps database state.
         :param transient_for: Parent window.
+        :param uistate: Gramps' UI state (for opening a previewed file).
         """
         dialog_title = title or str(_("Fix Media References"))
         super().__init__(
@@ -286,7 +296,8 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         self.groups: list[dict[str, Any]] = []
         self.rows: list[dict[str, Any]] = []
         self.row_targets: list[dict[str, Any]] = []
-        self.set_default_size(1360, 520)
+        self.set_default_size(1360, 720)
+        self.init_preview(uistate)
 
         if dbstate and dbstate.db:
             self.groups = find_duplicate_media_groups(dbstate.db)
@@ -369,7 +380,11 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         self.column_sizegroups[2].add_widget(action_head)
         self.column_sizegroups[3].add_widget(hint_head)
 
-        content.pack_start(self.build_rows(self.groups), True, True, 0)
+        content.pack_start(
+            self.preview_layout(self.build_rows(self.groups)), True, True, 0
+        )
+        if self.row_targets:
+            self.show_row_preview(self.row_targets[0])
 
     def build_rows(self, groups: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
         """
@@ -496,14 +511,16 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                 self.column_sizegroups[2].add_widget(action_combo)
                 self.column_sizegroups[3].add_widget(hint_label)
 
-            self.row_targets.append(
-                {
-                    "group": group,
-                    "action_combo": action_combo,
-                    "hint_label": hint_label,
-                    "suggested_action": suggested_action,
-                }
+            target = {
+                "group": group,
+                "action_combo": action_combo,
+                "hint_label": hint_label,
+                "suggested_action": suggested_action,
+            }
+            self.watch_row(
+                grid, [file_label, ref_label, action_combo, hint_label], target
             )
+            self.row_targets.append(target)
             row_index += 1
 
         scrolled = Gtk.ScrolledWindow()
@@ -514,6 +531,40 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         scrolled.set_vexpand(True)
         scrolled.add(grid)
         return scrolled
+
+    def update_preview(self, target: dict[str, Any]) -> None:
+        """
+        Show the group's file with every record's references outlined, one
+        colour per media record, so a merge's result can be seen.
+
+        :param target: The row.
+        """
+        group = target["group"]
+        records = group["records"]
+        db = self.dbstate.db if self.dbstate else None
+        full = full_media_path(db, group["raw_path"]) if db else group["raw_path"]
+        regions: list[dict[str, Any]] = []
+        for index, rec in enumerate(records):
+            for region in self.regions_for(rec["handle"], "[%s]" % rec["gramps_id"]):
+                region["record"] = index
+                regions.append(region)
+        if group.get("type") == "unreferenced":
+            caption = str(_("[%s] has no references.")) % group["keeper"]["gramps_id"]
+        else:
+            caption = ngettext(
+                "%(count)d media record shares this file (one colour per record); "
+                "merging keeps all %(refs)d references on [%(gid)s].",
+                "%(count)d media records share this file (one colour per record); "
+                "merging keeps all %(refs)d references on [%(gid)s].",
+                len(records),
+            ) % {
+                "count": len(records),
+                "refs": len(regions),
+                "gid": group["keeper"]["gramps_id"],
+            }
+        if not os.path.isfile(full):
+            caption += " " + str(_("The file cannot be found or read."))
+        self.preview.show_file(full, caption, number_regions(regions, "record"))
 
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
         """

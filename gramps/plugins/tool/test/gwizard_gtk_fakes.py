@@ -419,6 +419,8 @@ _FAKES: dict[str, Any] = {
     "CellRendererText": _FakeWidget,
     "FileChooserDialog": _FakeFileChooserDialog,
     "Image": _FakeWidget,
+    # The media preview pane's image holder.
+    "EventBox": _FakeWidget,
     "Paned": _FakeWidget,
     # Gramps' ProgressMeter (used by the media fix) builds a progress bar;
     # a real one needs a display and crashes a headless test run.
@@ -434,14 +436,24 @@ _originals: dict[str, Any] = {}
 
 def gtk() -> Any:
     """
-    Return the ``Gtk`` module, mocking PyGObject when it has not been loaded.
+    Return the ``Gtk`` module, mocking PyGObject only when it is not installed.
+
+    The real PyGObject is preferred, so tests that draw on real images (the
+    media preview) work whichever test module is imported first.
 
     :returns: The (real or mock) ``Gtk`` module.
     """
     if "gi" not in sys.modules:
-        gi_mock = MagicMock()
-        sys.modules["gi"] = gi_mock
-        sys.modules["gi.repository"] = gi_mock.repository
+        try:
+            # pylint: disable-next=import-outside-toplevel
+            import gi
+
+            gi.require_version("Gtk", "3.0")
+            gi.require_version("Gdk", "3.0")
+        except (ImportError, ValueError):
+            gi_mock = MagicMock()
+            sys.modules["gi"] = gi_mock
+            sys.modules["gi.repository"] = gi_mock.repository
     from gi.repository import Gtk  # pylint: disable=import-outside-toplevel
 
     return Gtk
