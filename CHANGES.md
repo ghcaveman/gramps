@@ -93,6 +93,8 @@ Build and packaging
   Recent NSIS releases stopped installing them to the old path, which caused
   the build to abort. This matches the fix on the upstream `aio-test` branch.
 
+* **Check and Repair bugfix** if an image has an MD5 hash, it is kept rather than set to an empty string.
+
 * **`create_env.bash`** at the repository root sets up a development
   environment.
 
