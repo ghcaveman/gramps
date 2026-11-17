@@ -447,7 +447,10 @@ class GWizardMediaFixExTest(unittest.TestCase):
             "n1": _Note(
                 "n1",
                 "N1",
-                "Records not imported into OBJE (multi-media object) Could not import C:\\x",
+                # A note the user wrote. (An import "Records not imported
+                # into OBJE" note no longer keeps a record: see
+                # gwizardmediafix_idsort_test.)
+                "Ask cousin Jane who this is",
             )
         }
         db: Any = _MockDB(

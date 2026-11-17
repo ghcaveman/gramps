@@ -145,7 +145,9 @@ class PickFileTest(unittest.TestCase):
 
         with patch("gramps.plugins.tool.gwizardmediafix.Gtk.Button", make_button):
             dlg = self.open_dialog()
-        folder_buttons = [b for b in created if b.get_tooltip_text()]
+        folder_buttons = [
+            b for b in created if b.get_tooltip_text() and b is not dlg.look_button
+        ]
         self.assertEqual(len(folder_buttons), 2)
 
         chooser = MagicMock()
@@ -220,16 +222,6 @@ class PickFileTest(unittest.TestCase):
         target = self.target_for(dlg, h_first)
         self.pick(dlg, target, picked)
         self.assertEqual(target["path_entry"].get_text(), picked)
-
-    def test_pick_replaces_queued_copy(self) -> None:
-        """Choosing a file drops a copy queued by "Copy from folder..."."""
-        h_first = self.add_media("Old/census.jpg", "First")
-        picked = self.touch("MediaBase", "census.jpg")
-        dlg = self.open_dialog()
-        target = self.target_for(dlg, h_first)
-        target["copy_src"] = self.touch("Source", "census.jpg")
-        self.pick(dlg, target, picked)
-        self.assertNotIn("copy_src", target)
 
     def test_apply_repoints_all_filled_records(self) -> None:
         """Apply stores the chosen file, relative to the base path, for every row."""

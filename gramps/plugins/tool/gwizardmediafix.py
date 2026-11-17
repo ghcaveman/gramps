@@ -29,6 +29,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import logging
+import functools
 import os
 import re
 from typing import Any
@@ -46,6 +47,7 @@ from gi.repository import Gtk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.config import config
+from gramps.gen.mime import get_type, is_valid_type
 from gramps.gen.const import GRAMPS_LOCALE as glocale, USER_HOME, USER_PICTURES
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.types import EventHandle, MediaHandle, PersonHandle
@@ -83,6 +85,16 @@ try:
         is_bare_media,
         has_media_fixed_tag,
         add_media_fixed_tag,
+        file_checksum,
+        refresh_checksum,
+        build_checksum_index,
+        hash_candidates,
+        pick_content_match,
+        extension_key,
+        media_checksum,
+        IMPORT_NOTE_PREFIX,
+        gramps_id_key,
+        remove_media_with_import_notes,
     )
 except (ImportError, ValueError):
     from gwizard_common import (  # type: ignore[import-not-found,no-redef]
@@ -107,26 +119,64 @@ except (ImportError, ValueError):
         is_bare_media,
         has_media_fixed_tag,
         add_media_fixed_tag,
+        file_checksum,
+        refresh_checksum,
+        build_checksum_index,
+        hash_candidates,
+        pick_content_match,
+        extension_key,
+        media_checksum,
+        IMPORT_NOTE_PREFIX,
+        gramps_id_key,
+        remove_media_with_import_notes,
+    )
+
+try:
+    from .gw_mediapreview import PreviewRowsMixin, number_regions
+except (ImportError, ValueError):
+    from gw_mediapreview import (  # type: ignore[import-not-found,no-redef]
+        PreviewRowsMixin,
+        number_regions,
     )
 
 try:
     from .gw_fixmediareferencesdialog import (
         FixMediaReferencesDialog,
         find_duplicate_media_groups,
+        fill_merged_checksum,
     )
 except (ImportError, ValueError):
     from gw_fixmediareferencesdialog import (  # type: ignore[import-not-found,no-redef]
         FixMediaReferencesDialog,
         find_duplicate_media_groups,
+        fill_merged_checksum,
     )
 
-_ = glocale.translation.sgettext
-ngettext = glocale.translation.ngettext
+# Addon translations (the package's locale/ folder) fall back to Gramps' own;
+# as a built-in tool there is no locale/ folder and Gramps' are used.
+try:
+    _trans = glocale.get_addon_translator(__file__)
+except ValueError:
+    _trans = glocale.translation
+_ = _trans.sgettext
+ngettext = _trans.ngettext
 LOG = logging.getLogger(__name__)
 
 CONFIG_TEMPLATE_KEY = "preferences.gwizardmediafix-filename-template"
 DEFAULT_FILENAME_TEMPLATE = "{ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}"
 config.register(CONFIG_TEMPLATE_KEY, DEFAULT_FILENAME_TEMPLATE)
+
+# Most media files the report's search for unreferenced files reads before it
+# stops (0 = no limit).  When the limit is hit, Generate report offers to scan
+# everything, once or from then on.
+CONFIG_SCAN_LIMIT_KEY = "preferences.gwizardmediafix-scan-limit"
+DEFAULT_SCAN_LIMIT = 5000
+config.register(CONFIG_SCAN_LIMIT_KEY, DEFAULT_SCAN_LIMIT)
+
+# Whether Generate report reads every file to compare it with its stored
+# checksum (slower; set with the check box in the report's Save dialog).
+CONFIG_CHECK_CONTENT_KEY = "preferences.gwizardmediafix-report-check-content"
+config.register(CONFIG_CHECK_CONTENT_KEY, False)
 
 FILENAME_PRESETS: list[tuple[str, str]] = [
     (
@@ -319,16 +369,150 @@ def is_in_default_path(raw_path: str, base_dir: str) -> bool:
         return False
 
 
+# Document types kept with media (the MIME check covers images, audio, video).
+_MEDIA_DOCUMENT_TYPES = frozenset(
+    {
+        "application/pdf",
+        "application/rtf",
+        "text/rtf",
+        "text/plain",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.oasis.opendocument.text",
+    }
+)
+
+# Media extensions recognised even when the system knows no MIME type for
+# them (on Windows, MIME types come from the registry and depend on what is
+# installed), or knows a misleading one (".mts" video can map to "model/").
+_KNOWN_MEDIA_EXTENSIONS = frozenset(
+    {
+        # images
+        ".jpg",
+        ".jpeg",
+        ".jpe",
+        ".jfif",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tif",
+        ".tiff",
+        ".webp",
+        ".svg",
+        ".ico",
+        ".heic",
+        ".heif",
+        ".avif",
+        ".jxl",
+        ".jp2",
+        ".j2k",
+        ".djvu",
+        ".djv",
+        ".dng",
+        # audio
+        ".mp3",
+        ".wav",
+        ".ogg",
+        ".oga",
+        ".opus",
+        ".flac",
+        ".m4a",
+        ".aac",
+        ".wma",
+        ".aif",
+        ".aiff",
+        # video
+        ".mp4",
+        ".m4v",
+        ".avi",
+        ".mov",
+        ".wmv",
+        ".mkv",
+        ".webm",
+        ".mpg",
+        ".mpeg",
+        ".ogv",
+        ".3gp",
+        ".3g2",
+        ".mts",
+        ".m2ts",
+        # documents
+        ".pdf",
+        ".txt",
+        ".rtf",
+        ".doc",
+        ".docx",
+        ".odt",
+    }
+)
+
+
+@functools.lru_cache(maxsize=512)
+def _extension_mime(ext: str) -> str:
+    """Return the MIME type the system gives an extension (cached)."""
+    try:
+        return str(get_type("file" + ext) or "")
+    except Exception:  # a broken registry entry must not stop a scan
+        return ""
+
+
+def is_media_file(name: str) -> bool:
+    """
+    Tell whether a file is a kind of file Gramps media records hold.
+
+    Images, audio, video and common document types count, by MIME type,
+    plus a list of known media extensions for systems that do not know
+    their MIME type.
+
+    :param name: A file name or path.
+    :returns: True for a media file.
+    """
+    ext = os.path.splitext(name)[1].lower()
+    if not ext:
+        return False
+    if ext in _KNOWN_MEDIA_EXTENSIONS:
+        return True
+    mime = _extension_mime(ext)
+    if not mime or not is_valid_type(mime):
+        return False
+    return mime.split("/")[0] in ("image", "audio", "video") or (
+        mime in _MEDIA_DOCUMENT_TYPES
+    )
+
+
+def scan_limit() -> int:
+    """
+    Return the saved limit for the unreferenced-file search (0 = none).
+
+    :returns: The limit; a broken setting falls back to the default.
+    """
+    try:
+        return max(0, int(config.get(CONFIG_SCAN_LIMIT_KEY)))
+    except (TypeError, ValueError):
+        return DEFAULT_SCAN_LIMIT
+
+
 def find_unreferenced_default_path_files(
     db: DbReadBase,
     base_dir: str,
-    max_scan_files: int = 5000,
+    max_scan_files: int | None = None,
     stats: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Scan base_dir for multimedia files with no connection to database media objects.
-
-    Returns a sorted list of file paths relative to base_dir.
     """
+    Scan base_dir for media files that no media record points at.
+
+    :param db: The database.
+    :param base_dir: The base media directory.
+    :param max_scan_files: Most media files to read before stopping
+        (0 = no limit; ``None`` = the saved setting, see :func:`scan_limit`).
+    :param stats: Filled with ``scanned`` (media files read), ``limit``
+        (the limit used) and ``truncated`` (True when the limit stopped the
+        scan before every folder was read).
+    :returns: Sorted paths relative to base_dir.
+    """
+    limit = scan_limit() if max_scan_files is None else max(0, max_scan_files)
+    if stats is not None:
+        stats.update({"scanned": 0, "limit": limit, "truncated": False})
     if not base_dir or not os.path.isdir(base_dir) or not db:
         return []
 
@@ -359,40 +543,6 @@ def find_unreferenced_default_path_files(
                     )
                 except Exception:
                     pass
-
-    multimedia_exts = {
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".gif",
-        ".bmp",
-        ".tif",
-        ".tiff",
-        ".webp",
-        ".svg",
-        ".ico",
-        ".pdf",
-        ".mp3",
-        ".wav",
-        ".ogg",
-        ".flac",
-        ".m4a",
-        ".aac",
-        ".wma",
-        ".mp4",
-        ".avi",
-        ".mov",
-        ".wmv",
-        ".mkv",
-        ".webm",
-        ".mpg",
-        ".mpeg",
-        ".txt",
-        ".rtf",
-        ".doc",
-        ".docx",
-        ".odt",
-    }
 
     skip_dirs = {
         ".git",
@@ -436,6 +586,7 @@ def find_unreferenced_default_path_files(
 
     unreferenced: list[str] = []
     scanned_count = 0
+    truncated = False
 
     for root, dirs, files in os.walk(base_dir):
         rel_to_base = os.path.relpath(root, base_dir)
@@ -453,9 +604,12 @@ def find_unreferenced_default_path_files(
         for fname in files:
             if fname.startswith("."):
                 continue
-            _base, ext = os.path.splitext(fname)
-            if ext.lower() not in multimedia_exts:
+            if not is_media_file(fname):
                 continue
+            if limit and scanned_count >= limit:
+                # A media file beyond the limit: the scan really stopped early.
+                truncated = True
+                break
 
             full_file = os.path.join(root, fname)
             norm_file = os.path.normcase(os.path.normpath(os.path.abspath(full_file)))
@@ -467,13 +621,12 @@ def find_unreferenced_default_path_files(
                 unreferenced.append(rel_path)
 
             scanned_count += 1
-            if scanned_count >= max_scan_files:
-                if stats is not None:
-                    stats["truncated"] = True
-                break
-        if scanned_count >= max_scan_files:
+        if truncated:
             break
 
+    if stats is not None:
+        stats["scanned"] = scanned_count
+        stats["truncated"] = truncated
     unreferenced.sort()
     return unreferenced
 
@@ -529,6 +682,233 @@ def media_dir_index(db: DbReadBase, base_dir: str) -> dict[str, list[str]] | Non
     if configured and base_dir and os.path.isdir(base_dir):
         return build_basename_index(base_dir)
     return None
+
+
+def missing_content_index(
+    files: list[str],
+    records: list[tuple[str, str]],
+    parent: Any = None,
+) -> dict[str, list[str]]:
+    """
+    Hash the candidate files that could be one of the missing records' files.
+
+    Only records with a stored checksum can be matched by content, and only
+    files with the same kind of extension as one of them are read.
+
+    :param files: Candidate files (full paths), e.g. every file in the base
+        media directory.
+    :param records: ``(stored path, checksum)`` of each missing record.
+    :param parent: Parent window for the progress meter.
+    :returns: Checksum -> full paths, for the records' checksums only.
+    """
+    wanted = {checksum for _raw, checksum in records if checksum}
+    if not wanted or not files:
+        return {}
+    keys = {extension_key(raw) for raw, checksum in records if checksum}
+    todo = hash_candidates(files, None if "" in keys else keys)
+    if not todo:
+        return {}
+    prog = _Progress(str(_("Comparing file contents")), len(todo), parent)
+    try:
+        return build_checksum_index(todo, wanted, step=prog.step)
+    finally:
+        prog.close()
+
+
+def suggest_missing_matches(
+    rows: list[tuple[str, str, str]],
+    base_dir: str,
+    name_index: dict[str, list[str]] | None,
+    content_index: dict[str, list[str]] | None,
+) -> dict[str, dict[str, str]]:
+    """
+    Suggest a file for each missing record: by content first, then by name.
+
+    - A record with a stored checksum is matched to the file with the same
+      content, wherever it is in the media directory and whatever it is now
+      called.  Several identical copies are only resolved by the record's
+      file name; otherwise the user chooses.
+    - Otherwise a unique file with the record's file name is suggested,
+      unless the record's checksum shows that file has different content.
+    - The :func:`ambiguous_matches` rule then holds back any file that would
+      be given to several different records.
+
+    :param rows: ``(handle, stored path, checksum)`` of each missing record.
+    :param base_dir: The base media directory.
+    :param name_index: Result of :func:`media_dir_index` (``None``: top level
+        of *base_dir* only).
+    :param content_index: Result of :func:`missing_content_index`, or
+        ``None``.
+    :returns: handle -> dict with ``path`` (the suggestion, or ``""``),
+        ``how`` (``"content"``, ``"name"``, ``"ambiguous"`` when the
+        :func:`ambiguous_matches` rule held it back, or ``""``), ``file``
+        (the file that was found, if any) and ``hint`` (text for the user,
+        ``""`` when nothing was found).
+    """
+    result: dict[str, dict[str, str]] = {}
+    for handle, raw, checksum in rows:
+        name = missing_file_name(raw)
+        hits = content_index.get(checksum, []) if checksum and content_index else []
+        if hits:
+            chosen = pick_content_match(hits, name)
+            if chosen:
+                sug = to_db_path(chosen, base_dir)
+                result[handle] = {
+                    "path": sug,
+                    "how": "content",
+                    "file": sug,
+                    "hint": _("Same content found in media directory: suggest '%s'")
+                    % sug,
+                }
+            else:
+                result[handle] = {
+                    "path": "",
+                    "how": "",
+                    "file": "",
+                    "hint": _("Same content in %d files: choose the file manually")
+                    % len(hits),
+                }
+            continue
+        rel = find_in_media_dir(base_dir, name, name_index)
+        if not rel:
+            result[handle] = {"path": "", "how": "", "file": "", "hint": ""}
+            continue
+        if checksum:
+            found_full = rel if is_absolute_path(rel) else os.path.join(base_dir, rel)
+            digest = file_checksum(found_full)
+            if digest and digest != checksum:
+                result[handle] = {
+                    "path": "",
+                    "how": "",
+                    "file": rel,
+                    "hint": _(
+                        "'%s' has this file name but different content: "
+                        "check it and choose it manually"
+                    )
+                    % rel,
+                }
+                continue
+        result[handle] = {
+            "path": rel,
+            "how": "name",
+            "file": rel,
+            "hint": _("Found in media directory: suggest '%s'") % rel,
+        }
+
+    # A file found for several different records is not a safe hint:
+    # offering it to all of them would make them duplicates.
+    unsafe = ambiguous_matches(
+        [
+            (MediaHandle(handle), raw, result[handle]["path"])
+            for handle, raw, _c in rows
+            if result[handle]["path"]
+        ]
+    )
+    for handle in unsafe:
+        found = result[handle]["path"]
+        result[handle] = {
+            "path": "",
+            "how": "ambiguous",
+            "file": found,
+            "hint": _(
+                "'%s' also matches other missing records: choose the path manually"
+            )
+            % found,
+        }
+    return result
+
+
+def match_missing_media(
+    db: DbReadBase, base_dir: str, parent: Any = None
+) -> list[tuple[Any, str, dict[str, str]]]:
+    """
+    Find every missing media file and work out its suggested file.
+
+    Shared by the Accept-all preview and the Accept-all run, so the preview
+    cannot promise a match the run will not make.
+
+    :param db: The database.
+    :param base_dir: The base media directory.
+    :param parent: Parent window for the progress meter.
+    :returns: ``(media, stored path, match)`` for each record whose file is
+        missing; *match* is the :func:`suggest_missing_matches` result.
+    """
+    missing: list[tuple[Any, str]] = []
+    for media in list(db.iter_media()):
+        raw = clean_path(str(media.get_path() or ""))
+        if not raw:
+            continue
+        try:
+            full = media_path_full(db, raw)
+        except Exception:
+            full = raw
+        if os.path.exists(full) or (is_absolute_path(raw) and os.path.exists(raw)):
+            continue
+        missing.append((media, raw))
+    if not missing:
+        return []
+    name_index = media_dir_index(db, base_dir)
+    rows = [
+        (str(media.get_handle() or ""), raw, media_checksum(media))
+        for media, raw in missing
+    ]
+    content_index = (
+        missing_content_index(
+            [p for paths in name_index.values() for p in paths],
+            [(raw, checksum) for _h, raw, checksum in rows],
+            parent,
+        )
+        if name_index
+        else None
+    )
+    matches = suggest_missing_matches(rows, base_dir, name_index, content_index)
+    return [
+        (media, raw, matches[str(media.get_handle() or "")]) for media, raw in missing
+    ]
+
+
+def store_media_checksums(
+    db: DbWriteBase, only_missing: bool = True, parent: Any = None
+) -> tuple[int, int, int]:
+    """
+    Store the MD5 checksum of every media record's file, as Media Verify does.
+
+    A checksum is never cleared: a record whose file cannot be read keeps the
+    one it has, because that is what lets 'Find missing media' recognize the
+    file after it has been renamed or moved.
+
+    :param db: The database.
+    :param only_missing: Only fill in empty checksums; otherwise also update
+        checksums whose file content has changed.
+    :param parent: Parent window for the progress meter.
+    :returns: ``(added, updated, unreadable)`` record counts.
+    """
+    added = updated = unreadable = 0
+    media_list = [
+        m for m in db.iter_media() if not (only_missing and media_checksum(m))
+    ]
+    if not media_list:
+        return 0, 0, 0
+    prog = _Progress(str(_("Storing media checksums")), len(media_list), parent)
+    try:
+        with DbTxn(_("Store media checksums"), db) as trans:
+            for media in media_list:
+                prog.step()
+                raw = clean_path(str(media.get_path() or ""))
+                had = bool(media_checksum(media))
+                full = full_media_path(db, raw) if raw else ""
+                if not full or not file_checksum(full):
+                    unreadable += 1
+                    continue
+                if refresh_checksum(media, full, only_if_missing=only_missing):
+                    db.commit_media(media, trans)
+                    if had:
+                        updated += 1
+                    else:
+                        added += 1
+    finally:
+        prog.close()
+    return added, updated, unreadable
 
 
 def scan_unreadable_media(
@@ -761,7 +1141,7 @@ def _best_person(db: DbReadBase, handles: list[PersonHandle], text: str) -> Any:
     people = [p for p in (_db_get(db, "Person", h) for h in handles) if p is not None]
     if not people:
         return None
-    people.sort(key=_gid_of)
+    people.sort(key=lambda p: gramps_id_key(_gid_of(p)))
     sur, giv, _rest = parse_name_from_text(text or "")
     if sur:
         # max() keeps the first of equal scores, i.e. the lowest Gramps ID
@@ -800,7 +1180,7 @@ def _order_backlinks(
         obj = _db_get(db, b[0], b[1])
         return str(obj.get_gramps_id() or "") if obj is not None else ""
 
-    ordered = sorted(backlinks, key=lambda b: (b[0], gid(b), b[1]))
+    ordered = sorted(backlinks, key=lambda b: (b[0], gramps_id_key(gid(b)), b[1]))
     sur, giv, _rest = parse_name_from_text(text or "")
     if sur:
         matched = [
@@ -1397,7 +1777,7 @@ class _Progress:
 # Stale "Records not imported into OBJE" notes left by the Legacy import
 #
 # ------------------------------------------------------------
-IMPORT_NOTE_PREFIX = "Records not imported into OBJE"
+# IMPORT_NOTE_PREFIX now lives in gwizard_common (shared with is_bare_media).
 
 
 def find_stale_import_notes(
@@ -1533,6 +1913,7 @@ def keep_records_pointing_at_files(
         if path_key(full_media_path(db, raw)) == path_key(old_full):
             continue  # still finds its file (e.g. the base did not really move)
         media.set_path(to_db_path(old_full, new_base))
+        refresh_checksum(media, old_full, only_if_missing=True)
         add_media_fixed_tag(db, media, txn=trans)
         db.commit_media(media, trans)
         fixed += 1
@@ -1599,12 +1980,12 @@ def base_change_summary(fixed: int) -> str:
 # Consolidation planner (shared by the preview and the real run)
 #
 # ------------------------------------------------------------
-def namer_rank(db: DbReadBase, media: Any) -> tuple[int, str]:
+def namer_rank(db: DbReadBase, media: Any) -> tuple[int, tuple[str, int, str]]:
     """
     Sort key choosing which of several records sharing a file names it.
 
     The record with the most references comes first, then the lowest Gramps
-    ID, so the choice is stable.
+    ID (by number, so M7 comes before M17), so the choice is stable.
 
     :param db: The database.
     :param media: A media record.
@@ -1614,7 +1995,7 @@ def namer_rank(db: DbReadBase, media: Any) -> tuple[int, str]:
         n_refs = len(list(db.find_backlink_handles(media.get_handle())))
     except Exception:
         n_refs = 0
-    return (-n_refs, _gid_of(media))
+    return (-n_refs, gramps_id_key(_gid_of(media)))
 
 
 def plan_consolidation_moves(
@@ -1704,14 +2085,32 @@ def plan_consolidation_moves(
 # Accept-all preview (dry run)
 #
 # ------------------------------------------------------------
+NO_BASE_PATH_REASON = _(
+    "No base media path is set for this family tree, so there is no folder to "
+    "move files into. Set one in 'Consolidate media location' or in Edit > "
+    "Preferences > Family Tree > Base media path, then run 'Accept all hints' "
+    "again. The other fixes listed here are not affected."
+)
+
+
 def build_accept_all_plan(
-    db: DbReadBase, base_dir: str, base_set: bool
+    db: DbReadBase, base_dir: str, base_set: bool, parent: Any = None
 ) -> dict[str, Any]:
-    """Work out, WITHOUT changing anything, what 'Accept all hints' would do."""
+    """
+    Work out, WITHOUT changing anything, what 'Accept all hints' would do.
+
+    :param db: The database.
+    :param base_dir: The base media directory.
+    :param base_set: Whether a base media path is configured.
+    :param parent: Parent window for progress meters.
+    :returns: The plan (see :func:`format_plan`).
+    """
     plan: dict[str, Any] = {
         "base_dir": base_dir,
         "base_set": base_set,
         "find": [],
+        "find_by_content": set(),
+        "checksums": [],
         "ambiguous": [],
         "merges": [],
         "delete": [],
@@ -1723,38 +2122,26 @@ def build_accept_all_plan(
     }
     template = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
     cache: dict[str, dict[str, str]] = {}
-    index = media_dir_index(db, base_dir)
 
-    # Step 1: find missing
+    # Step 1: find missing (by content first, then by file name)
     effective: dict[str, str] = {}
     found_handles: set[str] = set()
-    find_candidates: list[tuple[str, str, str, str]] = []  # handle, gid, raw, rel
     for media in list(db.iter_media()):
-        handle = str(media.get_handle() or "")
         raw = clean_path(str(media.get_path() or ""))
-        if not raw:
+        if raw:
+            effective[str(media.get_handle() or "")] = raw
+    for media, raw, match in match_missing_media(db, base_dir, parent):
+        handle = str(media.get_handle() or "")
+        gid = str(media.get_gramps_id() or "")
+        if match["how"] == "ambiguous":
+            plan["ambiguous"].append((gid, raw, match["file"]))
             continue
-        effective[handle] = raw
-        try:
-            full = media_path_full(db, raw)
-        except Exception:
-            full = raw
-        if os.path.exists(full) or (is_absolute_path(raw) and os.path.exists(raw)):
+        if not match["path"]:
             continue
-        rel = find_in_media_dir(
-            base_dir, os.path.basename(raw.replace("\\", "/")), index
-        )
-        if rel:
-            find_candidates.append((handle, str(media.get_gramps_id() or ""), raw, rel))
-    unsafe = ambiguous_matches(
-        [(MediaHandle(h), raw, rel) for h, _g, raw, rel in find_candidates]
-    )
-    for handle, gid, raw, rel in find_candidates:
-        if handle in unsafe:
-            plan["ambiguous"].append((gid, raw, rel))
-            continue
-        plan["find"].append((gid, raw, rel))
-        effective[handle] = rel
+        plan["find"].append((gid, raw, match["path"]))
+        if match["how"] == "content":
+            plan["find_by_content"].add(gid)
+        effective[handle] = match["path"]
         found_handles.add(handle)
 
     # Step 2: references
@@ -1776,7 +2163,7 @@ def build_accept_all_plan(
                 )
             )
         else:
-            if is_bare_media(keeper["media"]):
+            if is_bare_media(keeper["media"], db):
                 plan["delete"].append((keeper["gramps_id"], group["raw_path"]))
                 gone.add(keeper["handle"])
             else:
@@ -1784,9 +2171,7 @@ def build_accept_all_plan(
 
     # Step 3: consolidate
     if not base_set:
-        plan["halted"] = (
-            "no base media path is set (set one under 'Consolidate media location')"
-        )
+        plan["halted"] = NO_BASE_PATH_REASON
     else:
         moves = plan_consolidation_moves(
             db, base_dir, template, effective, gone, found_handles, cache
@@ -1800,6 +2185,22 @@ def build_accept_all_plan(
             )
             for mv in moves
         ]
+
+    # Step 4: checksums for records whose file can be read but has none yet
+    for media in list(db.iter_media()):
+        handle = str(media.get_handle() or "")
+        if handle in gone or media_checksum(media):
+            continue
+        raw = effective.get(handle, "")
+        if not raw:
+            continue
+        full = (
+            os.path.join(base_dir, raw)
+            if handle in found_handles
+            else full_media_path(db, raw)
+        )
+        if os.path.isfile(full) and os.access(full, os.R_OK):
+            plan["checksums"].append((str(media.get_gramps_id() or ""), raw))
 
     missing, denied = scan_unreadable_media(db)
     fixed = {g for g, _o, _n in plan["find"]}
@@ -1819,7 +2220,7 @@ def plan_has_changes(plan: dict[str, Any]) -> bool:
     :param plan: Result of :func:`build_accept_all_plan`.
     :returns: Whether there is anything to apply.
     """
-    return any(plan[k] for k in ("find", "merges", "delete", "moves"))
+    return any(plan.get(k) for k in ("find", "merges", "delete", "moves", "checksums"))
 
 
 def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
@@ -1837,18 +2238,31 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
     if plan["find"]:
         section(
             ngettext(
-                "1. Find missing media - repoint %d record:",
-                "1. Find missing media - repoint %d records:",
+                "Find missing media: repoint %d record:",
+                "Find missing media: repoint %d records:",
                 len(plan["find"]),
             )
             % len(plan["find"]),
-            ["[%s] %s  ->  %s" % r for r in plan["find"]],
+            [
+                "[%s] %s  ->  %s%s"
+                % (
+                    g,
+                    o,
+                    n,
+                    (
+                        "  " + str(_("(same content)"))
+                        if g in plan.get("find_by_content", ())
+                        else ""
+                    ),
+                )
+                for g, o, n in plan["find"]
+            ],
         )
     if plan.get("ambiguous"):
         section(
             str(
                 _(
-                    "1. Find missing media - NOT repointed, several different "
+                    "Find missing media: NOT repointed, several different "
                     "records match the same file (%d):"
                 )
             )
@@ -1858,8 +2272,8 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
     if plan["merges"]:
         section(
             ngettext(
-                "2. Merge duplicate records - %d file group:",
-                "2. Merge duplicate records - %d file groups:",
+                "Fix media references: merge duplicate records sharing %d file:",
+                "Fix media references: merge duplicate records sharing %d files:",
                 len(plan["merges"]),
             )
             % len(plan["merges"]),
@@ -1870,26 +2284,48 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
         )
     if plan["delete"]:
         section(
-            str(_("2. Delete empty unreferenced records (%d):")) % len(plan["delete"]),
+            str(_("Fix media references: delete empty unreferenced records (%d):"))
+            % len(plan["delete"]),
             ["[%s] %s" % r for r in plan["delete"]],
         )
     if plan["keep_unref"]:
         section(
-            str(_("2. Unreferenced but has notes/tags/attributes - KEPT (%d):"))
+            str(
+                _(
+                    "Fix media references: unreferenced but has notes, tags or "
+                    "attributes, so KEPT (%d):"
+                )
+            )
             % len(plan["keep_unref"]),
             ["[%s] %s" % r for r in plan["keep_unref"]],
         )
     if plan["halted"]:
-        lines += [str(_("3. Move/rename files: SKIPPED - %s")) % plan["halted"], ""]
+        lines += [
+            str(_("Consolidate media location: SKIPPED.")),
+            "    " + str(plan["halted"]),
+            "",
+        ]
     elif plan["moves"]:
         section(
-            _("3. Move/rename files into '%(folder)s' (%(count)d):")
+            _(
+                "Consolidate media location: move/rename files into '%(folder)s' (%(count)d):"
+            )
             % {"folder": plan["base_dir"], "count": len(plan["moves"])},
             [
                 "[%s] %s  ->  %s%s"
                 % (g, o, n, "  (renamed: name already taken)" if c else "")
                 for g, o, n, c in plan["moves"]
             ],
+        )
+    if plan.get("checksums"):
+        section(
+            ngettext(
+                "Store checksums: %d record has none yet:",
+                "Store checksums: %d records have none yet:",
+                len(plan["checksums"]),
+            )
+            % len(plan["checksums"]),
+            ["[%s] %s" % r for r in plan["checksums"]],
         )
     if plan["missing"] or plan["denied"]:
         lines.append(str(_("NEEDS YOUR ATTENTION (cannot be fixed automatically):")))
@@ -1914,30 +2350,82 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
                 % len(plan["denied"])
             )
         lines.append("")
-    lines.append(
-        str(
-            _(
-                "Notes: names in step 3 are recomputed after merging, so shared files "
-                "may be named slightly differently. File moves are logged: use "
-                "'Undo last file moves' to reverse them. Edit > Undo alone would "
-                "revert the database but leave the files moved."
+    if plan["moves"]:
+        lines.append(
+            str(
+                _(
+                    "Notes: new file names are worked out again after merging, so "
+                    "shared files may be named slightly differently. File moves "
+                    "are logged: use 'Undo last file moves' to reverse them. "
+                    "Edit > Undo alone would revert the database but leave the "
+                    "files moved."
+                )
             )
         )
-    )
     return "\n".join(lines)
+
+
+def ask_full_scan(parent: Any, limit: int) -> str:
+    """
+    Ask whether to scan every file after the report's scan hit its limit.
+
+    :param parent: Parent window.
+    :param limit: The limit that was reached.
+    :returns: ``"once"`` (scan all files for this report), ``"always"``
+        (also from now on) or ``""`` (keep the report as it is).
+    """
+    dlg = Gtk.MessageDialog(
+        transient_for=parent,
+        modal=True,
+        message_type=Gtk.MessageType.QUESTION,
+        text=str(_("Scan all files?")),
+    )
+    dlg.format_secondary_text(
+        str(
+            _(
+                "The search for media files that no record uses stopped after "
+                "%d files, so the report's list of unreferenced files may be "
+                "incomplete. Scanning everything can take a while on a large "
+                "folder."
+            )
+        )
+        % limit
+    )
+    dlg.add_button(str(_("_Keep this report")), Gtk.ResponseType.CANCEL)
+    dlg.add_button(str(_("Scan all files this _time")), 1)
+    dlg.add_button(str(_("_Always scan all files")), 2)
+    dlg.set_default_response(1)
+    response = dlg.run()
+    dlg.destroy()
+    return {1: "once", 2: "always"}.get(response, "")
 
 
 def confirm_plan(parent: Any, text: str) -> bool:
     """Scrollable preview with Cancel / Accept all; True if accepted."""
+    return confirm_text(
+        parent, str(_("Accept all hints - preview")), text, str(_("_Accept all"))
+    )
+
+
+def confirm_text(parent: Any, title: str, text: str, accept_label: str) -> bool:
+    """
+    Show a scrollable preview with Cancel and an accept button.
+
+    :param parent: Parent window.
+    :param title: Window title.
+    :param text: The preview text.
+    :param accept_label: Label of the accept button.
+    :returns: True if accepted.
+    """
     dlg = Gtk.Dialog(
-        title=str(_("Accept all hints - preview")),
+        title=title,
         transient_for=parent,
         modal=True,
         destroy_with_parent=True,
     )
     dlg.set_default_size(800, 540)
     dlg.add_button(str(_("_Cancel")), Gtk.ResponseType.CANCEL)
-    dlg.add_button(str(_("_Accept all")), Gtk.ResponseType.OK)
+    dlg.add_button(accept_label, Gtk.ResponseType.OK)
     content = dlg.get_content_area()
     content.set_border_width(12)
     scrolled = Gtk.ScrolledWindow()
@@ -1964,12 +2452,249 @@ def missing_file_dir(raw_path: str) -> str:
     return path_key(os.path.dirname(clean_path(raw_path).replace("\\", "/")))
 
 
+def _folder_segments(raw_path: str) -> tuple[str, list[str]]:
+    """
+    Split a stored path's folder into a root and its folder names.
+
+    :param raw_path: A stored media path (either slash style).
+    :returns: ``(root, names)``: *root* is a drive (``"D:"``), ``"/"``,
+        ``"//"`` (network share) or ``""`` (relative path).
+    """
+    path = clean_path(raw_path).replace("\\", "/")
+    folder = path.rsplit("/", 1)[0] if "/" in path else ""
+    root = ""
+    if folder.startswith("//"):
+        root = "//"
+    elif folder.startswith("/"):
+        root = "/"
+    names = [part for part in folder.split("/") if part]
+    if names and len(names[0]) == 2 and names[0][1] == ":":
+        root = names.pop(0)
+    return root, names
+
+
+def _join_old_folder(root: str, names: list[str]) -> str:
+    """Rebuild an old folder for display (``"D:/OldPC/Pictures"``)."""
+    if root in ("/", "//"):
+        return root + "/".join(names)
+    return "/".join([root] + names if root else names) or "."
+
+
+def find_in_chosen_folder(
+    rows: list[tuple[str, str, str]],
+    folder: str,
+    name_index: dict[str, list[str]],
+    content_index: dict[str, list[str]] | None = None,
+) -> dict[str, dict[str, str]]:
+    """
+    Find missing files in a folder the user chose (searched recursively).
+
+    Each record is tried in this order:
+
+    1. **Same folder layout**: the record's old folder maps onto the chosen
+       folder, e.g. ``D:/OldPC/Pictures/1910/a.jpg`` is found as
+       ``<folder>/1910/a.jpg``.  When a record could map several ways, the
+       old folder that explains the most records wins; a tie is not used.
+    2. **Same content**: a file with the record's stored checksum.
+    3. **Same file name**: a unique file with the record's file name.
+
+    A record with a checksum is never given a file whose content differs,
+    and the :func:`ambiguous_matches` rule holds back any file found for
+    several different records.
+
+    :param rows: ``(handle, stored path, checksum)`` of each missing record.
+    :param folder: The chosen folder.
+    :param name_index: :func:`build_basename_index` of *folder*.
+    :param content_index: :func:`missing_content_index` of *folder*'s files,
+        or ``None``.
+    :returns: handle -> dict with ``file`` (full path, or ``""``), ``how``
+        (``"folder"``, ``"content"``, ``"name"`` or ``""``), ``old_folder``
+        (the record's old folder, for grouping) and, for a folder-layout
+        match, ``mapped_from`` (the old folder that maps onto *folder*);
+        ``note`` says why a found file was not used.
+    """
+    folder_names = [
+        n.casefold() for n in clean_path(folder).replace("\\", "/").split("/") if n
+    ]
+    # Pass 1: every folder-layout candidate of every record.
+    layout: dict[str, list[tuple[str, str]]] = {}  # handle -> (prefix key, file)
+    prefix_label: dict[str, str] = {}
+    for handle, raw, _checksum in rows:
+        root, names = _folder_segments(raw)
+        old_folded = [n.casefold() for n in names]
+        found: list[tuple[str, str]] = []
+        for hit in name_index.get(missing_file_name(raw).lower(), []):
+            hit_names = [
+                n.casefold()
+                for n in os.path.dirname(hit).replace("\\", "/").split("/")
+                if n
+            ]
+            sub = hit_names[len(folder_names) :]  # folders below the chosen one
+            if len(sub) > len(old_folded) or (
+                sub and old_folded[len(old_folded) - len(sub) :] != sub
+            ):
+                continue
+            kept = names[: len(names) - len(sub)]
+            key = (root + "/" + "/".join(kept)).casefold()
+            prefix_label[key] = _join_old_folder(root, kept)
+            found.append((key, hit))
+        layout[handle] = found
+    support: dict[str, int] = {}
+    for found in layout.values():
+        for key in {k for k, _f in found}:
+            support[key] = support.get(key, 0) + 1
+
+    result: dict[str, dict[str, str]] = {}
+    for handle, raw, checksum in rows:
+        root, names = _folder_segments(raw)
+        entry = {
+            "file": "",
+            "how": "",
+            "old_folder": _join_old_folder(root, names),
+            "mapped_from": "",
+            "note": "",
+        }
+        result[handle] = entry
+        found = layout.get(handle, [])
+        if found:
+            best = max(support[k] for k, _f in found)
+            top = {f for k, f in found if support[k] == best}
+            if len(top) == 1:
+                hit = top.pop()
+                key = next(k for k, f in found if f == hit and support[k] == best)
+                entry.update(file=hit, how="folder", mapped_from=prefix_label[key])
+        if not entry["how"] and checksum and content_index:
+            hits = content_index.get(checksum, [])
+            chosen = pick_content_match(hits, missing_file_name(raw)) if hits else ""
+            if chosen:
+                entry.update(file=chosen, how="content")
+            elif hits:
+                entry["note"] = str(_("same content in %d files")) % len(hits)
+        if not entry["how"] and not entry["note"]:
+            hits = name_index.get(missing_file_name(raw).lower(), [])
+            if len(hits) == 1:
+                entry.update(file=hits[0], how="name")
+            elif len(hits) > 1:
+                entry["note"] = str(_("%d files with this name")) % len(hits)
+        # A checksum proves a file is the record's file -- or that it is not.
+        if entry["how"] in ("folder", "name") and checksum:
+            digest = file_checksum(entry["file"])
+            if digest and digest != checksum:
+                entry.update(
+                    file="",
+                    how="",
+                    mapped_from="",
+                    note=str(_("a file with this name has different content")),
+                )
+
+    unsafe = ambiguous_matches(
+        [
+            (MediaHandle(handle), raw, result[handle]["file"])
+            for handle, raw, _c in rows
+            if result[handle]["file"]
+        ]
+    )
+    for handle in unsafe:
+        result[handle].update(
+            file="",
+            how="",
+            mapped_from="",
+            note=str(_("the same file was found for other records")),
+        )
+    return result
+
+
+def format_folder_search(
+    results: dict[str, dict[str, str]],
+    folder: str,
+    labels: dict[str, str],
+    limit: int = 6,
+) -> tuple[str, int]:
+    """
+    Describe what 'Look in folder' found, grouped by the records' old folders.
+
+    :param results: Result of :func:`find_in_chosen_folder`.
+    :param folder: The chosen folder.
+    :param labels: handle -> "[O0001] description", for listing records.
+    :param limit: Most rows listed per section.
+    :returns: ``(text, number of records that will be filled in)``.
+    """
+    lines = [str(_("Looked in: %s")) % folder, ""]
+    found = [h for h, r in results.items() if r["file"]]
+
+    mapped: dict[str, int] = {}
+    for handle in found:
+        if results[handle]["how"] == "folder":
+            old = results[handle]["mapped_from"]
+            mapped[old] = mapped.get(old, 0) + 1
+    if mapped:
+        lines.append(str(_("Found with the same folder layout:")))
+        for old, count in sorted(mapped.items(), key=lambda kv: (-kv[1], kv[0])):
+            lines.append(
+                "    "
+                + ngettext(
+                    "%(old)s  ->  %(new)s: %(count)d record",
+                    "%(old)s  ->  %(new)s: %(count)d records",
+                    count,
+                )
+                % {"old": old, "new": folder, "count": count}
+            )
+        lines.append("")
+    for how, title in (
+        ("content", _("Found by content (renamed or moved files): %d")),
+        ("name", _("Found by file name: %d")),
+    ):
+        count = sum(1 for h in found if results[h]["how"] == how)
+        if count:
+            lines += [str(title) % count, ""]
+
+    held = [h for h, r in results.items() if not r["file"] and r["note"]]
+    if held:
+        lines.append(str(_("Found but NOT used (%d):")) % len(held))
+        for handle in held[:limit]:
+            lines.append(
+                "    %s: %s" % (labels.get(handle, handle), results[handle]["note"])
+            )
+        if len(held) > limit:
+            lines.append("    " + str(_("... and %d more")) % (len(held) - limit))
+        lines.append("")
+
+    missing: dict[str, int] = {}
+    for handle, res in results.items():
+        if not res["file"] and not res["note"]:
+            missing[res["old_folder"]] = missing.get(res["old_folder"], 0) + 1
+    if missing:
+        lines.append(
+            str(_("Not found in this folder (%d), by old folder:"))
+            % sum(missing.values())
+        )
+        groups = sorted(missing.items(), key=lambda kv: (-kv[1], kv[0]))
+        for old, count in groups[:limit]:
+            lines.append("    %s: %d" % (old, count))
+        if len(groups) > limit:
+            lines.append(
+                "    " + str(_("... and %d more folders")) % (len(groups) - limit)
+            )
+        lines.append("")
+
+    if found:
+        lines.append(
+            str(
+                _(
+                    "The files are used where they are (not copied). Nothing is "
+                    "saved until you press 'Apply'."
+                )
+            )
+        )
+    return "\n".join(lines).rstrip(), len(found)
+
+
 # ------------------------------------------------------------
 #
 # FindMissingMediaDialog
 #
 # ------------------------------------------------------------
-class FindMissingMediaDialog(Gtk.Dialog):
+class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
     """Review media records where the file is missing from disk."""
 
     def __init__(
@@ -1977,6 +2702,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
         title: str | None = None,
         dbstate: Any = None,
         transient_for: Gtk.Window | None = None,
+        uistate: Any = None,
     ) -> None:
         """
         Scan for media records whose file is missing and build the review table.
@@ -1984,6 +2710,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
         :param title: Window title (defaults to "Find Missing Media").
         :param dbstate: The Gramps database state.
         :param transient_for: Parent window.
+        :param uistate: Gramps' UI state (for opening a previewed file).
         """
         dialog_title = title or str(_("Find Missing Media"))
         super().__init__(
@@ -1996,7 +2723,8 @@ class FindMissingMediaDialog(Gtk.Dialog):
         self.rows: list[dict[str, Any]] = []
         self.row_targets: list[dict[str, Any]] = []
         self._last_pick_dir = ""
-        self.set_default_size(1360, 520)
+        self.set_default_size(1360, 720)
+        self.init_preview(uistate)
         curr_mpath = (
             self.dbstate.db.get_mediapath()
             if self.dbstate
@@ -2032,25 +2760,13 @@ class FindMissingMediaDialog(Gtk.Dialog):
             )
 
             if not exists:
-                # Look for the file name in the media directory (recursively
-                # when a media base path is configured)
-                basename = os.path.basename(clean_raw.replace("\\", "/"))
-                sug_path = ""
                 hint = _("File not found on disk")
-                perm_issue = False
-                inaccess_dir = None
-
                 # Check for permission denied along the directory path
                 perm_issue, inaccess_dir = check_path_permission(full_path)
                 if not perm_issue and is_absolute_path(clean_raw):
                     perm_issue, inaccess_dir = check_path_permission(clean_raw)
-
                 if perm_issue and inaccess_dir:
                     hint = _("Permission denied: cannot read '%s'") % inaccess_dir
-                else:
-                    sug_path = find_in_media_dir(base_dir, basename, name_index)
-                    if sug_path:
-                        hint = _("Found in media directory: suggest '%s'") % sug_path
 
                 self.rows.append(
                     {
@@ -2059,31 +2775,40 @@ class FindMissingMediaDialog(Gtk.Dialog):
                         "desc": desc,
                         "raw_path": raw_path,
                         "full_path": full_path,
-                        "suggested_path": sug_path,
+                        "checksum": media_checksum(media),
+                        "suggested_path": "",
+                        "match": "",
                         "hint_text": hint,
-                        "perm_denied": perm_issue,
+                        "perm_denied": bool(perm_issue and inaccess_dir),
                         "inaccess_dir": inaccess_dir,
                     }
                 )
 
-        # A file found by name for several different records is not a safe
-        # hint: offering it to all of them would make them duplicates.
-        unsafe = ambiguous_matches(
-            [
-                (r["handle"], r["raw_path"], r["suggested_path"])
-                for r in self.rows
-                if r.get("suggested_path")
-            ]
+        # Look for each readable-but-missing file in the media directory
+        # (recursively when a media base path is configured): by content when
+        # the record has a checksum, then by file name.
+        searchable = [r for r in self.rows if not r["perm_denied"]]
+        content_index = (
+            missing_content_index(
+                [p for paths in name_index.values() for p in paths],
+                [(r["raw_path"], r["checksum"]) for r in searchable],
+                transient_for,
+            )
+            if name_index
+            else None
         )
-        for r in self.rows:
-            if r["handle"] in unsafe:
-                r["hint_text"] = (
-                    _(
-                        "'%s' also matches other missing records: choose the path manually"
-                    )
-                    % r["suggested_path"]
-                )
-                r["suggested_path"] = ""
+        matches = suggest_missing_matches(
+            [(r["handle"], r["raw_path"], r["checksum"]) for r in searchable],
+            base_dir,
+            name_index,
+            content_index,
+        )
+        for r in searchable:
+            found = matches[r["handle"]]
+            r["suggested_path"] = found["path"]
+            r["match"] = found["how"]
+            if found["hint"]:
+                r["hint_text"] = found["hint"]
 
         n_hints = sum(1 for r in self.rows if r.get("suggested_path"))
         self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
@@ -2091,10 +2816,19 @@ class FindMissingMediaDialog(Gtk.Dialog):
         self.accept_button.connect("clicked", self.cb_accept_hints)
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
 
-        self.copy_button = Gtk.Button(label=str(_("Copy from folder...")))
-        self.copy_button.set_sensitive(len(self.rows) > 0)
-        self.copy_button.connect("clicked", self.cb_copy_from_folder)
-        self.add_action_widget(self.copy_button, Gtk.ResponseType.NONE)
+        self.look_button = Gtk.Button(label=str(_("Look in folder...")))
+        self.look_button.set_tooltip_text(
+            str(
+                _(
+                    "Search a folder (and its subfolders) for the missing files "
+                    "and use them where they are: by the old folder layout, by "
+                    "content, or by file name."
+                )
+            )
+        )
+        self.look_button.set_sensitive(len(self.rows) > 0)
+        self.look_button.connect("clicked", self.cb_look_in_folder)
+        self.add_action_widget(self.look_button, Gtk.ResponseType.NONE)
 
         self.apply_button = Gtk.Button(label=str(_("Apply")))
         self.apply_button.set_sensitive(len(self.rows) > 0)
@@ -2113,7 +2847,9 @@ class FindMissingMediaDialog(Gtk.Dialog):
                     "Review media records whose files are missing on disk. "
                     "Type the updated path, choose the file with the folder button next to it, "
                     "or click 'Accept hints' if found in the media directory, then press 'Apply'. "
-                    "Choosing a file also fills in other records missing a file of the same name."
+                    "Choosing a file also fills in other records missing a file of the same name. "
+                    "'Look in folder...' finds many files at once, for example after "
+                    "moving a whole folder."
                 )
             )
         )
@@ -2184,7 +2920,11 @@ class FindMissingMediaDialog(Gtk.Dialog):
         self.column_sizegroups[2].add_widget(new_path_head)
         self.column_sizegroups[3].add_widget(hint_head)
 
-        content.pack_start(self.build_rows(self.rows), True, True, 0)
+        content.pack_start(
+            self.preview_layout(self.build_rows(self.rows)), True, True, 0
+        )
+        if self.row_targets:
+            self.show_row_preview(self.row_targets[0])
 
     def build_rows(self, entries: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
         """
@@ -2246,6 +2986,14 @@ class FindMissingMediaDialog(Gtk.Dialog):
                 "hint_label": hint_label,
             }
             browse_button.connect("clicked", self.cb_pick_file, target)
+            # Typing, accepting a hint, choosing or queueing a file all change
+            # the entry; the preview follows when this row is shown.
+            path_entry.connect(
+                "changed", lambda *_args, row=target: self.refresh_preview(row)
+            )
+            self.watch_row(
+                grid, [media_label, curr_label, path_box, hint_label], target
+            )
             self.row_targets.append(target)
             row_index += 1
 
@@ -2257,6 +3005,56 @@ class FindMissingMediaDialog(Gtk.Dialog):
         scrolled.set_vexpand(True)
         scrolled.add(grid)
         return scrolled
+
+    def preview_source(self, target: dict[str, Any]) -> tuple[str, str]:
+        """
+        Work out which file a row would use, and how to describe it.
+
+        The entered path wins, then the hint's suggestion.
+
+        :param target: The row.
+        :returns: ``(full path or "", caption)``.
+        """
+        entry = target["entry"]
+        who = "[%s] %s" % (
+            entry.get("gramps_id", ""),
+            entry.get("desc") or _("(unnamed)"),
+        )
+        text = clean_path(target["path_entry"].get_text().strip())
+        if text:
+            if target.get("picked") and target.get("picked_text") == text:
+                full = target["picked"]
+            elif is_absolute_path(text):
+                full = text
+            else:
+                full = os.path.join(self.base_dir, text)
+            if not os.path.isfile(full):
+                return full, str(_("%(who)s: new path '%(path)s' is not a file")) % {
+                    "who": who,
+                    "path": text,
+                }
+            return full, str(_("%s: new path")) % who
+        suggestion = entry.get("suggested_path", "")
+        if suggestion:
+            full = (
+                suggestion
+                if is_absolute_path(suggestion)
+                else os.path.join(self.base_dir, suggestion)
+            )
+            if entry.get("match") == "content":
+                return full, str(_("%s: suggested (same content)")) % who
+            return full, str(_("%s: suggested (same file name)")) % who
+        return "", str(_("%s: no file chosen yet")) % who
+
+    def update_preview(self, target: dict[str, Any]) -> None:
+        """
+        Show the row's file with the record's reference regions outlined.
+
+        :param target: The row.
+        """
+        full, caption = self.preview_source(target)
+        regions = number_regions(self.regions_for(target["entry"].get("handle", "")))
+        self.preview.show_file(full, caption, regions)
 
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
         """
@@ -2313,6 +3111,12 @@ class FindMissingMediaDialog(Gtk.Dialog):
             return
         self._last_pick_dir = os.path.dirname(picked)
         chosen = str(_("Chosen: %s")) % picked
+        stored = entry.get("checksum", "")
+        digest = file_checksum(picked) if stored else ""
+        if digest and digest != stored:
+            chosen += " " + str(
+                _("(its content differs from the file this record had)")
+            )
         self.set_picked_file(target, picked, chosen)
         filled = self.fill_same_name(target, picked)
         if filled:
@@ -2332,15 +3136,13 @@ class FindMissingMediaDialog(Gtk.Dialog):
         Put a chosen file into a row's New Path entry.
 
         A file inside the media base path is shown relative to it, as Gramps
-        stores it.  Any copy queued by "Copy from folder..." is dropped, because
-        the chosen file is used where it is.
+        stores it.
 
         :param target: The row to fill.
         :param picked: Full path of the chosen file.
         :param hint: Text for the row's hint column.
         """
         text = to_db_path(picked, self.base_dir)
-        target.pop("copy_src", None)
         target["picked"] = picked
         target["picked_text"] = text
         target["path_entry"].set_text(text)
@@ -2358,6 +3160,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
         wanted = os.path.normcase(os.path.basename(picked))
         source_dir = missing_file_dir(source["entry"].get("raw_path", ""))
         source_id = source["entry"].get("gramps_id") or picked
+        picked_sum: str | None = None  # read only if a row has a checksum
         filled = 0
         for target in self.row_targets:
             if target is source:
@@ -2367,6 +3170,28 @@ class FindMissingMediaDialog(Gtk.Dialog):
             raw = target["entry"].get("raw_path", "")
             if os.path.normcase(missing_file_name(raw)) != wanted:
                 continue
+            stored = target["entry"].get("checksum", "")
+            if stored:
+                if picked_sum is None:
+                    picked_sum = file_checksum(picked)
+                if picked_sum and picked_sum != stored:
+                    # Same name, but its checksum says it is another file.
+                    target["hint_label"].set_text(
+                        str(
+                            _(
+                                "Not filled: %s has this file name but different "
+                                "content"
+                            )
+                        )
+                        % os.path.basename(picked)
+                    )
+                    continue
+                if picked_sum:
+                    self.set_picked_file(
+                        target, picked, str(_("Same content as %s")) % source_id
+                    )
+                    filled += 1
+                    continue
             if missing_file_dir(raw) == source_dir:
                 hint = str(_("Same file as %s")) % source_id
             else:
@@ -2423,23 +3248,25 @@ class FindMissingMediaDialog(Gtk.Dialog):
                 self.path_entry.set_text(selected_path)
         chooser.destroy()
 
-    def cb_copy_from_folder(self, _button: Gtk.Button) -> None:
-        """Match missing files by name in a folder you can read and queue copies
-        into the media directory (performed when Apply is pressed)."""
-        if not self._mediapath_text:
+    def cb_look_in_folder(self, _button: Gtk.Button) -> None:
+        """
+        Search a chosen folder for the missing files and fill in the rows.
+
+        Only rows without a new path are filled, each with a file that
+        exists (and, for a record with a checksum, has the same content).
+        A preview says what was found and how before anything is filled in;
+        nothing is saved until Apply is pressed.
+        """
+        open_rows = [t for t in self.row_targets if not t["path_entry"].get_text()]
+        if not open_rows:
             OkDialog(
-                str(_("Set a base media path first")),
-                str(
-                    _(
-                        "Copying needs a destination. Set the base media path above, "
-                        "then try again."
-                    )
-                ),
+                str(_("Nothing to look for")),
+                str(_("Every row already has a new path.")),
                 parent=self,
             )
             return
         chooser = Gtk.FileChooserDialog(
-            title=str(_("Select folder containing the missing files")),
+            title=str(_("Select the folder to search for the missing files")),
             transient_for=self,
             action=Gtk.FileChooserAction.SELECT_FOLDER,
             buttons=(
@@ -2449,6 +3276,8 @@ class FindMissingMediaDialog(Gtk.Dialog):
                 Gtk.ResponseType.OK,
             ),
         )
+        if self._last_pick_dir and os.path.isdir(self._last_pick_dir):
+            chooser.set_current_folder(self._last_pick_dir)
         folder = (
             chooser.get_filename() if chooser.run() == Gtk.ResponseType.OK else None
         )
@@ -2459,40 +3288,55 @@ class FindMissingMediaDialog(Gtk.Dialog):
         if perm:
             OkDialog(
                 str(_("Folder not readable")),
-                str(_("Cannot read '%s'. Copy the files to a folder you own first."))
-                % (where or folder),
+                str(_("Cannot read '%s'.")) % (where or folder),
                 parent=self,
             )
             return
+        self._last_pick_dir = folder
+
         index = build_basename_index(folder)
-        queued = 0
-        for target in self.row_targets:
-            if target["path_entry"].get_text():
-                continue
-            raw = clean_path(target["entry"].get("raw_path", ""))
-            hits = index.get(os.path.basename(raw.replace("\\", "/")).lower(), [])
-            if len(hits) != 1:  # none, or ambiguous
-                continue
-            target["copy_src"] = hits[0]
-            target["path_entry"].set_text(os.path.basename(hits[0]))
-            target["hint_label"].set_text(str(_("Will copy from %s")) % hits[0])
-            queued += 1
-        OkDialog(
-            str(_("Copies queued")),
-            ngettext(
-                "Queued %d file to copy into the media directory. "
-                "Review and press Apply.",
-                "Queued %d files to copy into the media directory. "
-                "Review and press Apply.",
-                queued,
+        rows = [
+            (
+                t["entry"].get("handle", ""),
+                t["entry"].get("raw_path", ""),
+                t["entry"].get("checksum", ""),
             )
-            % queued,
-            parent=self,
+            for t in open_rows
+        ]
+        content_index = missing_content_index(
+            [p for paths in index.values() for p in paths],
+            [(raw, checksum) for _h, raw, checksum in rows],
+            self,
         )
+        results = find_in_chosen_folder(rows, folder, index, content_index)
+        labels = {
+            t["entry"].get("handle", ""): "[%s] %s"
+            % (
+                t["entry"].get("gramps_id", ""),
+                t["entry"].get("desc") or _("(unnamed)"),
+            )
+            for t in open_rows
+        }
+        text, count = format_folder_search(results, folder, labels)
+        if not count:
+            OkDialog(str(_("No missing files found")), text, parent=self)
+            return
+        accept = ngettext("_Use %d file", "_Use %d files", count) % count
+        if not confirm_text(self, str(_("Look in folder - preview")), text, accept):
+            return
+        hints = {
+            "folder": _("Found in chosen folder (same folder layout)"),
+            "content": _("Found in chosen folder (same content)"),
+            "name": _("Found in chosen folder (same file name)"),
+        }
+        for target in open_rows:
+            found = results.get(target["entry"].get("handle", ""), {})
+            if found.get("file"):
+                self.set_picked_file(target, found["file"], str(hints[found["how"]]))
 
     def cb_apply(self, _button: Gtk.Button) -> None:
         """
-        Repoint records to the entered paths, copying queued files first.
+        Repoint records to the entered paths.
 
         A record is never pointed at a file that does not exist. If the base
         media path changed, other relative records are kept pointing at their
@@ -2501,9 +3345,7 @@ class FindMissingMediaDialog(Gtk.Dialog):
         :param _button: The button that was clicked.
         """
         applied = 0
-        copied = 0
         skipped: list[str] = []
-        claimed: set[str] = set()
         repointed: set[MediaHandle] = set()
         base = self.base_dir
         # Note where every relative record's file is before a base-path
@@ -2511,7 +3353,6 @@ class FindMissingMediaDialog(Gtk.Dialog):
         base_changed = self._mediapath_text != self._orig_mediapath
         snapshot = snapshot_resolved_paths(self.dbstate.db) if base_changed else {}
         rebased = 0
-        move_log = MoveLog(base, "Find missing media")
         with DbTxn(_("Update Missing Media Paths"), self.dbstate.db) as trans:
             if base_changed:
                 self.dbstate.db.set_mediapath(self._mediapath_text or None)
@@ -2532,38 +3373,16 @@ class FindMissingMediaDialog(Gtk.Dialog):
                     media = None
                 if media is None:
                     continue
-                store_path = new_path
-                copy_src = target.get("copy_src")
-                if copy_src:
-                    dest = (
-                        new_path
-                        if is_absolute_path(new_path)
-                        else os.path.join(base, new_path)
-                    )
-                    dest = unique_destination(dest, claimed, copy_src)
-                    ok, err = relocate_file(copy_src, dest, copy=True)
-                    if not ok:
-                        skipped.append("%s (%s)" % (new_path, err))
-                        continue
-                    store_path = to_db_path(dest, base)
-                    move_log.record(
-                        "copy",
-                        media,
-                        clean_path(str(media.get_path() or "")),
-                        store_path,
-                        copy_src,
-                        dest,
-                    )
-                    copied += 1
-                else:
-                    # A relative path is checked against the base media path
-                    # only (it used to fall back to the working directory, so
-                    # a path Gramps cannot open could be stored).
-                    exists = os.path.exists(full_media_path(self.dbstate.db, new_path))
-                    if not exists:  # never repoint a record at a missing file
-                        skipped.append(new_path)
-                        continue
-                media.set_path(store_path)
+                new_full = full_media_path(self.dbstate.db, new_path)
+                # A relative path is checked against the base media path only
+                # (it used to fall back to the working directory, so a path
+                # Gramps cannot open could be stored).
+                if not os.path.exists(new_full):  # never point at a missing file
+                    skipped.append(new_path)
+                    continue
+                media.set_path(new_path)
+                # The record may now point at another file: store its checksum.
+                refresh_checksum(media, new_full)
                 add_media_fixed_tag(self.dbstate.db, media, txn=trans)
                 self.dbstate.db.commit_media(media, trans)
                 repointed.add(media.get_handle())
@@ -2584,23 +3403,13 @@ class FindMissingMediaDialog(Gtk.Dialog):
             return
 
         msg = str(_("Updated %d media file paths in the database.")) % applied
-        if copied:
-            msg += (
-                " "
-                + ngettext(
-                    "Copied %d file into the media directory.",
-                    "Copied %d files into the media directory.",
-                    copied,
-                )
-                % copied
-            )
         if skipped:
-            msg += "\n\n" + _(
-                "Skipped %(count)d (not found or copy failed):\n%(paths)s"
-            ) % {"count": len(skipped), "paths": "\n".join(skipped[:10])}
+            msg += "\n\n" + _("Skipped %(count)d (file not found):\n%(paths)s") % {
+                "count": len(skipped),
+                "paths": "\n".join(skipped[:10]),
+            }
         if extra:
             msg += "\n\n" + extra
-        msg += move_log_summary(move_log)
         OkDialog(str(_("Media Paths Updated")), msg, parent=self)
 
     def show_dialog(self) -> None:
@@ -3261,6 +4070,9 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                         dest_full,
                     )
                     media.set_path(new_rel)
+                    # Moving or copying cannot change the content, so only a
+                    # missing checksum is filled in.
+                    refresh_checksum(media, dest_full, only_if_missing=True)
                     add_media_fixed_tag(db, media, txn=trans)
                     db.commit_media(media, trans)
                     repointed.add(media.get_handle())
@@ -3441,8 +4253,27 @@ class AcceptAllHintsReportDialog(Gtk.Dialog):
         self.destroy()
 
 
-def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> str:
-    """Scan all media objects in database, check existence with os.path.exists(), and return formatted report."""
+def generate_media_fix_report(
+    db: DbReadBase,
+    progress_parent: Any = None,
+    scan_limit: int | None = None,
+    scan_stats: dict[str, Any] | None = None,
+    check_content: bool | None = None,
+) -> str:
+    """
+    Check every media record and its file, and return the report text.
+
+    :param db: The database.
+    :param progress_parent: Parent window for the progress meter.
+    :param scan_limit: Most media files the search for unreferenced files
+        reads (0 = no limit; ``None`` = the saved setting).
+    :param scan_stats: Filled with that search's ``scanned``, ``limit`` and
+        ``truncated`` values, so the caller can offer a full scan.
+    :param check_content: Read every file that has a stored checksum and
+        list those whose content no longer matches (``None`` = the saved
+        setting).
+    :returns: The report.
+    """
     base_dir = get_media_base_path(db) if db else get_media_base_path(None)
     curr_tmpl = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
     total = 0
@@ -3453,6 +4284,11 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
     non_standard = 0
     in_default_path = 0
     outside_default_path = 0
+    with_checksum = 0
+    missing_with_checksum = 0
+    if check_content is None:
+        check_content = bool(config.get(CONFIG_CHECK_CONTENT_KEY))
+    changed_list: list[tuple[str, str, str]] = []
 
     missing_list: list[tuple[str, str, str]] = []
     perm_denied_list: list[tuple[str, str, str, str]] = []
@@ -3476,6 +4312,8 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
     for media in db.iter_media():
         total += 1
         prog.step()
+        has_checksum = bool(media_checksum(media))
+        with_checksum += int(has_checksum)
         m_handle = str(media.get_handle() or "")
         m_gid = str(media.get_gramps_id() or "")
         desc = str(media.get_description() or "")
@@ -3518,30 +4356,38 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
                 full_path = clean_raw
                 norm_key = os.path.normcase(os.path.normpath(clean_raw))
 
-            exists = os.path.exists(full_path) or (
-                is_absolute_path(clean_raw) and os.path.exists(clean_raw)
+            on_disk = ""
+            if os.path.exists(full_path):
+                on_disk = full_path
+            elif is_absolute_path(clean_raw) and os.path.exists(clean_raw):
+                on_disk = clean_raw
+            alt_path = (
+                os.path.join(base_dir, clean_raw)
+                if base_dir and not is_absolute_path(clean_raw)
+                else None
             )
-            if exists:
+            if not on_disk and alt_path and os.path.exists(alt_path):
+                on_disk = alt_path
+            if on_disk:
                 found += 1
+                # An edited or replaced file no longer has its stored
+                # checksum (a file that cannot be read is not reported).
+                if check_content and has_checksum:
+                    digest = file_checksum(on_disk)
+                    if digest and digest != media_checksum(media):
+                        changed_list.append((m_gid, desc, raw_path))
             else:
-                alt_path = (
-                    os.path.join(base_dir, clean_raw)
-                    if base_dir and not is_absolute_path(clean_raw)
-                    else None
-                )
-                if alt_path and os.path.exists(alt_path):
-                    found += 1
-                else:
-                    perm_issue, inaccess_dir = check_path_permission(full_path)
-                    if not perm_issue and alt_path:
-                        perm_issue, inaccess_dir = check_path_permission(alt_path)
+                perm_issue, inaccess_dir = check_path_permission(full_path)
+                if not perm_issue and alt_path:
+                    perm_issue, inaccess_dir = check_path_permission(alt_path)
 
-                    if perm_issue and inaccess_dir:
-                        permission_denied += 1
-                        perm_denied_list.append((m_gid, desc, raw_path, inaccess_dir))
-                    else:
-                        missing += 1
-                        missing_list.append((m_gid, desc, raw_path))
+                if perm_issue and inaccess_dir:
+                    permission_denied += 1
+                    perm_denied_list.append((m_gid, desc, raw_path, inaccess_dir))
+                else:
+                    missing += 1
+                    missing_with_checksum += int(has_checksum)
+                    missing_list.append((m_gid, desc, raw_path))
 
             # Check absolute path
             if is_absolute_path(clean_raw):
@@ -3578,12 +4424,25 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
     # Scan default path for unreferenced multimedia files
     # (skipped when no media base path is configured: the fallback is the user's
     # home folder, and every stray PDF/TXT there would be reported as "unreferenced")
-    scan_stats: dict[str, Any] = {}
+    if scan_stats is None:
+        scan_stats = {}
     base_configured = bool((db.get_mediapath() or "").strip()) if db else False
     unref_disk_files = (
-        find_unreferenced_default_path_files(db, base_dir, stats=scan_stats)
+        find_unreferenced_default_path_files(
+            db, base_dir, max_scan_files=scan_limit, stats=scan_stats
+        )
         if base_configured
         else []
+    )
+    scan_stopped = (
+        _(
+            "Scan stopped at %(limit)d media files: the media folder holds more, "
+            "so this list may be incomplete. Run 'Generate report' again and "
+            "choose to scan all files."
+        )
+        % {"limit": scan_stats.get("limit", 0)}
+        if scan_stats.get("truncated")
+        else ""
     )
 
     rule = "-" * 72
@@ -3610,7 +4469,7 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
     else:
         unref_value = _("n/a (no media base path set)")
     if scan_stats.get("truncated"):
-        unref_value += " " + _("(scan truncated)")
+        unref_value += " " + _("(scan stopped at %d files)") % scan_stats["limit"]
 
     lines: list[str] = [
         "=" * 72,
@@ -3639,6 +4498,23 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
             _("%(files)d files (%(records)d media records)")
             % {"files": len(dup_files), "records": dup_media_count},
         ),
+        metric(
+            _("Records with checksum:"),
+            _("%(with)d of %(total)d") % {"with": with_checksum, "total": total},
+        ),
+        metric(
+            _("Content changed:"),
+            (
+                str(len(changed_list))
+                if check_content
+                else _("not checked (option in the report's Save dialog)")
+            ),
+        ),
+        metric(
+            _("Missing with checksum:"),
+            _("%(with)d of %(missing)d (can be found by content)")
+            % {"with": missing_with_checksum, "missing": missing},
+        ),
         metric(_("Naming template:"), curr_tmpl),
         metric(_("Media Base Path:"), base_dir),
         "",
@@ -3657,7 +4533,7 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
                 lines.append(f"      - [{gid}] {desc}{assoc_part}")
         lines.append("")
 
-    if unref_disk_files:
+    if unref_disk_files or scan_stopped:
         heading(
             _(
                 "UNREFERENCED FILES IN DEFAULT PATH (%d files with no database "
@@ -3665,6 +4541,9 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
             )
             % len(unref_disk_files)
         )
+        if scan_stopped:
+            lines.append("  " + scan_stopped)
+            lines.append("")
         for rel_f in unref_disk_files[:100]:
             lines.append(f"  {rel_f}")
         if len(unref_disk_files) > 100:
@@ -3755,6 +4634,25 @@ def generate_media_fix_report(db: DbReadBase, progress_parent: Any = None) -> st
     if missing_list:
         heading(_("MISSING FILES (%d items):") % len(missing_list))
         for gid, desc, path in missing_list:
+            lines.append(f"  [{gid}] {desc}")
+            lines.append(field(_("Path:"), path))
+        lines.append("")
+
+    if changed_list:
+        heading(
+            _("CONTENT CHANGED SINCE CHECKSUM (%d items, informational):")
+            % len(changed_list)
+        )
+        lines.append(
+            "  "
+            + _(
+                "These files no longer match the checksum stored on their record: "
+                "they were edited (e.g. rotated or re-saved) or replaced. If the "
+                "change was intended, 'Store checksums' records the new content."
+            )
+        )
+        lines.append("")
+        for gid, desc, path in changed_list:
             lines.append(f"  [{gid}] {desc}")
             lines.append(field(_("Path:"), path))
         lines.append("")
@@ -3864,6 +4762,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             ("fix_references", str(_("Fix media references"))),
             ("consolidate_location", str(_("Consolidate media location"))),
             ("clean_notes", str(_("Clean import notes"))),
+            ("checksums", str(_("Store checksums"))),
             ("undo_moves", str(_("Undo last file moves"))),
         ]
 
@@ -3890,12 +4789,16 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
 
     def cb_close(self, dialog: Gtk.Dialog, response: int) -> None:
         """
-        Close the tool window.
+        Close the tool window when Close (or the window's X / Escape) is used.
+
+        GTK also emits a response for the "Accept all hints" button, because
+        it sits in the action area; that response must not close the tool.
 
         :param dialog: The dialog.
         :param response: The response id.
         """
-        self.close()
+        if response in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
+            self.close()
 
     def cb_generate_report(self) -> None:
         """Prompt file chooser for GWizardMediaFixReport.txt and write generated report."""
@@ -3913,6 +4816,19 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         )
         chooser.set_current_name("GWizardMediaFixReport.txt")
         chooser.set_do_overwrite_confirmation(True)
+        content_box = Gtk.CheckButton(
+            label=str(_("Check file contents against stored checksums (slower)"))
+        )
+        content_box.set_tooltip_text(
+            str(
+                _(
+                    "Reads every media file that has a checksum and lists the "
+                    "ones that were edited or replaced since."
+                )
+            )
+        )
+        content_box.set_active(bool(config.get(CONFIG_CHECK_CONTENT_KEY)))
+        chooser.set_extra_widget(content_box)
 
         # Start in the same folder the Export assistant uses (the last
         # folder exported to or saved a report in), so the report lands
@@ -3938,8 +4854,24 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             return
 
         config.set("paths.recent-export-dir", os.path.dirname(target_path))
+        check_content = bool(content_box.get_active())
+        config.set(CONFIG_CHECK_CONTENT_KEY, check_content)
 
-        report_text = generate_media_fix_report(self.dbstate.db, self.window)
+        stats: dict[str, Any] = {}
+        report_text = generate_media_fix_report(
+            self.dbstate.db, self.window, scan_stats=stats, check_content=check_content
+        )
+        if stats.get("truncated"):
+            choice = ask_full_scan(self.window, stats["limit"])
+            if choice == "always":
+                config.set(CONFIG_SCAN_LIMIT_KEY, 0)
+            if choice:
+                report_text = generate_media_fix_report(
+                    self.dbstate.db,
+                    self.window,
+                    scan_limit=0,
+                    check_content=check_content,
+                )
         try:
             with open(target_path, "w", encoding="utf-8") as handle:
                 handle.write(report_text)
@@ -3988,6 +4920,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 title=str(_("Find Missing Media")),
                 dbstate=self.dbstate,
                 transient_for=self.window,
+                uistate=getattr(self, "uistate", None),
             )
             dlg.show_dialog()
         elif key == "fix_references":
@@ -3995,6 +4928,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 title=str(_("Fix Media References")),
                 dbstate=self.dbstate,
                 transient_for=self.window,
+                uistate=getattr(self, "uistate", None),
             )
             dlg.show_dialog()
         elif key == "consolidate_location":
@@ -4010,6 +4944,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             self.cb_auto_all()
         elif key == "clean_notes":
             self.cb_clean_notes()
+        elif key == "checksums":
+            self.cb_store_checksums()
         elif key == "undo_moves":
             self.cb_undo_moves()
 
@@ -4025,35 +4961,23 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         unresolved: list[tuple[str, str, str]] = []
         perm_denied: list[tuple[str, str, str, str]] = []
 
-        name_index = media_dir_index(db, base_dir)
-
-        # Pass 1: work out every match without changing anything, so that a
-        # file wanted by several different records can be held back.
+        # Pass 1: work out every match without changing anything (the same
+        # matching as the preview), so that a file wanted by several
+        # different records is held back.
         matches: list[tuple[Any, str, str, str, str]] = []  # media,gid,desc,raw,rel
-        for media in list(db.iter_media()):
+        for media, clean_raw, match in match_missing_media(
+            db, base_dir, getattr(self, "window", None)
+        ):
             m_gid = str(media.get_gramps_id() or "")
             desc = str(media.get_description() or "")
             raw_path = str(media.get_path() or "")
-            clean_raw = clean_path(raw_path)
-            if not clean_raw:
+            if match["path"]:
+                matches.append((media, m_gid, desc, raw_path, match["path"]))
                 continue
-
             try:
                 full_path = media_path_full(db, clean_raw)
             except Exception:
                 full_path = clean_raw
-
-            exists = os.path.exists(full_path) or (
-                is_absolute_path(clean_raw) and os.path.exists(clean_raw)
-            )
-            if exists:
-                continue
-
-            basename = os.path.basename(clean_raw.replace("\\", "/"))
-            found_rel = find_in_media_dir(base_dir, basename, name_index)
-            if found_rel:
-                matches.append((media, m_gid, desc, raw_path, found_rel))
-                continue
             perm_issue, inaccess_dir = check_path_permission(full_path)
             if not perm_issue and is_absolute_path(clean_raw):
                 perm_issue, inaccess_dir = check_path_permission(clean_raw)
@@ -4062,22 +4986,26 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             else:
                 unresolved.append((m_gid, desc, raw_path))
 
-        unsafe = ambiguous_matches(
-            [(m.get_handle(), raw, rel) for m, _g, _d, raw, rel in matches]
-        )
-
-        # Pass 2: repoint only the unambiguous matches.
+        # Pass 2: repoint the matches and store each file's checksum.
         with DbTxn(_("Auto Find Missing Media"), db) as trans:
             for media, m_gid, desc, raw_path, found_rel in matches:
-                if str(media.get_handle()) in unsafe:
-                    unresolved.append((m_gid, desc, raw_path))
-                    continue
                 media.set_path(found_rel)
+                refresh_checksum(media, full_media_path(db, found_rel))
                 add_media_fixed_tag(db, media, txn=trans)
                 db.commit_media(media, trans)
                 resolved_count += 1
 
         return resolved_count, unresolved, perm_denied
+
+    def _auto_store_checksums(self, db: DbWriteBase) -> int:
+        """
+        Store a checksum on every record whose file is readable but has none.
+
+        :returns: Number of records given a checksum.
+        """
+        return store_media_checksums(
+            db, only_missing=True, parent=getattr(self, "window", None)
+        )[0]
 
     def _auto_fix_references(self, db: DbWriteBase) -> tuple[int, int, list[str]]:
         """Auto resolve duplicate media references and purge unreferenced image tags.
@@ -4097,14 +5025,14 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 h = group["keeper"]["handle"]
                 try:
                     cand = db.get_media_from_handle(h)
-                    if cand is None or not is_bare_media(cand):
+                    if cand is None or not is_bare_media(cand, db):
                         errors.append(
                             "[%s] unreferenced, but has notes/attributes/tags/date - kept; review manually"
                             % group["keeper"].get("gramps_id", "")
                         )
                         continue
                     with DbTxn(_("Remove Unreferenced Media"), db) as trans:
-                        db.remove_media(h, trans)
+                        remove_media_with_import_notes(db, h, trans)
                         deleted_count += 1
                 except Exception as err:
                     LOG.exception("Auto remove unreferenced media failed: %s", err)
@@ -4124,6 +5052,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                                 self.dbstate, keeper_media, other_media
                             )
                             query.execute()
+                            fill_merged_checksum(db, keeper_media, other_media)
                             add_media_fixed_tag(db, keeper_media, commit=True)
                             merged_count += 1
                     except Exception as err:
@@ -4148,14 +5077,9 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             return 0, []
         if not (db.get_mediapath() or "").strip():
             # Without an explicit base path the fallback is the user's home
-            # folder; never dump every media file there unattended.
-            return 0, [
-                (
-                    "",
-                    "",
-                    "(halted: set the base media path in 'Consolidate media location' first)",
-                )
-            ]
+            # folder; never dump every media file there unattended.  The
+            # summary explains why this step was skipped.
+            return 0, []
 
         curr_tmpl = config.get(CONFIG_TEMPLATE_KEY) or DEFAULT_FILENAME_TEMPLATE
         consolidated_count = 0
@@ -4190,6 +5114,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                         move["dest_full"],
                     )
                     media.set_path(new_rel)
+                    refresh_checksum(media, move["dest_full"], only_if_missing=True)
                     add_media_fixed_tag(db, media, txn=trans)
                     db.commit_media(media, trans)
                 consolidated_count += 1
@@ -4241,6 +5166,48 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             msg += "\n\n" + str(_("Needs review (%d):")) % len(problems)
             msg += "\n" + "\n".join(problems[:15])
         OkDialog(str(_("File moves undone")), msg, parent=self.window)
+
+    def cb_store_checksums(self) -> None:
+        """Store or update the checksum of every readable media file."""
+        db = self.dbstate.db
+        total = db.get_number_of_media()
+        without = sum(1 for m in db.iter_media() if not media_checksum(m))
+        confirm = QuestionDialog2(
+            str(_("Store checksums")),
+            _(
+                "Read every media file and store its checksum (MD5) on its "
+                "record?\n\n"
+                "Media records: %(total)d (without a checksum: %(without)d)\n\n"
+                "A checksum lets 'Find missing media' recognize a file after it "
+                "has been renamed or moved. Checksums of files that cannot be "
+                "read now are kept. This can be undone with Edit > Undo."
+            )
+            % {"total": total, "without": without},
+            str(_("_Store checksums")),
+            str(_("_Cancel")),
+            parent=self.window,
+        )
+        if not confirm.run():
+            return
+        added, updated, unreadable = store_media_checksums(
+            db, only_missing=False, parent=self.window
+        )
+        msg = _(
+            "Checksums added: %(added)d\n"
+            "Checksums updated (file content changed): %(updated)d"
+        ) % {"added": added, "updated": updated}
+        if unreadable:
+            msg += (
+                "\n\n"
+                + ngettext(
+                    "%d record's file could not be read; its checksum (if any) was kept.",
+                    "%d records' files could not be read; their checksums (if any) "
+                    "were kept.",
+                    unreadable,
+                )
+                % unreadable
+            )
+        OkDialog(str(_("Checksums stored")), msg, parent=self.window)
 
     def cb_clean_notes(self) -> None:
         """Remove 'Records not imported into OBJE' notes whose problem is fixed."""
@@ -4314,7 +5281,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
 
         plan_progress = _Progress(str(_("Planning fixes")), 1, self.window)
         try:
-            plan = build_accept_all_plan(db, base_dir, base_set)
+            plan = build_accept_all_plan(db, base_dir, base_set, self.window)
         finally:
             plan_progress.close()
 
@@ -4328,7 +5295,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         if not confirm_plan(self.window, format_plan(plan)):
             return
 
-        prog = _Progress(str(_("Applying fixes")), 3, self.window)
+        prog = _Progress(str(_("Applying fixes")), 4, self.window)
 
         # Step 1: Find missing media
         missing_count, _unused_missing, _unused_denied = self._auto_find_missing(db)
@@ -4341,6 +5308,10 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         # Step 3: Consolidate media locations
         self.last_move_log_note = ""
         consolidated_count, unconsolidated = self._auto_consolidate_location(db)
+        prog.step()
+
+        # Step 4: Store checksums, so files renamed later can still be found
+        checksum_count = self._auto_store_checksums(db)
         prog.step()
         prog.close()
 
@@ -4356,8 +5327,10 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 consolidated_count,
             ) % {"count": consolidated_count, "folder": base_dir}
         else:
-            consolidate_line = str(
-                _("  • Consolidate media location: skipped (no base media path set).")
+            consolidate_line = (
+                str(_("  • Consolidate media location: skipped."))
+                + "\n    "
+                + str(NO_BASE_PATH_REASON)
             )
 
         lines = [
@@ -4376,6 +5349,12 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             )
             % {"merged": merged_count, "deleted": deleted_count},
             consolidate_line,
+            ngettext(
+                "  • Store checksums: %d record given a checksum.",
+                "  • Store checksums: %d records given a checksum.",
+                checksum_count,
+            )
+            % checksum_count,
             "",
         ]
         if self.last_move_log_note:

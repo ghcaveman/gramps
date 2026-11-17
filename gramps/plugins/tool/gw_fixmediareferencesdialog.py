@@ -43,7 +43,7 @@ from gi.repository import Gtk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.db import DbReadBase, DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.merge.mergemediaquery import MergeMediaQuery
 from gramps.gen.utils.file import media_path_full
 from gramps.gui.dialog import OkDialog
@@ -61,6 +61,10 @@ try:
         unique_destination,
         relocate_file,
         add_media_fixed_tag,
+        refresh_checksum,
+        media_checksum,
+        gramps_id_key,
+        remove_media_with_import_notes,
     )
 except (ImportError, ValueError):
     from gwizard_common import (  # type: ignore[import-not-found,no-redef]
@@ -75,10 +79,28 @@ except (ImportError, ValueError):
         unique_destination,
         relocate_file,
         add_media_fixed_tag,
+        refresh_checksum,
+        media_checksum,
+        gramps_id_key,
+        remove_media_with_import_notes,
     )
 
-_ = glocale.translation.sgettext
-ngettext = glocale.translation.ngettext
+try:
+    from .gw_mediapreview import PreviewRowsMixin, number_regions
+except (ImportError, ValueError):
+    from gw_mediapreview import (  # type: ignore[import-not-found,no-redef]
+        PreviewRowsMixin,
+        number_regions,
+    )
+
+# Addon translations (the package's locale/ folder) fall back to Gramps' own;
+# as a built-in tool there is no locale/ folder and Gramps' are used.
+try:
+    _trans = glocale.get_addon_translator(__file__)
+except ValueError:
+    _trans = glocale.translation
+_ = _trans.sgettext
+ngettext = _trans.ngettext
 LOG = logging.getLogger(__name__)
 
 
@@ -96,6 +118,29 @@ def media_base_path(db: DbReadBase) -> str:
             get_media_base_path,
         )
     return get_media_base_path(db)
+
+
+def fill_merged_checksum(db: DbWriteBase, keeper: Any, other: Any) -> None:
+    """
+    Give a merged keeper the checksum it lacks (committed in its own step).
+
+    The merged records pointed at the same file, so the other record's
+    checksum is used, or the file is read when neither had one.
+
+    :param db: The database.
+    :param keeper: The record that was kept (already merged and committed).
+    :param other: The record merged into it.
+    """
+    if media_checksum(keeper):
+        return
+    if other is not None and media_checksum(other):
+        keeper.set_checksum(media_checksum(other))
+    elif not refresh_checksum(
+        keeper, full_media_path(db, clean_path(str(keeper.get_path() or "")))
+    ):
+        return
+    with DbTxn(_("Store media checksum"), db) as trans:
+        db.commit_media(keeper, trans)
 
 
 def find_duplicate_media_groups(
@@ -172,7 +217,7 @@ def find_duplicate_media_groups(
                 "perm_issue": perm_issue,
                 "inaccess_dir": inaccess_dir,
                 "media": media,
-                "bare": is_bare_media(media),
+                "bare": is_bare_media(media, db),
             }
         )
 
@@ -185,7 +230,7 @@ def find_duplicate_media_groups(
                     -rec["backlink_count"],
                     not rec["assoc"],
                     not rec["desc"],
-                    rec["gramps_id"],
+                    gramps_id_key(rec["gramps_id"]),
                 )
             )
             keeper = records[0]
@@ -232,7 +277,7 @@ def find_duplicate_media_groups(
 # FixMediaReferencesDialog
 #
 # ------------------------------------------------------------
-class FixMediaReferencesDialog(Gtk.Dialog):
+class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
     """Review and resolve duplicate references where a single media file is used for multiple references, or unreferenced image tags."""
 
     def __init__(
@@ -240,6 +285,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         title: str | None = None,
         dbstate: Any = None,
         transient_for: Gtk.Window | None = None,
+        uistate: Any = None,
     ) -> None:
         """
         Scan the tree and build the review table.
@@ -247,6 +293,7 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         :param title: Window title (defaults to "Fix Media References").
         :param dbstate: The Gramps database state.
         :param transient_for: Parent window.
+        :param uistate: Gramps' UI state (for opening a previewed file).
         """
         dialog_title = title or str(_("Fix Media References"))
         super().__init__(
@@ -259,7 +306,8 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         self.groups: list[dict[str, Any]] = []
         self.rows: list[dict[str, Any]] = []
         self.row_targets: list[dict[str, Any]] = []
-        self.set_default_size(1360, 520)
+        self.set_default_size(1360, 720)
+        self.init_preview(uistate)
 
         if dbstate and dbstate.db:
             self.groups = find_duplicate_media_groups(dbstate.db)
@@ -342,7 +390,11 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         self.column_sizegroups[2].add_widget(action_head)
         self.column_sizegroups[3].add_widget(hint_head)
 
-        content.pack_start(self.build_rows(self.groups), True, True, 0)
+        content.pack_start(
+            self.preview_layout(self.build_rows(self.groups)), True, True, 0
+        )
+        if self.row_targets:
+            self.show_row_preview(self.row_targets[0])
 
     def build_rows(self, groups: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
         """
@@ -469,14 +521,16 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                 self.column_sizegroups[2].add_widget(action_combo)
                 self.column_sizegroups[3].add_widget(hint_label)
 
-            self.row_targets.append(
-                {
-                    "group": group,
-                    "action_combo": action_combo,
-                    "hint_label": hint_label,
-                    "suggested_action": suggested_action,
-                }
+            target = {
+                "group": group,
+                "action_combo": action_combo,
+                "hint_label": hint_label,
+                "suggested_action": suggested_action,
+            }
+            self.watch_row(
+                grid, [file_label, ref_label, action_combo, hint_label], target
             )
+            self.row_targets.append(target)
             row_index += 1
 
         scrolled = Gtk.ScrolledWindow()
@@ -487,6 +541,40 @@ class FixMediaReferencesDialog(Gtk.Dialog):
         scrolled.set_vexpand(True)
         scrolled.add(grid)
         return scrolled
+
+    def update_preview(self, target: dict[str, Any]) -> None:
+        """
+        Show the group's file with every record's references outlined, one
+        colour per media record, so a merge's result can be seen.
+
+        :param target: The row.
+        """
+        group = target["group"]
+        records = group["records"]
+        db = self.dbstate.db if self.dbstate else None
+        full = full_media_path(db, group["raw_path"]) if db else group["raw_path"]
+        regions: list[dict[str, Any]] = []
+        for index, rec in enumerate(records):
+            for region in self.regions_for(rec["handle"], "[%s]" % rec["gramps_id"]):
+                region["record"] = index
+                regions.append(region)
+        if group.get("type") == "unreferenced":
+            caption = str(_("[%s] has no references.")) % group["keeper"]["gramps_id"]
+        else:
+            caption = ngettext(
+                "%(count)d media record shares this file (one colour per record); "
+                "merging keeps all %(refs)d references on [%(gid)s].",
+                "%(count)d media records share this file (one colour per record); "
+                "merging keeps all %(refs)d references on [%(gid)s].",
+                len(records),
+            ) % {
+                "count": len(records),
+                "refs": len(regions),
+                "gid": group["keeper"]["gramps_id"],
+            }
+        if not os.path.isfile(full):
+            caption += " " + str(_("The file cannot be found or read."))
+        self.preview.show_file(full, caption, number_regions(regions, "record"))
 
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
         """
@@ -549,7 +637,9 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                             with DbTxn(
                                 _("Remove Unreferenced Media"), self.dbstate.db
                             ) as trans:
-                                self.dbstate.db.remove_media(handle, trans)
+                                remove_media_with_import_notes(
+                                    self.dbstate.db, handle, trans
+                                )
                                 deleted_count += 1
                         except Exception as err:
                             LOG.exception(
@@ -581,6 +671,9 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                                 self.dbstate, keeper_media, other_media
                             )
                             query.execute()
+                            fill_merged_checksum(
+                                self.dbstate.db, keeper_media, other_media
+                            )
                             add_media_fixed_tag(
                                 self.dbstate.db, keeper_media, commit=True
                             )
@@ -640,6 +733,11 @@ class FixMediaReferencesDialog(Gtk.Dialog):
                                 dest_full,
                             )
                             other_media.set_path(new_rel)
+                            # A copy has the same content: fill in a missing
+                            # checksum only.
+                            refresh_checksum(
+                                other_media, dest_full, only_if_missing=True
+                            )
                             add_media_fixed_tag(self.dbstate.db, other_media, txn=trans)
                             self.dbstate.db.commit_media(other_media, trans)
                 if len(move_log):
