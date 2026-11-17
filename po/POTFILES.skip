@@ -737,3 +737,4 @@ gramps/plugins/tool/test/gwizard_gtk_fakes.py
 gramps/plugins/tool/test/gwizardmediafix_ex_test.py
 gramps/plugins/tool/test/gwizardmediafix_fixes_test.py
 gramps/plugins/tool/test/gwizardmediafix_test.py
+gramps/plugins/tool/test/gwizardmediafix_translation_test.py
