@@ -404,12 +404,27 @@ class _FakeScrolledWindow(_Lenient):
         self.children.append(child)
 
 
+class _FakeCheckButton(_Lenient):
+    """A check box: remembers whether it is ticked."""
+
+    def __init__(self, *args: Any, label: str = "", **kwargs: Any) -> None:
+        self.label = label
+        self._active = False
+
+    def set_active(self, val: bool) -> None:
+        self._active = bool(val)
+
+    def get_active(self) -> bool:
+        return self._active
+
+
 _FAKES: dict[str, Any] = {
     "Dialog": _FakeDialog,
     "Label": _FakeLabel,
     "Grid": _FakeGrid,
     "Entry": _FakeEntry,
     "RadioButton": _FakeRadioButton,
+    "CheckButton": _FakeCheckButton,
     "ComboBoxText": _FakeComboBoxText,
     "Button": _FakeButton,
     "ComboBox": _FakeComboBox,
@@ -419,6 +434,8 @@ _FAKES: dict[str, Any] = {
     "CellRendererText": _FakeWidget,
     "FileChooserDialog": _FakeFileChooserDialog,
     "Image": _FakeWidget,
+    # The media preview pane's image holder.
+    "EventBox": _FakeWidget,
     "Paned": _FakeWidget,
     # Gramps' ProgressMeter (used by the media fix) builds a progress bar;
     # a real one needs a display and crashes a headless test run.
@@ -434,14 +451,24 @@ _originals: dict[str, Any] = {}
 
 def gtk() -> Any:
     """
-    Return the ``Gtk`` module, mocking PyGObject when it has not been loaded.
+    Return the ``Gtk`` module, mocking PyGObject only when it is not installed.
+
+    The real PyGObject is preferred, so tests that draw on real images (the
+    media preview) work whichever test module is imported first.
 
     :returns: The (real or mock) ``Gtk`` module.
     """
     if "gi" not in sys.modules:
-        gi_mock = MagicMock()
-        sys.modules["gi"] = gi_mock
-        sys.modules["gi.repository"] = gi_mock.repository
+        try:
+            # pylint: disable-next=import-outside-toplevel
+            import gi
+
+            gi.require_version("Gtk", "3.0")
+            gi.require_version("Gdk", "3.0")
+        except (ImportError, ValueError):
+            gi_mock = MagicMock()
+            sys.modules["gi"] = gi_mock
+            sys.modules["gi.repository"] = gi_mock.repository
     from gi.repository import Gtk  # pylint: disable=import-outside-toplevel
 
     return Gtk

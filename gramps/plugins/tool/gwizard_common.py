@@ -52,9 +52,15 @@ from gi.repository import Gtk, Pango
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.lib import Tag
-from gramps.gen.utils.file import media_path_full
+from gramps.gen.utils.file import create_checksum, media_path_full
 
-_ = glocale.translation.sgettext
+# Addon translations (the package's locale/ folder) fall back to Gramps' own;
+# as a built-in tool there is no locale/ folder and Gramps' are used.
+try:
+    _trans = glocale.get_addon_translator(__file__)
+except ValueError:
+    _trans = glocale.translation
+_ = _trans.sgettext
 LOG = logging.getLogger(__name__)
 
 # "C:\..." or "C:/..." - a Windows drive path, recognised on every platform
@@ -305,11 +311,68 @@ def full_media_path(db: DbReadBase, raw_path: str | None) -> str:
         return text
 
 
-def is_bare_media(media: Any) -> bool:
+#: Start of the note Gramps' GEDCOM import attaches to a media record whose
+#: file it could not find (or whose tags it could not read).
+IMPORT_NOTE_PREFIX = "Records not imported into OBJE"
+
+_GRAMPS_ID_RE = re.compile(r"^(\D*)(\d+)(.*)$")
+
+
+def gramps_id_key(gid: str) -> tuple[str, int, str]:
+    """Sort key that orders Gramps IDs by their number, so M7 comes before M17.
+
+    :param gid: A Gramps ID such as ``M7`` or ``I00012``.
+    :returns: ``(prefix, number, rest)``; IDs without a number sort by text.
+    """
+    text = str(gid or "")
+    found = _GRAMPS_ID_RE.match(text)
+    if not found:
+        return (text, -1, "")
+    return (found.group(1), int(found.group(2)), found.group(3))
+
+
+def import_note_handles(db: DbReadBase | None, media: Any) -> list[str]:
+    """Return the handles of a media record's GEDCOM-import debris notes.
+
+    :param db: The database (``None`` means no notes can be read).
+    :param media: A media record.
+    :returns: Handles of notes starting with :data:`IMPORT_NOTE_PREFIX`.
+    """
+    if db is None:
+        return []
+    handles: list[str] = []
+    for handle in list(media.get_note_list() or []):
+        try:
+            note = db.get_note_from_handle(handle)
+        except Exception:  # noqa: BLE001 - a broken note is not debris
+            continue
+        if note is not None and str(note.get()).lstrip().startswith(IMPORT_NOTE_PREFIX):
+            handles.append(handle)
+    return handles
+
+
+def remove_media_with_import_notes(db: DbWriteBase, handle: str, trans: DbTxn) -> None:
+    """Remove a media record and the import-debris notes only it used.
+
+    :param db: The database.
+    :param handle: Handle of the media record to remove.
+    :param trans: The open transaction.
+    """
+    media = db.get_media_from_handle(handle)
+    debris = import_note_handles(db, media) if media is not None else []
+    db.remove_media(handle, trans)
+    for note_handle in debris:
+        if not list(db.find_backlink_handles(note_handle)):
+            db.remove_note(note_handle, trans)
+
+
+def is_bare_media(media: Any, db: DbReadBase | None = None) -> bool:
     """Return True when a media record carries nothing worth keeping.
 
     A record with notes, attributes, tags, citations or a date is not bare and
-    must never be deleted automatically.
+    must never be deleted automatically. When *db* is given, the "Records not
+    imported into OBJE" notes left by the GEDCOM import don't count: they are
+    import debris, not the user's own notes.
     """
 
     def _has(name: str) -> bool:
@@ -317,9 +380,11 @@ def is_bare_media(media: Any) -> bool:
         method = getattr(media, name, None)
         return bool(method()) if callable(method) else False
 
+    notes = list(getattr(media, "get_note_list", lambda: [])() or [])
+    real_notes = set(notes) - set(import_note_handles(db, media)) if notes else set()
     date = media.get_date_object() if hasattr(media, "get_date_object") else None
     return not (
-        _has("get_note_list")
+        bool(real_notes)
         or _has("get_attribute_list")
         or _has("get_tag_list")
         or _has("get_citation_list")
@@ -419,6 +484,187 @@ def build_basename_index(base_dir: str, limit: int = 50000) -> dict[str, list[st
             if seen >= limit:
                 return index
     return index
+
+
+# ------------------------------------------------------------
+#
+# Media checksums (MD5, exactly as Gramps and Media Verify store them)
+#
+# ------------------------------------------------------------
+#
+# Gramps keeps an MD5 checksum on each media record (Media.get_checksum()).
+# The media editor, the XML importer and the Media Verify addon fill it in;
+# the GEDCOM importer does not.  Gramps' Check and Repair tool recomputes it
+# and *clears* it when the file is missing, so a checksum is only ever written
+# here from a file that can be read, and never cleared.
+#
+# Hashes are cached by (path, size, modification time), so the Accept-all
+# preview and the run that follows read each file only once, and a file
+# changed in between is hashed again.
+#
+ChecksumCache = dict[tuple[str, int, int], str]
+_CHECKSUM_CACHE: ChecksumCache = {}
+_CHECKSUM_CACHE_LIMIT = 200000
+
+# Extensions that name the same kind of file: a renamed file often changes
+# ".jpeg" to ".jpg", so they are searched together.
+_EXTENSION_FAMILIES = (
+    (".jpg", ".jpeg", ".jpe", ".jfif"),
+    (".tif", ".tiff"),
+    (".mpg", ".mpeg"),
+    (".htm", ".html"),
+)
+_EXTENSION_KEY = {ext: fam[0] for fam in _EXTENSION_FAMILIES for ext in fam}
+
+
+def extension_key(path: str) -> str:
+    """
+    Return a comparable extension for a path (lower case; ".jpeg" -> ".jpg").
+
+    :param path: A file name or path (either slash style).
+    :returns: The extension key, ``""`` for a file without an extension.
+    """
+    ext = os.path.splitext(clean_path(path).replace("\\", "/"))[1].lower()
+    return _EXTENSION_KEY.get(ext, ext)
+
+
+def media_checksum(media: Any) -> str:
+    """
+    Return a media record's stored checksum (``""`` when it has none).
+
+    :param media: The media record.
+    :returns: The stored MD5 hex digest.
+    """
+    getter = getattr(media, "get_checksum", None)
+    return str(getter() or "") if callable(getter) else ""
+
+
+def file_checksum(full_path: str, cache: ChecksumCache | None = None) -> str:
+    """
+    Return the MD5 checksum of a file, as Gramps stores it.
+
+    :param full_path: The file's full path.
+    :param cache: Hash cache; the module-wide cache when ``None``.
+    :returns: The hex digest, or ``""`` if the file cannot be read.
+    """
+    if not full_path:
+        return ""
+    store = _CHECKSUM_CACHE if cache is None else cache
+    try:
+        info = os.stat(full_path)
+    except (OSError, ValueError):
+        return ""
+    if not os.path.isfile(full_path):
+        return ""
+    key = (path_key(full_path), info.st_size, info.st_mtime_ns)
+    if key in store:
+        return store[key]
+    digest = create_checksum(full_path)
+    if digest:
+        if len(store) >= _CHECKSUM_CACHE_LIMIT:
+            store.clear()
+        store[key] = digest
+    return digest
+
+
+def refresh_checksum(
+    media: Any,
+    full_path: str,
+    only_if_missing: bool = False,
+    cache: ChecksumCache | None = None,
+) -> bool:
+    """
+    Store the checksum of the record's file on the record (not committed).
+
+    Nothing changes when the file cannot be read: an existing checksum is
+    kept, because it still identifies the file the record is looking for.
+
+    :param media: The media record.
+    :param full_path: Full path of the file the record now points at.
+    :param only_if_missing: Only fill in an empty checksum.  Use this after a
+        move or copy, which cannot change the file's content.
+    :param cache: Hash cache; the module-wide cache when ``None``.
+    :returns: True if the record's checksum changed.
+    """
+    current = media_checksum(media)
+    if only_if_missing and current:
+        return False
+    digest = file_checksum(full_path, cache)
+    if not digest or digest == current:
+        return False
+    media.set_checksum(digest)
+    return True
+
+
+def build_checksum_index(
+    files: list[str],
+    wanted: set[str],
+    extensions: set[str] | None = None,
+    cache: ChecksumCache | None = None,
+    step: Any = None,
+) -> dict[str, list[str]]:
+    """
+    Map checksum -> full paths for the files whose checksum is wanted.
+
+    Only files whose extension (see :func:`extension_key`) is in
+    *extensions* are read, so a search for missing photos does not hash
+    every video in the folder.
+
+    :param files: Candidate files (full paths), e.g. the values of
+        :func:`build_basename_index`.
+    :param wanted: Checksums being looked for; nothing is read when empty.
+    :param extensions: Extension keys to read; every file when ``None``.
+    :param cache: Hash cache; the module-wide cache when ``None``.
+    :param step: Called once per file read (progress meter), or ``None``.
+    :returns: The index (only wanted checksums are kept).
+    """
+    index: dict[str, list[str]] = {}
+    if not wanted:
+        return index
+    for path in files:
+        if extensions is not None and extension_key(path) not in extensions:
+            continue
+        digest = file_checksum(path, cache)
+        if step is not None:
+            step()
+        if digest in wanted:
+            index.setdefault(digest, []).append(path)
+    return index
+
+
+def hash_candidates(files: list[str], extensions: set[str] | None = None) -> list[str]:
+    """
+    Return the files :func:`build_checksum_index` would read.
+
+    :param files: Candidate files (full paths).
+    :param extensions: Extension keys to read; every file when ``None``.
+    :returns: The files to hash (for sizing a progress meter).
+    """
+    if extensions is None:
+        return list(files)
+    return [path for path in files if extension_key(path) in extensions]
+
+
+def pick_content_match(hits: list[str], wanted_name: str) -> str:
+    """
+    Choose the file for a checksum match, or ``""`` when it is not safe.
+
+    One file with the checksum is the match.  Several identical copies are
+    only resolved when exactly one of them still has the record's file name
+    (as Media Verify does); otherwise the user must choose.
+
+    :param hits: Files with the record's checksum.
+    :param wanted_name: The file name the record had.
+    :returns: The chosen file's full path, or ``""``.
+    """
+    if len(hits) == 1:
+        return hits[0]
+    same_name = [
+        hit
+        for hit in hits
+        if os.path.basename(hit).casefold() == wanted_name.casefold()
+    ]
+    return same_name[0] if len(same_name) == 1 else ""
 
 
 # ------------------------------------------------------------
@@ -900,6 +1146,9 @@ def undo_logged_run(db: DbWriteBase, log_path: str) -> tuple[int, int, list[str]
                 problems.append("[%s] %s" % (gid, _("path changed since; left alone")))
                 continue
             media.set_path(old_db)
+            # The record may now point at a different file than the one its
+            # checksum describes (e.g. a copy is left behind).
+            refresh_checksum(media, full_media_path(db, old_db))
             commit_object(db, media, trans)
             records_back += 1
     marker = {field: "" for field in MOVE_LOG_FIELDS}
