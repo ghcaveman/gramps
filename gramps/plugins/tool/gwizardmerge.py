@@ -26,8 +26,7 @@
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
-import os
-import sys
+import logging
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -38,47 +37,40 @@ from typing import Any
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.plug import tool
 
-# When installed as a standalone addon, sibling modules live in the addon
-# directory, which Gramps removes from sys.path after import.  Re-add it
-# (once) so the shared helper and the launcher can be imported.
-_ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
-if _ADDON_DIR not in sys.path:
-    sys.path.insert(0, _ADDON_DIR)
-
-from gwizardaddonutil import (
-    run_flow,
-)  # noqa: E402  pylint: disable=wrong-import-position
-
 _ = glocale.translation.sgettext
+LOG = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------
 #
-# GWizardMergeToolOptions
+# GWizardFileMergeOptions
 #
 # ------------------------------------------------------------
-class GWizardMergeToolOptions(tool.ToolOptions):
+class GWizardFileMergeOptions(tool.ToolOptions):
     """Defines options and provides handling interface."""
 
     def __init__(self, name: str, person_id: str | None = None) -> None:
         """Initialize the options."""
         tool.ToolOptions.__init__(self, name, person_id)
-        self.options_dict: dict[str, Any] = {}
-        self.options_help: dict[str, Any] = {}
+        self.options_dict = {}
+        self.options_help = {}
 
 
 # ------------------------------------------------------------
 #
-# GWizardMergeTool
+# GWizardFileMerge
 #
 # ------------------------------------------------------------
-class GWizardMergeTool(tool.Tool):
+class GWizardFileMerge(tool.Tool):
     """
     Launch the GWizard Data Merge flow.
 
-    Ask for a source file, load it, and open the side-by-side compare
-    window.  Identical to the Family Trees menu entry.
+    Thin wrapper around the shared launcher: ask for a source file,
+    load it, and open the side-by-side compare window.
     """
+
+    # Open the alternate compare window (see GWizardFileMergeAlt).
+    alternate = False
 
     def __init__(
         self,
@@ -88,13 +80,45 @@ class GWizardMergeTool(tool.Tool):
         name: str,
         callback: Any = None,
     ) -> None:
-        """Initialize the tool and run the shared flow."""
+        """Initialize the tool and run the shared merge flow."""
+        uistate = user.uistate
         tool.Tool.__init__(self, dbstate, options_class, name)
-        run_flow(
-            getattr(user, "uistate", None),
-            dbstate,
-            addon_module="gwizardlauncher",
-            core_module="gramps.gui.gwizard.gwizardlauncher",
-            func_name="run_gwizard_merge_flow",
-            title=_("GWizard File Merge"),
+        # When installed as a standalone addon, sibling modules live in the
+        # addon directory, which Gramps removes from sys.path after import.
+        # Re-add it so "from gwizardlauncher import ..." keeps working here
+        # and inside the sibling modules themselves.
+        import os as _os
+        import sys as _sys
+
+        _addon_dir = _os.path.dirname(_os.path.abspath(__file__))
+        if _addon_dir not in _sys.path:
+            _sys.path.insert(0, _addon_dir)
+        try:
+            from gwizardlauncher import run_gwizard_merge_flow
+        except ImportError:
+            # Running from the source tree: fall back to the core location.
+            from gramps.gui.gwizard.gwizardlauncher import (
+                run_gwizard_merge_flow,
+            )
+
+        run_gwizard_merge_flow(
+            uistate, dbstate, parent=uistate.window, alternate=self.alternate
         )
+
+
+# ------------------------------------------------------------
+#
+# GWizardFileMergeAlt
+#
+# ------------------------------------------------------------
+class GWizardFileMergeAlt(GWizardFileMerge):
+    """
+    Launch the GWizard Data Merge flow with the alternate compare window.
+
+    The alternate window has match settings at the top, lists every
+    incoming person on the left, and on the right lists only the tree
+    people similar to the selected one, closest first and preselected.
+    It opens the same merge dialog.
+    """
+
+    alternate = True

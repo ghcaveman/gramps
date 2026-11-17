@@ -1,8 +1,8 @@
 {{Third-party plugin}}
-{{Languages|Addon:<PluginName>}}
+{{Languages|Addon:gwizard_filemerge}}
 
 {| class="wikitable" style="float:right; margin-left: 1em; width: 280px;"
-! colspan="2" style="background:#e8eef5; text-align:center;" | <Plugin Display Name>
+! colspan="2" style="background:#e8eef5; text-align:center;" | GWizard File Merge
 |-
 
 | '''Addon ID''' || <code><plugin_id></code>
@@ -20,28 +20,91 @@
 | '''Source Code''' || {{github_url|<PluginDirectory>}}
 |}
 
-'''<Plugin Display Name>''' is a third-party [[Addons|addon]] that <one-sentence summary of the genealogical problem it solves>.
+'''GWizard File Merge''' is a third-party [[Addons|addon]] that <one-sentence summary of the genealogical problem it solves>.
 
-[[File:<PluginName>-main.png|thumb|right|350px|<Plugin Display Name> main interface]]
+[[File:gwizard_filemerge-main.png|thumb|right|350px|GWizard File Merge main interface]]
 
 == Overview ==
 
-Describe what '''gwizard_filemerge''' does and what genealogical workflow it improves.
-
-[[File:gwizard_filemerge-main.png|thumb|gwizard_filemerge main dialog]]
+GWizard File Merge is a Family Tree Processing tool for Gramps. It loads an external genealogy file — GEDCOM, Gramps XML, or any other supported import format — into a temporary source database and shows it side by side with the open Family Tree in the GWizard Compare window. You can then review each incoming person against a matched person in your tree and merge selected differences person by person, or add an incoming person as a brand-new record. Matches are suggested automatically, differing fields are offered one by one, and references that would otherwise become broken links (notes, media, citations, sources, repositories) are detected and offered for import before anything is written.
 
 == Usage ==
 
-# Open Gramps and navigate to '''[VERIFY MENU PATH]'''.
-# Configure your desired options and click '''OK'''.
+# With your Family Tree open, choose '''Tools → Family Tree Processing → GWizard File Merge''' from the menu.
+# In the '''Select File to Compare''' file chooser, browse to the external genealogy file and click '''OK'''. The chooser offers '''All supported files''' and '''All files''' filters.
+# While the file is read, a '''Loading Data Merge''' progress meter appears ("Reading the selected file...", then "Building the comparison window..."). If the file cannot be read, a '''Load Failed''' error is shown and nothing changes.
+# The '''GWizard Compare''' window opens, showing incoming people on the left and your Family Tree on the right. Difference status is shown per row; use the category sections to show '''Individual Details''', '''Family Relations''', '''Children''', or '''Events & Other Records'''.
+
+   [[File:gwizard_filemerge-compare.png|thumb|GWizard Compare window showing the incoming file side by side with the open Family Tree]]
+
+# Step through the people that have differences using the '''Previous''' and '''Next''' buttons.
+# For each person, choose one of:
+* '''Merge...''' — open the field-by-field merge dialog for a matched person.
+* '''Add as New...''' — copy an unmatched incoming person into your Family Tree as a new person.
+
+The main window toolbar buttons (left to right, excluding '''Close''') are:
+
+* '''Previous''' — Move to the previous person that has differences (wraps to the last).
+* '''Next''' — Move to the next person that has differences (wraps to the first).
+* '''Add as New...''' — Add the selected incoming person as a new person in your Family Tree.
+* '''Merge...''' — Open the field-by-field merge dialog for the currently selected matched person pair.
+
+=== Previous ===
+
+# Make sure a person pair is shown in the compare window.
+# Click '''Previous'''.
+# The compare window re-highlights the previous person pair with differences and scrolls both panels to it. No new window opens.
+
+=== Next ===
+
+# Make sure a person pair is shown in the compare window.
+# Click '''Next'''.
+# The compare window re-highlights the next person pair with differences and scrolls both panels to it. No new window opens.
+
+=== Add as New... ===
+
+# In the left panel, select an incoming person that has no match in your Family Tree.
+# Click '''Add as New...'''.
+# The '''Add as New Person''' dialog opens, showing the incoming person's name and a preview of relatives already in your tree.
+
+   [[File:gwizard_filemerge-add-as-new.png|thumb|Add as New Person dialog with the Link family relationships checkbox]]
+
+# The '''Link family relationships''' checkbox is checked by default. Leave it checked to link the new person's relatives (father, mother, spouse, children) to matching people already in your tree; relatives with no match are linked when they are added.
+# Click '''Add'''. The incoming person, with their birth and death events and places, is copied into your Family Tree and the compare window refreshes.
+# If some relationships could not be linked, a '''Some relationships were not linked''' warning lists them after the add completes.
+
+=== Merge... ===
+
+# In the compare window, select a matched person pair (a person found in both the incoming file and your Family Tree). '''Merge...''' does nothing for an unmatched person.
+# Click '''Merge...'''.
+# The '''GWizard Merge''' dialog opens, showing each field of the incoming person on the left against the same field of your tree person on the right.
+
+   [[File:gwizard_filemerge-merge.png|thumb|GWizard Merge dialog with field-by-field source versus target values and => arrow buttons]]
+
+# Fields are grouped under '''Individual Details''', '''Family Relations''' (Father, Mother, Spouse), '''Children''', and '''Events & Other Records'''.
+# For any field where you want the incoming value, click the '''=>''' ("Move X to current family tree") arrow button next to that row. Clicked buttons change to a check mark and become insensitive, recording that the source value will be taken. Fields you leave alone keep your tree's current value.
+# Click '''Apply'''.
+# Before anything is written, the dialog checks for references (notes, media, citations, sources, repositories) that exist in the incoming file but not in your tree. If any are missing, a '''Confirm Importing Missing References''' warning asks whether to import them — answer '''Yes''' to import them along with the merge, or '''No''' to cancel and change your selection.
+# The merge runs in a single transaction, so either all accepted changes are written or none are. On success the dialog closes and the compare window refreshes; on failure a '''Merge failed''' error is shown and no changes are made.
 
 == Configure Options ==
 
-* '''Option 1''': Description of option 1.
+* '''Category sections''' — switch the detail panels between '''Individual Details''', '''Family Relations''', '''Children''', and '''Events & Other Records'''.
+* '''Link family relationships''' checkbox — in the '''Add as New Person''' dialog, checked by default; links matched relatives to existing people in your tree.
+* '''=> arrow buttons''' — one per comparable field in the '''GWizard Merge''' dialog; clicking one selects the incoming value for that field ("Move X to current family tree").
+* '''File filters''' — in the '''Select File to Compare''' chooser, choose '''All supported files''' (based on installed importers) or '''All files'''.
+* No separate tool options dialog — the tool's options class defines no configurable options, so the tool launches directly from the menu.
 
 == Features ==
 
-* Key feature 1.
+* Compare an external genealogy file (GEDCOM, Gramps XML, ...) side by side with the open Family Tree.
+* Merge differences person by person, field by field: given name, surname, surname prefix, nickname, call name, gender, birth, death, FamilySearch ID, sources, and relationships.
+* Add an incoming person as a new record in your tree, duplicating their events and places.
+* Link family relationships (father, mother, spouse, children) when adding a new person.
+* Accept only chosen differences with per-field '''=>''' arrow buttons; everything else stays as-is in your tree.
+* Automatic detection of dangling references (notes, media, citations, sources, repositories) with an option to import them before merging, preventing broken links.
+* All changes are applied in one database transaction that is rolled back if anything fails.
+* Progress meter while loading, and error handling for files that cannot be read.
 == Prerequisites ==
 * Gramps 6.1.x
 * <Optional external Python dependencies, e.g., Pillow, networkx — omit if none>

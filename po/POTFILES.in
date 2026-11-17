@@ -378,7 +378,7 @@ gramps/gen/fs/sync_directions.py
 gramps/gen/fs/tags.py
 gramps/gen/fs/utils/attributes.py
 gramps/gen/fs/utils/linking.py
-gramps/gen/gwizard/gwizard_base.py
+gramps/gen/gwizard/gwizard.py
 gramps/gen/gwizard/gwizardgedcom.py
 gramps/gen/gwizard/gwizardwikitree.py
 gramps/gen/lib/address.py
@@ -653,6 +653,7 @@ gramps/gui/glade/styleeditor.glade
 gramps/gui/glade/tipofday.glade
 gramps/gui/glade/updateaddons.glade
 gramps/gui/grampsgui.py
+gramps/gui/gwizard/gwizardaltcompare.py
 gramps/gui/gwizard/gwizardcompare.py
 gramps/gui/gwizard/gwizardlauncher.py
 gramps/gui/gwizard/gwizardmergedialog.py
