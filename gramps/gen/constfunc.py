@@ -118,15 +118,16 @@ def has_display():
         from gi.repository import Gtk
         from gi.repository import Gdk
     except ImportError:
+        sys.argv = temp
         return False
 
     try:
-        test = Gtk.init_check(temp) and Gdk.Display.get_default()
-        sys.argv = temp
-        return bool(test)
-    except:
-        sys.argv = temp
+        initialized, _args = Gtk.init_check(temp)
+        return bool(initialized and Gdk.Display.get_default())
+    except Exception:
         return False
+    finally:
+        sys.argv = temp
 
 
 # A couple of places add menu accelerators using <alt>, which doesn't

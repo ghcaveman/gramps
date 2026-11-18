@@ -21,6 +21,9 @@
 """Unittest for constfunc.py"""
 
 import unittest
+import sys
+import types
+from unittest.mock import Mock, patch
 from .. import constfunc
 
 from os import environ as env
@@ -40,6 +43,25 @@ class Test_has_display(unittest.TestCase):
                 self.has, env["DISPLAY"] if ("DISPLAY" in env) else "(unset)"
             ),
         )
+
+
+class Test_has_display_init_check(unittest.TestCase):
+    """Test handling of Gtk.init_check's (success, argv) result."""
+
+    def test_failed_gtk_init_is_not_a_display(self):
+        gtk = Mock()
+        gtk.init_check.return_value = (False, [])
+        gdk = Mock()
+        gdk.Display.get_default.return_value = object()
+        repository = types.ModuleType("gi.repository")
+        repository.Gtk = gtk
+        repository.Gdk = gdk
+        gi = types.ModuleType("gi")
+        gi.require_version = Mock()
+        gi.repository = repository
+
+        with patch.dict(sys.modules, {"gi": gi, "gi.repository": repository}):
+            self.assertFalse(constfunc.has_display())
 
 
 if __name__ == "__main__":
