@@ -382,7 +382,10 @@ class FixReferencesPreviewTest(_PreviewDbTest):
         self.add_event("Census", h_2)
         dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
         shown = dlg.preview.shown
-        self.assertEqual(shown["full_path"], path)
+        self.assertEqual(
+            os.path.normcase(os.path.normpath(shown["full_path"])),
+            os.path.normcase(os.path.normpath(path)),
+        )
         self.assertEqual(len(shown["regions"]), 3)
         colors: dict[str, set[str]] = {}
         for region in shown["regions"]:
