@@ -130,7 +130,7 @@ class GWizardAltCompareWindow(GWizardCompareWindow):
         self._ranked: dict[str, list[tuple[float, PersonHandle]]] = {}
         self._source_order: dict[str, int] = {}
         self._right_source: str | None = None
-        self._right_iters: dict[str, Gtk.TreeIter] = {}
+        self._right_iters: dict[PersonHandle, Gtk.TreeIter] = {}
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         box.pack_start(self._build_settings_bar(), False, False, 0)
@@ -490,12 +490,14 @@ class GWizardAltCompareWindow(GWizardCompareWindow):
     # ------------------------------------------------------------------
     # The right panel: similar people for the selected incoming person
     # ------------------------------------------------------------------
-    def _score_text(self, score: float, target_handle: str, source_handle: str) -> str:
+    def _score_text(
+        self, score: float, target_handle: str, source_handle: str | None
+    ) -> str:
         """
         Return the Match column text of a candidate row.
         """
         text = "%d%%" % score_percent(score)
-        owner = self._pair_map_rev.get(target_handle)
+        owner = self._pair_map_rev.get(PersonHandle(target_handle))
         if owner is not None and owner != source_handle:
             text = _("%s paired") % text
         return text
@@ -555,7 +557,11 @@ class GWizardAltCompareWindow(GWizardCompareWindow):
         )
         ranked = self._rank_for(person) if person is not None else []
         chosen = self._pair_map.get(source_handle) if source_handle else None
-        if chosen and all(handle != chosen for _s, handle in ranked):
+        if (
+            chosen
+            and source_handle is not None
+            and all(handle != chosen for _s, handle in ranked)
+        ):
             # Picked earlier but outside the current list: keep it shown.
             profile = self._target_profiles.get(chosen)
             score = 0.0
@@ -612,18 +618,21 @@ class GWizardAltCompareWindow(GWizardCompareWindow):
         """
         Make ``target_handle`` (or nobody) the match of an incoming person.
         """
+        target_person_handle = (
+            PersonHandle(target_handle) if target_handle is not None else None
+        )
         old = self._pair_map.get(source_handle)
         if old != target_handle:
             if old and self._pair_map_rev.get(old) == source_handle:
                 del self._pair_map_rev[old]
-            if target_handle:
-                owner = self._pair_map_rev.get(target_handle)
+            if target_person_handle:
+                owner = self._pair_map_rev.get(target_person_handle)
                 if owner and owner != source_handle and self._settings.one_to_one:
                     # The tree person moves to this incoming person.
                     self._pair_map[owner] = None
                     self._set_diff_entry(owner, None)
-                self._pair_map_rev[target_handle] = source_handle
-            self._pair_map[source_handle] = target_handle
+                self._pair_map_rev[target_person_handle] = source_handle
+            self._pair_map[source_handle] = target_person_handle
             self._set_diff_entry(source_handle, target_handle)
             self._refresh_score_texts()
         self._set_detail_sections(self.left_panel, source_handle)
@@ -727,16 +736,17 @@ class GWizardAltCompareWindow(GWizardCompareWindow):
         list for the rest of the session and leave it unmatched, so it can
         be added as new or another candidate picked.
         """
+        target_person_handle = PersonHandle(target_handle)
         self._rejected.setdefault(source_handle, set()).add(target_handle)
         ranked = self._ranked.get(source_handle)
         if ranked is not None:
             self._ranked[source_handle] = [
-                item for item in ranked if item[1] != target_handle
+                item for item in ranked if item[1] != target_person_handle
             ]
         if self._pair_map.get(source_handle) == target_handle:
             self._pair_map[source_handle] = None
-        if self._pair_map_rev.get(target_handle) == source_handle:
-            del self._pair_map_rev[target_handle]
+        if self._pair_map_rev.get(target_person_handle) == source_handle:
+            del self._pair_map_rev[target_person_handle]
         self._set_diff_entry(source_handle, None)
         self._sync_diff_index(source_handle)
         self._show_candidates(source_handle)
