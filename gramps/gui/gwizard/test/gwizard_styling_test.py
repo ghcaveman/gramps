@@ -31,7 +31,7 @@ import os
 import sys
 import unittest
 from typing import cast
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 
 def _has_gtk_display() -> bool:
@@ -409,20 +409,18 @@ class TestGWizardDiffHighlight(unittest.TestCase):
 
     def test_ensure_diff_styles_installed_without_screen(self) -> None:
         """Installing the stylesheet must be safe in a headless run."""
-        from gi.repository import Gdk
-
         from gramps.gui.gwizard import gwizardmergedialog
 
         saved = gwizardmergedialog._DIFF_CSS_INSTALLED
         try:
             gwizardmergedialog._DIFF_CSS_INSTALLED = False
-            result = gwizardmergedialog.ensure_diff_styles_installed()
+            with patch.object(gwizardmergedialog.Gdk, "Screen") as screen:
+                screen.get_default.return_value = None
+                result = gwizardmergedialog.ensure_diff_styles_installed()
         finally:
             gwizardmergedialog._DIFF_CSS_INSTALLED = saved
 
-        self.assertIsInstance(result, bool)
-        if Gdk.Screen.get_default() is None:
-            self.assertFalse(result)
+        self.assertFalse(result)
 
     @unittest.skipUnless(
         _HAS_GTK_DISPLAY,
