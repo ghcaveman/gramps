@@ -50,6 +50,7 @@ from gi.repository import Gdk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.lib import Person
+from gramps.gen.constfunc import has_display
 from gramps.gen.errors import HandleError
 from gramps.gen.gwizard.gwizardgedcom import EXTRA_KINDS, GedGWizard
 from gramps.gen.gwizard.gwizard_base import (
@@ -133,7 +134,7 @@ CATEGORIES = [
 
 # ------------------------------------------------------------
 #
-# Progress meter (no-op if Gramps' ProgressMeter is unavailable)
+# Progress meter (no-op when GTK is unavailable)
 #
 # ------------------------------------------------------------
 class _Progress:
@@ -141,6 +142,8 @@ class _Progress:
 
     def __init__(self, title: str, total: int, parent: Any = None) -> None:
         self.meter: Any = None
+        if not has_display():
+            return
         try:
             from gramps.gui.utils import ProgressMeter
 
