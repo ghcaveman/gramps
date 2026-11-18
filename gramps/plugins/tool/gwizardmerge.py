@@ -26,6 +26,7 @@
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import importlib
 import logging
 from typing import Any
 
@@ -85,8 +86,7 @@ class GWizardFileMerge(tool.Tool):
         tool.Tool.__init__(self, dbstate, options_class, name)
         # When installed as a standalone addon, sibling modules live in the
         # addon directory, which Gramps removes from sys.path after import.
-        # Re-add it so "from gwizardlauncher import ..." keeps working here
-        # and inside the sibling modules themselves.
+        # Re-add it so standalone addon modules remain importable.
         import os as _os
         import sys as _sys
 
@@ -94,13 +94,15 @@ class GWizardFileMerge(tool.Tool):
         if _addon_dir not in _sys.path:
             _sys.path.insert(0, _addon_dir)
         try:
-            from gwizardlauncher import run_gwizard_merge_flow
-        except ImportError:
-            # Running from the source tree: fall back to the core location.
-            from gramps.gui.gwizard.gwizardlauncher import (
-                run_gwizard_merge_flow,
+            launcher_module = importlib.import_module("gwizardlauncher")
+        except ModuleNotFoundError as err:
+            if err.name != "gwizardlauncher":
+                raise
+            launcher_module = importlib.import_module(
+                "gramps.gui.gwizard.gwizardlauncher"
             )
 
+        run_gwizard_merge_flow = getattr(launcher_module, "run_gwizard_merge_flow")
         run_gwizard_merge_flow(
             uistate, dbstate, parent=uistate.window, alternate=self.alternate
         )

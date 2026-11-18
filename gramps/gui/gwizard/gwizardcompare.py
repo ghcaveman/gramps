@@ -843,9 +843,9 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
     def _best_match_with_score(
         self, matcher: CandidateMatcher, source: Person
-    ) -> PersonHandle | None:
+    ) -> tuple[PersonHandle | None, float]:
         """
-        Return the handle of the best matching target person, or None.
+        Return the best matching target handle and score, or (None, 0.0).
         """
         key = self._match_key(source)
         rejected = self._rejected.get(source.handle, set())
@@ -2230,11 +2230,12 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
     def _reject_pair(self, source_handle: str, target_handle: str) -> None:
         """Unpair two people and remember the rejection for this session."""
+        target_person_handle = PersonHandle(target_handle)
         self._rejected.setdefault(source_handle, set()).add(target_handle)
         if self._pair_map.get(source_handle) == target_handle:
             self._pair_map[source_handle] = None
-        if self._pair_map_rev.get(target_handle) == source_handle:
-            del self._pair_map_rev[target_handle]
+        if self._pair_map_rev.get(target_person_handle) == source_handle:
+            del self._pair_map_rev[target_person_handle]
 
         for index, entry in enumerate(self.diff_list):
             if entry["source_handle"] == source_handle:

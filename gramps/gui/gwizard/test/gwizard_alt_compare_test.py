@@ -97,29 +97,33 @@ except (ImportError, ValueError):
     _glib.markup_escape_text = html.escape
 
     _repo = types.ModuleType("gi.repository")
-    _repo.Gtk = _gtk
-    _repo.GLib = _glib
-    _repo.Gio = MagicMock()
-    _repo.Gdk = _DummyClass()
-    _repo.Pango = MagicMock()
-    _repo.PangoCairo = MagicMock()
-    _repo.GObject = _DummyClass()
-    _repo.GdkPixbuf = MagicMock()
+    _repo_attrs = vars(_repo)
+    _repo_attrs.update(
+        {
+            "Gtk": _gtk,
+            "GLib": _glib,
+            "Gio": MagicMock(),
+            "Gdk": _DummyClass(),
+            "Pango": MagicMock(),
+            "PangoCairo": MagicMock(),
+            "GObject": _DummyClass(),
+            "GdkPixbuf": MagicMock(),
+        }
+    )
 
     _gi = types.ModuleType("gi")
-    _gi.repository = _repo
-    _gi.require_version = lambda *args: None
+    vars(_gi).update({"repository": _repo, "require_version": lambda *args: None})
 
     sys.modules["gi"] = _gi
     sys.modules["gi.repository"] = _repo
     sys.modules["gi.repository.Gtk"] = _gtk
     sys.modules["gi.repository.GLib"] = _glib
-    sys.modules["gi.repository.Gio"] = _repo.Gio
-    sys.modules["gi.repository.Gdk"] = _repo.Gdk
-    sys.modules["gi.repository.Pango"] = _repo.Pango
-    sys.modules["gi.repository.PangoCairo"] = _repo.PangoCairo
-    sys.modules["gi.repository.GObject"] = _repo.GObject
-    sys.modules["gi.repository.GdkPixbuf"] = _repo.GdkPixbuf
+    sys.modules["gi.repository.Gio"] = _repo_attrs["Gio"]
+    sys.modules["gi.repository.Gdk"] = _repo_attrs["Gdk"]
+    sys.modules["gi.repository.Pango"] = _repo_attrs["Pango"]
+    sys.modules["gi.repository.PangoCairo"] = _repo_attrs["PangoCairo"]
+    sys.modules["gi.repository.GObject"] = _repo_attrs["GObject"]
+    sys.modules["gi.repository.GdkPixbuf"] = _repo_attrs["GdkPixbuf"]
 
 # -------------------------------------------------------------------------
 #
