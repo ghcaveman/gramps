@@ -9,12 +9,7 @@ from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Date, Event, Name, Person, Source, Citation, Surname
 
-try:
-    # Source tree: the module lives in gramps/plugins/tool.
-    from gramps.plugins.tool import gwizardwikitreeprovenance as prov
-except ImportError:
-    # Installed addon: the module sits next to this test, on sys.path.
-    import gwizardwikitreeprovenance as prov
+from gramps.plugins.tool import gwizardwikitreeprovenance as prov
 
 
 class ProvenanceTest(unittest.TestCase):

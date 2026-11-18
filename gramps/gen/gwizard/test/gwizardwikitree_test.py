@@ -164,6 +164,7 @@ class TestWikiTreeInterface(unittest.TestCase):
         person = client.get_person("Franklin-1")
 
         self.assertIsNotNone(person)
+        assert person is not None
         self.assertEqual(person["FirstName"], "Benjamin")
         mock_get.assert_called_once()
         _, kwargs = mock_get.call_args
@@ -336,6 +337,7 @@ class TestWikiTreeGWizard(unittest.TestCase):
 
         source_db = gw.context.get("source_db")
         self.assertIsNotNone(source_db)
+        assert source_db is not None
 
         # Verify Source and Repository
         sources = list(source_db.iter_source_handles())
@@ -397,6 +399,7 @@ class TestWikiTreeGWizard(unittest.TestCase):
         self.assertEqual(len(people), 2)
 
         source_db = gw.context.get("source_db")
+        assert source_db is not None
         families = list(source_db.iter_family_handles())
         self.assertEqual(len(families), 1)
 
@@ -713,6 +716,7 @@ class TestWikiTreeGWizard(unittest.TestCase):
 
         source_db = gw.context.get("source_db")
         self.assertIsNotNone(source_db)
+        assert source_db is not None
         self.assertEqual(source_db.get_number_of_families(), 1)
 
         fam_handle = list(source_db.iter_family_handles())[0]
@@ -787,6 +791,7 @@ class TestWikiTreeGWizard(unittest.TestCase):
         gw.run_step("load")
 
         source_db = gw.context.get("source_db")
+        assert source_db is not None
         fam_handle = list(source_db.iter_family_handles())[0]
         fam = source_db.get_family_from_handle(fam_handle)
 
@@ -836,6 +841,7 @@ class TestWikiTreeGWizard(unittest.TestCase):
         self.assertEqual(len(people), 4)
 
         source_db = gw.context.get("source_db")
+        assert source_db is not None
         self.assertEqual(source_db.get_number_of_people(), 4)
         # There should be two families: one for Senior+Mother with Junior as child,
         # and one for Junior with Grandchild-1 as child
@@ -921,6 +927,7 @@ class TestWikiTreeGWizard(unittest.TestCase):
         gw.run_step("load")
 
         source_db = gw.context.get("source_db")
+        assert source_db is not None
         p = [
             source_db.get_person_from_handle(h)
             for h in source_db.iter_person_handles()
@@ -1011,6 +1018,7 @@ He passed away and was buried in Christ Church.<ref>Christ Church Burial Registe
         self.assertEqual(len(people), 1)
 
         source_db = gw.context.get("source_db")
+        assert source_db is not None
         person = people[0]
 
         # Verify multiple Sources were created (shared WikiTree + 3 extracted)
@@ -1111,6 +1119,7 @@ He passed away and was buried in Christ Church.<ref>Christ Church Burial Registe
         self.assertEqual(len(people), 1)
 
         source_db = gw.context.get("source_db")
+        assert source_db is not None
         person = people[0]
 
         # 1. Verify Find A Grave Attribute and URL
@@ -1325,6 +1334,7 @@ Sample was born and lived a quiet life.
         gw.run_step("load")
 
         source_db = gw.context.get("source_db")
+        assert source_db is not None
         self.assertEqual(source_db.get_number_of_families(), 1)
         fam = source_db.get_family_from_handle(list(source_db.iter_family_handles())[0])
 
@@ -1363,6 +1373,7 @@ Sample was born and lived a quiet life.
         people = gw.run_step("load")
         person = people[0]
         source_db = gw.context.get("source_db")
+        assert source_db is not None
 
         ev_types = []
         places = []
@@ -1402,6 +1413,7 @@ Sample was born and lived a quiet life.
         p_media_refs = person.get_media_list()
         self.assertEqual(len(p_media_refs), 1)
         media_h = p_media_refs[0].ref
+        assert source_db is not None
         media_obj = source_db.get_media_from_handle(media_h)
         self.assertIn(
             "https://www.wikitree.com/photo.php/thumb/franklin.jpg",
@@ -1441,6 +1453,7 @@ Sample was born and lived a quiet life.
 
         p_media_refs = person.get_media_list()
         self.assertEqual(len(p_media_refs), 1)
+        assert source_db is not None
         media_obj = source_db.get_media_from_handle(p_media_refs[0].ref)
         self.assertEqual(
             media_obj.get_path(), "https://www.wikitree.com/photo/gif/Deborah.gif"
@@ -1467,6 +1480,7 @@ Here is the gravestone: [[Image:Franklin-2-2.jpg|thumb|Josiah gravestone marker]
         people = gw.run_step("load")
         person = people[0]
         source_db = gw.context.get("source_db")
+        assert source_db is not None
 
         # Person should have 2 media items: primary photo + gallery photo from bio
         p_media_refs = person.get_media_list()
@@ -1524,6 +1538,7 @@ Here is the gravestone: [[Image:Franklin-2-2.jpg|thumb|Josiah gravestone marker]
         # 1. Check Birth Place hierarchy (Boston -> Suffolk -> Massachusetts Bay Colony)
         b_ref = person.get_birth_ref()
         self.assertIsNotNone(b_ref)
+        assert source_db is not None
         b_evt = source_db.get_event_from_handle(b_ref.ref)
         b_pl = source_db.get_place_from_handle(b_evt.get_place_handle())
         self.assertEqual(b_pl.get_title(), "Boston, Suffolk, Massachusetts Bay Colony")
@@ -1574,7 +1589,7 @@ Here is the gravestone: [[Image:Franklin-2-2.jpg|thumb|Josiah gravestone marker]
         gw.run_step("connect", query="P1", people_data=[p1, p2])
         people = gw.run_step("load")
         source_db = gw.context.get("source_db")
-
+        assert source_db is not None
         places = [
             source_db.get_place_from_handle(h) for h in source_db.iter_place_handles()
         ]
@@ -1664,6 +1679,7 @@ Here is the gravestone: [[Image:Franklin-2-2.jpg|thumb|Josiah gravestone marker]
         self.assertEqual(attrs.get("WikiTree Manager"), "10988142")
 
         # Verify Citation note contains synchronization metadata
+        assert source_db is not None
         cit = source_db.get_citation_from_handle(person.get_citation_list()[0])
         note_text = " ".join(
             source_db.get_note_from_handle(nh).get() for nh in cit.get_note_list()
