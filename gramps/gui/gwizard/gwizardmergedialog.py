@@ -55,6 +55,7 @@ from gi.repository import Pango
 # -------------------------------------------------------------------------
 from gramps.gen.lib import EventType, Person
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.constfunc import has_display
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.errors import HandleError
 from gramps.gui.dialog import ErrorDialog
@@ -165,6 +166,9 @@ def ensure_diff_styles_installed() -> bool:
     global _DIFF_CSS_INSTALLED
     if _DIFF_CSS_INSTALLED:
         return True
+
+    if not has_display():
+        return False
 
     screen = Gdk.Screen.get_default()
     if screen is None:

@@ -414,13 +414,16 @@ class TestGWizardDiffHighlight(unittest.TestCase):
         saved = gwizardmergedialog._DIFF_CSS_INSTALLED
         try:
             gwizardmergedialog._DIFF_CSS_INSTALLED = False
-            with patch.object(gwizardmergedialog.Gdk, "Screen") as screen:
-                screen.get_default.return_value = None
+            with (
+                patch.object(gwizardmergedialog, "has_display", return_value=False),
+                patch.object(gwizardmergedialog.Gtk, "CssProvider") as provider,
+            ):
                 result = gwizardmergedialog.ensure_diff_styles_installed()
         finally:
             gwizardmergedialog._DIFF_CSS_INSTALLED = saved
 
         self.assertFalse(result)
+        provider.assert_not_called()
 
     @unittest.skipUnless(
         _HAS_GTK_DISPLAY,
