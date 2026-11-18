@@ -78,7 +78,7 @@ jobs:
       run: |
         export GDK_BACKEND=-
         export GRAMPS_RESOURCES=build/share
-        python3 -m unittest discover -p "*_test.py"
+        python3 -m unittest discover -v -p "*_test.py"
     - name: Upload built Python wheels
       uses: actions/upload-artifact@v4
       with:
