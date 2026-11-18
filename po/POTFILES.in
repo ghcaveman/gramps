@@ -378,7 +378,7 @@ gramps/gen/fs/sync_directions.py
 gramps/gen/fs/tags.py
 gramps/gen/fs/utils/attributes.py
 gramps/gen/fs/utils/linking.py
-gramps/gen/gwizard/gwizard.py
+gramps/gen/gwizard/gwizard_base.py
 gramps/gen/gwizard/gwizardgedcom.py
 gramps/gen/lib/address.py
 gramps/gen/lib/attribute.py
@@ -886,6 +886,7 @@ gramps/plugins/tool/eventnames.py
 gramps/plugins/tool/finddupes.glade
 gramps/plugins/tool/finddupes.py
 gramps/plugins/tool/findloop.py
+gramps/plugins/tool/gwizardaddonutil.py
 gramps/plugins/tool/gwizardmerge.py
 gramps/plugins/tool/mediamanager.py
 gramps/plugins/tool/mergecitations.glade
