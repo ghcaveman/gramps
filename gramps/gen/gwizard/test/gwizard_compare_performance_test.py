@@ -36,7 +36,7 @@ import tempfile
 import types
 import unittest
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 try:
     import gi
@@ -95,29 +95,33 @@ except (ImportError, ValueError):
     _glib.markup_escape_text = html.escape
 
     _repo = types.ModuleType("gi.repository")
-    _repo.Gtk = _gtk
-    _repo.GLib = _glib
-    _repo.Gio = MagicMock()
-    _repo.Gdk = _DummyClass()
-    _repo.Pango = MagicMock()
-    _repo.PangoCairo = MagicMock()
-    _repo.GObject = _DummyClass()
-    _repo.GdkPixbuf = MagicMock()
+    _repo_attrs = vars(_repo)
+    _repo_attrs.update(
+        {
+            "Gtk": _gtk,
+            "GLib": _glib,
+            "Gio": MagicMock(),
+            "Gdk": _DummyClass(),
+            "Pango": MagicMock(),
+            "PangoCairo": MagicMock(),
+            "GObject": _DummyClass(),
+            "GdkPixbuf": MagicMock(),
+        }
+    )
 
     _gi = types.ModuleType("gi")
-    _gi.repository = _repo
-    _gi.require_version = lambda *args: None
+    vars(_gi).update({"repository": _repo, "require_version": lambda *args: None})
 
     sys.modules["gi"] = _gi
     sys.modules["gi.repository"] = _repo
     sys.modules["gi.repository.Gtk"] = _gtk
     sys.modules["gi.repository.GLib"] = _glib
-    sys.modules["gi.repository.Gio"] = _repo.Gio
-    sys.modules["gi.repository.Gdk"] = _repo.Gdk
-    sys.modules["gi.repository.Pango"] = _repo.Pango
-    sys.modules["gi.repository.PangoCairo"] = _repo.PangoCairo
-    sys.modules["gi.repository.GObject"] = _repo.GObject
-    sys.modules["gi.repository.GdkPixbuf"] = _repo.GdkPixbuf
+    sys.modules["gi.repository.Gio"] = _repo_attrs["Gio"]
+    sys.modules["gi.repository.Gdk"] = _repo_attrs["Gdk"]
+    sys.modules["gi.repository.Pango"] = _repo_attrs["Pango"]
+    sys.modules["gi.repository.PangoCairo"] = _repo_attrs["PangoCairo"]
+    sys.modules["gi.repository.GObject"] = _repo_attrs["GObject"]
+    sys.modules["gi.repository.GdkPixbuf"] = _repo_attrs["GdkPixbuf"]
 
 # -------------------------------------------------------------------------
 #
@@ -280,7 +284,9 @@ class BestMatchTest(unittest.TestCase):
         self.source_db.close()
 
     def _best(self, source: Person) -> tuple[Any, float]:
-        GWizardCompareWindow._build_target_index(self.window, self.matcher)
+        GWizardCompareWindow._build_target_index(
+            cast(GWizardCompareWindow, self.window), self.matcher
+        )
         return self.window._best_match_with_score(self.matcher, source)
 
     def test_exact_name_and_birth_wins_over_a_namesake(self) -> None:
@@ -353,6 +359,7 @@ class FakeTreeStore:
         self.valid: set[int] = set()
         self.reads = 0
         self.searches = 0
+        self._gwizard_row_iters: dict[str, _Node] = {}
 
     def append(self, parent: _Node | None, values: list[str]) -> _Node:
         node = _Node(parent, values)
@@ -418,7 +425,9 @@ class RowHandlingTest(unittest.TestCase):
         handle.write(PEOPLE_GED)
         handle.close()
         self._path = handle.name
-        self.db = import_as_dict(self._path, User())
+        db = import_as_dict(self._path, User())
+        assert db is not None
+        self.db = db
         self.people = [
             self.db.get_person_from_handle(h) for h in self.db.iter_person_handles()
         ]

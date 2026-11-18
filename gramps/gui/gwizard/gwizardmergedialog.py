@@ -956,9 +956,11 @@ class GWizardMergeDialog(Gtk.Dialog):
                 t_text = self._related_text(t_rel, td) if t_rel else ""
                 s_text = self._related_text(s_rel, sd) if s_rel else ""
                 # A relative the tree person already has needs no arrow.
-                key = (role + ":" + s_rel.handle) if s_rel and not t_rel else None
+                relative_key = (
+                    role + ":" + s_rel.handle if s_rel and not t_rel else None
+                )
                 add_row(
-                    key,
+                    relative_key,
                     title,
                     s_text,
                     t_text,
@@ -975,9 +977,9 @@ class GWizardMergeDialog(Gtk.Dialog):
         ):
             t_text = self._related_text(t_rel, td) if t_rel else ""
             s_text = self._related_text(s_rel, sd) if s_rel else ""
-            key = ("child:" + s_rel.handle) if s_rel and not t_rel else None
+            child_key = "child:" + s_rel.handle if s_rel and not t_rel else None
             add_row(
-                key,
+                child_key,
                 "",
                 s_text,
                 t_text,
@@ -1056,13 +1058,13 @@ class GWizardMergeDialog(Gtk.Dialog):
                     )
                     s_event = safe_get_event(sd, s_handle) if s_handle else None
                     t_event = safe_get_event(td, t_handle) if t_handle else None
-                    key = (
+                    source_event_key: str | None = (
                         primary_source_fields.get(s_handle, "event:" + s_handle)
                         if s_handle
                         else None
                     )
                     add_row(
-                        key,
+                        source_event_key,
                         etype,
                         self._event_line_from(sd, s_event) if s_event else "",
                         self._event_line_from(td, t_event) if t_event else "",
@@ -1085,7 +1087,7 @@ class GWizardMergeDialog(Gtk.Dialog):
             add_row(
                 (
                     "%s:%d" % (kind, s_index)
-                    if s_item is not None and t_item is None
+                    if s_item is not None and t_item is None and s_index is not None
                     else None
                 ),
                 extra_label(kind),
@@ -1211,7 +1213,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         """
         birth_year = self._event_year(db, person, "birth")
         death_year = self._event_year(db, person, "death")
-        birth_place = ""
+        birth_place: str | None = ""
         try:
             _d, birth_place, _h = self._event_for(db, person, "birth")
         except Exception:
@@ -1329,7 +1331,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         Scan selected resolutions to find referenced objects (Notes, Media,
         Citations, Sources, Repositories) that do not exist in target DB.
         """
-        missing = {
+        missing: dict[str, set[str]] = {
             "note": set(),
             "media": set(),
             "source": set(),

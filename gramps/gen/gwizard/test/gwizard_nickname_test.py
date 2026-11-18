@@ -71,11 +71,12 @@ class GWizardNicknameTest(unittest.TestCase):
     def setUp(self) -> None:
         self._paths: list[str] = []
         self.db: Any = None
-        self.gwizard: GedGWizard | None = None
+        self.gwizard: GedGWizard
 
     def tearDown(self) -> None:
-        if self.gwizard is not None:
-            source_db = self.gwizard.context.get("source_db")
+        gwizard = getattr(self, "gwizard", None)
+        if gwizard is not None:
+            source_db = gwizard.context.get("source_db")
             if source_db is not None:
                 source_db.close()
         if self.db is not None:
