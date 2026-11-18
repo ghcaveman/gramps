@@ -38,7 +38,7 @@ import sys
 import tempfile
 import unittest
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 try:
     import gi
@@ -336,6 +336,20 @@ class AltCompareWindowTest(unittest.TestCase):
 
     def diff_sources(self) -> list[str]:
         return [entry["source_handle"] for entry in self.window.diff_list]
+
+    def test_progress_meter_is_skipped_without_a_display(self) -> None:
+        from gramps.gui import utils
+        from gramps.gui.gwizard import gwizardcompare
+
+        with (
+            patch.object(gwizardcompare, "has_display", return_value=False),
+            patch.object(utils, "ProgressMeter") as progress_meter,
+        ):
+            progress = gwizardcompare._Progress("Loading", 1)
+            progress.step()
+            progress.close()
+
+        progress_meter.assert_not_called()
 
     def test_left_panel_lists_every_incoming_person(self) -> None:
         self.assertEqual(
