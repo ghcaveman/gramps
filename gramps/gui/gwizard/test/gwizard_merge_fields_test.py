@@ -32,7 +32,7 @@ and additional surnames must not be mistaken for a match.
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 try:
     import gi
@@ -463,7 +463,14 @@ class GWizardEventGroupingTest(unittest.TestCase):
 
         dialog._format_diff_line = record_diff_line
 
-        GWizardMergeDialog._populate_fields(dialog)
+        from gramps.gui.gwizard import gwizardmergedialog
+
+        with (
+            patch.object(gwizardmergedialog.Gtk, "Label", return_value=Mock()),
+            patch.object(gwizardmergedialog.Gtk, "Separator", return_value=Mock()),
+            patch.object(gwizardmergedialog, "create_diff_cell", return_value=Mock()),
+        ):
+            GWizardMergeDialog._populate_fields(dialog)
         self.assertEqual(recorded_labels, ["Census", "Residence"])
 
     def test_cancelled_merge_does_not_rebuild_the_compare_window(self) -> None:
@@ -729,7 +736,14 @@ class GWizardEventGroupingTest(unittest.TestCase):
 
         dialog._format_diff_line = record_diff_line
 
-        GWizardMergeDialog._populate_fields(dialog)
+        from gramps.gui.gwizard import gwizardmergedialog
+
+        with (
+            patch.object(gwizardmergedialog.Gtk, "Label", return_value=Mock()),
+            patch.object(gwizardmergedialog.Gtk, "Separator", return_value=Mock()),
+            patch.object(gwizardmergedialog, "create_diff_cell", return_value=Mock()),
+        ):
+            GWizardMergeDialog._populate_fields(dialog)
         # The empty Birth events on both sides are not listed at all.
         self.assertEqual(
             rendered_events,
