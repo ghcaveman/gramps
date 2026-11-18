@@ -395,6 +395,9 @@ class TestGWizardDiffHighlight(unittest.TestCase):
         rule = css_text[rule_start:]
         self.assertIn("background-color", rule[: rule.find("}")])
 
+    @unittest.skipUnless(
+        _HAS_GTK_DISPLAY, "CSS provider parsing requires a real Gtk display"
+    )
     def test_diff_css_parses(self) -> None:
         """The dialog stylesheet data must parse without GLib error."""
         from gi.repository import Gtk
