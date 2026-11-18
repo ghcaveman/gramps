@@ -2124,10 +2124,10 @@ class WikiTreeGWizard(GedGWizard):
 
                         cur_p = source_db.get_person_from_handle(p_handle)
                         is_father = cur_p.get_gender() == Person.MALE
-                        f_h = p_handle if is_father else s_handle
-                        m_h = s_handle if is_father else p_handle
+                        spouse_f_h = p_handle if is_father else s_handle
+                        spouse_m_h = s_handle if is_father else p_handle
 
-                        fam = get_or_create_family(f_h, m_h)
+                        fam = get_or_create_family(spouse_f_h, spouse_m_h)
 
                         if not fam.get_event_ref_list():
                             m_status = str(

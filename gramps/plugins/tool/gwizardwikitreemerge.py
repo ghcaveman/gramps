@@ -26,6 +26,7 @@
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import importlib
 import os
 import sys
 from typing import Any
@@ -45,9 +46,11 @@ _ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
 if _ADDON_DIR not in sys.path:
     sys.path.insert(0, _ADDON_DIR)
 
-from gwizardaddonutil import (
-    run_flow,
-)  # noqa: E402  pylint: disable=wrong-import-position
+if __package__:
+    _addon_util = importlib.import_module(".gwizardaddonutil", __package__)
+else:
+    _addon_util = importlib.import_module("gwizardaddonutil")
+run_flow = getattr(_addon_util, "run_flow")
 
 _ = glocale.translation.sgettext
 
