@@ -27,11 +27,15 @@ import os
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parent.parent
-if ROOT.is_dir():
+RESOURCE_DIR = Path.cwd()
+SOURCE_DIR = RESOURCE_DIR / "gramps_source"
+if SOURCE_DIR.is_dir():
+    sys.path.insert(0, str(SOURCE_DIR))
+else:
+    ROOT = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(ROOT))
+    RESOURCE_DIR = Path(os.environ.get("GRAMPS_RESOURCES", ROOT / "build" / "share"))
 
-RESOURCE_DIR = Path(sys.executable).resolve().parent.parent / "Resources"
 os.environ["GRAMPS_RESOURCES"] = str(RESOURCE_DIR)
 
 
