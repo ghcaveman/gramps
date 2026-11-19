@@ -67,7 +67,7 @@ jobs:
         
         # 4. Compile the application bundle from the dedicated py2app config
         cd mac
-        python3 setup_py2app.py py2app --semi-standalone --bundle-identifier=org.gramps-project.gramps --dist-dir ../dist
+        python3 setup_py2app.py py2app --semi-standalone --dist-dir ../dist
         cd ..
 
         # 5. Structure the directory for DMG packaging
