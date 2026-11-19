@@ -52,6 +52,9 @@ jobs:
 
         # 2. Generate the distribution source tarball cleanly
         python3 -m build --sdist
+
+        # 2a. Build the wheel to generate shared resources under build/share
+        python3 -m build --wheel
         
         # 3. Extract version safely directly from the generated filename
         VERSION=$(ls dist/gramps-*.tar.gz | sed 's/dist\/gramps-//;s/\.tar\.gz//')
