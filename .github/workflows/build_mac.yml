@@ -65,9 +65,8 @@ jobs:
         
         echo "App Build version suffix: $appbuild"
         
-        # 4. Compile application bundle using py2app setup
-        # Note: If your repository uses a dedicated setup_mac.py for py2app, switch to that file
-        python3 setup.py py2app --semi-standalone --bundle-identifier=org.gramps-project.gramps
+        # 4. Compile the application bundle from the dedicated py2app config
+        python3 mac/setup_py2app.py py2app --semi-standalone --bundle-identifier=org.gramps-project.gramps
 
         # 5. Structure the directory for DMG packaging
         mkdir dmg_root

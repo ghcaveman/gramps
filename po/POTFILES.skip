@@ -4,6 +4,8 @@
 #
 Gramps.py
 setup.py
+mac/Gramps.py
+mac/setup_py2app.py
 #
 # gramps
 #
