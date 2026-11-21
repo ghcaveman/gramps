@@ -654,17 +654,13 @@ gramps/gui/glade/styleeditor.glade
 gramps/gui/glade/tipofday.glade
 gramps/gui/glade/updateaddons.glade
 gramps/gui/grampsgui.py
-<<<<<<< HEAD
-gramps/gui/gwizard/gwizardcompare.py
-gramps/gui/gwizard/gwizardlauncher.py
-gramps/gui/gwizard/gwizardmergedialog.py
-gramps/gui/gwizard/gwizardnaralauncher.py
-=======
 gramps/gui/gwizard/gwizardaltcompare.py
 gramps/gui/gwizard/gwizardcompare.py
 gramps/gui/gwizard/gwizardlauncher.py
 gramps/gui/gwizard/gwizardmergedialog.py
 gramps/gui/gwizard/gwizard_filemerge_recordscandialog.py
+gramps/gui/gwizard/gwizardnaraattachdialog.py
+gramps/gui/gwizard/gwizardnaralauncher.py
 gramps/gui/logger/_errorreportassistant.py
 gramps/gui/logger/_errorview.py
 gramps/gui/makefilter.py
