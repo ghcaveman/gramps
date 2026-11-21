@@ -30,7 +30,8 @@ Unit tests for the GWizard compare styling functions.
 import os
 import sys
 import unittest
-from unittest.mock import Mock
+from typing import cast
+from unittest.mock import Mock, patch
 
 
 def _has_gtk_display() -> bool:
@@ -56,6 +57,91 @@ def _has_gtk_display() -> bool:
 
 
 _HAS_GTK_DISPLAY = _has_gtk_display()
+
+try:
+    import gi
+
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk
+except (ImportError, ValueError):
+    import html
+    import types
+    from unittest.mock import MagicMock
+
+    class _DummyBase:
+        pass
+
+    class _DummyClass:
+        FILL = 0
+        START = 0
+        END = 0
+        CENTER = 0
+
+        def __init__(self, *args, **kwargs):
+            self._name = ""
+
+        def __call__(self, *args, **kwargs):
+            return self
+
+        def __getattr__(self, name):
+            if name == "get_default":
+                return lambda: None
+            return self
+
+        def __int__(self):
+            return 0
+
+        def __mro_entries__(self, bases):
+            return (type(f"_DummyBase_{id(self)}", (), {}),)
+
+        def set_name(self, name):
+            self._name = name
+
+        def get_name(self):
+            return self._name
+
+        def add_pattern(self, pattern):
+            pass
+
+    class _GtkModule(types.ModuleType):
+        def __getattr__(self, name):
+            return _DummyClass()
+
+    _gtk = _GtkModule("gi.repository.Gtk")
+    _glib = MagicMock()
+    _glib.MAJOR_VERSION = 2
+    _glib.MINOR_VERSION = 80
+    _glib.MICRO_VERSION = 0
+    _glib.markup_escape_text = html.escape
+
+    _repo = types.ModuleType("gi.repository")
+    _repo_attrs = vars(_repo)
+    _repo_attrs.update(
+        {
+            "Gtk": _gtk,
+            "GLib": _glib,
+            "Gio": MagicMock(),
+            "Gdk": _DummyClass(),
+            "Pango": MagicMock(),
+            "PangoCairo": MagicMock(),
+            "GObject": _DummyClass(),
+            "GdkPixbuf": MagicMock(),
+        }
+    )
+
+    _gi = types.ModuleType("gi")
+    vars(_gi).update({"repository": _repo, "require_version": lambda *args: None})
+
+    sys.modules["gi"] = _gi
+    sys.modules["gi.repository"] = _repo
+    sys.modules["gi.repository.Gtk"] = _gtk
+    sys.modules["gi.repository.GLib"] = _glib
+    sys.modules["gi.repository.Gio"] = _repo_attrs["Gio"]
+    sys.modules["gi.repository.Gdk"] = _repo_attrs["Gdk"]
+    sys.modules["gi.repository.Pango"] = _repo_attrs["Pango"]
+    sys.modules["gi.repository.PangoCairo"] = _repo_attrs["PangoCairo"]
+    sys.modules["gi.repository.GObject"] = _repo_attrs["GObject"]
+    sys.modules["gi.repository.GdkPixbuf"] = _repo_attrs["GdkPixbuf"]
 
 
 class TestTreeHeaderNameFormatting(unittest.TestCase):
@@ -223,7 +309,7 @@ class TestGWizardCompareDiffStatus(unittest.TestCase):
             diff_label=Mock(),
         )
 
-        GWizardCompareWindow._update_diff_status(window)
+        GWizardCompareWindow._update_diff_status(cast(GWizardCompareWindow, window))
 
         window.btn_merge_dialog.set_sensitive.assert_called_once_with(True)
         window.btn_add_new.set_label.assert_called_once_with("Not a Match")
@@ -246,7 +332,7 @@ class TestGWizardCompareDiffStatus(unittest.TestCase):
             diff_label=Mock(),
         )
 
-        GWizardCompareWindow._update_diff_status(window)
+        GWizardCompareWindow._update_diff_status(cast(GWizardCompareWindow, window))
 
         window.btn_merge_dialog.set_sensitive.assert_called_once_with(False)
         window.btn_add_new.set_label.assert_called_once_with("Add as New...")
@@ -271,7 +357,9 @@ class TestGWizardCompareDiffStatus(unittest.TestCase):
             _update_diff_status=Mock(),
         )
 
-        GWizardCompareWindow._reject_pair(window, "source", "target")
+        GWizardCompareWindow._reject_pair(
+            cast(GWizardCompareWindow, window), "source", "target"
+        )
 
         self.assertEqual(window._rejected, {"source": {"target"}})
         self.assertIsNone(window._pair_map["source"])
@@ -281,9 +369,12 @@ class TestGWizardCompareDiffStatus(unittest.TestCase):
 
         window._match_key = lambda _person: ("surname", "i")
         window._target_index = {("surname", "i"): ["target"]}
+        window._best_match_with_score = lambda matcher, source: (None, 0.0)
         self.assertIsNone(
             GWizardCompareWindow._best_match(
-                window, Mock(), SimpleNamespace(handle="source")
+                cast(GWizardCompareWindow, window),
+                Mock(),
+                SimpleNamespace(handle="source"),
             )
         )
 
@@ -304,6 +395,9 @@ class TestGWizardDiffHighlight(unittest.TestCase):
         rule = css_text[rule_start:]
         self.assertIn("background-color", rule[: rule.find("}")])
 
+    @unittest.skipUnless(
+        _HAS_GTK_DISPLAY, "CSS provider parsing requires a real Gtk display"
+    )
     def test_diff_css_parses(self) -> None:
         """The dialog stylesheet data must parse without GLib error."""
         from gi.repository import Gtk
@@ -315,20 +409,21 @@ class TestGWizardDiffHighlight(unittest.TestCase):
 
     def test_ensure_diff_styles_installed_without_screen(self) -> None:
         """Installing the stylesheet must be safe in a headless run."""
-        from gi.repository import Gdk
-
         from gramps.gui.gwizard import gwizardmergedialog
 
         saved = gwizardmergedialog._DIFF_CSS_INSTALLED
         try:
             gwizardmergedialog._DIFF_CSS_INSTALLED = False
-            result = gwizardmergedialog.ensure_diff_styles_installed()
+            with (
+                patch.object(gwizardmergedialog, "has_display", return_value=False),
+                patch.object(gwizardmergedialog.Gtk, "CssProvider") as provider,
+            ):
+                result = gwizardmergedialog.ensure_diff_styles_installed()
         finally:
             gwizardmergedialog._DIFF_CSS_INSTALLED = saved
 
-        self.assertIsInstance(result, bool)
-        if Gdk.Screen.get_default() is None:
-            self.assertFalse(result)
+        self.assertFalse(result)
+        provider.assert_not_called()
 
     @unittest.skipUnless(
         _HAS_GTK_DISPLAY,

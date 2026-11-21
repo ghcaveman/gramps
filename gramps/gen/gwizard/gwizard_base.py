@@ -34,6 +34,7 @@ implementation in ``gwizardgedcom.py``).
 from __future__ import annotations
 import abc
 import difflib
+import functools
 import logging
 import re
 import unicodedata
@@ -60,6 +61,7 @@ LOG = logging.getLogger(__name__)
 
 _ = glocale.translation.gettext
 
+
 # ------------------------------------------------------------
 #
 # GWizardCompareRow
@@ -84,6 +86,7 @@ class GWizardCompareRow(NamedTuple):
     target_date: str = ""
     field_type: str = ""
     extra_data: Any = None
+
 
 # ------------------------------------------------------------
 #
@@ -155,6 +158,7 @@ class GWizardBase(abc.ABC):
     @abc.abstractmethod
     def _apply(self, **kwargs: Any) -> bool: ...
 
+
 # ------------------------------------------------------------
 # Safe handle lookups (unchanged from original implementation)
 # ------------------------------------------------------------
@@ -167,37 +171,97 @@ def safe_get(db: Any, handle: str | None, getter_name: str, what: str) -> Any | 
         LOG.debug("Stale %s handle ignored: %s", what, handle)
         return None
 
+
 def safe_get_person(db: Any, handle: str | None) -> Person | None:
     return safe_get(db, handle, "get_person_from_handle", "person")
+
 
 def safe_get_family(db: Any, handle: str | None) -> Any | None:
     return safe_get(db, handle, "get_family_from_handle", "family")
 
+
 def safe_get_event(db: Any, handle: str | None) -> Event | None:
     return safe_get(db, handle, "get_event_from_handle", "event")
+
 
 def safe_get_place(db: Any, handle: str | None) -> Any | None:
     return safe_get(db, handle, "get_place_from_handle", "place")
 
+
 def safe_get_source(db: Any, handle: str | None) -> Any | None:
     return safe_get(db, handle, "get_source_from_handle", "source")
+
 
 def safe_get_repository(db: Any, handle: str | None) -> Any | None:
     return safe_get(db, handle, "get_repository_from_handle", "repository")
 
+
+def is_empty_event(event: Any, db: Any = None) -> bool:
+    """
+    Return True when an event has nothing to show: no date, no place and
+    no description.
+
+    The compare window and merge dialog leave such events out of their
+    Events & Other Records lists. Empty events (a bare "Birth" with no
+    details, say) carry no information to compare, and when both sides
+    have one they could not be ordered or paired meaningfully.
+
+    :param event: The event to test, or None.
+    :param db: The event's database. When given, a place whose name and
+        title are both blank counts as no place.
+    :returns: True if the event is missing or has no displayable data.
+    """
+    if event is None:
+        return True
+    try:
+        date = event.get_date_object()
+        if date is not None and date.is_empty() is not True:
+            return False
+        place_handle = event.get_place_handle()
+        if place_handle:
+            place = safe_get_place(db, place_handle) if db is not None else None
+            if place is None:
+                return False
+            name = place.get_name().get_value()
+            title = place.get_title()
+            if not isinstance(name, str) or name.strip():
+                return False
+            if not isinstance(title, str) or title.strip():
+                return False
+        description = event.get_description()
+        if not isinstance(description, str) or description.strip():
+            return False
+    except Exception:
+        # When in doubt, show the event.
+        return False
+    return True
+
+
 def vital_event_ref(db: Any, person: Person | None, kind: str) -> Any | None:
+    """
+    Return the reference to the person's birth or death event.
+
+    The person's own birth/death reference is used when it has data;
+    otherwise the first Birth/Death event in the person's list that has
+    data. Only when every candidate is empty (no date, place or
+    description) is the empty one returned, the person's own reference
+    first. ``kind`` is 'birth' or 'death'.
+    """
     if person is None or db is None:
         return None
     try:
         ref = person.get_birth_ref() if kind == "birth" else person.get_death_ref()
     except Exception:
         ref = None
-    if ref is not None:
+    if ref is not None and not is_empty_event(
+        safe_get_event(db, getattr(ref, "ref", None)), db
+    ):
         return ref
+    first_empty = ref
     try:
         refs = person.get_event_ref_list() or []
     except Exception:
-        return None
+        return first_empty
     want_birth = kind == "birth"
     for cand in refs:
         try:
@@ -214,9 +278,14 @@ def vital_event_ref(db: Any, person: Person | None, kind: str) -> Any | None:
             is_match = etype.is_birth() if want_birth else etype.is_death()
         except Exception:
             continue
-        if is_match:
+        if not is_match:
+            continue
+        if not is_empty_event(event, db):
             return cand
-    return None
+        if first_empty is None:
+            first_empty = cand
+    return first_empty
+
 
 # ------------------------------------------------------------
 # Source matching helpers (unchanged)
@@ -227,9 +296,11 @@ SOURCE_NEW = "new"
 
 _MARKUP_TAG_RE = re.compile(r"</?[A-Za-z][^>]*>")
 
+
 def normalize_source_text(text: str | None) -> str:
     text = unicodedata.normalize("NFKC", _MARKUP_TAG_RE.sub("", text or ""))
     return " ".join(text.split()).casefold()
+
 
 def source_signature(source: Any) -> tuple[str, str, str] | None:
     title = normalize_source_text(source.get_title())
@@ -240,6 +311,7 @@ def source_signature(source: Any) -> tuple[str, str, str] | None:
         normalize_source_text(source.get_author()),
         normalize_source_text(source.get_publication_info()),
     )
+
 
 class SourceMatcher:
     def __init__(self, db: Any) -> None:
@@ -275,6 +347,7 @@ class SourceMatcher:
         if source.handle not in handles:
             handles.append(source.handle)
 
+
 def source_match_report(source_db: Any, target_db: Any) -> list[dict[str, str]]:
     matcher = SourceMatcher(target_db)
     rows = []
@@ -291,18 +364,22 @@ def source_match_report(source_db: Any, target_db: Any) -> list[dict[str, str]]:
     rows.sort(key=lambda r: (r["status"], r["title"].casefold()))
     return rows
 
+
 # ------------------------------------------------------------
 # Given‑name matching helpers (unchanged)
 # ------------------------------------------------------------
 _QUOTED_NICK_RE = re.compile(r'"[^"]*"|\([^)]*\)|\'[^\']*\'')
 
+
 def _strip_embedded_nickname(given: str) -> str:
     return _QUOTED_NICK_RE.sub(" ", given)
+
 
 def _given_tokens(given: str) -> list[str]:
     cleaned = _strip_embedded_nickname(given)
     cleaned = cleaned.replace("-", " ")
     return [tok.lower() for tok in cleaned.split() if tok]
+
 
 def score_given_names(source_given: str, target_given: str) -> float:
     s_raw = (source_given or "").strip()
@@ -321,25 +398,56 @@ def score_given_names(source_given: str, target_given: str) -> float:
         return 0.9
     if set(s_tokens) & set(t_tokens):
         return 0.5
-    ratio = difflib.SequenceMatcher(None, " ".join(s_tokens), " ".join(t_tokens)).ratio()
+    ratio = difflib.SequenceMatcher(
+        None, " ".join(s_tokens), " ".join(t_tokens)
+    ).ratio()
     if ratio >= 0.8:
         return 0.6
     if s_tokens[0][0] == t_tokens[0][0]:
         return 0.25
     return 0.0
 
+
+# Given names repeat constantly across a tree, so scoring the same pair of
+# names again and again is wasted work. The score depends only on the two texts.
+_cached_given_score = functools.lru_cache(maxsize=1 << 16)(score_given_names)
+
+
 # ------------------------------------------------------------
 # Name part helpers (unchanged)
 # ------------------------------------------------------------
 def surname_text(name: Name) -> str:
-    return " ".join([surn.get_surname() for surn in name.get_surname_list() if surn.get_surname()])
+    return " ".join(
+        [surn.get_surname() for surn in name.get_surname_list() if surn.get_surname()]
+    )
+
 
 def surname_prefix_text(name: Name) -> str:
-    return " ".join([surn.get_prefix() for surn in name.get_surname_list() if surn.get_prefix()])
+    return " ".join(
+        [surn.get_prefix() for surn in name.get_surname_list() if surn.get_prefix()]
+    )
+
 
 # ------------------------------------------------------------
 # CandidateMatcher (unchanged)
 # ------------------------------------------------------------
+class PersonProfile(NamedTuple):
+    """
+    What matching needs to know about a person, read from the database once.
+
+    Scoring many candidates against each other from profiles avoids reading
+    both people and their birth events again for every pair.
+    """
+
+    gender: int
+    given: str  # first name, stripped
+    surnames: str  # all surnames as one lower-case text
+    soundex: str | None  # soundex of ``surnames``; None when it fails
+    first_surname: str  # first surname, lower case
+    first_name: str  # first name, stripped, lower case
+    birth: tuple[int, int, int] | None  # (year, month, day) of the birth
+
+
 class CandidateMatcher:
     def __init__(self, db: DbWriteBase) -> None:
         self.db = db
@@ -350,76 +458,95 @@ class CandidateMatcher:
     def get_prefixes(self, name: Name) -> str:
         return surname_prefix_text(name)
 
-    def score_match(self, source: Person, target: Person, source_db: Any | None = None) -> float:
+    def profile(self, person: Person, db: Any | None = None) -> PersonProfile:
+        """Return the PersonProfile of ``person`` (read from ``db``)."""
+        lookup_db = db if db is not None else self.db
+        name = person.get_primary_name()
+        surnames = self.get_surnames(name).strip().lower()
+        try:
+            sx: str | None = soundex(surnames) if surnames else None
+        except Exception:  # pylint: disable=broad-except
+            sx = None
+        first_surname = ""
+        if name.surname_list:
+            first_surname = (name.surname_list[0].surname or "").lower()
+        birth = None
+        try:
+            birth_ref = vital_event_ref(lookup_db, person, "birth")
+            if birth_ref:
+                event = safe_get_event(lookup_db, birth_ref.ref)
+                if event is not None:
+                    date = event.get_date_object()
+                    birth = (date.get_year(), date.get_month(), date.get_day())
+        except Exception:  # pylint: disable=broad-except
+            birth = None
+        return PersonProfile(
+            gender=person.get_gender(),
+            given=name.first_name.strip(),
+            surnames=surnames,
+            soundex=sx,
+            first_surname=first_surname,
+            first_name=(name.first_name or "").strip().lower(),
+            birth=birth,
+        )
+
+    @staticmethod
+    def score_profiles(source: PersonProfile, target: PersonProfile) -> float:
+        """Score how likely two people are the same person (see score_match)."""
         # Gender must match, or be unknown/other in either
-        s_gender = source.get_gender()
-        t_gender = target.get_gender()
-        if s_gender in (Person.MALE, Person.FEMALE) and t_gender in (Person.MALE, Person.FEMALE):
-            if s_gender != t_gender:
+        if source.gender in (Person.MALE, Person.FEMALE) and target.gender in (
+            Person.MALE,
+            Person.FEMALE,
+        ):
+            if source.gender != target.gender:
                 return -1.0
         score = 0.0
-        s_name = source.get_primary_name()
-        t_name = target.get_primary_name()
-        s_surnames = self.get_surnames(s_name).strip()
-        t_surnames = self.get_surnames(t_name).strip()
-        s_lookup_db = source_db if source_db is not None else self.db
-        s_given = s_name.first_name.strip()
-        t_given = t_name.first_name.strip()
         given_score = 0.0
-        if s_given and t_given:
-            given_score = score_given_names(s_given, t_given)
+        if source.given and target.given:
+            given_score = _cached_given_score(source.given, target.given)
             score += given_score
-        surname_score = 0.0
-        if s_surnames and t_surnames:
-            if s_surnames.lower() == t_surnames.lower():
+        if source.surnames and target.surnames:
+            surname_score = 0.0
+            if source.surnames == target.surnames:
                 surname_score = 1.0
-            else:
-                try:
-                    if soundex(s_surnames) == soundex(t_surnames):
-                        surname_score = 0.75
-                except Exception:
-                    pass
-            if given_score == 0.0 and s_given and t_given:
+            elif source.soundex is not None and source.soundex == target.soundex:
+                surname_score = 0.75
+            if given_score == 0.0 and source.given and target.given:
                 surname_score = min(surname_score, 0.25)
             score += surname_score
-        s_birth_ref = vital_event_ref(s_lookup_db, source, "birth")
-        t_birth_ref = vital_event_ref(self.db, target, "birth")
-        if s_birth_ref and t_birth_ref:
-            try:
-                s_birth = safe_get_event(s_lookup_db, s_birth_ref.ref)
-                t_birth = safe_get_event(self.db, t_birth_ref.ref)
-                if s_birth is not None and t_birth is not None:
-                    s_date = s_birth.get_date_object()
-                    t_date = t_birth.get_date_object()
-                    s_year = s_date.get_year()
-                    t_year = t_date.get_year()
-                    if s_year > 0 and t_year > 0:
-                        diff = abs(s_year - t_year)
-                        if diff != 0:
-                            if diff <= 2:
-                                score += 0.5
-                            elif diff <= 5:
-                                score += 0.25
-                        else:
-                            s_mon = s_date.get_month()
-                            t_mon = t_date.get_month()
-                            s_day = s_date.get_day()
-                            t_day = t_date.get_day()
-                            if s_mon <= 0 or t_mon <= 0:
-                                score += 0.75
-                            elif s_mon != t_mon:
-                                score += 0.5
-                            elif s_day <= 0 or t_day <= 0:
-                                score += 0.85
-                            elif s_day != t_day:
-                                score += 0.75
-                            else:
-                                score += 1.0
-            except Exception:
-                pass
+        if source.birth and target.birth:
+            s_year, s_mon, s_day = source.birth
+            t_year, t_mon, t_day = target.birth
+            if s_year > 0 and t_year > 0:
+                diff = abs(s_year - t_year)
+                if diff != 0:
+                    if diff <= 2:
+                        score += 0.5
+                    elif diff <= 5:
+                        score += 0.25
+                elif s_mon <= 0 or t_mon <= 0:
+                    score += 0.75
+                elif s_mon != t_mon:
+                    score += 0.5
+                elif s_day <= 0 or t_day <= 0:
+                    score += 0.85
+                elif s_day != t_day:
+                    score += 0.75
+                else:
+                    score += 1.0
         return score
 
-    def find_matches(self, source: Person, threshold: float = 1.0, source_db: Any | None = None) -> list[tuple[PersonHandle, float]]:
+    def score_match(
+        self, source: Person, target: Person, source_db: Any | None = None
+    ) -> float:
+        source_lookup_db = source_db if source_db is not None else self.db
+        return self.score_profiles(
+            self.profile(source, source_lookup_db), self.profile(target, self.db)
+        )
+
+    def find_matches(
+        self, source: Person, threshold: float = 1.0, source_db: Any | None = None
+    ) -> list[tuple[PersonHandle, float]]:
         results: list[tuple[PersonHandle, float]] = []
         for handle in self.db.iter_person_handles():
             try:

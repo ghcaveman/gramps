@@ -528,8 +528,31 @@ register(
     authors=["Kevin White"],
     authors_email=["gocaveman@gmail.com"],
     category=TOOL_DBPROC,
-    toolclass="GWizardMergeTool",
-    optionclass="GWizardMergeToolOptions",
+    toolclass="GWizardFileMerge",
+    optionclass="GWizardFileMergeOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
+)
+
+register(
+    TOOL,
+    id="gwizardmergealt",
+    name=_("GWizard File Merge (Alt)"),
+    description=_(
+        "GWizard File Merge with an alternate compare window: match settings "
+        "at the top, every incoming person on the left, and only the similar "
+        "people in the Family Tree on the right, closest first."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizardmerge.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardFileMergeAlt",
+    optionclass="GWizardFileMergeOptions",
     tool_modes=[TOOL_MODE_GUI],
     help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
 )

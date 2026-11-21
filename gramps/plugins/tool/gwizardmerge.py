@@ -26,6 +26,7 @@
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import importlib
 import logging
 from typing import Any
 
@@ -43,10 +44,10 @@ LOG = logging.getLogger(__name__)
 
 # ------------------------------------------------------------
 #
-# GWizardMergeToolOptions
+# GWizardFileMergeOptions
 #
 # ------------------------------------------------------------
-class GWizardMergeToolOptions(tool.ToolOptions):
+class GWizardFileMergeOptions(tool.ToolOptions):
     """Defines options and provides handling interface."""
 
     def __init__(self, name: str, person_id: str | None = None) -> None:
@@ -58,17 +59,19 @@ class GWizardMergeToolOptions(tool.ToolOptions):
 
 # ------------------------------------------------------------
 #
-# GWizardMergeTool
+# GWizardFileMerge
 #
 # ------------------------------------------------------------
-class GWizardMergeTool(tool.Tool):
+class GWizardFileMerge(tool.Tool):
     """
     Launch the GWizard Data Merge flow.
 
     Thin wrapper around the shared launcher: ask for a source file,
-    load it, and open the side-by-side compare window. Identical to
-    the Family Trees menu entry.
+    load it, and open the side-by-side compare window.
     """
+
+    # Open the alternate compare window (see GWizardFileMergeAlt).
+    alternate = False
 
     def __init__(
         self,
@@ -83,8 +86,7 @@ class GWizardMergeTool(tool.Tool):
         tool.Tool.__init__(self, dbstate, options_class, name)
         # When installed as a standalone addon, sibling modules live in the
         # addon directory, which Gramps removes from sys.path after import.
-        # Re-add it so "from gwizardlauncher import ..." keeps working here
-        # and inside the sibling modules themselves.
+        # Re-add it so standalone addon modules remain importable.
         import os as _os
         import sys as _sys
 
@@ -92,11 +94,33 @@ class GWizardMergeTool(tool.Tool):
         if _addon_dir not in _sys.path:
             _sys.path.insert(0, _addon_dir)
         try:
-            from gwizardlauncher import run_gwizard_merge_flow
-        except ImportError:
-            # Running from the source tree: fall back to the core location.
-            from gramps.gui.gwizard.gwizardlauncher import (
-                run_gwizard_merge_flow,
+            launcher_module = importlib.import_module("gwizardlauncher")
+        except ModuleNotFoundError as err:
+            if err.name != "gwizardlauncher":
+                raise
+            launcher_module = importlib.import_module(
+                "gramps.gui.gwizard.gwizardlauncher"
             )
 
-        run_gwizard_merge_flow(uistate, dbstate, parent=uistate.window)
+        run_gwizard_merge_flow = getattr(launcher_module, "run_gwizard_merge_flow")
+        run_gwizard_merge_flow(
+            uistate, dbstate, parent=uistate.window, alternate=self.alternate
+        )
+
+
+# ------------------------------------------------------------
+#
+# GWizardFileMergeAlt
+#
+# ------------------------------------------------------------
+class GWizardFileMergeAlt(GWizardFileMerge):
+    """
+    Launch the GWizard Data Merge flow with the alternate compare window.
+
+    The alternate window has match settings at the top, lists every
+    incoming person on the left, and on the right lists only the tree
+    people similar to the selected one, closest first and preselected.
+    It opens the same merge dialog.
+    """
+
+    alternate = True

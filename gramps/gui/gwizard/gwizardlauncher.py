@@ -42,7 +42,9 @@ from gi.repository import Gtk
 # Gramps modules
 #
 # -------------------------------------------------------------------------
+from gramps.gen.config import config
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.const import USER_HOME
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -138,11 +140,20 @@ def ask_source_file(parent: Any, title: str | None = None) -> str | None:
     )
     for file_filter in build_source_file_filters():
         dialog.add_filter(file_filter)
+    # Start in the folder the Import dialog last used (comparing a file is a
+    # form of import), then the last export folder, then the home folder.
+    start_dir = config.get("paths.recent-import-dir")
+    if not (start_dir and os.path.isdir(start_dir)):
+        start_dir = config.get("paths.recent-export-dir")
+    if not (start_dir and os.path.isdir(start_dir)):
+        start_dir = USER_HOME
+    dialog.set_current_folder(start_dir)
     response = dialog.run()
     path = dialog.get_filename()
     dialog.destroy()
     if response != Gtk.ResponseType.OK or not path:
         return None
+    config.set("paths.recent-import-dir", os.path.dirname(path))
     return str(path)
 
 
@@ -168,23 +179,42 @@ def load_source_gwizard(db: Any, path: str) -> Any:
 
 
 def open_compare_window(
-    uistate: Any, dbstate: Any, gwizard: Any, parent: Any = None
+    uistate: Any,
+    dbstate: Any,
+    gwizard: Any,
+    parent: Any = None,
+    alternate: bool = False,
 ) -> Any:
     """
     Open the side-by-side comparison window for a loaded session.
-    """
-    from gramps.gui.gwizard.gwizardcompare import GWizardCompareWindow
 
-    window = GWizardCompareWindow(uistate, dbstate, gwizard, parent=parent)
+    :param alternate: Open the alternate window, whose right panel lists
+        only the tree people similar to the selected incoming person.
+    """
+    if alternate:
+        from gramps.gui.gwizard.gwizardaltcompare import (
+            GWizardAltCompareWindow as window_class,
+        )
+    else:
+        from gramps.gui.gwizard.gwizardcompare import (
+            GWizardCompareWindow as window_class,
+        )
+
+    window = window_class(uistate, dbstate, gwizard, parent=parent)
     window.show()
     return window
 
 
-def run_gwizard_merge_flow(uistate: Any, dbstate: Any, parent: Any = None) -> bool:
+def run_gwizard_merge_flow(
+    uistate: Any, dbstate: Any, parent: Any = None, alternate: bool = False
+) -> bool:
     """
     Run the full flow: ask for a file, load it, open compare.
 
-    Shared by the Family Trees menu entry and the Tools plugin.
+    Shared by the Tools plugin entries.
+
+    :param alternate: Open the alternate compare window (see
+        open_compare_window).
     """
     from gramps.gui.dialog import ErrorDialog
     from gramps.gui.utils import ProgressMeter
@@ -216,7 +246,9 @@ def run_gwizard_merge_flow(uistate: Any, dbstate: Any, parent: Any = None) -> bo
     meter.set_header(str(_("Building the comparison window...")))
     meter.step()
     try:
-        open_compare_window(uistate, dbstate, gwizard, parent=parent)
+        open_compare_window(
+            uistate, dbstate, gwizard, parent=parent, alternate=alternate
+        )
     finally:
         meter.close()
     return True

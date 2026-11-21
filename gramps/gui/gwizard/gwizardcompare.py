@@ -29,6 +29,7 @@ side with the existing Gramps tree (destination on the right).
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import difflib
 import os
 import logging
 from typing import Any
@@ -49,10 +50,12 @@ from gi.repository import Gdk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.lib import Person
+from gramps.gen.constfunc import has_display
 from gramps.gen.errors import HandleError
-from gramps.gen.gwizard.gwizardgedcom import GedGWizard
+from gramps.gen.gwizard.gwizardgedcom import EXTRA_KINDS, GedGWizard
 from gramps.gen.gwizard.gwizard_base import (
     CandidateMatcher,
+    is_empty_event,
     safe_get_event,
     safe_get_family,
     safe_get_person,
@@ -131,6 +134,42 @@ CATEGORIES = [
 
 # ------------------------------------------------------------
 #
+# Progress meter (no-op when GTK is unavailable)
+#
+# ------------------------------------------------------------
+class _Progress:
+    """Show a Gramps progress meter for one pass over ``total`` items."""
+
+    def __init__(self, title: str, total: int, parent: Any = None) -> None:
+        self.meter: Any = None
+        if not has_display():
+            return
+        try:
+            from gramps.gui.utils import ProgressMeter
+
+            self.meter = ProgressMeter(title, can_cancel=False, parent=parent)
+            self.meter.set_pass(title, max(int(total), 1), ProgressMeter.MODE_FRACTION)
+        except Exception:
+            self.meter = None
+
+    def step(self) -> None:
+        if self.meter is not None:
+            try:
+                self.meter.step()
+            except Exception:
+                pass
+
+    def close(self) -> None:
+        if self.meter is not None:
+            try:
+                self.meter.close()
+            except Exception:
+                pass
+            self.meter = None
+
+
+# ------------------------------------------------------------
+#
 # GWizardCompareWindow
 #
 # ------------------------------------------------------------
@@ -174,6 +213,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
         self.dbstate = dbstate
         self.gwizard = gwizard
+        self._progress_parent = parent
         self.source_db: Any = source_db
         self.current_category = "person"
         self.diff_list: list[dict[str, Any]] = []
@@ -207,12 +247,9 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         self.paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         main_box.pack_start(self.paned, True, True, 0)
 
-        source_title = gwizard.context.get("source_title")
         source_path = gwizard.context.get("gedcom_path")
-        incoming_title = _("Incoming Data")
-        if source_title:
-            incoming_title = _("Incoming: %s") % source_title
-        elif source_path:
+        incoming_title = _("Incoming GEDCOM")
+        if source_path:
             filename = truncate_display_name(
                 os.path.basename(source_path), max_length=60, preserve_extension=True
             )
@@ -242,6 +279,12 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         # to avoid freezing on large databases.
         self._syncing_scroll = False
         self._scroll_debounce_id: int | None = None
+        # Set while Prev/Next (or any other programmatic jump) is placing
+        # both panels, until the rows are revealed once GTK has laid the
+        # lists out. Scroll events in that window are the jump's own and
+        # must not trigger a scroll sync that moves a panel again.
+        self._suppress_scroll_sync = False
+        self._reveal_idle_id: int | None = None
         self.connect("delete-event", self.cb_delete_event)
         # Fit the window to the screen once it is first mapped, and undo any
         # maximized/fullscreen state the window manager inherits from a
@@ -532,6 +575,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             best_path = None
         selection = panel["tree"].get_selection()
         selection.unselect_all()
+        panel["reveal_path"] = best_path
         if best_path is not None:
             panel["tree"].scroll_to_cell(best_path, None, False, 0, 0)
 
@@ -555,6 +599,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         # The TreeStore is sorted, so iteration order matches the view.
         target = (group.lower(), name_str.lower())
         best_path = self._find_insertion_path(store, target)
+        panel["reveal_path"] = best_path
         if best_path is not None:
             panel["tree"].set_cursor(best_path)
             panel["tree"].scroll_to_cell(best_path, None, False, 0, 0)
@@ -577,22 +622,40 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         target_db = self.dbstate.db
         source_db = self.source_db
         matcher = CandidateMatcher(target_db)
+        self._source_profiles: dict[str, Any] = {}
 
-        for handle in source_db.iter_person_handles():
-            person = safe_get_person(source_db, handle)
-            if not person:
-                continue
-            name_str = name_displayer.display(person)
-            self._add_person_row(left_store, source_db, person, name_str)
-            self.source_index[handle] = name_str
-
-        for handle in target_db.iter_person_handles():
-            person = safe_get_person(target_db, handle)
-            if not person:
-                continue
-            name_str = name_displayer.display(person)
-            self._add_person_row(right_store, target_db, person, name_str)
-            self.target_index.setdefault(handle, name_str)
+        # Remember each store's surname group rows and person rows while
+        # filling it, so adding a person and marking differences do not have
+        # to search every row. A TreeStore's iters stay valid while it is
+        # sorted and expanded.
+        n_source = source_db.get_number_of_people()
+        n_target = target_db.get_number_of_people()
+        progress = _Progress(
+            str(_("Loading people")), n_source + n_target, self._progress_parent
+        )
+        try:
+            for store, db, index, overwrite in (
+                (left_store, source_db, self.source_index, True),
+                (right_store, target_db, self.target_index, False),
+            ):
+                group_cache: dict[str, Gtk.TreeIter] = {}
+                row_iters: dict[str, Gtk.TreeIter] = {}
+                for handle in db.iter_person_handles():
+                    progress.step()
+                    person = safe_get_person(db, handle)
+                    if not person:
+                        continue
+                    name_str = name_displayer.display(person)
+                    row_iters[handle] = self._add_person_row(
+                        store, db, person, name_str, group_cache
+                    )
+                    if overwrite:
+                        index[handle] = name_str
+                    else:
+                        index.setdefault(handle, name_str)
+                store._gwizard_row_iters = row_iters
+        finally:
+            progress.close()
 
         for store, tree in (
             (left_store, self.left_panel["tree"]),
@@ -603,7 +666,19 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
         # Build a surname index over target people so that matching is
         # near-linear instead of a full scan per source person.
-        self._build_target_index(matcher)
+        progress = _Progress(
+            str(_("Matching people")), n_target + n_source, self._progress_parent
+        )
+        try:
+            self._build_target_index(matcher, progress)
+            self._match_people(matcher, progress)
+        finally:
+            progress.close()
+        self._compare_people(left_store, right_store)
+
+    def _match_people(self, matcher: CandidateMatcher, progress: _Progress) -> None:
+        """Pair each incoming person with the best person in the tree."""
+        source_db = self.source_db
 
         # Compute records with differences: matched pairs where compare
         # produces non-matching rows, plus source-only (new) people.
@@ -616,6 +691,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         # have already been claimed.
         candidates: list[tuple[float, str, PersonHandle]] = []
         for handle in source_db.iter_person_handles():
+            progress.step()
             person = safe_get_person(source_db, handle)
             if not person:
                 continue
@@ -635,44 +711,85 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         for handle in source_db.iter_person_handles():
             if handle not in self._pair_map:
                 self._pair_map[handle] = None
-        for handle in source_db.iter_person_handles():
-            person = safe_get_person(source_db, handle)
-            if not person:
-                continue
-            target_handle = self._pair_map.get(handle)
-            try:
-                if target_handle is None:
-                    self.diff_list.append(
-                        {"source_handle": handle, "target_handle": None}
-                    )
-                else:
-                    rows = self.gwizard.run_step(
-                        "compare",
-                        source_person_handle=handle,
-                        target_person_handle=target_handle,
-                    )
-                    if any(r.status != "match" for r in rows):
-                        self.diff_list.append(
-                            {
-                                "source_handle": handle,
-                                "target_handle": target_handle,
-                            }
-                        )
-            except Exception as e:
-                LOG.warning("Comparison failed for %s: %s", handle, e)
+        # Share the pairing with the apply step so relatives (father,
+        # mother, spouse, child) link to the people shown as paired here.
+        # It is the same dict object, so later "Not a Match" updates
+        # (see _reject_pair) are seen too.
+        self.gwizard.context["pair_map"] = self._pair_map
 
-        # Mark people that have differences with '*' in the Diff column;
-        # rows left at 'o' have not been identified as different.
-        for entry in self.diff_list:
-            if entry["target_handle"]:
-                self._mark_row(right_store, entry["target_handle"])
-            self._mark_row(left_store, entry["source_handle"])
+    def _compare_people(
+        self, left_store: Gtk.TreeStore, right_store: Gtk.TreeStore
+    ) -> None:
+        """Compute the difference list and mark the differing people."""
+        source_db = self.source_db
+        progress = _Progress(
+            str(_("Comparing people")),
+            source_db.get_number_of_people(),
+            self._progress_parent,
+        )
+        try:
+            for handle in source_db.iter_person_handles():
+                progress.step()
+                person = safe_get_person(source_db, handle)
+                if not person:
+                    continue
+                target_handle = self._pair_map.get(handle)
+                try:
+                    if target_handle is None:
+                        self.diff_list.append(
+                            {"source_handle": handle, "target_handle": None}
+                        )
+                    else:
+                        rows = self.gwizard.run_step(
+                            "compare",
+                            source_person_handle=handle,
+                            target_person_handle=target_handle,
+                        )
+                        # An alternate name, attribute, address or note that only
+                        # the tree has leaves nothing to merge, so it does not make
+                        # the person a difference to step to.
+                        if any(
+                            r.status != "match"
+                            and not (
+                                r.status == "target_only"
+                                and r.field_type in EXTRA_KINDS
+                            )
+                            for r in rows
+                        ):
+                            self.diff_list.append(
+                                {
+                                    "source_handle": handle,
+                                    "target_handle": target_handle,
+                                }
+                            )
+                except Exception as e:
+                    LOG.warning("Comparison failed for %s: %s", handle, e)
+
+            # Mark people that have differences with '*' in the Diff column;
+            # rows left at 'o' have not been identified as different.
+            for entry in self.diff_list:
+                if entry["target_handle"]:
+                    self._mark_row(right_store, entry["target_handle"])
+                self._mark_row(left_store, entry["source_handle"])
+
+        finally:
+            progress.close()
 
     @staticmethod
     def _mark_row(store: Gtk.TreeStore, handle: str, value: str = "*") -> None:
         """
         Set the Diff column (index 7) of the row with the given handle.
+
+        Uses the iters remembered while the store was filled; searches the
+        whole tree only for a row that was not remembered.
         """
+
+        iters = getattr(store, "_gwizard_row_iters", None)
+        if iters:
+            row_iter = iters.get(handle)
+            if row_iter is not None and store.iter_is_valid(row_iter):
+                store.set_value(row_iter, 7, value)
+                return
 
         def visit(parent: Gtk.TreeIter | None = None) -> bool:
             iter_ = store.iter_children(parent) if parent else store.get_iter_first()
@@ -687,18 +804,28 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
         visit()
 
-    def _build_target_index(self, matcher: CandidateMatcher) -> None:
+    def _build_target_index(
+        self, matcher: CandidateMatcher, progress: _Progress | None = None
+    ) -> None:
         """
         Index target people by soundex of surname plus first initial so
         that candidate lookup avoids scanning the whole database.
         """
         self._target_index: dict[tuple[str, str], list[PersonHandle]] = {}
+        # What scoring needs to know about each target person, read once so
+        # that candidates are compared without reading the database again.
+        self._target_profiles: dict[PersonHandle, Any] = {}
         for handle in self.dbstate.db.iter_person_handles():
+            if progress is not None:
+                progress.step()
             person = safe_get_person(self.dbstate.db, handle)
             if not person:
                 continue
             key = self._match_key(person)
             self._target_index.setdefault(key, []).append(PersonHandle(handle))
+            self._target_profiles[PersonHandle(handle)] = matcher.profile(
+                person, self.dbstate.db
+            )
         self._matcher = matcher
 
     @staticmethod
@@ -719,9 +846,9 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
     def _best_match_with_score(
         self, matcher: CandidateMatcher, source: Person
-    ) -> PersonHandle | None:
+    ) -> tuple[PersonHandle | None, float]:
         """
-        Return the handle of the best matching target person, or None.
+        Return the best matching target handle and score, or (None, 0.0).
         """
         key = self._match_key(source)
         rejected = self._rejected.get(source.handle, set())
@@ -739,67 +866,48 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             ]
         best_handle: PersonHandle | None = None
         best_score = self.match_threshold
+        source_profile = self._source_profile(matcher, source)
         for handle in candidate_handles:
-            target = safe_get_person(self.dbstate.db, handle)
-            if not target:
+            target_profile = self._target_profiles.get(handle)
+            if target_profile is None:
                 continue
             # Basic guard: require at least one strong similarity signal before
             # considering the numeric score. This prevents a pair that only
-            # shares a Soundex surname and first‑initial from being accepted.
+            # shares a Soundex surname and first-initial from being accepted.
             # Signals:
-            #   * Exact surname match (case‑insensitive)
-            #   * Exact first name match (case‑insensitive)
+            #   * Exact surname match (case-insensitive)
+            #   * Exact first name match (case-insensitive)
             #   * Birth year match when both have a birth date
-            source_name = source.get_primary_name()
-            target_name = target.get_primary_name()
-            source_surname = (
-                source_name.surname_list[0].surname if source_name.surname_list else ""
-            ).lower()
-            target_surname = (
-                target_name.surname_list[0].surname if target_name.surname_list else ""
-            ).lower()
-            source_first = (source_name.first_name or "").strip().lower()
-            target_first = (target_name.first_name or "").strip().lower()
-            surname_match = source_surname and source_surname == target_surname
-            first_match = source_first and source_first == target_first
-
-            # Birth year comparison
-            def _birth_year(person: Person) -> str | None:
-                """Return the birth year of *person* as a string.
-
-                The original implementation accessed ``ev.get_date()`` on an
-                ``EventRef`` object, which no longer exists.  We now use the
-                safe helper ``_get_event_year`` that retrieves the referenced
-                ``Event`` and extracts the year via ``get_date_object()``.
-                """
-                # Choose the correct database for the person whose birth year
-                # we are extracting. ``source`` lives in ``self.source_db``
-                # while ``target`` lives in the destination database
-                # ``self.dbstate.db``.
-                db_for_person = self.source_db if person is source else self.dbstate.db
-                ev = vital_event_ref(db_for_person, person, "birth")
-                if ev:
-                    # ``_get_event_year`` returns an empty string when the
-                    # event or its date is missing, so we treat that as None.
-                    year = GWizardCompareWindow._get_event_year(ev, db_for_person)
-                    if year:
-                        return year
-                return None
-
-            birth_match = False
-            src_year = _birth_year(source)
-            tgt_year = _birth_year(target)
-            if src_year and tgt_year and src_year == tgt_year:
-                birth_match = True
+            surname_match = (
+                source_profile.first_surname
+                and source_profile.first_surname == target_profile.first_surname
+            )
+            first_match = (
+                source_profile.first_name
+                and source_profile.first_name == target_profile.first_name
+            )
+            source_year = source_profile.birth[0] if source_profile.birth else 0
+            target_year = target_profile.birth[0] if target_profile.birth else 0
+            birth_match = bool(source_year and source_year == target_year)
             if not (surname_match or first_match or birth_match):
-                # Skip this candidate – not enough evidence despite a high
+                # Skip this candidate - not enough evidence despite a high
                 # numeric score.
                 continue
-            score = matcher.score_match(source, target, source_db=self.source_db)
+            score = matcher.score_profiles(source_profile, target_profile)
             if score > best_score:
                 best_score = score
                 best_handle = handle
         return best_handle, best_score
+
+    def _source_profile(self, matcher: Any, source: Person) -> Any:
+        """
+        Return the matching profile of an incoming person, read only once.
+        """
+        profile = self._source_profiles.get(source.handle)
+        if profile is None:
+            profile = matcher.profile(source, self.source_db)
+            self._source_profiles[source.handle] = profile
+        return profile
 
     def _best_match(self, matcher: Any, source: Any) -> PersonHandle | None:
         handle, _ = self._best_match_with_score(matcher, source)
@@ -807,8 +915,12 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
     @staticmethod
     def _add_person_row(
-        store: Gtk.TreeStore, db: Any, person: Person, name_str: str
-    ) -> None:
+        store: Gtk.TreeStore,
+        db: Any,
+        person: Person,
+        name_str: str,
+        group_cache: dict[str, Gtk.TreeIter] | None = None,
+    ) -> Gtk.TreeIter:
         """
         Add a person row under its "Group As" surname group row, the same
         way the main Gramps People view groups people.
@@ -817,6 +929,10 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         :param db: Database the person belongs to.
         :param person: The person object.
         :param name_str: Display name of the person.
+        :param group_cache: Surname group rows already added, by group name.
+            Pass the same dict for every person of one store to avoid
+            searching all the group rows for each person.
+        :return: The iter of the new person row.
         """
         try:
             group = name_displayer.name_grouping_data(db, person.primary_name)
@@ -832,13 +948,18 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
 
         # Find or create the group row (group rows carry handle '')
         group_iter = None
-        for row in store:
-            if row[0] == "" and row[1] == group:
-                group_iter = store.get_iter(row.path)
-                break
+        if group_cache is not None:
+            group_iter = group_cache.get(group)
+        else:
+            for row in store:
+                if row[0] == "" and row[1] == group:
+                    group_iter = store.get_iter(row.path)
+                    break
         if group_iter is None:
             group_iter = store.append(None, ["", group, "", "", "", "", "", ""])
-        store.append(
+            if group_cache is not None:
+                group_cache[group] = group_iter
+        return store.append(
             group_iter,
             [
                 person.handle,
@@ -1321,7 +1442,17 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         if not (0 <= self.diff_index < len(self.diff_list)):
             return
         entry = self.diff_list[self.diff_index]
+        # Both panels are placed here, explicitly. The selection mirroring
+        # (cb_record_selected, cb_*_selection_changed) and the debounced
+        # scroll sync would otherwise react to each programmatic change and
+        # move the other panel again: to a different counterpart, or to an
+        # insertion point with its selection cleared.
+        self._cancel_pending_scroll_sync()
+        self._suppress_scroll_sync = True
+        self.left_panel["reveal_path"] = None
+        self.right_panel["reveal_path"] = None
         self._syncing = True
+        self._syncing_selection = True
         try:
             self._select_handle(self.left_panel, entry["source_handle"])
             if entry["target_handle"]:
@@ -1336,10 +1467,44 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                     )
         finally:
             self._syncing = False
+            self._syncing_selection = False
+        self._schedule_reveal()
         # Ensure button states reflect the current selection, especially when
         # the counterpart panel is deselected (e.g., unmatched person). This
         # refreshes the "Merge..." and "Add as New..." sensitivities.
         self._update_diff_status()
+
+    def _schedule_reveal(self) -> None:
+        """
+        Bring both panels' current rows into view once GTK has laid the
+        lists out, then allow scroll syncing again.
+
+        ``scroll_to_cell`` right after a selection change can be lost when
+        the list has not been laid out yet (just after a rebuild, say), and
+        the minimal scroll it does can leave the row at the very edge. The
+        rows are therefore scrolled again, centred, at low priority (after
+        layout and redraw), while scroll syncing is still suppressed.
+        """
+        if self._reveal_idle_id is not None:
+            GLib.source_remove(self._reveal_idle_id)
+
+        def reveal() -> bool:
+            self._reveal_idle_id = None
+            try:
+                for panel in (self.left_panel, self.right_panel):
+                    path = panel.get("reveal_path")
+                    if path is None:
+                        continue
+                    tree = panel["tree"]
+                    tree.expand_to_path(path)
+                    tree.scroll_to_cell(path, None, True, 0.5, 0.0)
+            finally:
+                # Drop any scroll sync the reveal itself scheduled.
+                self._cancel_pending_scroll_sync()
+                self._suppress_scroll_sync = False
+            return False
+
+        self._reveal_idle_id = GLib.idle_add(reveal, priority=GLib.PRIORITY_LOW)
 
     def _select_handle(self, panel: dict[str, Any], handle: str) -> bool:
         """
@@ -1354,8 +1519,12 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             while iter_:
                 if store.get_value(iter_, 0) == handle:
                     path = store.get_path(iter_)
+                    # A row inside a collapsed group can be neither shown
+                    # nor selected, so open its group first.
+                    panel["tree"].expand_to_path(path)
                     panel["tree"].set_cursor(path)
                     panel["tree"].scroll_to_cell(path, None, False, 0, 0)
+                    panel["reveal_path"] = path
                     return True
                 if visit(store, iter_):
                     return True
@@ -1418,7 +1587,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             if not person:
                 return
             other_db = self.dbstate.db if is_left else self.source_db
-            counterpart = self._get_counterpart(handle)
+            counterpart = self._get_counterpart(handle, from_source=is_left)
             mirrored = False
             if counterpart:
                 other_person = safe_get_person(other_db, counterpart)
@@ -1440,15 +1609,25 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             self._syncing = False
         self._update_diff_status()
 
-    def _get_counterpart(self, handle: str) -> str | None:
+    def _get_counterpart(
+        self, handle: str, from_source: bool | None = None
+    ) -> str | None:
         """
         Return the handle of the counterpart person in the other panel,
         or None when the person has no matched pair.
 
         Uses the full pairing map (matched pairs regardless of whether
         they differ), falling back to the difference list for robustness.
+
+        :param from_source: True when ``handle`` is from the incoming file
+            (left panel), False when it is from the tree (right panel).
+            Handles are per database and the same handle can exist in both
+            (a Gramps XML export of the tree, say), so callers that know
+            the side should say which; None guesses from the source index.
         """
-        if handle in self.source_index:
+        if from_source is None:
+            from_source = handle in self.source_index
+        if from_source:
             pair_map = getattr(self, "_pair_map", {})
             if handle in pair_map:
                 return pair_map[handle]
@@ -1472,18 +1651,15 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         individual_text = family_text = children_text = events_text = ""
         if self.current_category == "person":
-            db = self.source_db if handle in self.source_index else self.dbstate.db
+            is_left = panel is self.left_panel
+            db = self.source_db if is_left else self.dbstate.db
             person = safe_get_person(db, handle)
             if person:
-                other_handle = self._get_counterpart(handle)
+                other_handle = self._get_counterpart(handle, from_source=is_left)
                 other_person = None
                 other_db = None
                 if other_handle:
-                    other_db = (
-                        self.dbstate.db
-                        if other_handle not in self.source_index
-                        else self.source_db
-                    )
+                    other_db = self.dbstate.db if is_left else self.source_db
                     other_person = safe_get_person(other_db, other_handle)
                 # The ID line always differs between the source and the
                 # target database, so it is excluded from highlighting.
@@ -1579,15 +1755,29 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             return "\n".join(escaped)
         other_cleaned = [" ".join(line.split()) for line in other_lines if line.strip()]
         other_set = set(other_cleaned)
+        # Lines the other side has no equal for: the candidates a differing
+        # line is compared with, word by word.
+        candidates = [line for line in other_cleaned if line not in set(cleaned)]
         out = []
-        for i, (line, esc) in enumerate(zip(cleaned, escaped)):
+        for line, esc in zip(cleaned, escaped):
             if line in other_set or any(
                 line.startswith(prefix) for prefix in skip_prefixes
             ):
                 out.append(esc)
             else:
-                # Find the counterpart line at the same position, if available
-                other_line = other_cleaned[i] if i < len(other_cleaned) else None
+                # The most similar line the other side has, whatever its
+                # position, so a reordered list is not compared out of step.
+                other_line = None
+                if candidates:
+                    best = max(
+                        candidates,
+                        key=lambda cand: difflib.SequenceMatcher(
+                            None, line, cand
+                        ).ratio(),
+                    )
+                    if difflib.SequenceMatcher(None, line, best).ratio() >= 0.5:
+                        other_line = best
+                        candidates.remove(best)
                 # Entire line is italic, but only the differing words are bold
                 out.append(
                     GWizardCompareWindow._italicize_with_bold_diffs(
@@ -1725,7 +1915,8 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         fact of the person, such as birth, death, occupation, residence,
         etc. Empty ``_PPEXCLUDE`` marker events and ``_FSLINK`` events
         are not shown; the FamilySearch ID appears in the Individual
-        Details section instead.
+        Details section instead. Events with no date, place or
+        description are not shown either: they have nothing to compare.
         """
         lines = []
         for ref in person.get_event_ref_list():
@@ -1735,6 +1926,8 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                     continue
                 type_name = str(event.get_type())
                 if type_name in ("_PPEXCLUDE", "_FSLINK"):
+                    continue
+                if is_empty_event(event, db):
                     continue
                 lines.append(self._format_event_line(event, db))
             except Exception as e:
@@ -1806,8 +1999,18 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         lines = []
         for label, relateds in (
-            (_("Father"), self._get_parent_persons(person, db, family_role="father")),
-            (_("Mother"), self._get_parent_persons(person, db, family_role="mother")),
+            (
+                _("Father"),
+                self._sorted_relatives(
+                    self._get_parent_persons(person, db, family_role="father"), db
+                ),
+            ),
+            (
+                _("Mother"),
+                self._sorted_relatives(
+                    self._get_parent_persons(person, db, family_role="mother"), db
+                ),
+            ),
         ):
             for related in relateds:
                 lines.append(
@@ -1817,7 +2020,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                         "details": self._related_name_with_vitals(related, db),
                     }
                 )
-        spouses = self._get_spouse_persons(person, db)
+        spouses = self._sorted_relatives(self._get_spouse_persons(person, db), db)
         if spouses:
             lines.append(
                 _("Spouse: %s")
@@ -1826,6 +2029,24 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                 )
             )
         return lines
+
+    def _sorted_relatives(self, persons: list[Person], db: Any) -> list[Person]:
+        """
+        Return relatives in one order that does not depend on how either
+        tree happens to store them (by name, then birth year), so the same
+        people line up in the two detail panels.
+        """
+
+        def sort_key(related: Person) -> tuple[str, str]:
+            try:
+                birth_year = GWizardCompareWindow._get_event_year(
+                    vital_event_ref(db, related, "birth"), db
+                )
+            except Exception:
+                birth_year = ""
+            return (name_displayer.display(related).casefold(), birth_year)
+
+        return sorted(persons, key=sort_key)
 
     def _get_parent_persons(
         self, person: Person, db: Any, family_role: str | None = None
@@ -1895,13 +2116,13 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         try:
             birth_year = GWizardCompareWindow._get_event_year(
-                related.get_birth_ref(), db
+                vital_event_ref(db, related, "birth"), db
             )
         except Exception:
             birth_year = ""
         try:
             death_year = GWizardCompareWindow._get_event_year(
-                related.get_death_ref(), db
+                vital_event_ref(db, related, "death"), db
             )
         except Exception:
             death_year = ""
@@ -1919,19 +2140,26 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         Build the Children section lines: children of each of the person's
         families, one per line with their vital years.
         """
-        lines = []
+        children: list[Person] = []
+        seen: set[str] = set()
         try:
             for family_handle in person.get_family_handle_list():
                 family = safe_get_family(db, family_handle)
                 if not family:
                     continue
                 for child_ref in family.get_child_ref_list():
+                    if child_ref.ref in seen:
+                        continue
+                    seen.add(child_ref.ref)
                     child = safe_get_person(db, child_ref.ref)
                     if child:
-                        lines.append(self._related_name_with_vitals(child, db))
+                        children.append(child)
         except Exception as e:
             LOG.warning("Children lookup failed: %s", e)
-        return lines
+        return [
+            self._related_name_with_vitals(child, db)
+            for child in self._sorted_relatives(children, db)
+        ]
 
     def _related_name_with_vitals(self, related: Person, db: Any) -> str:
         """
@@ -1987,24 +2215,30 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             parent=self,
         )
         try:
-            dialog.run()
+            response = dialog.run()
         finally:
             dialog.destroy()
         # Re-activate the compare window: it is the transient parent of
         # the merge dialog, so presenting it restores focus without
         # requiring a click.
         self.present()
-        # Rebuild both panels so any merged data and the diff list
+        # The dialog answers OK only once a merge has been applied; Cancel,
+        # the title-bar X and Escape change nothing, so the panels are
+        # left as they are instead of being rebuilt.
+        if response != Gtk.ResponseType.OK:
+            return
+        # Rebuild both panels so the merged data and the diff list
         # reflect the new state.
         self.select_category("person")
 
     def _reject_pair(self, source_handle: str, target_handle: str) -> None:
         """Unpair two people and remember the rejection for this session."""
+        target_person_handle = PersonHandle(target_handle)
         self._rejected.setdefault(source_handle, set()).add(target_handle)
         if self._pair_map.get(source_handle) == target_handle:
             self._pair_map[source_handle] = None
-        if self._pair_map_rev.get(target_handle) == source_handle:
-            del self._pair_map_rev[target_handle]
+        if self._pair_map_rev.get(target_person_handle) == source_handle:
+            del self._pair_map_rev[target_person_handle]
 
         for index, entry in enumerate(self.diff_list):
             if entry["source_handle"] == source_handle:
@@ -2046,12 +2280,31 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             self._reject_pair(pair[0], pair[1])
             return
         source_handle = pair[0]
+        from gramps.gen.gwizard.gwizardgedcom import format_link_summary
+        from gramps.gui.dialog import WarningDialog
+        from .gwizardmergedialog import GWizardAddNewDialog
+
+        try:
+            dialog = GWizardAddNewDialog(self.gwizard, source_handle, parent=self)
+        except Exception as exc:  # pragma: no cover
+            LOG.exception("Add as new failed: %s", exc)
+            ErrorDialog(_("Add as New failed"), str(exc), parent=self)
+            return
+        try:
+            response = dialog.run()
+            link_families = dialog.link_families
+        finally:
+            dialog.destroy()
+        if response != Gtk.ResponseType.OK:
+            self.present()
+            return
         try:
             self.gwizard.run_step(
                 "apply",
                 source_person_handle=source_handle,
                 target_person_handle=None,
                 resolutions={},
+                link_families=link_families,
             )
         except Exception as exc:  # pragma: no cover
             LOG.exception("Add as new failed: %s", exc)
@@ -2059,12 +2312,18 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             return
         self.present()
         self.select_category("person")
+        problems = format_link_summary(self.gwizard.context.get("link_summary", []))
+        if problems:
+            WarningDialog(
+                _("Some relationships were not linked"), problems, parent=self
+            )
 
     def cb_close(self, _button: Gtk.Button) -> None:
         """
         Handle window close button.
         """
         self._cancel_pending_scroll_sync()
+        self._cancel_pending_reveal()
         self.close()
 
     def cb_delete_event(self, *args: Any) -> bool:
@@ -2077,8 +2336,19 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         (close() itself destroys the window via close_track).
         """
         self._cancel_pending_scroll_sync()
+        self._cancel_pending_reveal()
         self.close()
         return True
+
+    def _cancel_pending_reveal(self) -> None:
+        """Cancel a pending row reveal (see _schedule_reveal)."""
+        pending = getattr(self, "_reveal_idle_id", None)
+        if pending is not None:
+            try:
+                GLib.source_remove(pending)
+            except Exception:  # pragma: no cover - already fired/removed
+                pass
+            self._reveal_idle_id = None
 
     def _cancel_pending_scroll_sync(self) -> None:
         """
@@ -2163,7 +2433,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         name_str = name_displayer.display(person)
 
         # Look up counterpart in the pairing map
-        counterpart = self._get_counterpart(handle)
+        counterpart = self._get_counterpart(handle, from_source=is_source_left)
 
         if counterpart:
             # Counterpart exists; select and scroll to it. The pairing map
@@ -2199,7 +2469,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         Schedules a sync after scrolling stops (200ms debounce) to avoid
         excessive processing during continuous scroll operations.
         """
-        if self._syncing_scroll:
+        if self._syncing_scroll or self._suppress_scroll_sync:
             return
         self._schedule_scroll_sync(self.left_panel, self.right_panel)
 
@@ -2210,7 +2480,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         Schedules a sync after scrolling stops (200ms debounce) to avoid
         excessive processing during continuous scroll operations.
         """
-        if self._syncing_scroll:
+        if self._syncing_scroll or self._suppress_scroll_sync:
             return
         self._schedule_scroll_sync(self.right_panel, self.left_panel)
 
@@ -2274,7 +2544,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
             name_str = name_displayer.display(person)
 
             # Look up counterpart in the pairing map
-            counterpart = self._get_counterpart(handle)
+            counterpart = self._get_counterpart(handle, from_source=is_source_left)
 
             if counterpart:
                 # Counterpart exists; select and scroll to it
@@ -2304,7 +2574,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         Debounced horizontal scroll sync from left to right.
         """
-        if self._syncing_scroll:
+        if self._syncing_scroll or self._suppress_scroll_sync:
             return
         self._schedule_scroll_sync(self.left_panel, self.right_panel)
 
@@ -2312,6 +2582,6 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         """
         Debounced horizontal scroll sync from right to left.
         """
-        if self._syncing_scroll:
+        if self._syncing_scroll or self._suppress_scroll_sync:
             return
         self._schedule_scroll_sync(self.right_panel, self.left_panel)

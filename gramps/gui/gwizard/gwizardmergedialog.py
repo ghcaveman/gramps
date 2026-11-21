@@ -55,10 +55,22 @@ from gi.repository import Pango
 # -------------------------------------------------------------------------
 from gramps.gen.lib import EventType, Person
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.constfunc import has_display
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.errors import HandleError
-from gramps.gen.gwizard.gwizardgedcom import GedGWizard
+from gramps.gui.dialog import ErrorDialog
+from gramps.gen.gwizard.gwizardgedcom import (
+    EXTRA_KINDS,
+    GedGWizard,
+    extra_items,
+    extra_label,
+    extra_text,
+    format_link_preview,
+    pair_extra_items,
+)
+from gramps.gen.gwizard.gwizard_filemerge_media import media_handles_of, media_note
 from gramps.gen.gwizard.gwizard_base import (
+    is_empty_event,
     safe_get_event,
     safe_get_family,
     safe_get_person,
@@ -155,6 +167,9 @@ def ensure_diff_styles_installed() -> bool:
     global _DIFF_CSS_INSTALLED
     if _DIFF_CSS_INSTALLED:
         return True
+
+    if not has_display():
+        return False
 
     screen = Gdk.Screen.get_default()
     if screen is None:
@@ -328,8 +343,42 @@ def sources_line(db: Any, obj: Any) -> str:
     return _("Sources: %s") % (citation_sources_summary(db, obj) or _("none"))
 
 
+def pair_relatives(
+    source_items: list[Any], target_items: list[Any], resolve: Any
+) -> list[tuple[Any, Any]]:
+    """
+    Pair incoming relatives with the tree person's relatives of one role.
+
+    ``resolve`` maps the handle of an incoming person to the handle of the
+    person in the tree that it stands for (None when there is none). A
+    relative the tree person already has is paired with it whatever the
+    order of the two lists. Returns (incoming, tree) pairs: the pairs first,
+    in incoming order, then incoming relatives the tree person lacks, then
+    relatives only the tree person has. The missing side of an unpaired
+    relative is None.
+    """
+    unused = list(target_items)
+    paired: list[tuple[Any, Any]] = []
+    source_only: list[tuple[Any, Any]] = []
+    for s_rel in source_items:
+        wanted = resolve(s_rel.handle) if unused else None
+        for position, t_rel in enumerate(unused):
+            if wanted and t_rel.handle == wanted:
+                del unused[position]
+                paired.append((s_rel, t_rel))
+                break
+        else:
+            source_only.append((s_rel, None))
+    return paired + source_only + [(None, t_rel) for t_rel in unused]
+
+
 def person_events_by_type(db: Any, person: Person) -> dict[str, list[str]]:
-    """Return visible event handles grouped by event type, preserving order."""
+    """
+    Return visible event handles grouped by event type, preserving order.
+
+    Internal ``_PPEXCLUDE``/``_FSLINK`` markers and empty events (no date,
+    place or description) are left out, matching the compare window.
+    """
     groups: dict[str, list[str]] = {}
     for event_ref in person.get_event_ref_list():
         try:
@@ -338,6 +387,8 @@ def person_events_by_type(db: Any, person: Person) -> dict[str, list[str]]:
                 continue
             event_type = str(event.get_type())
             if event_type in ("_PPEXCLUDE", "_FSLINK"):
+                continue
+            if is_empty_event(event, db):
                 continue
             groups.setdefault(event_type, []).append(event.handle)
         except Exception:
@@ -350,6 +401,87 @@ def person_events_by_type(db: Any, person: Person) -> dict[str, list[str]]:
 # GWizardMergeDialog
 #
 # -------------------------------------------------------------------------
+class GWizardAddNewDialog(Gtk.Dialog):
+    """
+    Confirm adding an incoming person as new, and choose whether to link
+    their families to people who are already in the tree.
+    """
+
+    def __init__(
+        self,
+        gwizard: GedGWizard,
+        source_handle: str,
+        parent: Gtk.Window | None = None,
+    ) -> None:
+        """
+        :param gwizard: A GedGWizard whose connect/load steps already ran.
+        :param source_handle: Handle of the incoming person to add.
+        :param parent: Parent window (makes this a modal dialog).
+        """
+        Gtk.Dialog.__init__(self, transient_for=parent, modal=True)
+        self.set_title(_("Add as New Person"))
+        self.set_default_size(460, 380)
+        self.set_border_width(6)
+
+        source_db = gwizard.context.get("source_db")
+        person = safe_get_person(source_db, source_handle) if source_db else None
+        if person is None:
+            raise HandleError(_("Source person no longer exists: %s") % source_handle)
+        entries = gwizard.link_preview(source_handle)
+
+        box = self.get_content_area()
+        box.set_spacing(8)
+        heading = Gtk.Label(xalign=0.0)
+        heading.set_markup(
+            "<b>%s</b>" % GLib.markup_escape_text(name_displayer.display(person))
+        )
+        box.pack_start(heading, False, False, 0)
+
+        self._link_check = Gtk.CheckButton(label=_("Link family relationships"))
+        self._link_check.set_active(True)
+        self._link_check.set_sensitive(bool(entries))
+        box.pack_start(self._link_check, False, False, 0)
+
+        if entries:
+            intro = _(
+                "Relatives who are already in your tree are linked to the new "
+                "person. The others are linked when they are added."
+            )
+            preview = Gtk.Label(
+                label=format_link_preview(entries), xalign=0.0, selectable=True
+            )
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            scroll.set_shadow_type(Gtk.ShadowType.IN)
+            scroll.add(preview)
+        else:
+            intro = _("This person has no families in the incoming file.")
+            scroll = None
+        note = Gtk.Label(label=intro, xalign=0.0)
+        note.set_line_wrap(True)
+        box.pack_start(note, False, False, 0)
+        if scroll is not None:
+            box.pack_start(scroll, True, True, 0)
+        # Pictures whose files are missing, or a tree without a base path.
+        pictures = media_note(
+            media_handles_of(person, source_db), source_db, gwizard.db
+        )
+        if pictures:
+            media_label = Gtk.Label(label=pictures, xalign=0.0)
+            media_label.set_line_wrap(True)
+            box.pack_start(media_label, False, False, 0)
+
+        self.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
+        self.add_button(_("_Add"), Gtk.ResponseType.OK)
+        self.set_default_response(Gtk.ResponseType.OK)
+        self.show_all()
+
+    @property
+    def link_families(self) -> bool:
+        """Return True when the families should be linked."""
+        return bool(self._link_check.get_active())
+
+
 class GWizardMergeDialog(Gtk.Dialog):
     """
     Modal dialog to review one source/target person pair and move
@@ -583,12 +715,9 @@ class GWizardMergeDialog(Gtk.Dialog):
             lab.set_markup("<b>%s</b>" % GLib.markup_escape_text(text))
             return lab
 
-        source_title = self.gwizard.context.get("source_title")
         source_path = self.gwizard.context.get("gedcom_path")
-        incoming_title = _("Incoming Data")
-        if source_title:
-            incoming_title = _("Incoming: %s") % source_title
-        elif source_path:
+        incoming_title = _("Incoming GEDCOM")
+        if source_path:
             filename = truncate_display_name(
                 os.path.basename(source_path),
                 max_length=30,
@@ -664,10 +793,10 @@ class GWizardMergeDialog(Gtk.Dialog):
             if key is not None:
                 if is_nullable_identity:
                     if ls and not rs:
-                        btn = self._make_arrow(key, label)
+                        btn = self._make_arrow(key, label or _("Child"))
                         self._mergeable_count += 1
                 elif not same and ls:
-                    btn = self._make_arrow(key, label)
+                    btn = self._make_arrow(key, label or _("Child"))
                     self._mergeable_count += 1
             gap = btn if btn is not None else Gtk.Label(label="")
             grid.attach(left_cell, 0, self._row_index, 1, 1)
@@ -677,10 +806,14 @@ class GWizardMergeDialog(Gtk.Dialog):
 
         def rel_items(db: Any, person: Person, role: str) -> list[Person]:
             if role == "spouse":
-                return self._spouses(db, person)
-            if role == "child":
-                return self._children(db, person)
-            return self._parents(db, person, role)
+                items = self._spouses(db, person)
+            elif role == "child":
+                items = self._children(db, person)
+            else:
+                items = self._parents(db, person, role)
+            # By name, then birth year, as in the compare window, so rows
+            # that do not pair up still line up in the same order.
+            return self._sorted_relatives(db, items)
 
         def rel_sources(
             db: Any, person: Person | None, other: Person | None, role: str
@@ -766,6 +899,14 @@ class GWizardMergeDialog(Gtk.Dialog):
             left_prefix,
             right_prefix,
         )
+        for key, label, getter in (
+            ("nickname", _("Nickname"), "get_nick_name"),
+            ("call_name", _("Call Name"), "get_call_name"),
+        ):
+            left_value = getattr(left_name, getter)()
+            right_value = getattr(right_name, getter)()
+            if left_value or right_value:
+                add_row(key, label, left_value, right_value)
         add_row(
             "name_sources" if left_name.get_citation_list() else None,
             _("Name Sources"),
@@ -822,15 +963,17 @@ class GWizardMergeDialog(Gtk.Dialog):
         ):
             t_items = rel_items(td, right, role)
             s_items = rel_items(sd, left, role)
-            count = max(len(t_items), len(s_items))
-            for i in range(count):
-                t_rel = t_items[i] if i < len(t_items) else None
-                s_rel = s_items[i] if i < len(s_items) else None
+            for s_rel, t_rel in pair_relatives(
+                s_items, t_items, self.gwizard.target_person_for
+            ):
                 t_text = self._related_text(t_rel, td) if t_rel else ""
                 s_text = self._related_text(s_rel, sd) if s_rel else ""
-                key = (role + ":" + s_rel.handle) if s_rel else None
+                # A relative the tree person already has needs no arrow.
+                relative_key = (
+                    role + ":" + s_rel.handle if s_rel and not t_rel else None
+                )
                 add_row(
-                    key,
+                    relative_key,
                     title,
                     s_text,
                     t_text,
@@ -842,15 +985,14 @@ class GWizardMergeDialog(Gtk.Dialog):
         section(_("Children"))
         t_items = rel_items(td, right, "child")
         s_items = rel_items(sd, left, "child")
-        count = max(len(t_items), len(s_items))
-        for i in range(count):
-            t_rel = t_items[i] if i < len(t_items) else None
-            s_rel = s_items[i] if i < len(s_items) else None
+        for s_rel, t_rel in pair_relatives(
+            s_items, t_items, self.gwizard.target_person_for
+        ):
             t_text = self._related_text(t_rel, td) if t_rel else ""
             s_text = self._related_text(s_rel, sd) if s_rel else ""
-            key = ("child:" + s_rel.handle) if s_rel else None
+            child_key = "child:" + s_rel.handle if s_rel and not t_rel else None
             add_row(
-                key,
+                child_key,
                 "",
                 s_text,
                 t_text,
@@ -861,83 +1003,137 @@ class GWizardMergeDialog(Gtk.Dialog):
 
         # ---------- Events & Other Records ----------
         section(_("Events & Other Records"))
-        primary_source_handles = {handle for handle in (l_b[2], l_d[2]) if handle}
+        primary_source_fields = {
+            handle: field
+            for handle, field in (
+                (l_b[2], "birth_event"),
+                (l_d[2], "death_event"),
+            )
+            if handle
+        }
         source_groups = person_events_by_type(sd, left)
         target_groups = person_events_by_type(td, right)
 
-        def event_sort_key(db: Any, handle: str) -> str:
+        def event_match_key(db: Any, handle: str) -> tuple[int, int, str, str, str]:
             ev = safe_get_event(db, handle)
-            return self._event_line_from(db, ev) if ev else ""
+            if not ev:
+                return (0, 0, "", "", "")
+            date = ev.get_date_object()
+            place = ""
+            place_handle = ev.get_place_handle()
+            if place_handle:
+                place_obj = safe_get_place(db, place_handle)
+                if place_obj:
+                    place = place_obj.get_name().get_value() or ""
+            date_text = date.get_text() if date.get_sort_value() == 0 else ""
+            return (
+                date.get_sort_value(),
+                date.get_modifier(),
+                " ".join(date_text.split()).casefold(),
+                " ".join(place.split()).casefold(),
+                " ".join((ev.get_description() or "").split()).casefold(),
+            )
 
-        # For each event type we align source and target events, sorted in
-        # alphabetic order so the database and file sides match cleanly.
+        def event_sort_key(db: Any, handle: str) -> tuple[Any, ...]:
+            ev = safe_get_event(db, handle)
+            if not ev:
+                return (0, 0, "", "", "", 0)
+            date = ev.get_date_object()
+            # Older Gramps versions have no Date.get_sort_key.
+            sort_key = getattr(date, "get_sort_key", date.get_sort_value)
+            return (*event_match_key(db, handle), sort_key())
+
+        # Match and order on event data, not rendered text: date quality can
+        # change the display string without changing the underlying event.
         for etype in sorted(set(source_groups.keys()) | set(target_groups.keys())):
-            s_event_handles = sorted(
-                source_groups.get(etype, []),
-                key=lambda h: event_sort_key(sd, h),
-            )
-            t_event_handles = sorted(
-                target_groups.get(etype, []),
-                key=lambda h: event_sort_key(td, h),
-            )
+            source_by_key: dict[tuple[int, int, str, str, str], list[str]] = {}
+            target_by_key: dict[tuple[int, int, str, str, str], list[str]] = {}
+            for handle in source_groups.get(etype, []):
+                source_by_key.setdefault(event_match_key(sd, handle), []).append(handle)
+            for handle in target_groups.get(etype, []):
+                target_by_key.setdefault(event_match_key(td, handle), []).append(handle)
 
-            # Build dictionaries of handle -> rendered line for quick lookup.
-            s_lines = {
-                handle: self._event_line_from(sd, safe_get_event(sd, handle))
-                for handle in s_event_handles
-            }
-            t_lines = {
-                handle: self._event_line_from(td, safe_get_event(td, handle))
-                for handle in t_event_handles
-            }
+            for event_key in sorted(set(source_by_key) | set(target_by_key)):
+                s_event_handles = sorted(
+                    source_by_key.get(event_key, []),
+                    key=lambda h: event_sort_key(sd, h),
+                )
+                t_event_handles = sorted(
+                    target_by_key.get(event_key, []),
+                    key=lambda h: event_sort_key(td, h),
+                )
+                for index in range(max(len(s_event_handles), len(t_event_handles))):
+                    s_handle = (
+                        s_event_handles[index] if index < len(s_event_handles) else None
+                    )
+                    t_handle = (
+                        t_event_handles[index] if index < len(t_event_handles) else None
+                    )
+                    s_event = safe_get_event(sd, s_handle) if s_handle else None
+                    t_event = safe_get_event(td, t_handle) if t_handle else None
+                    source_event_key: str | None = (
+                        primary_source_fields.get(s_handle, "event:" + s_handle)
+                        if s_handle
+                        else None
+                    )
+                    add_row(
+                        source_event_key,
+                        etype,
+                        self._event_line_from(sd, s_event) if s_event else "",
+                        self._event_line_from(td, t_event) if t_event else "",
+                        left_obj=s_event,
+                        right_obj=t_event,
+                    )
 
-            # Track which target handles have been paired.
-            used_t_handles: set[str] = set()
-
-            # First, try to pair each source event with an identical target
-            # event line.  If a match is found we pair them and mark the target
-            # as used.
-            for s_handle, s_line in s_lines.items():
-                match_handle: str | None = None
-                for t_candidate_h, t_line in t_lines.items():
-                    if t_candidate_h in used_t_handles:
-                        continue
-                    if s_line == t_line:
-                        match_handle = t_candidate_h
-                        break
-                if match_handle:
-                    used_t_handles.add(match_handle)
-                # Retrieve event objects for the row.
-                s_event = safe_get_event(sd, s_handle) if s_handle else None
-                t_event = safe_get_event(td, match_handle) if match_handle else None
-                key = (
-                    "event:" + s_handle
-                    if s_handle and s_handle not in primary_source_handles
+        # ---------- Other Details ----------
+        # Alternate names, attributes, addresses and notes are added to the
+        # person, never replaced, so each incoming item the tree person
+        # lacks gets an arrow that copies it over.
+        other_rows = [
+            (kind, row)
+            for kind in EXTRA_KINDS
+            for row in pair_extra_items(kind, left, sd, right, td)
+        ]
+        if other_rows:
+            section(_("Other Details"))
+        for kind, (s_index, s_item, _t_index, t_item) in other_rows:
+            add_row(
+                (
+                    "%s:%d" % (kind, s_index)
+                    if s_item is not None and t_item is None and s_index is not None
                     else None
-                )
-                add_row(
-                    key,
-                    etype,
-                    s_line,
-                    self._event_line_from(td, t_event) if t_event else "",
-                    left_obj=s_event,
-                    right_obj=t_event,
-                )
+                ),
+                extra_label(kind),
+                extra_text(kind, s_item, sd, td) if s_item is not None else "",
+                extra_text(kind, t_item, td) if t_item is not None else "",
+                # Notes, links and media carry no citations of their own to show.
+                left_obj=s_item if kind not in ("note", "url", "media") else None,
+                right_obj=t_item if kind not in ("note", "url", "media") else None,
+            )
 
-            # Any remaining target events that were not matched are added as
-            # rows with an empty source side.
-            for t_handle, t_line in t_lines.items():
-                if t_handle in used_t_handles:
-                    continue
-                t_event = safe_get_event(td, t_handle)
-                add_row(
-                    None,
-                    etype,
-                    "",
-                    t_line,
-                    left_obj=None,
-                    right_obj=t_event,
-                )
+        # ---------- Families ----------
+        # The families the incoming person heads, set against the tree's
+        # counterparts. An arrow merges one family: it adds a family the
+        # tree lacks, fills in missing events and members, and takes the
+        # incoming relationship type.
+        family_entries = (
+            self.gwizard.family_compare(left.handle, right.handle)
+            if right.handle
+            else []
+        )
+        if family_entries:
+            section(_("Families"))
+        for entry in family_entries:
+            add_row(
+                (
+                    "family:%s" % entry["sf_handle"]
+                    if entry["differences"] and entry["actionable"]
+                    else None
+                ),
+                _("Family"),
+                entry["source_text"],
+                entry["target_text"],
+            )
 
     # ------------------------------------------------------------------
     # Data helpers
@@ -976,13 +1172,17 @@ class GWizardMergeDialog(Gtk.Dialog):
             event = safe_get_event(db, ref.ref)
             if not event:
                 return "", None, None
-            date_str = glocale.date_displayer.display(event.get_date_object())
+            # Same place name and spacing as the Events & Other Records
+            # lines, so one event reads the same in both places.
+            date_str = " ".join(
+                glocale.date_displayer.display(event.get_date_object()).split()
+            )
             place = ""
             ph = event.get_place_handle()
             if ph:
                 place_obj = safe_get_place(db, ph)
                 if place_obj:
-                    place = place_obj.get_title() or ""
+                    place = " ".join((place_obj.get_name().get_value() or "").split())
             return date_str, place or None, event.handle
         except Exception:
             return "", None, None
@@ -993,17 +1193,24 @@ class GWizardMergeDialog(Gtk.Dialog):
         return ", ".join(p for p in (date_str, place or "") if p)
 
     def _event_line_from(self, db: Any, event: Any) -> str:
-        """Return an event's date, place, and description for display."""
+        """
+        Return an event's date, place, and description for display.
+
+        Each part has its whitespace collapsed (leading, trailing and
+        embedded runs), matching the compare window's event lines.
+        """
         if not event:
             return ""
-        date_str = glocale.date_displayer.display(event.get_date_object())
+        date_str = " ".join(
+            glocale.date_displayer.display(event.get_date_object()).split()
+        )
         place = ""
         ph = event.get_place_handle()
         if ph:
             try:
                 place_obj = safe_get_place(db, ph)
                 if place_obj:
-                    place = place_obj.get_name().get_value() or ""
+                    place = " ".join((place_obj.get_name().get_value() or "").split())
             except Exception:
                 pass
         details = ", ".join(p for p in (date_str, place) if p)
@@ -1019,7 +1226,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         """
         birth_year = self._event_year(db, person, "birth")
         death_year = self._event_year(db, person, "death")
-        birth_place = ""
+        birth_place: str | None = ""
         try:
             _d, birth_place, _h = self._event_for(db, person, "birth")
         except Exception:
@@ -1042,6 +1249,22 @@ class GWizardMergeDialog(Gtk.Dialog):
         name = name_displayer.display(person)
         vitals = self._vitals_text(person, db)
         return "%s (%s)" % (name, vitals) if vitals else name
+
+    def _sorted_relatives(self, db: Any, persons: list[Person]) -> list[Person]:
+        """
+        Return relatives sorted by display name, then birth year (undated
+        last), whatever order the tree stores them in.
+        """
+
+        def sort_key(related: Person) -> tuple[str, bool, str]:
+            try:
+                name = name_displayer.display(related).casefold()
+            except Exception:
+                name = ""
+            year = self._event_year(db, related, "birth")
+            return (name, not year, year.zfill(4))
+
+        return sorted(persons, key=sort_key)
 
     def _parents(self, db: Any, person: Person, role: str) -> list[Person]:
         out = []
@@ -1121,7 +1344,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         Scan selected resolutions to find referenced objects (Notes, Media,
         Citations, Sources, Repositories) that do not exist in target DB.
         """
-        missing = {
+        missing: dict[str, set[str]] = {
             "note": set(),
             "media": set(),
             "source": set(),
@@ -1136,6 +1359,9 @@ class GWizardMergeDialog(Gtk.Dialog):
         matched_sources: set[str] = set()
         self._matched_sources = matched_sources
         extra_citations: list[str] = []
+        # Objects (LDS ordinances, media references) whose own notes and
+        # citations are scanned once the helpers below exist.
+        scan_later: list[Any] = []
 
         if not self.target_handle:  # Adding as new person
             people_to_scan.append(self.source_person)
@@ -1149,16 +1375,21 @@ class GWizardMergeDialog(Gtk.Dialog):
             extra_citations.extend(
                 self.source_person.get_primary_name().get_citation_list()
             )
+            for ordinance in self.source_person.get_lds_ord_list():
+                scan_later.append(ordinance)
+            for mref in self.source_person.get_media_list():
+                scan_later.append(mref)
         else:
             # Merging
             # Check birth_event
+            # The same events the Birth/Death rows show and the merge copies.
             if self._resolutions.get("birth_event") == "source":
-                sb_ref = self.source_person.get_birth_ref()
+                sb_ref = vital_event_ref(self.source_db, self.source_person, "birth")
                 if sb_ref:
                     events_to_scan.append(sb_ref.ref)
             # Check death_event
             if self._resolutions.get("death_event") == "source":
-                sd_ref = self.source_person.get_death_ref()
+                sd_ref = vital_event_ref(self.source_db, self.source_person, "death")
                 if sd_ref:
                     events_to_scan.append(sd_ref.ref)
             # Check other custom events
@@ -1213,13 +1444,15 @@ class GWizardMergeDialog(Gtk.Dialog):
         def scan_media(mref_list):
             for mref in mref_list:
                 mh = mref.get_reference_handle()
-                if mh and not target_has_media(mh):
+                if mh and mh not in missing["media"] and not target_has_media(mh):
                     missing["media"].add(mh)
                     # Scan media notes
                     try:
                         s_med = self.source_db.get_media_from_handle(mh)
                         if s_med:
                             scan_notes(s_med.get_note_list())
+                            for ch in s_med.get_citation_list():
+                                scan_citation(ch)
                     except Exception:
                         pass
 
@@ -1253,7 +1486,7 @@ class GWizardMergeDialog(Gtk.Dialog):
                 pass
 
         def scan_citation(ch):
-            if ch and not target_has_citation(ch):
+            if ch and ch not in missing["citation"] and not target_has_citation(ch):
                 missing["citation"].add(ch)
                 try:
                     s_cit = self.source_db.get_citation_from_handle(ch)
@@ -1283,6 +1516,70 @@ class GWizardMergeDialog(Gtk.Dialog):
                         scan_citation(ch)
             except Exception:
                 pass
+
+        # Alternate names, attributes, addresses and notes chosen in the
+        # "Other Details" section.
+        for key, val in self._resolutions.items():
+            kind, _separator, raw_index = key.partition(":")
+            if val != "source" or kind not in EXTRA_KINDS or not raw_index.isdigit():
+                continue
+            chosen = dict(extra_items(kind, self.source_person, self.source_db)).get(
+                int(raw_index)
+            )
+            if chosen is None:
+                continue
+            if kind == "note":
+                scan_notes([self.source_person.get_note_list()[int(raw_index)]])
+            elif kind == "media":
+                scan_later.append(self.source_person.get_media_list()[int(raw_index)])
+            elif kind != "url":
+                scan_notes(chosen.get_note_list())
+                for ch in chosen.get_citation_list():
+                    scan_citation(ch)
+
+        for obj in scan_later:
+            scan_notes(obj.get_note_list())
+            for ch in obj.get_citation_list():
+                scan_citation(ch)
+            if hasattr(obj, "get_reference_handle"):
+                # A media reference: the media itself, and the references'
+                # attributes, may bring notes and citations too.
+                scan_media([obj])
+                for attribute in obj.get_attribute_list():
+                    scan_notes(attribute.get_note_list())
+                    for ch in attribute.get_citation_list():
+                        scan_citation(ch)
+
+        # Families chosen in the "Families" section: the events they would
+        # bring and, for a family the tree lacks, the family's own notes and
+        # citations.
+        chosen_families = [
+            key.partition(":")[2]
+            for key, val in self._resolutions.items()
+            if key.startswith("family:") and val == "source"
+        ]
+        if chosen_families and self.target_handle:
+            entries = {
+                entry["sf_handle"]: entry
+                for entry in self.gwizard.family_compare(
+                    self.source_handle, self.target_handle
+                )
+            }
+            for sf_handle in chosen_families:
+                entry = entries.get(sf_handle)
+                if entry is None:
+                    continue
+                for event_handle in entry["event_handles"]:
+                    event = safe_get_event(self.source_db, event_handle)
+                    if event is not None:
+                        scan_notes(event.get_note_list())
+                        for ch in event.get_citation_list():
+                            scan_citation(ch)
+                if entry["tf_handle"] is None:
+                    s_family = self.source_db.get_family_from_handle(sf_handle)
+                    scan_notes(s_family.get_note_list())
+                    for ch in s_family.get_citation_list():
+                        scan_citation(ch)
 
         return {k: list(v) for k, v in missing.items()}
 
@@ -1315,6 +1612,10 @@ class GWizardMergeDialog(Gtk.Dialog):
                 "missing references?"
             ) % ", ".join(details)
 
+            pictures = media_note(missing["media"], self.source_db, self.target_db)
+            if pictures:
+                msg += "\n\n" + pictures
+
             if self._matched_sources:
                 count = len(self._matched_sources)
                 msg += (
@@ -1344,14 +1645,29 @@ class GWizardMergeDialog(Gtk.Dialog):
                 return
 
         try:
-            self.gwizard.run_step(
+            applied = self.gwizard.run_step(
                 "apply",
                 source_person_handle=self.source_handle,
                 target_person_handle=self.target_handle,
                 resolutions=self._resolutions,
             )
         except Exception as e:  # pragma: no cover
+            # The apply runs in one database transaction that is rolled
+            # back when an exception escapes, so nothing was changed.
             LOG.exception("Apply failed: %s", e)
+            ErrorDialog(
+                _("Merge failed"),
+                _("No changes were made to your family tree.\n\n%s") % e,
+                parent=self,
+            )
+            return
+        if applied is False:
+            ErrorDialog(
+                _("Merge failed"),
+                _("The selected person could not be found in your family tree."),
+                parent=self,
+            )
+            return
         self.response(Gtk.ResponseType.OK)
 
     def cb_cancel(self, _button: Gtk.Button) -> None:
