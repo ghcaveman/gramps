@@ -29,6 +29,7 @@ modules = [
     "gramps/plugins/tool/gwizardwikitreemerge.py",
     "gramps/plugins/tool/gwizardwikitreeprovenance.py",
     "gramps/plugins/tool/gwizardaddonutil.py",
+    "gramps/plugins/tool/gwizardwikitreesource.py",
 ]
 tests = [
     "gramps/gen/gwizard/test/gwizardwikitree_test.py",
@@ -37,12 +38,27 @@ tests = [
     "gramps/plugins/tool/test/gwizardwikitree*_test.py",
 ]
 
+# WikiTree as a record source for the GWizard Record Scan (which ships in
+# GWizard File Merge): a GENERAL plugin the scan finds by its category.
+[[extra_registrations]]
+type = "GENERAL"
+id = "gwizardwikitreesource"
+name = "GWizard WikiTree record source"
+description = "Lets the GWizard Record Scan search WikiTree."
+fname = "gwizardwikitreesource.py"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+category = "GWizardRecordSource"
+load_on_reg = true
+gramps_versions = ["5.2.0", "6.2.0"]
+
 # The shared gwizard modules ship in GWizardFileMerge.
 [[dependencies]]
 id = "gwizardmerge"
 package = "GWizardFileMerge"
 modules = [
     "gramps/gen/gwizard/gwizard_base.py",
+    "gramps/gen/gwizard/gwizard_filemerge_recordscan.py",
     "gramps/gen/gwizard/gwizardaltmatch.py",
     "gramps/gen/gwizard/gwizardgedcom.py",
     "gramps/gui/gwizard/gwizardaltcompare.py",
@@ -72,6 +88,10 @@ ignore = [
     "gramps/gen/gwizard/test/data/**",
     "gramps/gui/gwizard/test/gwizard_*_test.py",
     "gramps/plugins/tool/test/gwizardmerge*_test.py",
+    "gramps/gen/gwizard/gwizard_filemerge_*.py",
+    "gramps/gui/gwizard/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",

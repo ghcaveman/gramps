@@ -314,6 +314,7 @@ class WikiTreeInterface:
         key: str,
         fields: str = _DEFAULT_FIELDS,
         timeout: int = 30,
+        raise_errors: bool = False,
     ) -> dict[str, Any] | None:
         """
         Fetch profile details for a single WikiTree ID or key.
@@ -321,6 +322,9 @@ class WikiTreeInterface:
         :param key: WikiTree ID (e.g. 'Franklin-1' or integer ID).
         :param fields: Comma-separated list of profile fields to retrieve.
         :param timeout: HTTP request timeout in seconds.
+        :param raise_errors: Raise RuntimeError when the request fails,
+            instead of returning None (so a caller can tell a failure from
+            a profile that does not exist).
         :returns: Dictionary of person fields, or None if not found or on error.
         """
         import requests
@@ -347,8 +351,14 @@ class WikiTreeInterface:
                         return item.get("person")
             else:
                 LOG.warning("WikiTree API getPerson returned %d", response.status_code)
+                if raise_errors:
+                    raise RuntimeError(
+                        f"WikiTree getPerson returned HTTP {response.status_code}"
+                    )
         except Exception as err:
             LOG.error("WikiTree getPerson failed: %s", err)
+            if raise_errors:
+                raise RuntimeError(str(err)) from err
         return None
 
     def get_people(
@@ -417,6 +427,7 @@ class WikiTreeInterface:
         limit: int = 25,
         timeout: int = 30,
         date_spread: int = 0,
+        raise_errors: bool = False,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """
@@ -430,6 +441,8 @@ class WikiTreeInterface:
         :param timeout: HTTP request timeout.
         :param date_spread: Span of years WikiTree allows when matching
             dates (1-20); 0 leaves it to WikiTree's default.
+        :param raise_errors: Raise RuntimeError when the request fails,
+            instead of returning an empty list.
         :returns: List of matching profile dictionaries.
         """
         import requests
@@ -472,8 +485,14 @@ class WikiTreeInterface:
                             return matches
             else:
                 LOG.warning("WikiTree searchPerson returned %d", response.status_code)
+                if raise_errors:
+                    raise RuntimeError(
+                        f"WikiTree searchPerson returned HTTP {response.status_code}"
+                    )
         except Exception as err:
             LOG.error("WikiTree searchPerson failed: %s", err)
+            if raise_errors:
+                raise RuntimeError(str(err)) from err
         return []
 
     def get_bio(self, key: str, timeout: int = 30) -> str:

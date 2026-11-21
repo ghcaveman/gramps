@@ -893,6 +893,7 @@ gramps/plugins/tool/findloop.py
 gramps/plugins/tool/gwizardaddonutil.py
 gramps/plugins/tool/gwizardmerge.py
 gramps/plugins/tool/gwizardwikitreemerge.py
+gramps/plugins/tool/gwizardwikitreesource.py
 gramps/plugins/tool/mediamanager.py
 gramps/plugins/tool/mergecitations.glade
 gramps/plugins/tool/mergecitations.py

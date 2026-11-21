@@ -29,7 +29,7 @@ Launcher and search dialog for the GWizard WikiTree Merge flow.
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import logging
-from typing import Any
+from typing import Any, Callable
 
 # -------------------------------------------------------------------------
 #
@@ -997,97 +997,25 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         if not wt_id:
             return
 
-        self.status_label.set_text(
-            _("Loading details for '%s' from WikiTree...") % wt_id
-        )
-        while Gtk.events_pending():
-            Gtk.main_iteration_do(False)
-
-        from gramps.gen.gwizard.gwizardwikitree import WikiTreeGWizard
-
-        db = self.dbstate.db if self.dbstate else None
-        if not db:
-            self.status_label.set_text(_("No open database available for merge."))
-            return
-
-        try:
-            gwizard = WikiTreeGWizard(db)
-            if not gwizard.run_step(
-                "connect",
-                query=wt_id,
-                app_id=self.app_id,
-                client=self.client,
-                include_relatives=True,
-            ):
-                self.status_label.set_text(
-                    _("Could not configure connection to WikiTree.")
-                )
-                return
-            gwizard.run_step("load")
-        except Exception as err:
-            LOG.error("Failed to load records from WikiTree for %s: %s", wt_id, err)
-            self.status_label.set_text(
-                _("Failed to load records from WikiTree: %s") % str(err)
-            )
-            return
-
-        source_db = gwizard.context.get("source_db")
-        if not source_db or source_db.get_number_of_people() == 0:
-            self.status_label.set_text(
-                _("No profile data found on WikiTree for '%s'.") % wt_id
-            )
-            return
-
-        # Find source person handle
-        source_handle: str | None = None
-        for h in source_db.iter_person_handles():
-            p = source_db.get_person_from_handle(h)
-            if get_wikitree_id(p) == wt_id:
-                source_handle = h
-                break
-        if not source_handle:
-            for h in source_db.iter_person_handles():
-                source_handle = h
-                break
-
-        if not source_handle:
-            self.status_label.set_text(
-                _("Could not resolve source person for '%s'.") % wt_id
-            )
-            return
-
-        from gramps.gui.gwizard.gwizardwikitreemergedialog import (
-            WikiTreeMergeDialog,
-        )
-
-        merge_dialog = WikiTreeMergeDialog(
+        merged, message = merge_wikitree_profile(
             self.dbstate,
-            gwizard,
-            source_handle,
+            wt_id,
             self.target_handle,
             parent=self,
+            client=self.client,
+            app_id=self.app_id,
+            status=self._show_status,
         )
-        try:
-            response = merge_dialog.run()
-        finally:
-            merge_dialog.destroy()
+        if merged and self.target_handle:
+            self._prefill_entries()
+        if message:
+            self.status_label.set_text(message)
 
-        if response == Gtk.ResponseType.OK:
-            target_name = ""
-            if self.target_handle and self.dbstate and self.dbstate.db:
-                tp = self.dbstate.db.get_person_from_handle(self.target_handle)
-                if tp:
-                    target_name = tp.get_primary_name().get_name()
-                    self._prefill_entries()
-            if target_name:
-                self.status_label.set_text(
-                    _("Successfully merged '%(wt_id)s' into '%(target)s'.")
-                    % {"wt_id": wt_id, "target": target_name}
-                )
-            else:
-                self.status_label.set_text(
-                    _("Successfully imported '%s' as a new person.") % wt_id
-                )
+    def _show_status(self, text: str) -> None:
+        """Show a progress message right away."""
+        self.status_label.set_text(text)
+        while Gtk.events_pending():
+            Gtk.main_iteration_do(False)
 
     def get_query_parameters(self) -> dict[str, Any]:
         """
@@ -1122,6 +1050,98 @@ class WikiTreeSearchDialog(Gtk.Dialog):
 # Launcher functions
 #
 # ------------------------------------------------------------
+def merge_wikitree_profile(
+    dbstate: Any,
+    wt_id: str,
+    target_handle: str | None,
+    parent: Any = None,
+    client: Any = None,
+    app_id: str = WikiTreeInterface.DEFAULT_APP_ID,
+    status: Callable[[str], None] | None = None,
+) -> tuple[bool, str]:
+    """
+    Load a WikiTree profile (with its relatives) and open the merge window
+    against a person in the tree, or as a new person when target_handle is
+    None. Used by the search window and by the GWizard Record Scan.
+
+    :param status: Called with progress messages, if given.
+    :returns: (whether the merge was applied, a message for the user).
+    """
+
+    def show(text: str) -> None:
+        if status is not None:
+            status(text)
+
+    show(_("Loading details for '%s' from WikiTree...") % wt_id)
+    db = dbstate.db if dbstate else None
+    if not db:
+        return False, _("No open database available for merge.")
+
+    try:
+        gwizard = WikiTreeGWizard(db)
+        if not gwizard.run_step(
+            "connect",
+            query=wt_id,
+            app_id=app_id,
+            client=client,
+            include_relatives=True,
+        ):
+            return False, _("Could not configure connection to WikiTree.")
+        gwizard.run_step("load")
+    except Exception as err:
+        LOG.error("Failed to load records from WikiTree for %s: %s", wt_id, err)
+        return False, _("Failed to load records from WikiTree: %s") % str(err)
+
+    source_db = gwizard.context.get("source_db")
+    if not source_db or source_db.get_number_of_people() == 0:
+        return False, _("No profile data found on WikiTree for '%s'.") % wt_id
+
+    # Find source person handle
+    source_handle: str | None = None
+    for h in source_db.iter_person_handles():
+        p = source_db.get_person_from_handle(h)
+        if get_wikitree_id(p) == wt_id:
+            source_handle = h
+            break
+    if not source_handle:
+        for h in source_db.iter_person_handles():
+            source_handle = h
+            break
+
+    if not source_handle:
+        return False, _("Could not resolve source person for '%s'.") % wt_id
+
+    from gramps.gui.gwizard.gwizardwikitreemergedialog import (
+        WikiTreeMergeDialog,
+    )
+
+    merge_dialog = WikiTreeMergeDialog(
+        dbstate,
+        gwizard,
+        source_handle,
+        target_handle,
+        parent=parent,
+    )
+    try:
+        response = merge_dialog.run()
+    finally:
+        merge_dialog.destroy()
+
+    if response != Gtk.ResponseType.OK:
+        return False, ""
+    target_name = ""
+    if target_handle:
+        tp = db.get_person_from_handle(target_handle)
+        if tp:
+            target_name = tp.get_primary_name().get_name()
+    if target_name:
+        return True, _("Successfully merged '%(wt_id)s' into '%(target)s'.") % {
+            "wt_id": wt_id,
+            "target": target_name,
+        }
+    return True, _("Successfully imported '%s' as a new person.") % wt_id
+
+
 def ask_wikitree_parameters(
     parent: Any, default_query: str = ""
 ) -> dict[str, Any] | None:
