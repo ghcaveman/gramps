@@ -28,6 +28,7 @@ Unit tests for the GWizard NARA launcher and search dialog.
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import os
 import sys
 import unittest
 from unittest.mock import MagicMock, Mock, patch
@@ -235,15 +236,17 @@ class TestNaraLauncher(unittest.TestCase):
         uistate = Mock()
 
         mock_client = Mock()
-        dialog = NaraSearchDialog(
-            uistate=uistate,
-            dbstate=dbstate,
-            target_handle=p_h,
-            client=mock_client,
-        )
+        with patch.dict(os.environ, {"NARA_API_KEY": "environment_key"}):
+            dialog = NaraSearchDialog(
+                uistate=uistate,
+                dbstate=dbstate,
+                target_handle=p_h,
+                client=mock_client,
+            )
 
         self.assertEqual(dialog.default_size, (950, 600))
         self.assertTrue(dialog.resizable)
+        self.assertEqual(dialog.api_key, "environment_key")
         dialog.query_entry.set_text.assert_called_with("George Washington")
 
     def test_dialog_search_no_matches_keeps_open(self) -> None:
@@ -254,7 +257,6 @@ class TestNaraLauncher(unittest.TestCase):
 
         dialog = NaraSearchDialog(client=mock_client)
         dialog.query_entry.get_text.return_value = "NonexistentRecord123"
-        dialog.key_entry.get_text.return_value = ""
         dialog.limit_spin.get_value.return_value = 25
         dialog.material_combo.get_active_id.return_value = None
         dialog.online_check.get_active.return_value = False
@@ -290,7 +292,6 @@ class TestNaraLauncher(unittest.TestCase):
 
         dialog = NaraSearchDialog(client=mock_client)
         dialog.query_entry.get_text.return_value = "Abraham Lincoln"
-        dialog.key_entry.get_text.return_value = "custom_key"
         dialog.limit_spin.get_value.return_value = 10
         dialog.material_combo.get_active_id.return_value = "textual records"
         dialog.online_check.get_active.return_value = True
@@ -404,13 +405,12 @@ class TestNaraLauncher(unittest.TestCase):
             mock_dialog.run.return_value = Gtk.ResponseType.OK
             mock_dialog.get_query_parameters.return_value = {
                 "query": "Lincoln",
-                "api_key": "",
                 "limit": 25,
             }
             mock_cls.return_value = mock_dialog
 
             params = ask_nara_parameters(parent=None, default_query="Lincoln")
-            self.assertEqual(params, {"query": "Lincoln", "api_key": "", "limit": 25})
+            self.assertEqual(params, {"query": "Lincoln", "limit": 25})
             mock_dialog.destroy.assert_called_once()
 
     def test_run_gwizard_nara_flow(self) -> None:
@@ -419,16 +419,73 @@ class TestNaraLauncher(unittest.TestCase):
         uistate.get_active.return_value = "handle_123"
         dbstate = Mock()
 
-        with patch(
-            "gramps.gui.gwizard.gwizardnaralauncher.NaraSearchDialog"
-        ) as mock_cls:
+        with (
+            patch.dict(os.environ, {"NARA_API_KEY": "test-key"}),
+            patch(
+                "gramps.gui.gwizard.gwizardnaralauncher.NaraCatalogInterface.validate_api_key",
+                return_value=None,
+            ) as mock_validate,
+            patch(
+                "gramps.gui.gwizard.gwizardnaralauncher.NaraSearchDialog"
+            ) as mock_cls,
+        ):
             mock_dialog = Mock()
             mock_cls.return_value = mock_dialog
 
             result = run_gwizard_nara_flow(uistate, dbstate)
             self.assertTrue(result)
+            mock_validate.assert_called_once()
             mock_dialog.run.assert_called_once()
             mock_dialog.destroy.assert_called_once()
+
+    def test_run_gwizard_nara_flow_requires_api_key(self) -> None:
+        """Do not open search UI if NARA_API_KEY is unset."""
+        uistate = Mock()
+        dbstate = Mock()
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch(
+                "gramps.gui.gwizard.gwizardnaralauncher.NaraSearchDialog"
+            ) as mock_search,
+            patch(
+                "gramps.gui.gwizard.gwizardnaralauncher.Gtk.MessageDialog"
+            ) as mock_msg,
+        ):
+            result = run_gwizard_nara_flow(uistate, dbstate)
+
+        self.assertFalse(result)
+        mock_search.assert_not_called()
+        mock_msg.return_value.run.assert_called_once()
+        mock_msg.return_value.destroy.assert_called_once()
+
+    def test_run_gwizard_nara_flow_rejects_invalid_api_key(self) -> None:
+        """Do not open search UI if NARA rejects the configured API key."""
+        uistate = Mock()
+        dbstate = Mock()
+
+        with (
+            patch.dict(os.environ, {"NARA_API_KEY": "invalid-key"}),
+            patch(
+                "gramps.gui.gwizard.gwizardnaralauncher.NaraCatalogInterface.validate_api_key",
+                return_value="NARA rejected the API key.",
+            ) as mock_validate,
+            patch(
+                "gramps.gui.gwizard.gwizardnaralauncher.NaraSearchDialog"
+            ) as mock_search,
+            patch(
+                "gramps.gui.gwizard.gwizardnaralauncher.Gtk.MessageDialog"
+            ) as mock_msg,
+        ):
+            result = run_gwizard_nara_flow(uistate, dbstate)
+
+        self.assertFalse(result)
+        mock_validate.assert_called_once()
+        mock_search.assert_not_called()
+        mock_msg.return_value.format_secondary_text.assert_called_once_with(
+            "NARA rejected the API key."
+        )
+        mock_msg.return_value.destroy.assert_called_once()
 
     def test_help_dialog(self) -> None:
         """Verify cb_help displays info dialog."""

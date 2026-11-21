@@ -139,7 +139,6 @@ class NaraSearchDialog(Gtk.Dialog):
         target_handle: str | None = None,
         parent: Any = None,
         default_query: str = "",
-        default_api_key: str = "",
         client: Any = None,
     ) -> None:
         """
@@ -150,7 +149,6 @@ class NaraSearchDialog(Gtk.Dialog):
         :param target_handle: Handle of the target Gramps Person to merge into.
         :param parent: Parent GTK window for transient placement.
         :param default_query: Optional pre-filled search query.
-        :param default_api_key: Optional pre-filled API key.
         :param client: Optional NaraCatalogInterface client for testing.
         """
         super().__init__(
@@ -166,10 +164,7 @@ class NaraSearchDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.target_handle = target_handle
 
-        env_key = (
-            os.environ.get("NARA_API_KEY") or os.environ.get("CATALOG_API_KEY") or ""
-        )
-        self.api_key = default_api_key.strip() or env_key.strip()
+        self.api_key = _get_nara_api_key()
         self.client = client or NaraCatalogInterface(api_key=self.api_key)
 
         content = self.get_content_area()
@@ -267,7 +262,7 @@ class NaraSearchDialog(Gtk.Dialog):
         self.btn_help.connect("clicked", self.cb_help)
         search_grid.attach(self.btn_help, 4, 1, 1, 1)
 
-        # Row 1: Max records & Optional API Key in sub-box
+        # Row 1: Maximum number of records
         adv_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
         limit_label = Gtk.Label(label=_("Max Records:"))
@@ -276,22 +271,6 @@ class NaraSearchDialog(Gtk.Dialog):
         limit_adj = Gtk.Adjustment(value=25, lower=1, upper=100, step_increment=5)
         self.limit_spin = Gtk.SpinButton(adjustment=limit_adj, climb_rate=1, digits=0)
         adv_box.pack_start(self.limit_spin, False, False, 0)
-
-        key_label = Gtk.Label(label=_("API Key (optional):"))
-        adv_box.pack_start(key_label, False, False, 0)
-
-        self.key_entry = Gtk.Entry()
-        self.key_entry.set_hexpand(True)
-        self.key_entry.set_text(self.api_key)
-        self.key_entry.set_placeholder_text(_("Optional (tracks monthly quota)"))
-        self.key_entry.set_tooltip_text(
-            _(
-                "NARA API key obtained from Catalog_API@nara.gov. "
-                "Optional for standard usage, but increases rate limits."
-            )
-        )
-        self.key_entry.connect("activate", self.cb_entry_activate)
-        adv_box.pack_start(self.key_entry, True, True, 0)
 
         search_grid.attach(adv_box, 0, 2, 5, 1)
 
@@ -473,7 +452,6 @@ class NaraSearchDialog(Gtk.Dialog):
         Execute search against NARA Catalog API and populate the results table.
         """
         query = self.query_entry.get_text().strip()
-        api_key = self.key_entry.get_text().strip()
         limit = int(self.limit_spin.get_value())
         selected_mat = self.material_combo.get_active_id() or None
         online_only = self.online_check.get_active()
@@ -483,17 +461,6 @@ class NaraSearchDialog(Gtk.Dialog):
                 _("Please enter a name, keyword, or NAID to search.")
             )
             return
-
-        if api_key != self.api_key:
-            self.api_key = api_key
-            self.client.api_key = api_key
-            if hasattr(self.client, "headers") and isinstance(
-                self.client.headers, dict
-            ):
-                if api_key:
-                    self.client.headers["x-api-key"] = api_key
-                else:
-                    self.client.headers.pop("x-api-key", None)
 
         self.status_label.set_text(_("Searching National Archives Catalog..."))
         while Gtk.events_pending():
@@ -577,7 +544,7 @@ class NaraSearchDialog(Gtk.Dialog):
             "pension application, or National Archives Identifier (NAID).\n"
             "• <b>Material Type:</b> Narrow records to textual files, photographs, maps, etc.\n"
             "• <b>Online Only:</b> Restrict results to records with digitized online assets (images/documents).\n"
-            "• <b>API Key:</b> Free API key from Catalog_API@nara.gov for higher rate limits (optional).\n\n"
+            "• Set the <b>NARA_API_KEY</b> environment variable before launching Gramps to authenticate with the catalog.\n\n"
             "<b>Merging:</b>\n"
             "Select a record from the search results table and click <b>Merge...</b> "
             "(or double-click the row). This opens the side-by-side merge dialog "
@@ -706,14 +673,12 @@ class NaraSearchDialog(Gtk.Dialog):
         :rtype: dict[str, Any]
         """
         query = self.query_entry.get_text().strip()
-        api_key = self.key_entry.get_text().strip()
         limit = int(self.limit_spin.get_value())
         selected_mat = self.material_combo.get_active_id() or None
         online_only = self.online_check.get_active()
 
         params: dict[str, Any] = {
             "query": query,
-            "api_key": api_key,
             "limit": limit,
         }
         if selected_mat:
@@ -728,6 +693,25 @@ class NaraSearchDialog(Gtk.Dialog):
 # Launcher functions
 #
 # ------------------------------------------------------------
+def _get_nara_api_key() -> str:
+    """Return the NARA API key configured in the process environment."""
+    return os.environ.get("NARA_API_KEY", "").strip()
+
+
+def _show_nara_api_error(parent: Any, message: str) -> None:
+    """Display an API key configuration or validation error."""
+    dialog = Gtk.MessageDialog(
+        transient_for=parent,
+        modal=True,
+        message_type=Gtk.MessageType.ERROR,
+        buttons=Gtk.ButtonsType.OK,
+        text=_("Unable to validate NARA API key"),
+    )
+    dialog.format_secondary_text(message)
+    dialog.run()
+    dialog.destroy()
+
+
 def ask_nara_parameters(parent: Any, default_query: str = "") -> dict[str, Any] | None:
     """
     Prompt the user with the NARA search dialog.
@@ -793,6 +777,23 @@ def run_gwizard_nara_flow(uistate: Any, dbstate: Any, parent: Any = None) -> boo
         except Exception:
             parent = None
 
+    api_key = _get_nara_api_key()
+    if not api_key:
+        _show_nara_api_error(
+            parent,
+            _(
+                "Set the NARA_API_KEY environment variable and restart Gramps "
+                "before opening the NARA Merge tool."
+            ),
+        )
+        return False
+
+    client = NaraCatalogInterface(api_key=api_key)
+    error = client.validate_api_key()
+    if error:
+        _show_nara_api_error(parent, error)
+        return False
+
     active_handle = None
     try:
         active_handle = uistate.get_active("Person")
@@ -804,6 +805,7 @@ def run_gwizard_nara_flow(uistate: Any, dbstate: Any, parent: Any = None) -> boo
         dbstate=dbstate,
         target_handle=active_handle,
         parent=parent,
+        client=client,
     )
     try:
         dialog.run()

@@ -55,7 +55,7 @@ def _find_source_root() -> str | None:
         spec = importlib.util.find_spec("gramps")
         for location in (spec.submodule_search_locations or []) if spec else []:
             candidates.append(os.path.dirname(os.path.abspath(location)))
-    except (ImportError, ValueError):
+    except ImportError, ValueError:
         pass
     for candidate in candidates:
         if all(os.path.isfile(os.path.join(candidate, *f)) for f in _RESOURCE_FILES):
@@ -118,12 +118,40 @@ class TestNaraCatalogInterface(unittest.TestCase):
 
     def test_init_defaults_and_api_key(self) -> None:
         """Verify headers and base url configuration."""
-        client_no_key = NaraCatalogInterface()
+        with patch.dict(os.environ, {}, clear=True):
+            client_no_key = NaraCatalogInterface()
         self.assertEqual(client_no_key.base_url, "https://catalog.archives.gov/api/v2")
         self.assertNotIn("x-api-key", client_no_key.headers)
 
         client_with_key = NaraCatalogInterface(api_key="secret123")
         self.assertEqual(client_with_key.headers.get("x-api-key"), "secret123")
+
+        with patch.dict(os.environ, {"NARA_API_KEY": "environment_key"}):
+            client_from_environment = NaraCatalogInterface()
+        self.assertEqual(
+            client_from_environment.headers.get("x-api-key"), "environment_key"
+        )
+
+    @patch("requests.get")
+    def test_validate_api_key(self, mock_get: Mock) -> None:
+        """Check valid and rejected keys through the catalog search endpoint."""
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"body": {"hits": {"hits": []}}}
+        mock_get.return_value = response
+
+        client = NaraCatalogInterface(api_key="secret123")
+        self.assertIsNone(client.validate_api_key())
+        kwargs = mock_get.call_args.kwargs
+        self.assertEqual(kwargs["params"], {"q": "constitution", "limit": 1})
+        self.assertEqual(kwargs["headers"]["x-api-key"], "secret123")
+
+        response.json.return_value = {"statusCode": 403}
+        self.assertIn("rejected", client.validate_api_key())
+
+        response.json.return_value = {"statusCode": 200}
+        response.status_code = 403
+        self.assertIn("rejected", client.validate_api_key())
 
     @patch("requests.get")
     def test_search_records_success(self, mock_get: Mock) -> None:
