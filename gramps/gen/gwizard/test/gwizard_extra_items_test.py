@@ -227,7 +227,10 @@ class GWizardExtraItemsTest(unittest.TestCase):
         self.assertIn("12 Main St", rows["address"].source_val)
         self.assertIn("Second note text", rows["note"].source_val)
         self.assertIn("http://example.com/kid", rows["url"].source_val)
-        self.assertEqual(rows["media"].source_val, "kid.png (Portrait)")
+        # No kid.png exists on disk, so the row says so.
+        self.assertEqual(
+            rows["media"].source_val, "kid.png (Portrait) [file not found]"
+        )
         self.assertIn("Baptism", rows["lds"].source_val)
         self.assertIn("SLAKE", rows["lds"].source_val)
 
@@ -431,7 +434,7 @@ class GWizardExtraItemsTest(unittest.TestCase):
         self._add_media(self.db, self._kid(self.db), "elsewhere.png")
         (row,) = [r for r in self._rows() if r.field_type == "media"]
         self.assertEqual(row.status, "target_only")
-        self.assertEqual(row.target_val, "elsewhere.png")
+        self.assertEqual(row.target_val, "elsewhere.png [file not found]")
 
     def test_media_reference_keeps_its_details_and_media_is_reused(self) -> None:
         """The copied reference keeps its region and citations; no duplicate."""

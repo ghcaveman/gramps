@@ -380,6 +380,7 @@ gramps/gen/fs/utils/attributes.py
 gramps/gen/fs/utils/linking.py
 gramps/gen/gwizard/gwizard_base.py
 gramps/gen/gwizard/gwizardgedcom.py
+gramps/gen/gwizard/gwizard_filemerge_media.py
 gramps/gen/lib/address.py
 gramps/gen/lib/attribute.py
 gramps/gen/lib/attrtype.py
