@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Iterable
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -128,6 +129,16 @@ except ImportError:  # Gramps < 6.1 has no gramps.gen.fs package
 #
 # -------------------------------------------------------------------------
 LOG = logging.getLogger(__name__)
+
+# Section keys for GWizardMergeDialog(hidden_sections=...), in display order.
+MERGE_SECTIONS = (
+    "individual",
+    "family_relations",
+    "children",
+    "events",
+    "other",
+    "families",
+)
 
 _ = glocale.translation.gettext
 
@@ -495,6 +506,8 @@ class GWizardMergeDialog(Gtk.Dialog):
         source_handle: str,
         target_handle: str | None,
         parent: Gtk.Window | None = None,
+        hidden_sections: Iterable[str] = (),
+        incoming_title: str | None = None,
     ) -> None:
         """
         Build the modal merge dialog for one source/target person pair.
@@ -505,6 +518,11 @@ class GWizardMergeDialog(Gtk.Dialog):
         :param target_handle: Handle of the person in the target DB, or None
             to add the source person as a new one.
         :param parent: Parent window (translates to a modal dialog).
+        :param hidden_sections: Sections to leave out, by key (see
+            MERGE_SECTIONS), for callers whose incoming person has no
+            family, such as a record attached to an existing person.
+        :param incoming_title: Heading for the incoming (left) column;
+            defaults to "Incoming GEDCOM: <file name>".
         """
         Gtk.Dialog.__init__(self, transient_for=parent, modal=True)
         self.set_title(_("GWizard Merge"))
@@ -532,6 +550,8 @@ class GWizardMergeDialog(Gtk.Dialog):
         if target_handle and self.target_person is None:
             raise HandleError(_("Target person no longer exists: %s") % target_handle)
 
+        self._hidden_sections = frozenset(hidden_sections)
+        self._incoming_title = incoming_title
         self._resolutions: dict[str, str] = {}
         self._mergeable_count: int = 0
         self._matched_sources: set[str] = set()
@@ -715,15 +735,21 @@ class GWizardMergeDialog(Gtk.Dialog):
             lab.set_markup("<b>%s</b>" % GLib.markup_escape_text(text))
             return lab
 
+        # Callers set these in __init__; tests that build the dialog by hand
+        # may not, so fall back to showing everything.
+        hidden_sections: frozenset[str] = getattr(self, "_hidden_sections", frozenset())
+        hiding = [False]
+        incoming_title = getattr(self, "_incoming_title", None)
         source_path = self.gwizard.context.get("gedcom_path")
-        incoming_title = _("Incoming GEDCOM")
-        if source_path:
+        if not incoming_title and source_path:
             filename = truncate_display_name(
                 os.path.basename(source_path),
                 max_length=30,
                 preserve_extension=True,
             )
             incoming_title = _("Incoming GEDCOM: %s") % filename
+        if not incoming_title:
+            incoming_title = _("Incoming GEDCOM")
         tree_name = self.target_db.get_dbname()
         if tree_name:
             tree_name = truncate_display_name(tree_name, max_length=30)
@@ -740,8 +766,14 @@ class GWizardMergeDialog(Gtk.Dialog):
         grid.attach(right_header, 2, 0, 1, 1)
         self._row_index = 1
 
-        def section(title: str) -> None:
-            """Add a bold section heading and a separator beneath it."""
+        def section(title: str, key: str) -> None:
+            """
+            Add a bold section heading and a separator beneath it, or, for
+            a hidden section, leave out the heading and the rows after it.
+            """
+            hiding[0] = key in hidden_sections
+            if hiding[0]:
+                return
             grid.attach(header(title, xalign=0.5), 0, self._row_index, 3, 1)
             self._row_index += 1
             grid.attach(
@@ -763,6 +795,8 @@ class GWizardMergeDialog(Gtk.Dialog):
             left_obj: Any = None,
             right_obj: Any = None,
         ) -> None:
+            if hiding[0]:
+                return
             ls = "" if left_val is None else str(left_val)
             rs = "" if right_val is None else str(right_val)
             same = not field_values_differ(ls, rs)
@@ -874,7 +908,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         }
 
         # ---------- Individual Details ----------
-        section(_("Individual Details"))
+        section(_("Individual Details"), "individual")
         left_name = left.get_primary_name()
         right_name = right.get_primary_name()
         add_row(
@@ -955,7 +989,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         )
 
         # ---------- Family Relations ----------
-        section(_("Family Relations"))
+        section(_("Family Relations"), "family_relations")
         for role, title in (
             ("father", _("Father")),
             ("mother", _("Mother")),
@@ -982,7 +1016,7 @@ class GWizardMergeDialog(Gtk.Dialog):
                 )
 
         # ---------- Children ----------
-        section(_("Children"))
+        section(_("Children"), "children")
         t_items = rel_items(td, right, "child")
         s_items = rel_items(sd, left, "child")
         for s_rel, t_rel in pair_relatives(
@@ -1002,7 +1036,7 @@ class GWizardMergeDialog(Gtk.Dialog):
             )
 
         # ---------- Events & Other Records ----------
-        section(_("Events & Other Records"))
+        section(_("Events & Other Records"), "events")
         primary_source_fields = {
             handle: field
             for handle, field in (
@@ -1095,7 +1129,7 @@ class GWizardMergeDialog(Gtk.Dialog):
             for row in pair_extra_items(kind, left, sd, right, td)
         ]
         if other_rows:
-            section(_("Other Details"))
+            section(_("Other Details"), "other")
         for kind, (s_index, s_item, _t_index, t_item) in other_rows:
             add_row(
                 (
@@ -1122,7 +1156,7 @@ class GWizardMergeDialog(Gtk.Dialog):
             else []
         )
         if family_entries:
-            section(_("Families"))
+            section(_("Families"), "families")
         for entry in family_entries:
             add_row(
                 (
