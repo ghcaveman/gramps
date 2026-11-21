@@ -1,0 +1,154 @@
+{
+  "body": {
+    "hits": {
+      "total": {
+        "value": 1,
+        "relation": "eq"
+      },
+      "max_score": null,
+      "hits": [
+        {
+          "_index": "nac-records4",
+          "_id": "90361620",
+          "_score": 77,
+          "_source": {
+            "metadata": {
+              "fileName": "NAC_2020_Bulk_Desc405015_multi.xml",
+              "controlGroup": {
+                "indexName": "records",
+                "type": "collection",
+                "naId": 6756412
+              },
+              "ingestTime": "2022-11-16 20:06:32.364259",
+              "uuid": "d2c511b4-3151-497c-b668-0bf988d55b43"
+            },
+            "record": {
+              "onlineResources": [
+                {
+                  "note": "This file was scanned as part of a collaboration effort between Fold3 and the National Archives.",
+                  "description": "Fold3",
+                  "url": "https://www.fold3.com/image/27089949"
+                }
+              ],
+              "levelOfDescription": "fileUnit",
+              "recordType": "description",
+              "useRestriction": {
+                "status": "Unrestricted"
+              },
+              "title": "MacDonald, Lyman Angus - 1942",
+              "physicalOccurrences": [
+                {
+                  "referenceUnits": [
+                    {
+                      "city": "Perris",
+                      "name": "National Archives at Riverside",
+                      "state": "CA"
+                    }
+                  ],
+                  "mediaOccurrences": [
+                    {
+                      "generalMediaTypes": [
+                        "Loose Sheets"
+                      ],
+                      "specificMediaType": "Paper"
+                    }
+                  ],
+                  "copyStatus": "Preservation-Reproduction-Reference"
+                }
+              ],
+              "accessRestriction": {
+                "status": "Unrestricted"
+              },
+              "dataControlGroup": {
+                "groupId": "ou=NRHAR,ou=groups",
+                "groupCd": "RWRS"
+              },
+              "generalRecordsTypes": [
+                "Textual Records"
+              ],
+              "microformPublications": [
+                {
+                  "identifier": "M1526",
+                  "note": "The start of this file can be found on Roll 3.",
+                  "title": "M1526 - Index to Naturalized Citizens from the Superior Court of San Diego, California, 1868-1958."
+                }
+              ],
+              "variantControlNumbers": [
+                {
+                  "number": "Fold3 2018",
+                  "type": "Search Identifier"
+                }
+              ],
+              "digitalObjects": [
+                {
+                  "objectFilename": "2480.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/microfilm-publications/M1526-NatX_SupCt_SanDiegoCA_1920-19_97/M1526_0003/images/2480.jpg",
+                  "objectFileSize": 872261,
+                  "objectDesignator": "Fold3 File #27089949",
+                  "objectId": "90361621",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "2481.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/microfilm-publications/M1526-NatX_SupCt_SanDiegoCA_1920-19_97/M1526_0003/images/2481.jpg",
+                  "objectFileSize": 868659,
+                  "objectDesignator": "Fold3 File #27089951",
+                  "objectId": "90361622",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                }
+              ],
+              "ancestors": [
+                {
+                  "collectionIdentifier": "SAN",
+                  "inclusiveStartDate": {
+                    "year": 1853,
+                    "logicalDate": "1853-01-01"
+                  },
+                  "distance": 2,
+                  "levelOfDescription": "collection",
+                  "inclusiveEndDate": {
+                    "year": 1958,
+                    "logicalDate": "1958-12-31"
+                  },
+                  "title": "Naturalization Records of the California Superior Court for San Diego County",
+                  "naId": 6756412
+                },
+                {
+                  "inclusiveStartDate": {
+                    "year": 1929,
+                    "logicalDate": "1929-01-01"
+                  },
+                  "distance": 1,
+                  "levelOfDescription": "series",
+                  "creators": [
+                    {
+                      "creatorType": "Most Recent",
+                      "heading": "California. Superior Court (San Diego County)",
+                      "authorityType": "organization",
+                      "naId": 10442117
+                    }
+                  ],
+                  "inclusiveEndDate": {
+                    "year": 1956,
+                    "logicalDate": "1956-12-31"
+                  },
+                  "title": "Index to Naturalization Records",
+                  "naId": 7551473
+                }
+              ],
+              "scopeAndContentNote": "This individual also went by the name MacDonald, Lyman.",
+              "naId": 90361620
+            }
+          },
+          "sort": [
+            77,
+            "90361620"
+          ]
+        }
+      ]
+    }
+  },
+  "statusCode": 200
+}

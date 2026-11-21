@@ -28,6 +28,7 @@ Unit tests for the GWizard NARA launcher and search dialog.
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import json
 import os
 import sys
 import unittest
@@ -138,6 +139,7 @@ from gramps.gen.lib import (
     Person,
     Surname,
 )
+from gramps.gen.gwizard.gwizardnaramerge import NaraCatalogInterface
 from gramps.gui.gwizard.gwizardnaralauncher import (
     _extract_person_search_defaults,
     NaraSearchDialog,
@@ -278,11 +280,14 @@ class TestNaraLauncher(unittest.TestCase):
                 "naId": "55555",
                 "record": {
                     "title": "Abraham Lincoln Commission",
-                    "authors": {
-                        "creator": [{"heading": "Lincoln, Abraham, 1809-1865"}]
-                    },
-                    "typeOfMaterials": "textual records",
-                    "dates": [{"startDate": "1861"}],
+                    "creators": [
+                        {
+                            "heading": "Lincoln, Abraham, 1809-1865",
+                            "authorityType": "person",
+                        }
+                    ],
+                    "generalRecordsTypes": ["Textual Records"],
+                    "inclusiveStartDate": {"year": 1861, "logicalDate": "1861-01-01"},
                     "digitalObjects": [{"objectUrl": "https://example.com/doc.jpg"}],
                 },
             },
@@ -309,12 +314,73 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertEqual(appended_row[0], "55555")
         self.assertEqual(appended_row[1], "Abraham Lincoln Commission")
         self.assertEqual(appended_row[2], "Lincoln, Abraham, 1809-1865")
-        self.assertEqual(appended_row[3], "1861")
-        self.assertEqual(appended_row[4], "textual records")
-        self.assertIn("Yes", appended_row[5])
+        self.assertEqual(appended_row[3], "Lincoln, Abraham, 1809-1865")
+        self.assertEqual(appended_row[4], "1861")
+        self.assertEqual(appended_row[5], "Textual Records")
+        self.assertIn("Yes", appended_row[6])
+        self.assertIs(appended_row[8], True)
 
         dialog.btn_merge.set_sensitive.assert_called_with(True)
         self.assertIn("Found 1 matching", dialog.status_label.set_text.call_args[0][0])
+
+    def test_dialog_search_real_records_disable_merge(self) -> None:
+        """Verify real agency-created records show a dash and disable Merge."""
+        sample = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..",
+            "..",
+            "..",
+            "gen",
+            "gwizard",
+            "test",
+            "data",
+            "nara_search_pension.json",
+        )
+        with open(sample, encoding="utf-8") as handle:
+            response = json.load(handle)
+        hits = NaraCatalogInterface.extract_hits(response)
+        mock_client = Mock()
+        mock_client.search_records.return_value = response
+        mock_client.extract_hits.return_value = hits
+
+        dialog = NaraSearchDialog(client=mock_client)
+        dialog.query_entry.get_text.return_value = "john smith pension"
+        dialog.limit_spin.get_value.return_value = 5
+        dialog.material_combo.get_active_id.return_value = ""
+        dialog.online_check.get_active.return_value = False
+        rows: list[list[Any]] = []
+        dialog.results_store.append.side_effect = rows.append
+        dialog.results_store.get_value.side_effect = lambda _it, col: rows[0][col]
+
+        dialog.cb_search()
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0][2], "-")
+        self.assertTrue(rows[0][3].endswith("(from series)"), rows[0][3])
+        self.assertEqual(rows[0][4], "1861-1934 (from series)")
+        self.assertEqual(rows[0][5], "Textual Records")
+        self.assertIs(rows[0][8], False)
+        dialog.btn_merge.set_sensitive.assert_called_with(False)
+        self.assertIn("names no person", dialog.status_label.set_text.call_args[0][0])
+
+    def test_selection_changed_enables_merge_for_person_records(self) -> None:
+        """Verify Merge follows whether the selected record names a person."""
+        dialog = NaraSearchDialog(client=Mock())
+        model = Mock()
+        selection = Mock()
+        selection.get_selected.return_value = (model, Mock())
+
+        model.get_value.return_value = True
+        dialog.cb_selection_changed(selection)
+        dialog.btn_merge.set_sensitive.assert_called_with(True)
+
+        model.get_value.return_value = False
+        dialog.cb_selection_changed(selection)
+        dialog.btn_merge.set_sensitive.assert_called_with(False)
+
+        selection.get_selected.return_value = (model, None)
+        dialog.cb_selection_changed(selection)
+        dialog.btn_merge.set_sensitive.assert_called_with(False)
 
     def test_dialog_merge_launches_merge_dialog(self) -> None:
         """Verify that cb_merge connects to NaraGWizard and launches GWizardMergeDialog."""
@@ -325,9 +391,12 @@ class TestNaraLauncher(unittest.TestCase):
                 "naId": "55555",
                 "record": {
                     "title": "Abraham Lincoln Commission",
-                    "authors": {
-                        "creator": [{"heading": "Lincoln, Abraham, 1809-1865"}]
-                    },
+                    "creators": [
+                        {
+                            "heading": "Lincoln, Abraham, 1809-1865",
+                            "authorityType": "person",
+                        }
+                    ],
                 },
             },
         }
@@ -343,11 +412,11 @@ class TestNaraLauncher(unittest.TestCase):
             mock_iter,
         )
 
-        # Model returns naid at 0, hit at 6
+        # Model returns naid at 0, hit at 7
         def get_val(_it, col):
             if col == 0:
                 return "55555"
-            if col == 6:
+            if col == 7:
                 return mock_hit
             return ""
 

@@ -293,12 +293,16 @@ class NaraSearchDialog(Gtk.Dialog):
         # Model columns:
         # 0: NAID (str)
         # 1: Title (str)
-        # 2: Creator / Person (str)
-        # 3: Date (str)
-        # 4: Material Type (str)
-        # 5: Digital Media (str)
-        # 6: Raw match data / hit (object)
-        self.results_store = Gtk.ListStore(str, str, str, str, str, str, object)
+        # 2: Person creator(s), or a dash (str)
+        # 3: Creator(s), own or the nearest ancestor's (str)
+        # 4: Date (str)
+        # 5: Material Type (str)
+        # 6: Digital Media (str)
+        # 7: Raw match data / hit (object)
+        # 8: Can merge as a person (bool)
+        self.results_store = Gtk.ListStore(
+            str, str, str, str, str, str, str, object, bool
+        )
         self.tree_view = Gtk.TreeView(model=self.results_store)
         self.tree_view.set_rules_hint(True)
         self.tree_view.set_enable_search(True)
@@ -349,10 +353,11 @@ class NaraSearchDialog(Gtk.Dialog):
         cols = [
             (_("NAID"), 0, False),
             (_("Title"), 1, True),
-            (_("Creator / Person"), 2, True),
-            (_("Date"), 3, False),
-            (_("Material Type"), 4, False),
-            (_("Digital Media"), 5, False),
+            (_("Person"), 2, False),
+            (_("Creator"), 3, True),
+            (_("Date"), 4, False),
+            (_("Material Type"), 5, False),
+            (_("Digital Media"), 6, False),
         ]
         for title, col_id, is_expand in cols:
             renderer = Gtk.CellRendererText()
@@ -492,40 +497,42 @@ class NaraSearchDialog(Gtk.Dialog):
             )
             return
 
+        mergeable_count = 0
         for hit in hits:
             parsed = NaraCatalogInterface.parse_record(hit)
-            naid = parsed["naid"]
-            title = parsed["title"]
-            creators = ", ".join(parsed["creators"]) if parsed["creators"] else "-"
-            date_str = parsed["date_str"] or "-"
-            mat_type = parsed["material_type"] or "-"
+            people = parsed["person_creators"]
+            mergeable_count += 1 if people else 0
             num_digital = len(parsed["digital_objects"])
             digital_str = _("Yes (%d)") % num_digital if num_digital > 0 else _("No")
 
             self.results_store.append(
                 [
-                    naid,
-                    title,
-                    creators,
-                    date_str,
-                    mat_type,
+                    parsed["naid"],
+                    parsed["title"],
+                    "; ".join(people) if people else "-",
+                    self._with_level(
+                        "; ".join(parsed["creators"]), parsed["creators_from"]
+                    ),
+                    self._with_level(parsed["date_str"], parsed["date_from"]),
+                    parsed["material_type"] or "-",
                     digital_str,
                     hit,
+                    bool(people),
                 ]
             )
 
         self.status_label.set_text(
             _(
-                "Found %d matching records in the National Archives Catalog. "
-                "Select a record and click Merge."
+                "Found %(found)d matching records in the National Archives "
+                "Catalog; %(people)d name a person and can be merged."
             )
-            % len(hits)
+            % {"found": len(hits), "people": mergeable_count}
         )
 
         first_iter = self.results_store.get_iter_first()
         if first_iter:
             self.tree_view.get_selection().select_iter(first_iter)
-            self.btn_merge.set_sensitive(True)
+            self._update_merge_button(self.results_store, first_iter)
 
     def cb_help(self, _widget: Any = None) -> None:
         """
@@ -555,12 +562,40 @@ class NaraSearchDialog(Gtk.Dialog):
         dialog.run()
         dialog.destroy()
 
+    @staticmethod
+    def _with_level(text: str, level: str) -> str:
+        """
+        Return text for a results cell, noting the ancestor level (such as
+        "series") it was taken from; '-' when there is no text.
+        """
+        if not text:
+            return "-"
+        if not level:
+            return text
+        return _("%(text)s (from %(level)s)") % {"text": text, "level": level}
+
+    def _update_merge_button(self, model: Any, tree_iter: Any) -> None:
+        """
+        Enable Merge only for a record that names a person as its creator,
+        and say why when it is disabled.
+        """
+        mergeable = tree_iter is not None and bool(model.get_value(tree_iter, 8))
+        self.btn_merge.set_sensitive(mergeable)
+        if tree_iter is not None and not mergeable:
+            self.status_label.set_text(
+                _(
+                    "This record names no person as its creator, so it cannot "
+                    "be merged as a person. The person it is about is usually "
+                    "named in its title."
+                )
+            )
+
     def cb_selection_changed(self, selection: Gtk.TreeSelection) -> None:
         """
         Enable or disable the Merge button based on table row selection.
         """
         model, tree_iter = selection.get_selected()
-        self.btn_merge.set_sensitive(tree_iter is not None)
+        self._update_merge_button(model, tree_iter)
 
     def cb_row_activated(self, _tree: Any, _path: Any, _col: Any) -> None:
         """
@@ -579,7 +614,7 @@ class NaraSearchDialog(Gtk.Dialog):
             return
 
         naid = model.get_value(tree_iter, 0)
-        hit = model.get_value(tree_iter, 6)
+        hit = model.get_value(tree_iter, 7)
         if not hit:
             return
 
@@ -609,7 +644,7 @@ class NaraSearchDialog(Gtk.Dialog):
                 return
             gwizard.run_step("load")
         except Exception as err:
-            LOG.error("Failed to load records from NARA for NAID %s: %s", naid, err)
+            LOG.warning("Failed to load records from NARA for NAID %s: %s", naid, err)
             self.status_label.set_text(
                 _("Failed to load records from NARA: %s") % str(err)
             )
