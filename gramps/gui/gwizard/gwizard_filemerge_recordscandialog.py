@@ -55,7 +55,12 @@ from gi.repository import Gtk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.gwizard.gwizard_base import RECORD_TIERS
+from gramps.gen.gwizard.gwizard_base import (
+    RECORD_TIERS,
+    TIER_GMSB,
+    TIER_GSB,
+    RecordQuery,
+)
 from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     DEFAULT_THRESHOLD,
     STATUS_ERROR,
@@ -118,25 +123,52 @@ def cell_values(
     scan: PersonScan | None, scored: list[ScoredMatch], tier: str, threshold: float
 ) -> tuple[str, float, str | None]:
     """
-    Return (text, sort value, background colour) for a tier cell.
+    Return (text, sort value, background colour) for a tier cell:
 
-    Empty: not scanned, or no match could be judged at this level; "error"
-    when the search failed; "–" when nothing reaches the threshold;
-    otherwise "count · best%".
+    * empty: not scanned yet
+    * "error": the search failed
+    * "–": scanned, nothing found
+    * "n/a": found records, but none can be compared at this level (a middle
+      name or birth year is missing on one side; the tooltip says which)
+    * "0 · 61%": none reaches the threshold; the best score
+    * "2 · 94%": how many reach the threshold, and the best score
     """
     if scan is None:
-        return "", -3.0, None
+        return "", -4.0, None
     if scan.status == STATUS_ERROR:
-        return _("error"), -2.0, None
+        return _("error"), -3.0, None
     if scan.status == STATUS_SKIPPED:
-        return "", -1.0, None
+        return _("n/a"), -2.0, None
+    if not scored:
+        return "–", -1.5, None
     cell = tier_cell(scored, tier, threshold)
     if cell.best is None:
-        return "", -1.0, None
+        return _("n/a"), -1.0, None
     if not cell.count:
-        return "–", cell.best, None
+        return f"0 · {cell.best:.0f}%", cell.best, None
     colour = STRONG_COLOR if cell.best >= STRONG_SCORE else MATCH_COLOR
     return f"{cell.count} · {cell.best:.0f}%", cell.best, colour
+
+
+def tier_gap(query: RecordQuery, scored: list[ScoredMatch], tier: str) -> str:
+    """
+    Explain why no record could be compared at a tier: what is missing in
+    the Family Tree, or on the records found.
+    """
+    need_middle = tier == TIER_GMSB
+    need_birth = tier in (TIER_GMSB, TIER_GSB)
+    if not (query.given and query.surnames):
+        return _("This person has no given name or surname in the tree.")
+    if need_middle and not query.middle:
+        return _("This person has no middle name in the tree.")
+    if need_birth and not query.birth_year:
+        return _("This person has no birth year in the tree.")
+    cands = [s.match.candidate for s in scored]
+    if need_middle and not any(c.middle for c in cands):
+        return _("None of the records found has a middle name.")
+    if need_birth and not any(c.birth_years for c in cands):
+        return _("None of the records found has a birth year.")
+    return _("No record found has every part this level compares.")
 
 
 def match_label(scored: ScoredMatch) -> str:
@@ -1085,8 +1117,15 @@ class RecordScanDialog(Gtk.Dialog):
         else:
             scored = self.scored.get((source.source_id, handle), [])
             best = matches_for_tier(scored, tier, self.threshold())[:5]
-            if not best:
+            item = self.items.get(handle)
+            if not scored:
                 text = _("%s found nothing.") % source.title
+            elif tier is not None and tier_cell(scored, tier, 0).best is None:
+                gap = tier_gap(item.query, scored, tier) if item else ""
+                text = _("Cannot compare at %(tier)s. %(why)s") % {
+                    "tier": tier,
+                    "why": gap,
+                }
             else:
                 text = "\n".join(match_label(match) for match in best)
             if scan.linked_key:
