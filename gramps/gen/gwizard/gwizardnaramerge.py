@@ -73,6 +73,44 @@ from .gwizardgedcom import GedGWizard
 LOG = logging.getLogger(__name__)
 _ = glocale.translation.gettext
 
+# Creator fields that may say whether a NARA authority is a person or an
+# organization. NARA's documentation does not name the field, so several
+# likely names are checked; the heading test below is the fallback.
+_CREATOR_TYPE_KEYS = (
+    "authorityType",
+    "creatorAuthorityType",
+    "entityType",
+    "recordType",
+    "type",
+)
+
+# Words that mark a heading as an organization rather than a person. They
+# are checked in the given-name part of a "Surname, Given" heading and in
+# multi-word surnames only, so a person surnamed House or Church still
+# counts as a person.
+_ORGANIZATION_WORDS = frozenset("""
+    administration agency army association authority battalion board branch
+    bureau cavalry center centre church college command commission committee
+    company congress corporation corps council county court department
+    district division federal foundation government guard headquarters
+    hospital house inc infantry institute institution international
+    laboratory league legislature library ltd marine militia museum national
+    navy office organization party program project regiment school section
+    senate service society staff state states station union united unit
+    university volunteers
+    """.split())
+
+# A trailing date part of a NARA personal-name heading, such as
+# ", 1809-1865", ", 1900-" or ", b. 1850".
+_HEADING_DATES = re.compile(
+    r",?\s*(?:b\.|d\.|ca\.|fl\.|active|approximately|born|died)?\s*\d.*$",
+    re.IGNORECASE,
+)
+
+# One word of a personal name: a capitalized word (allowing ' and -) or an
+# initial such as "A." or "J.R.".
+_NAME_WORD = re.compile(r"^(?:[A-Z][\w'’-]*\.?|(?:[A-Z]\.)+)$")
+
 
 # ------------------------------------------------------------
 #
@@ -168,6 +206,57 @@ class NaraCatalogInterface:
                 return _("NARA could not validate the API key (HTTP %s).") % api_status
         return None
 
+    @staticmethod
+    def is_person_creator(creator: Any, heading: str) -> bool:
+        """
+        Return True when a NARA creator is a person rather than an
+        organization.
+
+        A type field on the creator decides when NARA supplies one.
+        Otherwise the heading must have the shape of a personal name:
+        "Surname, Given[, dates]" (NARA's form for people) or two to four
+        capitalized words, with no organization words in the given names.
+        Agency headings such as "United States. Department of War." fail.
+        """
+        if isinstance(creator, dict):
+            for key in _CREATOR_TYPE_KEYS:
+                value = str(creator.get(key) or "").strip().lower()
+                if "organi" in value:
+                    return False
+                if "person" in value:
+                    return True
+
+        value = _HEADING_DATES.sub("", heading.strip()).strip(" ,.")
+        if not value or re.search(r"\.\s+[A-Z][a-z]", value.split(",")[0]):
+            # Empty, or an agency hierarchy ("United States. Army") before
+            # any comma.
+            return False
+
+        def name_words(text: str, allow_org_words: bool) -> bool:
+            words = text.split()
+            if not 1 <= len(words) <= 4:
+                return False
+            if not all(_NAME_WORD.match(word) for word in words):
+                return False
+            if allow_org_words:
+                return True
+            return not any(
+                word.strip(".,").lower() in _ORGANIZATION_WORDS for word in words
+            )
+
+        if "," in value:
+            surname, rest = value.split(",", 1)
+            # Drop a fuller form in parentheses: "Edward M. (Edward Mandell)".
+            given = re.sub(r"\([^)]*\)", " ", rest.split(",", 1)[0]).strip()
+            single_surname = len(surname.split()) == 1
+            return (
+                bool(given)
+                and len(surname.split()) <= 3
+                and name_words(surname, allow_org_words=single_surname)
+                and name_words(given, allow_org_words=False)
+            )
+        return len(value.split()) >= 2 and name_words(value, allow_org_words=False)
+
     def search_records(
         self,
         query: str,
@@ -230,7 +319,12 @@ class NaraCatalogInterface:
 
     @staticmethod
     def parse_record(hit: dict[str, Any]) -> dict[str, Any]:
-        """Normalize a NARA search hit into fields used by the merge flow."""
+        """
+        Normalize a NARA search hit into fields used by the merge flow.
+
+        'creators' holds every creator heading (people and agencies);
+        'person_creators' holds only those that name a person.
+        """
         record_source = hit.get("_source")
         if not isinstance(record_source, dict):
             record_source = hit
@@ -247,6 +341,7 @@ class NaraCatalogInterface:
         if not isinstance(creators_data, list):
             creators_data = [creators_data] if creators_data else []
         creators: list[str] = []
+        person_creators: list[str] = []
         for creator in creators_data:
             if isinstance(creator, str):
                 heading = creator
@@ -260,7 +355,10 @@ class NaraCatalogInterface:
             else:
                 heading = ""
             if heading and str(heading).strip():
-                creators.append(str(heading).strip())
+                heading = str(heading).strip()
+                creators.append(heading)
+                if NaraCatalogInterface.is_person_creator(creator, heading):
+                    person_creators.append(heading)
 
         dates = record.get("dates", [])
         if isinstance(dates, dict):
@@ -309,6 +407,7 @@ class NaraCatalogInterface:
             "naid": naid,
             "title": str(record.get("title") or ""),
             "creators": creators,
+            "person_creators": person_creators,
             "scope_note": str(record.get("scopeAndContentNote") or ""),
             "material_type": str(record.get("typeOfMaterials") or ""),
             "date_str": ", ".join(date_values),
@@ -381,7 +480,7 @@ class NaraGWizard(GedGWizard):
                     if not isinstance(hit, dict):
                         continue
                     parsed = NaraCatalogInterface.parse_record(hit)
-                    headings = parsed["creators"]
+                    headings = parsed["person_creators"]
                     if not headings:
                         LOG.warning(
                             "NARA record %s has no person creator and was skipped",
@@ -391,7 +490,7 @@ class NaraGWizard(GedGWizard):
 
                     source = Source()
                     source.set_title(parsed["title"] or parsed["naid"])
-                    source.set_author("; ".join(headings))
+                    source.set_author("; ".join(parsed["creators"]))
                     publication = [
                         value
                         for value in (
@@ -472,7 +571,13 @@ class NaraGWizard(GedGWizard):
 
         if not people:
             source_db.close()
-            raise RuntimeError("The selected NARA record contains no person data.")
+            raise RuntimeError(
+                _(
+                    "The selected NARA record names no person as its creator "
+                    "(its creators are agencies or organizations), so it cannot "
+                    "be merged as a person."
+                )
+            )
         self.context["source_db"] = source_db
         self.context["source_title"] = _("NARA Catalog")
         self.context["nara_records"] = hits

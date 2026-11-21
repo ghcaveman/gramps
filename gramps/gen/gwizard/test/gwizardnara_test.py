@@ -249,6 +249,7 @@ class TestNaraCatalogInterface(unittest.TestCase):
         self.assertEqual(parsed["naid"], "999")
         self.assertEqual(parsed["title"], "Lincoln, Abraham - Pension Application")
         self.assertEqual(parsed["creators"], ["Lincoln, Abraham, 1809-1865"])
+        self.assertEqual(parsed["person_creators"], ["Lincoln, Abraham, 1809-1865"])
         self.assertEqual(parsed["scope_note"], "Contains pension files.")
         self.assertEqual(parsed["material_type"], "textual records")
         self.assertEqual(parsed["date_str"], "1861")
@@ -258,6 +259,80 @@ class TestNaraCatalogInterface(unittest.TestCase):
             parsed["digital_objects"][0]["url"],
             "https://catalog.archives.gov/image.jpg",
         )
+
+    def test_is_person_creator_headings(self) -> None:
+        """Verify personal-name headings are told apart from agency headings."""
+        people = [
+            "Lincoln, Abraham, 1809-1865",
+            "Washington, George",
+            "Smith, John, Jr., 1900-",
+            "Smith, J. R.",
+            "O'Brien, Mary-Kate",
+            "House, Edward M. (Edward Mandell), 1858-1938",
+            "Church, Frederic Edwin, b. 1826",
+            "John Adams",
+        ]
+        agencies = [
+            "Department of Veterans Affairs",
+            "Department of Veterans Affairs. 1989-",
+            "United States. War Department.",
+            "United States. Army. Corps of Engineers. Missouri River Division, 1937-",
+            "Bureau of Pensions, 1833-1930",
+            "Office of the Secretary, War",
+            "Veterans Administration",
+            "Library of Congress",
+            "U.S. Army",
+            "Peace Corps",
+            "Jefferson",
+            "",
+        ]
+        for heading in people:
+            self.assertTrue(
+                NaraCatalogInterface.is_person_creator({}, heading), heading
+            )
+        for heading in agencies:
+            self.assertFalse(
+                NaraCatalogInterface.is_person_creator({}, heading), heading
+            )
+
+    def test_is_person_creator_type_field_wins(self) -> None:
+        """Verify a person/organization type on the creator overrides the heading."""
+        self.assertFalse(
+            NaraCatalogInterface.is_person_creator(
+                {"authorityType": "organization"}, "Smith, John"
+            )
+        )
+        self.assertTrue(
+            NaraCatalogInterface.is_person_creator(
+                {"authorityType": "Person"}, "Peace Corps"
+            )
+        )
+        self.assertTrue(
+            NaraCatalogInterface.is_person_creator("Smith, John", "Smith, John")
+        )
+
+    def test_parse_record_separates_person_creators(self) -> None:
+        """Verify agency creators stay in 'creators' but not 'person_creators'."""
+        hit = {
+            "_source": {
+                "naId": "777",
+                "record": {
+                    "title": "Pension File of John Smith",
+                    "authors": {
+                        "creator": [
+                            {"heading": "Department of Veterans Affairs. 1989-"},
+                            {"heading": "Smith, John, 1840-1910"},
+                        ]
+                    },
+                },
+            }
+        }
+        parsed = NaraCatalogInterface.parse_record(hit)
+        self.assertEqual(
+            parsed["creators"],
+            ["Department of Veterans Affairs. 1989-", "Smith, John, 1840-1910"],
+        )
+        self.assertEqual(parsed["person_creators"], ["Smith, John, 1840-1910"])
 
 
 # ------------------------------------------------------------
@@ -358,6 +433,61 @@ class TestNaraGWizard(unittest.TestCase):
 
         # Check events (Birth and Death)
         self.assertEqual(len(person.get_event_ref_list()), 2)
+
+    def test_load_skips_agency_creators(self) -> None:
+        """Verify only the person creator of a mixed record becomes a person."""
+        gw = NaraGWizard(self.db)
+        hits = [
+            {
+                "_source": {
+                    "naId": "888",
+                    "record": {
+                        "title": "Pension File of John Smith",
+                        "authors": {
+                            "creator": [
+                                {"heading": "Department of Veterans Affairs"},
+                                {"heading": "Smith, John, 1840-1910"},
+                            ]
+                        },
+                    },
+                }
+            }
+        ]
+        gw.run_step("connect", query="John Smith", hits=hits)
+        people = gw.run_step("load")
+
+        self.assertEqual(len(people), 1)
+        self.assertEqual(people[0].get_primary_name().get_name(), "Smith, John")
+        source_db = gw.context["source_db"]
+        self.assertEqual(source_db.get_number_of_people(), 1)
+        source = source_db.get_source_from_handle(
+            next(iter(source_db.iter_source_handles()))
+        )
+        self.assertIn("Department of Veterans Affairs", source.get_author())
+
+    def test_load_agency_only_record_raises(self) -> None:
+        """Verify a record created only by agencies makes no fake people."""
+        gw = NaraGWizard(self.db)
+        hits = [
+            {
+                "_source": {
+                    "naId": "889",
+                    "record": {
+                        "title": "Civil War Pension Index",
+                        "authors": {
+                            "creator": [
+                                {"heading": "United States. Bureau of Pensions."},
+                                {"heading": "Veterans Administration"},
+                            ]
+                        },
+                    },
+                }
+            }
+        ]
+        gw.run_step("connect", query="pension", hits=hits)
+        with self.assertRaises(RuntimeError) as ctx:
+            gw.run_step("load")
+        self.assertIn("names no person", str(ctx.exception))
 
     def test_compare_and_apply_merge(self) -> None:
         """Verify comparing and applying NARA merge to existing target person."""
