@@ -48,15 +48,36 @@ from gi.repository import Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.gwizard.gwizard_base import surname_text
+from gramps.gen.gwizard.gwizardnaramatch import MatchQuery, best_match, match_text
+from gramps.gen.lib import NameType, Person
 from gramps.gen.gwizard.gwizardnaramerge import (
     AttachResult,
+    format_size,
     NaraCatalogInterface,
     NaraGWizard,
-    NaraRecordAttacher,
 )
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
+
+# Search terms that start checked: first name and last name. The others are
+# filled in from the target person but left out until checked.
+SEARCH_TERM_DEFAULTS: dict[str, bool] = {
+    "first_name": True,
+    "middle_name": False,
+    "last_name": True,
+    "married_name": False,
+    "birth_year": False,
+    "birth_place": False,
+    "death_year": False,
+    "death_place": False,
+    "keywords": True,
+}
+
+# When Death Year is checked, records are searched up to this many years after
+# the death year by default, because pension, estate and similar records are
+# made after a death.
+RECORD_YEARS_AFTER_DEATH = 10
 
 
 # ------------------------------------------------------------
@@ -70,15 +91,28 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
 
     :param db: Active Gramps database.
     :param person: Gramps Person object.
-    :returns: Dictionary with keys 'first_name', 'last_name', 'query',
-        'birth_year', 'death_year'.
+    The first word of the given name is 'first_name' and any further words
+    'middle_name'. 'married_name' comes from a Married Name alternate name,
+    or failing that (for women only) from the husband's surname in the most
+    recent family.
+
+    'birth_place' and 'death_place' are the city (the place's own name, not
+    its enclosing county or country) of the birth and death events.
+
+    :returns: Dictionary with keys 'first_name', 'middle_name', 'last_name',
+        'married_name', 'query', 'birth_year', 'birth_place', 'death_year',
+        'death_place'.
     """
     defaults = {
         "first_name": "",
+        "middle_name": "",
         "last_name": "",
+        "married_name": "",
         "query": "",
         "birth_year": "",
+        "birth_place": "",
         "death_year": "",
+        "death_place": "",
     }
     if not person:
         return defaults
@@ -87,9 +121,13 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
     if pname:
         fn = str(pname.get_first_name() or "").strip()
         ln = str(surname_text(pname) or "").strip()
-        defaults["first_name"] = fn
+        given_names = fn.split()
+        if given_names:
+            defaults["first_name"] = given_names[0]
+            defaults["middle_name"] = " ".join(given_names[1:])
         defaults["last_name"] = ln
         defaults["query"] = f"{fn} {ln}".strip() or pname.get_name().strip()
+    defaults["married_name"] = _married_surname(db, person)
 
     # Birth year
     bref = person.get_birth_ref()
@@ -99,6 +137,7 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
             bdate = bevt.get_date_object()
             if bdate and bdate.get_year() > 0:
                 defaults["birth_year"] = str(bdate.get_year())
+            defaults["birth_place"] = _place_city(db, bevt)
 
     # Death year
     dref = person.get_death_ref()
@@ -108,8 +147,111 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
             ddate = devt.get_date_object()
             if ddate and ddate.get_year() > 0:
                 defaults["death_year"] = str(ddate.get_year())
+            defaults["death_place"] = _place_city(db, devt)
 
     return defaults
+
+
+def _place_city(db: Any, event: Any) -> str:
+    """
+    Return the city of an event's place: the place's own name, such as
+    "Boston" for "Boston, Suffolk, Massachusetts, USA". '' when unknown.
+    """
+    handle = event.get_place_handle() if event else None
+    if not handle:
+        return ""
+    place = db.get_place_from_handle(handle)
+    if place is None:
+        return ""
+    name = str(place.get_name().get_value() or "").strip()
+    if not name:
+        # A place imported as one long title: take its first part.
+        name = str(place.get_title() or "").split(",", 1)[0].strip()
+    return name
+
+
+def _married_surname(db: Any, person: Any) -> str:
+    """
+    Return the person's married surname, or '' when none is known.
+
+    A Married Name alternate name wins. Otherwise, for a woman, the husband's
+    surname from her most recent family (the last in her family list) is
+    used; this is a guess, so the dialog leaves the term unchecked.
+    """
+    for alt_name in person.get_alternate_names():
+        if int(alt_name.get_type()) == NameType.MARRIED:
+            married = str(surname_text(alt_name) or "").strip()
+            if married:
+                return married
+
+    if not db or person.get_gender() != Person.FEMALE:
+        return ""
+    for family_handle in reversed(person.get_family_handle_list()):
+        family = db.get_family_from_handle(family_handle)
+        if not family:
+            continue
+        husband_handle = family.get_father_handle()
+        if not husband_handle or husband_handle == person.get_handle():
+            continue
+        husband = db.get_person_from_handle(husband_handle)
+        if husband:
+            married = str(surname_text(husband.get_primary_name()) or "").strip()
+            if married:
+                return married
+    return ""
+
+
+def _media_summary(digital_objects: list[dict[str, Any]]) -> str:
+    """
+    Return the Digital Media cell: 'No', the image count, or the count with
+    the total size when NARA gives sizes, such as '75 (430 MB)'.
+    """
+    if not digital_objects:
+        return _("No")
+    total = sum(int(item.get("size") or 0) for item in digital_objects)
+    if total:
+        return _("%(count)d (%(size)s)") % {
+            "count": len(digital_objects),
+            "size": format_size(total),
+        }
+    return str(len(digital_objects))
+
+
+def build_nara_query(terms: dict[str, str], exact: bool = False) -> str:
+    """
+    Combine search terms into one NARA keyword query.
+
+    :param terms: The checked terms' text, keyed by term ('first_name',
+        'middle_name', 'last_name', 'married_name', 'birth_place',
+        'death_place', 'keywords'); empty or missing terms are skipped. Years
+        are not part of the query; they filter by record date.
+    :param exact: Put the given names and last name in quotes as one phrase.
+        The married name and keywords are always added as they are.
+    :returns: The query, for example '"Mary Kreizer" Smith pension'.
+    """
+    name = " ".join(
+        part
+        for part in (
+            terms.get("first_name", "").strip(),
+            terms.get("middle_name", "").strip(),
+            terms.get("last_name", "").strip(),
+        )
+        if part
+    )
+    if exact and len(name.split()) > 1:
+        name = f'"{name}"'
+    places = []
+    for key in ("birth_place", "death_place"):
+        place = terms.get(key, "").strip()
+        if place and place not in places:
+            places.append(f'"{place}"' if " " in place else place)
+    parts = [
+        name,
+        terms.get("married_name", "").strip(),
+        *places,
+        terms.get("keywords", "").strip(),
+    ]
+    return " ".join(part for part in parts if part)
 
 
 # ------------------------------------------------------------
@@ -186,7 +328,7 @@ class NaraSearchDialog(Gtk.Dialog):
         header_box.pack_start(self.target_label, True, True, 0)
 
         self.btn_change_target = Gtk.Button(
-            label=_("_Change Target..."), use_underline=True
+            label=_("Change Tar_get..."), use_underline=True
         )
         self.btn_change_target.set_tooltip_text(
             _("Select a different person in your Family Tree as the merge target.")
@@ -194,7 +336,7 @@ class NaraSearchDialog(Gtk.Dialog):
         self.btn_change_target.connect("clicked", self.cb_change_target)
         header_box.pack_start(self.btn_change_target, False, False, 0)
 
-        self.btn_new_target = Gtk.Button(label=_("_Add as New"), use_underline=True)
+        self.btn_new_target = Gtk.Button(label=_("Add as Ne_w"), use_underline=True)
         self.btn_new_target.set_tooltip_text(
             _(
                 "Import selected NARA record as a new person rather than merging into an existing record."
@@ -213,61 +355,111 @@ class NaraSearchDialog(Gtk.Dialog):
         search_grid.set_column_spacing(8)
         search_grid.set_row_spacing(4)
 
-        # Row 0: Search Query
-        q_label = Gtk.Label(label=_("Search Query:"))
-        q_label.set_xalign(0.0)
-        search_grid.attach(q_label, 0, 0, 1, 1)
+        # Rows 0-1: checkable search terms. Each term has a check button
+        # above its entry; an unchecked term keeps its text but is left out
+        # of the query, so terms can be added or dropped with one click or
+        # Alt plus the underlined letter. The checked names and the keywords
+        # are combined into NARA's keyword query ("q").
+        self.term_checks: dict[str, Any] = {}
+        self.term_entries: dict[str, Any] = {}
+        for column, (key, label, placeholder, tooltip, width) in enumerate(
+            self._term_specs()
+        ):
+            check = Gtk.CheckButton(label=label, use_underline=True)
+            check.set_tooltip_text(
+                _(
+                    "Include this term in the search. Unchecked terms are kept "
+                    "but ignored."
+                )
+            )
+            check.connect("toggled", self.cb_term_toggled, key)
+            search_grid.attach(check, column, 0, 1, 1)
 
-        self.query_entry = Gtk.Entry()
-        self.query_entry.set_hexpand(True)
-        self.query_entry.set_placeholder_text(
-            _("e.g. Abraham Lincoln, Civil War Pension, or NAID")
+            entry = Gtk.Entry()
+            if width:
+                entry.set_width_chars(width)
+            else:
+                entry.set_hexpand(True)
+            entry.set_placeholder_text(placeholder)
+            entry.set_tooltip_text(tooltip)
+            entry.connect("activate", self.cb_entry_activate)
+            search_grid.attach(entry, column, 1, 1, 1)
+
+            self.term_checks[key] = check
+            self.term_entries[key] = entry
+
+        self.first_name_entry = self.term_entries["first_name"]
+        self.middle_name_entry = self.term_entries["middle_name"]
+        self.last_name_entry = self.term_entries["last_name"]
+        self.married_name_entry = self.term_entries["married_name"]
+        self.query_entry = self.term_entries["keywords"]
+
+        button_column = len(self.term_entries)
+        self.btn_reset = Gtk.Button(label=_("_Reset"), use_underline=True)
+        self.btn_reset.set_tooltip_text(
+            _(
+                "Restore the search terms taken from the target person and "
+                "the default selection (first name and last name)."
+            )
         )
-        self.query_entry.set_tooltip_text(
-            _("Search query (person name, keywords, subject, or NAID).")
+        self.btn_reset.connect("clicked", self.cb_reset_terms)
+        search_grid.attach(self.btn_reset, button_column, 1, 1, 1)
+
+        self.btn_search = Gtk.Button(label=_("_Search"), use_underline=True)
+        self.btn_search.get_style_context().add_class("suggested-action")
+        self.btn_search.set_tooltip_text(
+            _("Search the National Archives Catalog using the checked terms.")
         )
-        self.query_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.query_entry, 0, 1, 1, 1)
+        self.btn_search.connect("clicked", self.cb_search)
+        search_grid.attach(self.btn_search, button_column + 1, 1, 1, 1)
 
-        # Row 0: Material Type
-        mat_label = Gtk.Label(label=_("Material Type:"))
-        mat_label.set_xalign(0.0)
-        search_grid.attach(mat_label, 1, 0, 1, 1)
+        # Row 2: options under the name and date columns, as on the WikiTree
+        # dialog: Exact name under the names, the years after death under
+        # the death columns.
+        term_keys = [key for key, *_rest in self._term_specs()]
+        self.exact_check = Gtk.CheckButton(label=_("E_xact name"), use_underline=True)
+        self.exact_check.set_tooltip_text(
+            _(
+                "Search the given and last names as one phrase in quotes, for "
+                'example "Lyman Angus MacDonald". A married name is still '
+                "searched as a separate word."
+            )
+        )
+        search_grid.attach(self.exact_check, 0, 2, term_keys.index("birth_year"), 1)
 
+        after_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        after_label = Gtk.Label(label=_("Records up to"))
+        after_box.pack_start(after_label, False, False, 0)
+        self.after_death_spin = Gtk.SpinButton.new_with_range(0, 100, 1)
+        self.after_death_spin.set_value(RECORD_YEARS_AFTER_DEATH)
+        self.after_death_spin.set_tooltip_text(
+            _(
+                "With Death Year checked, find records dated up to this many "
+                "years after the death year (pensions and estate papers come "
+                "after a death)."
+            )
+        )
+        after_box.pack_start(self.after_death_spin, False, False, 0)
+        after_box.pack_start(Gtk.Label(label=_("years after death")), False, False, 0)
+        search_grid.attach(after_box, term_keys.index("death_year"), 2, 2, 1)
+
+        # Row 3: material type and online only
+        filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        filter_box.pack_start(Gtk.Label(label=_("Material Type:")), False, False, 0)
         self.material_combo = Gtk.ComboBoxText()
         for code, label in self.MATERIAL_TYPES:
             self.material_combo.append(code, label)
         self.material_combo.set_active(0)
-        search_grid.attach(self.material_combo, 1, 1, 1, 1)
-
-        # Row 0: Online only
+        filter_box.pack_start(self.material_combo, False, False, 0)
         self.online_check = Gtk.CheckButton(label=_("Online only"))
         self.online_check.set_tooltip_text(
             _("Restrict results to records with digitized online assets.")
         )
         self.online_check.set_active(False)
-        search_grid.attach(self.online_check, 2, 1, 1, 1)
+        filter_box.pack_start(self.online_check, False, False, 0)
+        search_grid.attach(filter_box, 0, 3, button_column + 2, 1)
 
-        # Row 0: Search Button
-        search_grid.attach(Gtk.Label(label=""), 3, 0, 1, 1)
-        self.btn_search = Gtk.Button(label=_("_Search"), use_underline=True)
-        self.btn_search.get_style_context().add_class("suggested-action")
-        self.btn_search.set_tooltip_text(
-            _("Search the National Archives Catalog using the parameters above.")
-        )
-        self.btn_search.connect("clicked", self.cb_search)
-        search_grid.attach(self.btn_search, 3, 1, 1, 1)
-
-        # Row 0: Help Button
-        search_grid.attach(Gtk.Label(label=""), 4, 0, 1, 1)
-        self.btn_help = Gtk.Button(label=_("_Help"), use_underline=True)
-        self.btn_help.set_tooltip_text(
-            _("Learn how National Archives search and filters work.")
-        )
-        self.btn_help.connect("clicked", self.cb_help)
-        search_grid.attach(self.btn_help, 4, 1, 1, 1)
-
-        # Row 1: Maximum number of records
+        # Row 4: maximum number of records
         adv_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
         limit_label = Gtk.Label(label=_("Max Records:"))
@@ -277,35 +469,7 @@ class NaraSearchDialog(Gtk.Dialog):
         self.limit_spin = Gtk.SpinButton(adjustment=limit_adj, climb_rate=1, digits=0)
         adv_box.pack_start(self.limit_spin, False, False, 0)
 
-        # Image options for Attach to Person
-        adv_box.pack_start(
-            Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 6
-        )
-        self.download_check = Gtk.CheckButton(
-            label=_("Download _images"), use_underline=True
-        )
-        self.download_check.set_active(True)
-        self.download_check.set_tooltip_text(
-            _(
-                "When attaching a record, download its images into the NARA "
-                "folder under your media base path. Unchecked, the images are "
-                "linked by their web address instead."
-            )
-        )
-        adv_box.pack_start(self.download_check, False, False, 0)
-        images_label = Gtk.Label(label=_("up to"))
-        adv_box.pack_start(images_label, False, False, 0)
-        images_adj = Gtk.Adjustment(value=0, lower=0, upper=999, step_increment=1)
-        self.max_images_spin = Gtk.SpinButton(
-            adjustment=images_adj, climb_rate=1, digits=0
-        )
-        self.max_images_spin.set_tooltip_text(
-            _("Most images to add from one record; 0 adds all of them.")
-        )
-        adv_box.pack_start(self.max_images_spin, False, False, 0)
-        adv_box.pack_start(Gtk.Label(label=_("(0 = all)")), False, False, 0)
-
-        search_grid.attach(adv_box, 0, 2, 5, 1)
+        search_grid.attach(adv_box, 0, 4, button_column + 2, 1)
 
         content.pack_start(search_grid, False, False, 0)
 
@@ -316,7 +480,11 @@ class NaraSearchDialog(Gtk.Dialog):
         self.status_label.set_xalign(0.0)
         self.status_label.set_line_wrap(True)
         self.status_label.set_text(
-            _("Enter search query above and click Search, or look up by NAID.")
+            _(
+                "Check the terms to search on and click Search, or enter a "
+                "NAID as the only keyword. Alt plus an underlined letter "
+                "checks or unchecks a term."
+            )
         )
         content.pack_start(self.status_label, False, False, 0)
 
@@ -333,8 +501,10 @@ class NaraSearchDialog(Gtk.Dialog):
         # 6: Digital Media (str)
         # 7: Raw match data / hit (object)
         # 8: Can merge as a person (bool)
+        # 9: Match text, such as "92%" (str)
+        # 10: Match score, for sorting (float)
         self.results_store = Gtk.ListStore(
-            str, str, str, str, str, str, str, object, bool
+            str, str, str, str, str, str, str, object, bool, str, float
         )
         self.tree_view = Gtk.TreeView(model=self.results_store)
         self.tree_view.set_rules_hint(True)
@@ -389,7 +559,9 @@ class NaraSearchDialog(Gtk.Dialog):
         action_area.pack_end(self.btn_attach, False, False, 0)
 
         # Pre-populate search entries from target person or default query
+        self.default_query = default_query
         self._prefill_entries(default_query=default_query)
+        self._apply_default_terms()
 
         self.show_all()
 
@@ -400,6 +572,7 @@ class NaraSearchDialog(Gtk.Dialog):
         cols = [
             (_("NAID"), 0, False),
             (_("Title"), 1, True),
+            (_("Match"), 9, False),
             (_("Person"), 2, False),
             (_("Creator"), 3, True),
             (_("Date"), 4, False),
@@ -411,7 +584,8 @@ class NaraSearchDialog(Gtk.Dialog):
             if is_expand:
                 renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
             col = Gtk.TreeViewColumn(title, renderer, text=col_id)
-            col.set_sort_column_id(col_id)
+            # The Match column sorts by its numeric score.
+            col.set_sort_column_id(10 if col_id == 9 else col_id)
             col.set_resizable(True)
             if is_expand:
                 col.set_expand(True)
@@ -433,10 +607,157 @@ class NaraSearchDialog(Gtk.Dialog):
 
         if target_person:
             defaults = _extract_person_search_defaults(db, target_person)
-            if defaults["query"]:
-                self.query_entry.set_text(defaults["query"])
+            for key in self.term_entries:
+                if key != "keywords":
+                    self.term_entries[key].set_text(defaults.get(key, ""))
+            self.query_entry.set_text("")
         elif default_query:
             self.query_entry.set_text(default_query.strip())
+
+    @staticmethod
+    def _term_specs() -> list[tuple[str, str, str, str, int]]:
+        """
+        Return (key, check label, placeholder, entry tooltip, width) for each
+        search term, in column order. A width of 0 lets the entry expand.
+
+        The underlined letters must not clash with each other, with E_xact
+        name, or with the dialog's buttons (Change Tar_get, Add as Ne_w,
+        _Reset, _Search, A_ttach to Person, _Merge, _Help, _Close).
+        """
+        return [
+            (
+                "first_name",
+                _("_First Name"),
+                _("Given name"),
+                _("First given name (wildcard * allowed)."),
+                0,
+            ),
+            (
+                "middle_name",
+                _("Mi_ddle Name"),
+                _("Other given names"),
+                _("Other given names, searched after the first name."),
+                10,
+            ),
+            (
+                "last_name",
+                _("_Last Name"),
+                _("Surname"),
+                _("Last name at birth (wildcard * allowed)."),
+                0,
+            ),
+            (
+                "married_name",
+                _("Married _Name"),
+                _("Married surname"),
+                _(
+                    "Married or other later surname, searched as an extra word. "
+                    "Filled from a Married Name alternate name, or for a woman "
+                    "from her husband's surname. Pension files for widows often "
+                    "name both surnames."
+                ),
+                12,
+            ),
+            (
+                "birth_year",
+                _("_Birth Year"),
+                _("YYYY"),
+                _(
+                    "Birth year. When checked, only records dated in or after "
+                    "this year are found (the record's date, not the person's)."
+                ),
+                6,
+            ),
+            (
+                "birth_place",
+                _("Birth Cit_y"),
+                _("City"),
+                _("Birth city, searched as a word in the records."),
+                12,
+            ),
+            (
+                "death_year",
+                _("D_eath Year"),
+                _("YYYY"),
+                _(
+                    "Death year. When checked, only records dated up to the "
+                    "chosen number of years after it are found."
+                ),
+                6,
+            ),
+            (
+                "death_place",
+                _("De_ath City"),
+                _("City"),
+                _("Death city, searched as a word in the records."),
+                12,
+            ),
+            (
+                "keywords",
+                _("_Keywords"),
+                _("Other words, or a NAID"),
+                _(
+                    "Other words to search for, such as pension, naturalization "
+                    "or a regiment. NARA accepts AND, OR, NOT, * and "
+                    '"exact phrases". A National Archives Identifier (NAID) '
+                    "alone finds that record."
+                ),
+                0,
+            ),
+        ]
+
+    def _apply_default_terms(self) -> None:
+        """Check the default search terms and uncheck the rest."""
+        for key, check in self.term_checks.items():
+            check.set_active(SEARCH_TERM_DEFAULTS.get(key, False))
+            self._sync_term_entry(key)
+        self.exact_check.set_active(False)
+        self.after_death_spin.set_value(RECORD_YEARS_AFTER_DEATH)
+
+    def _sync_term_entry(self, key: str) -> None:
+        """Make a term's entry editable only while it is checked."""
+        self.term_entries[key].set_sensitive(bool(self.term_checks[key].get_active()))
+
+    def _term_value(self, key: str) -> str:
+        """Return a term's text, or '' when the term is unchecked."""
+        if not self.term_checks[key].get_active():
+            return ""
+        return str(self.term_entries[key].get_text()).strip()
+
+    def _search_query(self) -> str:
+        """Return the NARA keyword query built from the checked terms."""
+        terms = {key: self._term_value(key) for key in self.term_entries}
+        return build_nara_query(terms, exact=bool(self.exact_check.get_active()))
+
+    def _record_years(self) -> tuple[str, str]:
+        """
+        Return the (start, end) record years to filter on, each a 4-digit
+        year or '': the checked birth year, and the checked death year plus
+        the years after death.
+        """
+
+        def year(key: str) -> int | None:
+            text = self._term_value(key)
+            return int(text) if len(text) == 4 and text.isdigit() else None
+
+        birth = year("birth_year")
+        death = year("death_year")
+        start = str(birth) if birth else ""
+        end = ""
+        if death:
+            end = str(death + max(0, int(self.after_death_spin.get_value_as_int())))
+        return start, end
+
+    def cb_term_toggled(self, _check: Any, key: str) -> None:
+        """Enable or disable a term's entry when its check button is toggled."""
+        self._sync_term_entry(key)
+
+    def cb_reset_terms(self, _widget: Any = None) -> None:
+        """Restore the starting search values and the default selection."""
+        for entry in self.term_entries.values():
+            entry.set_text("")
+        self._prefill_entries(default_query=self.default_query)
+        self._apply_default_terms()
 
     def _update_target_label(self) -> None:
         """
@@ -505,14 +826,15 @@ class NaraSearchDialog(Gtk.Dialog):
         """
         Execute search against NARA Catalog API and populate the results table.
         """
-        query = self.query_entry.get_text().strip()
+        query = self._search_query()
+        start_year, end_year = self._record_years()
         limit = int(self.limit_spin.get_value())
         selected_mat = self.material_combo.get_active_id() or None
         online_only = self.online_check.get_active()
 
         if not query:
             self.status_label.set_text(
-                _("Please enter a name, keyword, or NAID to search.")
+                _("Please check and fill in a name, keyword, or NAID to search.")
             )
             return
 
@@ -525,7 +847,9 @@ class NaraSearchDialog(Gtk.Dialog):
                 query=query,
                 rows=limit,
                 material_type=selected_mat,
-                available_online=True if online_only else None,
+                available_online=bool(online_only),
+                start_year=start_year,
+                end_year=end_year,
             )
             hits = self.client.extract_hits(response)
         except Exception as err:
@@ -547,18 +871,25 @@ class NaraSearchDialog(Gtk.Dialog):
             return
 
         mergeable_count = 0
+        match_query = self._match_query()
         for hit in hits:
             parsed = NaraCatalogInterface.parse_record(hit)
             people = parsed["person_creators"]
             mergeable_count += 1 if people else 0
-            num_digital = len(parsed["digital_objects"])
-            digital_str = _("Yes (%d)") % num_digital if num_digital > 0 else _("No")
+            digital_str = _media_summary(parsed["digital_objects"])
+            match = best_match(match_query, parsed)
+            if people:
+                person_text = "; ".join(people)
+            elif match.candidate is not None:
+                person_text = match.candidate.display()
+            else:
+                person_text = "-"
 
             self.results_store.append(
                 [
                     parsed["naid"],
                     parsed["title"],
-                    "; ".join(people) if people else "-",
+                    person_text,
                     self._with_level(
                         "; ".join(parsed["creators"]), parsed["creators_from"]
                     ),
@@ -567,6 +898,8 @@ class NaraSearchDialog(Gtk.Dialog):
                     digital_str,
                     hit,
                     bool(people),
+                    match_text(match) if self._has_query(match_query) else "-",
+                    match.score if self._has_query(match_query) else -1.0,
                 ]
             )
 
@@ -596,19 +929,30 @@ class NaraSearchDialog(Gtk.Dialog):
         )
         help_text = _(
             "<b>Search Criteria:</b>\n"
-            "• <b>Search Query:</b> Search by person name, historical subject, military unit, "
-            "pension application, or National Archives Identifier (NAID).\n"
+            "• <b>Search terms:</b> Names, birth and death years and cities come from "
+            "the target person, laid out as on the WikiTree dialog. Check or uncheck a "
+            "term (or press Alt plus its underlined letter) to add it to or drop it "
+            "from the search; First and Last start checked. <b>Reset</b> restores "
+            "them.\n"
+            "• <b>Keywords:</b> Other words such as pension, naturalization or a "
+            "regiment, or a National Archives Identifier (NAID) on its own.\n"
+            "• <b>Exact name:</b> Searches the given and last names as one phrase.\n"
+            "• <b>Birth and Death Year:</b> Filter by the records' dates, not the "
+            "person's: from the birth year, and up to the chosen number of years after "
+            "the death year (ten by default).\n"
+            "• <b>Birth and Death City:</b> Searched as words in the records.\n"
             "• <b>Material Type:</b> Narrow records to textual files, photographs, maps, etc.\n"
             "• <b>Online Only:</b> Restrict results to records with digitized online assets (images/documents).\n"
             "• Set the <b>NARA_API_KEY</b> environment variable before launching Gramps to authenticate with the catalog.\n\n"
             "<b>Attach to Person:</b>\n"
-            "Select a record and click <b>Attach to Person</b> to add it to the target "
-            "person: NARA as the repository, the record's series as the source, and the "
-            "record as a citation with a note holding its catalog link. With "
-            "<b>Download images</b> checked, its images are saved under the NARA folder "
-            "of your media base path (one folder per NAID) and linked to the citation; "
-            "otherwise they are linked by web address. Attaching the same record again "
-            "adds nothing new.\n\n"
+            "Select a record and click <b>Attach to Person</b> to review it: the left side "
+            "shows the NARA citations the person already has, the right side this record's "
+            "citation and images with their sizes and whether your tree already has them. "
+            "Check the images you want (Preview downloads just one to look at) and click "
+            "<b>Attach</b>: NARA becomes the repository, the record's series the source, "
+            "and the record a citation with its catalog link. New images are saved under "
+            "the NARA folder of your media base path (one folder per NAID) and linked to "
+            "the citation. Images already in your tree are linked, never added twice.\n\n"
             "<b>Merging:</b>\n"
             "Most NARA records are created by agencies, so the Person column shows a dash "
             "and Merge is unavailable. For a record that names a person as its creator, "
@@ -618,6 +962,33 @@ class NaraSearchDialog(Gtk.Dialog):
         dialog.format_secondary_markup(help_text)
         dialog.run()
         dialog.destroy()
+
+    def _match_query(self) -> MatchQuery:
+        """
+        Return the details to score results against: the names and years in
+        the search boxes (filled from the target person), checked or not.
+        """
+
+        def text(key: str) -> str:
+            return str(self.term_entries[key].get_text()).strip()
+
+        def year(key: str) -> int | None:
+            value = text(key)
+            return int(value) if len(value) == 4 and value.isdigit() else None
+
+        surnames = [name for name in (text("last_name"), text("married_name")) if name]
+        return MatchQuery(
+            given=text("first_name"),
+            middle=text("middle_name"),
+            surnames=surnames,
+            birth_year=year("birth_year"),
+            death_year=year("death_year"),
+        )
+
+    @staticmethod
+    def _has_query(query: MatchQuery) -> bool:
+        """Return True when there is a name to match against."""
+        return bool(query.given or query.surnames)
 
     @staticmethod
     def _with_level(text: str, level: str) -> str:
@@ -681,6 +1052,9 @@ class NaraSearchDialog(Gtk.Dialog):
             )
         if result.media_added:
             parts.append(_("Media added: %d.") % result.media_added)
+        relinked = result.media_linked - result.media_added
+        if relinked > 0:
+            parts.append(_("Media already in your tree, now linked: %d.") % relinked)
         if result.failed:
             parts.append(
                 _(
@@ -695,8 +1069,9 @@ class NaraSearchDialog(Gtk.Dialog):
 
     def cb_attach(self, _widget: Any = None) -> None:
         """
-        Attach the selected NARA record to the target person as a source and
-        citation, downloading its images when asked.
+        Open the review window for the selected NARA record: it shows the
+        person's existing NARA citations next to this record's citation and
+        images, and attaches only the images the user checks.
         """
         model, tree_iter = self.tree_view.get_selection().get_selected()
         target = self.target_handle
@@ -706,43 +1081,31 @@ class NaraSearchDialog(Gtk.Dialog):
         if not hit:
             return
         parsed = NaraCatalogInterface.parse_record(hit)
-        download = bool(self.download_check.get_active())
-        max_images = int(self.max_images_spin.get_value())
 
-        from gramps.gui.utils import ProgressMeter
-
-        meter = None
-        total = len(parsed["digital_objects"])
-        if max_images > 0:
-            total = min(total, max_images)
-        if download and total:
-            meter = ProgressMeter(_("Attach NARA Record"), can_cancel=True, parent=self)
-            meter.set_pass(_("Downloading %d images from NARA...") % total, total)
-
-        def progress(_done: int, _total: int) -> bool:
-            if meter is None:
-                return True
-            meter.step()
-            return not meter.get_cancelled()
+        from gramps.gui.gwizard.gwizardnaraattachdialog import NaraAttachDialog
 
         try:
-            result = NaraRecordAttacher(self.dbstate.db).attach(
-                target,
-                parsed,
-                download=download,
-                max_images=max_images,
-                progress=progress,
+            dialog = NaraAttachDialog(
+                self, self.dbstate, self.uistate, target, parsed, client=self.client
             )
         except Exception as err:
-            LOG.warning("Failed to attach NARA record %s: %s", parsed["naid"], err)
+            LOG.warning("Failed to open NARA attach window: %s", err)
             self.status_label.set_text(
-                _("Could not attach the NARA record: %s") % str(err)
+                _("Could not review the NARA record: %s") % str(err)
             )
             return
+        try:
+            while True:
+                response = dialog.run()
+                if response != Gtk.ResponseType.OK:
+                    return
+                result = dialog.run_attach()
+                if result is not None:
+                    self.status_label.set_text(self._attach_summary(result))
+                    return
+                # The attach failed; the window shows why and stays open.
         finally:
-            if meter is not None:
-                meter.close()
-        self.status_label.set_text(self._attach_summary(result))
+            dialog.destroy()
 
     def cb_selection_changed(self, selection: Gtk.TreeSelection) -> None:
         """
@@ -863,7 +1226,8 @@ class NaraSearchDialog(Gtk.Dialog):
         :returns: Parameter dictionary for NaraGWizard.
         :rtype: dict[str, Any]
         """
-        query = self.query_entry.get_text().strip()
+        query = self._search_query()
+        start_year, end_year = self._record_years()
         limit = int(self.limit_spin.get_value())
         selected_mat = self.material_combo.get_active_id() or None
         online_only = self.online_check.get_active()
@@ -872,6 +1236,10 @@ class NaraSearchDialog(Gtk.Dialog):
             "query": query,
             "limit": limit,
         }
+        if start_year:
+            params["start_year"] = start_year
+        if end_year:
+            params["end_year"] = end_year
         if selected_mat:
             params["material_type"] = selected_mat
         if online_only:

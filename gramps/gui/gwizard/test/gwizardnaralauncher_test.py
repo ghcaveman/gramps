@@ -141,7 +141,10 @@ from gramps.gen.lib import (
 )
 from gramps.gen.gwizard.gwizardnaramerge import AttachResult, NaraCatalogInterface
 from gramps.gui.gwizard.gwizardnaralauncher import (
+    SEARCH_TERM_DEFAULTS,
     _extract_person_search_defaults,
+    build_nara_query,
+    format_size,
     NaraSearchDialog,
     ask_nara_parameters,
     load_nara_gwizard,
@@ -154,6 +157,45 @@ from gramps.gui.gwizard.gwizardnaralauncher import (
 # TestNaraLauncher
 #
 # ------------------------------------------------------------
+def _load_sample_response(name: str = "nara_record_naturalization.json") -> Any:
+    """Load a real NARA response from the engine's test data folder."""
+    sample = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..",
+        "..",
+        "..",
+        "gen",
+        "gwizard",
+        "test",
+        "data",
+        name,
+    )
+    with open(sample, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _use_terms(
+    dialog: Any,
+    values: dict[str, str] | None = None,
+    checked: dict[str, bool] | None = None,
+    exact: bool = False,
+    after_death: int = 10,
+) -> None:
+    """
+    Make a dialog's mocked search widgets return the given term text, the
+    default checks (overridden by 'checked'), the Exact name setting and the
+    years-after-death setting.
+    """
+    values = values or {}
+    checked = {**SEARCH_TERM_DEFAULTS, **(checked or {})}
+    for key, entry in dialog.term_entries.items():
+        entry.get_text.return_value = values.get(key, "")
+    for key, check in dialog.term_checks.items():
+        check.get_active.return_value = checked[key]
+    dialog.exact_check.get_active.return_value = exact
+    dialog.after_death_spin.get_value_as_int.return_value = after_death
+
+
 class TestNaraLauncher(unittest.TestCase):
     """Test suite for NARA search dialog and launcher utilities."""
 
@@ -213,10 +255,14 @@ class TestNaraLauncher(unittest.TestCase):
             _extract_person_search_defaults(self.db, None),
             {
                 "first_name": "",
+                "middle_name": "",
                 "last_name": "",
+                "married_name": "",
                 "query": "",
                 "birth_year": "",
+                "birth_place": "",
                 "death_year": "",
+                "death_place": "",
             },
         )
 
@@ -249,7 +295,285 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertEqual(dialog.default_size, (950, 600))
         self.assertTrue(dialog.resizable)
         self.assertEqual(dialog.api_key, "environment_key")
-        dialog.query_entry.set_text.assert_called_with("George Washington")
+        dialog.first_name_entry.set_text.assert_called_with("George")
+        dialog.last_name_entry.set_text.assert_called_with("Washington")
+        dialog.query_entry.set_text.assert_called_with("")
+        for key, check in dialog.term_checks.items():
+            check.set_active.assert_called_with(SEARCH_TERM_DEFAULTS[key])
+
+    def test_format_size(self) -> None:
+        """Verify file sizes are shown in readable units."""
+        self.assertEqual(format_size(0), "")
+        self.assertEqual(format_size(512), "512 B")
+        self.assertEqual(format_size(870_000), "850 KB")
+        self.assertEqual(format_size(6_009_258), "5.7 MB")
+        self.assertEqual(format_size(451_000_000), "430 MB")
+        self.assertEqual(format_size(1_300_000_000), "1.2 GB")
+
+    def test_build_nara_query(self) -> None:
+        """Verify checked terms combine into one NARA keyword query."""
+        self.assertEqual(
+            build_nara_query({"first_name": "Mary", "last_name": "Kreizer"}),
+            "Mary Kreizer",
+        )
+        self.assertEqual(
+            build_nara_query(
+                {
+                    "first_name": "Mary",
+                    "middle_name": "Ann",
+                    "last_name": "Kreizer",
+                    "married_name": "Smith",
+                    "keywords": "pension",
+                },
+                exact=True,
+            ),
+            '"Mary Ann Kreizer" Smith pension',
+        )
+        self.assertEqual(build_nara_query({"last_name": "Smith"}, exact=True), "Smith")
+        self.assertEqual(build_nara_query({"keywords": "90361620"}), "90361620")
+        self.assertEqual(build_nara_query({"first_name": " ", "keywords": ""}), "")
+
+    def test_extract_defaults_middle_and_married_names(self) -> None:
+        """Verify given names split and a Married Name alternate name is used."""
+        from gramps.gen.lib import NameType
+
+        person = Person()
+        pname = Name()
+        pname.set_first_name("Mary Ann")
+        surn = Surname()
+        surn.set_surname("Kreizer")
+        pname.add_surname(surn)
+        person.set_primary_name(pname)
+        alt = Name()
+        alt.set_type(NameType(NameType.MARRIED))
+        alt_surn = Surname()
+        alt_surn.set_surname("Smith")
+        alt.add_surname(alt_surn)
+        person.add_alternate_name(alt)
+
+        defaults = _extract_person_search_defaults(self.db, person)
+        self.assertEqual(defaults["first_name"], "Mary")
+        self.assertEqual(defaults["middle_name"], "Ann")
+        self.assertEqual(defaults["last_name"], "Kreizer")
+        self.assertEqual(defaults["married_name"], "Smith")
+
+    def test_married_name_from_husband_for_women_only(self) -> None:
+        """Verify the husband's-surname fallback applies to women only."""
+        from gramps.gen.lib import Family
+
+        wife = Person()
+        wife.set_gender(Person.FEMALE)
+        husband = Person()
+        husband.set_gender(Person.MALE)
+        h_name = Name()
+        h_surn = Surname()
+        h_surn.set_surname("Smith")
+        h_name.add_surname(h_surn)
+        husband.set_primary_name(h_name)
+        with DbTxn("Add couple", self.db) as trans:
+            self.db.add_person(wife, trans)
+            h_handle = self.db.add_person(husband, trans)
+            family = Family()
+            family.set_father_handle(h_handle)
+            family.set_mother_handle(wife.get_handle())
+            f_handle = self.db.add_family(family, trans)
+            wife.add_family_handle(f_handle)
+            husband.add_family_handle(f_handle)
+            self.db.commit_person(wife, trans)
+            self.db.commit_person(husband, trans)
+
+        self.assertEqual(
+            _extract_person_search_defaults(self.db, wife)["married_name"], "Smith"
+        )
+        self.assertEqual(
+            _extract_person_search_defaults(self.db, husband)["married_name"], ""
+        )
+
+    def test_prefill_record_years_from_life_span(self) -> None:
+        """Verify the record years default to birth through death plus ten."""
+        person = Person()
+        pname = Name()
+        pname.set_first_name("Abraham")
+        surn = Surname()
+        surn.set_surname("Lincoln")
+        pname.add_surname(surn)
+        person.set_primary_name(pname)
+        from gramps.gen.lib import Place, PlaceName
+
+        birth = Event()
+        birth.set_type(EventType.BIRTH)
+        birth.set_date_object(Date(1809, 2, 12))
+        death = Event()
+        death.set_type(EventType.DEATH)
+        death.set_date_object(Date(1865, 4, 15))
+        with DbTxn("Add Lincoln", self.db) as trans:
+            hodgenville = Place()
+            hodgenville.set_name(PlaceName(value="Hodgenville"))
+            birth.set_place_handle(self.db.add_place(hodgenville, trans))
+            washington = Place()
+            washington.set_title("Washington, District of Columbia, USA")
+            death.set_place_handle(self.db.add_place(washington, trans))
+            b_h = self.db.add_event(birth, trans)
+            d_h = self.db.add_event(death, trans)
+            b_ref = EventRef()
+            b_ref.set_reference_handle(b_h)
+            d_ref = EventRef()
+            d_ref.set_reference_handle(d_h)
+            person.add_event_ref(b_ref)
+            person.set_birth_ref(b_ref)
+            person.add_event_ref(d_ref)
+            person.set_death_ref(d_ref)
+            p_h = self.db.add_person(person, trans)
+
+        dbstate = Mock()
+        dbstate.db = self.db
+        dialog = NaraSearchDialog(dbstate=dbstate, target_handle=p_h, client=Mock())
+        dialog.term_entries["birth_year"].set_text.assert_called_with("1809")
+        dialog.term_entries["birth_place"].set_text.assert_called_with("Hodgenville")
+        dialog.term_entries["death_year"].set_text.assert_called_with("1865")
+        dialog.term_entries["death_place"].set_text.assert_called_with("Washington")
+        for key in ("birth_year", "birth_place", "death_year", "death_place"):
+            dialog.term_checks[key].set_active.assert_called_with(False)
+
+    def test_search_uses_checked_terms_exact_and_years(self) -> None:
+        """Verify the query and record years follow the checked terms."""
+        mock_client = Mock()
+        mock_client.extract_hits.return_value = []
+        dialog = NaraSearchDialog(client=mock_client)
+        _use_terms(
+            dialog,
+            {
+                "first_name": "Mary",
+                "middle_name": "Ann",
+                "last_name": "Kreizer",
+                "married_name": "Smith",
+                "birth_year": "1840",
+                "birth_place": "New York",
+                "death_year": "1925",
+                "death_place": "Baltimore",
+                "keywords": "pension",
+            },
+            checked={
+                "married_name": True,
+                "birth_year": True,
+                "birth_place": True,
+                "death_year": True,
+                "death_place": True,
+            },
+            exact=True,
+        )
+        dialog.limit_spin.get_value.return_value = 25
+        dialog.material_combo.get_active_id.return_value = None
+        dialog.online_check.get_active.return_value = False
+
+        dialog.cb_search()
+
+        kwargs = mock_client.search_records.call_args.kwargs
+        self.assertEqual(
+            kwargs["query"], '"Mary Kreizer" Smith "New York" Baltimore pension'
+        )
+        self.assertEqual(kwargs["start_year"], "1840")
+        self.assertEqual(kwargs["end_year"], "1935")
+
+    def test_record_years_follow_checks_and_after_death(self) -> None:
+        """Verify each year applies only when checked, with the after-death span."""
+        dialog = NaraSearchDialog(client=Mock())
+        values = {"birth_year": "1840", "death_year": "1925"}
+        _use_terms(dialog, values, checked={"death_year": True}, after_death=25)
+        self.assertEqual(dialog._record_years(), ("", "1950"))
+        _use_terms(dialog, values, checked={"birth_year": True})
+        self.assertEqual(dialog._record_years(), ("1840", ""))
+        _use_terms(dialog, values)
+        self.assertEqual(dialog._record_years(), ("", ""))
+
+    def test_search_ignores_unchecked_terms_and_bad_years(self) -> None:
+        """Verify unchecked terms and non-year text are left out."""
+        mock_client = Mock()
+        mock_client.extract_hits.return_value = []
+        dialog = NaraSearchDialog(client=mock_client)
+        _use_terms(
+            dialog,
+            {
+                "first_name": "Mary",
+                "last_name": "Kreizer",
+                "keywords": "pension",
+                "birth_year": "18",
+                "death_year": "abcd",
+                "birth_place": "Baltimore",
+            },
+            checked={"first_name": False, "keywords": False, "death_year": True},
+        )
+        dialog.limit_spin.get_value.return_value = 25
+        dialog.material_combo.get_active_id.return_value = None
+        dialog.online_check.get_active.return_value = False
+
+        dialog.cb_search()
+
+        kwargs = mock_client.search_records.call_args.kwargs
+        self.assertEqual(kwargs["query"], "Kreizer")
+        self.assertEqual(kwargs["start_year"], "")
+        self.assertEqual(kwargs["end_year"], "")
+
+    def test_search_with_nothing_checked_asks_for_terms(self) -> None:
+        """Verify an empty query does not call NARA."""
+        mock_client = Mock()
+        dialog = NaraSearchDialog(client=mock_client)
+        _use_terms(dialog, {"first_name": "Mary"}, checked={"first_name": False})
+
+        dialog.cb_search()
+
+        mock_client.search_records.assert_not_called()
+        self.assertIn(
+            "Please check and fill in", dialog.status_label.set_text.call_args[0][0]
+        )
+
+    def test_term_toggle_and_reset(self) -> None:
+        """Verify toggling greys entries and Reset restores the defaults."""
+        dialog = NaraSearchDialog(client=Mock(), default_query="pension")
+        check = dialog.term_checks["middle_name"]
+        entry = dialog.term_entries["middle_name"]
+        check.get_active.return_value = True
+        dialog.cb_term_toggled(check, "middle_name")
+        entry.set_sensitive.assert_called_with(True)
+        check.get_active.return_value = False
+        dialog.cb_term_toggled(check, "middle_name")
+        entry.set_sensitive.assert_called_with(False)
+
+        for item in dialog.term_checks.values():
+            item.set_active.reset_mock()
+        dialog.cb_reset_terms()
+        dialog.query_entry.set_text.assert_called_with("pension")
+        for key, item in dialog.term_checks.items():
+            item.set_active.assert_called_once_with(SEARCH_TERM_DEFAULTS[key])
+        dialog.after_death_spin.set_value.assert_called_with(10)
+
+    def test_terms_in_wikitree_order(self) -> None:
+        """Verify the search terms run in the WikiTree dialog's order."""
+        self.assertEqual(
+            [spec[0] for spec in NaraSearchDialog._term_specs()],
+            [
+                "first_name",
+                "middle_name",
+                "last_name",
+                "married_name",
+                "birth_year",
+                "birth_place",
+                "death_year",
+                "death_place",
+                "keywords",
+            ],
+        )
+
+    def test_term_labels_have_unique_mnemonics(self) -> None:
+        """Verify the term shortcuts differ from each other and the buttons."""
+        letters = []
+        for _key, label, _ph, _tip, _width in NaraSearchDialog._term_specs():
+            self.assertEqual(label.count("_"), 1, label)
+            letters.append(label[label.index("_") + 1].lower())
+        # Exact name, Change Tar_get, Add as Ne_w, Reset, Search, Attach,
+        # Merge, Help, Close
+        letters.extend(["x", "g", "w", "r", "s", "t", "m", "h", "c"])
+        self.assertEqual(len(letters), len(set(letters)), letters)
 
     def test_dialog_search_no_matches_keeps_open(self) -> None:
         """Verify that a search with no matches does not close the dialog and informs the user."""
@@ -258,6 +582,8 @@ class TestNaraLauncher(unittest.TestCase):
         mock_client.extract_hits.return_value = []
 
         dialog = NaraSearchDialog(client=mock_client)
+
+        _use_terms(dialog)
         dialog.query_entry.get_text.return_value = "NonexistentRecord123"
         dialog.limit_spin.get_value.return_value = 25
         dialog.material_combo.get_active_id.return_value = None
@@ -296,6 +622,8 @@ class TestNaraLauncher(unittest.TestCase):
         mock_client.extract_hits.return_value = [mock_hit]
 
         dialog = NaraSearchDialog(client=mock_client)
+
+        _use_terms(dialog)
         dialog.query_entry.get_text.return_value = "Abraham Lincoln"
         dialog.limit_spin.get_value.return_value = 10
         dialog.material_combo.get_active_id.return_value = "textual records"
@@ -308,6 +636,8 @@ class TestNaraLauncher(unittest.TestCase):
             rows=10,
             material_type="textual records",
             available_online=True,
+            start_year="",
+            end_year="",
         )
         dialog.results_store.append.assert_called_once()
         appended_row = dialog.results_store.append.call_args[0][0]
@@ -317,7 +647,7 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertEqual(appended_row[3], "Lincoln, Abraham, 1809-1865")
         self.assertEqual(appended_row[4], "1861")
         self.assertEqual(appended_row[5], "Textual Records")
-        self.assertIn("Yes", appended_row[6])
+        self.assertEqual(appended_row[6], "1")
         self.assertIs(appended_row[8], True)
 
         dialog.btn_merge.set_sensitive.assert_called_with(True)
@@ -344,6 +674,8 @@ class TestNaraLauncher(unittest.TestCase):
         mock_client.extract_hits.return_value = hits
 
         dialog = NaraSearchDialog(client=mock_client)
+
+        _use_terms(dialog)
         dialog.query_entry.get_text.return_value = "john smith pension"
         dialog.limit_spin.get_value.return_value = 5
         dialog.material_combo.get_active_id.return_value = ""
@@ -355,13 +687,41 @@ class TestNaraLauncher(unittest.TestCase):
         dialog.cb_search()
 
         self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0][2], "-")
+        self.assertEqual(rows[0][2], "Smith, Mary Kreizer")
+        self.assertEqual(rows[0][9], "-")
         self.assertTrue(rows[0][3].endswith("(from series)"), rows[0][3])
         self.assertEqual(rows[0][4], "1861-1934 (from series)")
         self.assertEqual(rows[0][5], "Textual Records")
+        self.assertRegex(rows[0][6], r"^2 \(\d+(\.\d)? MB\)$")
         self.assertIs(rows[0][8], False)
         dialog.btn_merge.set_sensitive.assert_called_with(False)
         self.assertIn("names no person", dialog.status_label.set_text.call_args[0][0])
+
+    def test_search_scores_matches_against_the_person(self) -> None:
+        """Verify the Match column scores each record's named person."""
+        response = _load_sample_response("nara_search_pension.json")
+        hits = NaraCatalogInterface.extract_hits(response)
+        mock_client = Mock()
+        mock_client.search_records.return_value = response
+        mock_client.extract_hits.return_value = hits
+        dialog = NaraSearchDialog(client=mock_client)
+        _use_terms(
+            dialog,
+            {"first_name": "Mary", "last_name": "Kreizer", "married_name": "Smith"},
+        )
+        dialog.limit_spin.get_value.return_value = 5
+        dialog.material_combo.get_active_id.return_value = ""
+        dialog.online_check.get_active.return_value = False
+        rows: list[list[Any]] = []
+        dialog.results_store.append.side_effect = rows.append
+        dialog.results_store.get_value.side_effect = lambda _it, col: rows[0][col]
+
+        dialog.cb_search()
+
+        self.assertEqual(rows[0][9], "100% (name only)")
+        self.assertEqual(rows[0][10], 100.0)
+        self.assertLess(rows[1][10], rows[0][10])
+        self.assertEqual(rows[1][2], "Smith, Sarah Butt")
 
     def test_selection_changed_enables_merge_for_person_records(self) -> None:
         """Verify Merge follows whether the selected record names a person."""
@@ -388,24 +748,10 @@ class TestNaraLauncher(unittest.TestCase):
         dbstate.db = self.db
         dialog = NaraSearchDialog(dbstate=dbstate, client=Mock())
         dialog.target_handle = target
-        sample = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "..",
-            "..",
-            "..",
-            "gen",
-            "gwizard",
-            "test",
-            "data",
-            "nara_record_naturalization.json",
-        )
-        with open(sample, encoding="utf-8") as handle:
-            hit = NaraCatalogInterface.extract_hits(json.load(handle))[0]
+        hit = NaraCatalogInterface.extract_hits(_load_sample_response())[0]
         model = Mock()
         model.get_value.side_effect = lambda _it, col: {7: hit, 8: False}.get(col, "")
         dialog.tree_view.get_selection().get_selected.return_value = (model, Mock())
-        dialog.download_check.get_active.return_value = True
-        dialog.max_images_spin.get_value.return_value = 0
         return dialog
 
     def test_attach_button_needs_target_person(self) -> None:
@@ -422,71 +768,78 @@ class TestNaraLauncher(unittest.TestCase):
             "Choose a target person", dialog.status_label.set_text.call_args[0][0]
         )
 
-    def test_cb_attach_runs_attacher_with_options(self) -> None:
-        """Verify cb_attach passes the target, record and image options."""
+    def test_cb_attach_opens_review_window(self) -> None:
+        """Verify Attach opens the review window and reports what it did."""
         dialog = self._attach_dialog()
-        dialog.max_images_spin.get_value.return_value = 1
         result = AttachResult(citation_created=True, downloaded=1, media_added=1)
-        with (
-            patch(
-                "gramps.gui.gwizard.gwizardnaralauncher.NaraRecordAttacher"
-            ) as attacher_cls,
-            patch("gramps.gui.utils.ProgressMeter") as meter_cls,
-        ):
-            attacher_cls.return_value.attach.return_value = result
+        with patch(
+            "gramps.gui.gwizard.gwizardnaraattachdialog.NaraAttachDialog"
+        ) as review_cls:
+            review = review_cls.return_value
+            review.run.return_value = _gtk.ResponseType.OK
+            review.run_attach.return_value = result
             dialog.cb_attach()
 
-        attacher_cls.assert_called_once_with(self.db)
-        args, kwargs = attacher_cls.return_value.attach.call_args
-        self.assertEqual(args[0], "I_handle")
-        self.assertEqual(args[1]["naid"], "90361620")
-        self.assertTrue(kwargs["download"])
-        self.assertEqual(kwargs["max_images"], 1)
-        meter_cls.return_value.set_pass.assert_called_once()
-        meter_cls.return_value.close.assert_called_once()
+        args = review_cls.call_args[0]
+        self.assertEqual(args[3], "I_handle")
+        self.assertEqual(args[4]["naid"], "90361620")
+        review.run_attach.assert_called_once()
+        review.destroy.assert_called_once()
         message = dialog.status_label.set_text.call_args[0][0]
         self.assertIn("attached as a new citation", message)
         self.assertIn("Images downloaded: 1", message)
 
-    def test_cb_attach_without_download_skips_progress(self) -> None:
-        """Verify no progress window opens when images are only linked."""
+    def test_cb_attach_cancel_changes_nothing(self) -> None:
+        """Verify cancelling the review window attaches nothing."""
         dialog = self._attach_dialog()
-        dialog.download_check.get_active.return_value = False
-        with (
-            patch(
-                "gramps.gui.gwizard.gwizardnaralauncher.NaraRecordAttacher"
-            ) as attacher_cls,
-            patch("gramps.gui.utils.ProgressMeter") as meter_cls,
-        ):
-            attacher_cls.return_value.attach.return_value = AttachResult()
-            dialog.cb_attach()
-        meter_cls.assert_not_called()
-        self.assertFalse(attacher_cls.return_value.attach.call_args.kwargs["download"])
-        self.assertIn("already attached", dialog.status_label.set_text.call_args[0][0])
-
-    def test_cb_attach_reports_errors(self) -> None:
-        """Verify an attach failure is shown in the status line."""
-        dialog = self._attach_dialog()
-        dialog.download_check.get_active.return_value = False
         with patch(
-            "gramps.gui.gwizard.gwizardnaralauncher.NaraRecordAttacher"
-        ) as attacher_cls:
-            attacher_cls.return_value.attach.side_effect = RuntimeError("boom")
+            "gramps.gui.gwizard.gwizardnaraattachdialog.NaraAttachDialog"
+        ) as review_cls:
+            review_cls.return_value.run.return_value = _gtk.ResponseType.CANCEL
+            dialog.cb_attach()
+        review_cls.return_value.run_attach.assert_not_called()
+        review_cls.return_value.destroy.assert_called_once()
+
+    def test_cb_attach_failure_keeps_window_open(self) -> None:
+        """Verify a failed attach returns to the review window."""
+        dialog = self._attach_dialog()
+        with patch(
+            "gramps.gui.gwizard.gwizardnaraattachdialog.NaraAttachDialog"
+        ) as review_cls:
+            review = review_cls.return_value
+            review.run.side_effect = [_gtk.ResponseType.OK, _gtk.ResponseType.CANCEL]
+            review.run_attach.return_value = None
+            dialog.cb_attach()
+        self.assertEqual(review.run.call_count, 2)
+        review.destroy.assert_called_once()
+
+    def test_cb_attach_reports_window_errors(self) -> None:
+        """Verify a review window that cannot open is reported."""
+        dialog = self._attach_dialog()
+        with patch(
+            "gramps.gui.gwizard.gwizardnaraattachdialog.NaraAttachDialog",
+            side_effect=RuntimeError("boom"),
+        ):
             dialog.cb_attach()
         self.assertIn(
-            "Could not attach the NARA record: boom",
+            "Could not review the NARA record: boom",
             dialog.status_label.set_text.call_args[0][0],
         )
 
     def test_attach_summary_mentions_failures_and_cancel(self) -> None:
-        """Verify the summary reports failed downloads and cancelling."""
+        """Verify the summary reports failed downloads, relinks and cancelling."""
         text = NaraSearchDialog._attach_summary(
             AttachResult(
-                person_linked=True, failed=["u1", "u2"], cancelled=True, media_added=2
+                person_linked=True,
+                failed=["u1", "u2"],
+                cancelled=True,
+                media_added=2,
+                media_linked=3,
             )
         )
         self.assertIn("existing citation", text)
         self.assertIn("2 images could not be downloaded", text)
+        self.assertIn("now linked: 1", text)
         self.assertIn("cancelled", text)
 
     def test_dialog_merge_launches_merge_dialog(self) -> None:

@@ -108,7 +108,12 @@ from gramps.gen.utils.file import media_path
 #
 # -------------------------------------------------------------------------
 from ..gwizardnaramerge import (
+    IMAGE_IN_TREE,
+    IMAGE_LINKED,
+    IMAGE_NEW,
+    NAID_ATTRIBUTE,
     NARA_REPOSITORY_NAME,
+    OBJECT_ID_ATTRIBUTE,
     NaraCatalogInterface,
     NaraGWizard,
     NaraRecordAttacher,
@@ -215,6 +220,25 @@ class TestNaraCatalogInterface(unittest.TestCase):
         self.assertEqual(kwargs["params"]["limit"], 5)
         self.assertEqual(kwargs["params"]["typeOfMaterials"], "textual records")
         self.assertEqual(kwargs["params"]["availableOnline"], "true")
+
+    @patch("requests.get")
+    def test_search_records_record_years(self, mock_get: Mock) -> None:
+        """Verify record years are sent as startDate/endDate only when set."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"body": {"hits": {"hits": []}}}
+        mock_get.return_value = mock_response
+        client = NaraCatalogInterface(api_key="key99")
+
+        client.search_records(query="Smith", start_year="1840", end_year="1935")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["startDate"], "1840")
+        self.assertEqual(params["endDate"], "1935")
+
+        client.search_records(query="Smith")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertNotIn("startDate", params)
+        self.assertNotIn("endDate", params)
 
     @patch("requests.get")
     def test_search_records_error_handling(self, mock_get: Mock) -> None:
@@ -798,8 +822,10 @@ class TestNaraRecordAttacher(unittest.TestCase):
         self.assertFalse(second.citation_created)
         self.assertFalse(second.person_linked)
         self.assertEqual(second.media_added, 0)
+        self.assertEqual(second.media_linked, 0)
         self.assertEqual(second.downloaded, 0)
-        self.assertEqual(second.already_downloaded, 2)
+        self.assertEqual(second.already_downloaded, 0)
+        self.assertEqual(self.session.get.call_count, 2)
         self.assertEqual(self.db.get_number_of_media(), 2)
         self.assertEqual(self.db.get_number_of_citations(), 1)
 
@@ -855,3 +881,198 @@ class TestNaraRecordAttacher(unittest.TestCase):
 
         self.assertFalse(result.repository_created)
         self.assertEqual(self.db.get_number_of_repositories(), 1)
+
+    def test_parse_record_image_details(self) -> None:
+        """Verify each image's object ID, file name and size are parsed."""
+        first = self.parsed["digital_objects"][0]
+        self.assertEqual(first["filename"], "2480.jpg")
+        self.assertTrue(first["object_id"])
+        self.assertGreater(first["size"], 0)
+
+    def test_review_before_attaching(self) -> None:
+        """Verify a record not yet in the tree shows every image as new."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        review = attacher.review(self.person_handle, self.parsed)
+
+        self.assertEqual(review.citation_handle, "")
+        self.assertFalse(review.citation_on_person)
+        self.assertEqual([i.status for i in review.images], [IMAGE_NEW, IMAGE_NEW])
+        self.assertEqual(len(review.new_images), 2)
+        self.assertEqual(review.person_citations, [])
+        self.session.get.assert_not_called()
+
+    def test_review_after_attaching_part(self) -> None:
+        """Verify attached images show as linked and the rest as new."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        attacher.attach(self.person_handle, self.parsed, selected=[1])
+        review = attacher.review(self.person_handle, self.parsed)
+
+        self.assertTrue(review.citation_handle)
+        self.assertTrue(review.citation_on_person)
+        self.assertEqual([i.status for i in review.images], [IMAGE_NEW, IMAGE_LINKED])
+        self.assertEqual(len(review.person_citations), 1)
+        existing = review.person_citations[0]
+        self.assertTrue(existing.is_this_record)
+        self.assertEqual(existing.naid, "90361620")
+        self.assertEqual(existing.source_title, "Index to Naturalization Records")
+        self.assertEqual(existing.media_count, 1)
+
+    def test_attach_selected_images_only(self) -> None:
+        """Verify only the chosen images are downloaded and added."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        result = attacher.attach(self.person_handle, self.parsed, selected=[1])
+
+        self.assertEqual(result.downloaded, 1)
+        self.assertEqual(result.media_added, 1)
+        self.assertEqual(self.session.get.call_count, 1)
+        self.assertTrue(self.session.get.call_args[0][0].endswith("2481.jpg"))
+        media = list(self.db.iter_media())
+        self.assertEqual(len(media), 1)
+        attributes = {
+            str(a.get_type()): a.get_value() for a in media[0].get_attribute_list()
+        }
+        self.assertEqual(
+            attributes[OBJECT_ID_ATTRIBUTE],
+            self.parsed["digital_objects"][1]["object_id"],
+        )
+        citation = self.db.get_citation_from_handle(result.citation_handle)
+        naids = [
+            a.get_value()
+            for a in citation.get_attribute_list()
+            if str(a.get_type()) == NAID_ATTRIBUTE
+        ]
+        self.assertEqual(naids, ["90361620"])
+
+    def test_renamed_media_still_recognised(self) -> None:
+        """Verify an image moved and renamed (as Media Fix does) is still found."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        attacher.attach(self.person_handle, self.parsed, selected=[0])
+        media = next(iter(self.db.iter_media()))
+        media.set_path("I0001_MacDonald_Lyman-Naturalization-1942.jpg")
+        with DbTxn("Rename", self.db) as trans:
+            self.db.commit_media(media, trans)
+
+        review = attacher.review(self.person_handle, self.parsed)
+        self.assertEqual(review.images[0].status, IMAGE_LINKED)
+        self.assertEqual(
+            review.images[0].media_path,
+            "I0001_MacDonald_Lyman-Naturalization-1942.jpg",
+        )
+
+    def test_media_in_tree_but_not_on_citation(self) -> None:
+        """Verify an image in the tree under another citation is linked, not added."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        attacher.attach(self.person_handle, self.parsed, selected=[0])
+        citation = self.db.get_citation_from_handle(
+            attacher.review(self.person_handle, self.parsed).citation_handle
+        )
+        citation.set_media_list([])
+        with DbTxn("Unlink", self.db) as trans:
+            self.db.commit_citation(citation, trans)
+
+        review = attacher.review(self.person_handle, self.parsed)
+        self.assertEqual(review.images[0].status, IMAGE_IN_TREE)
+        result = attacher.attach(self.person_handle, self.parsed, selected=[0])
+        self.assertEqual(result.media_added, 0)
+        self.assertEqual(result.media_linked, 1)
+        self.assertEqual(self.db.get_number_of_media(), 1)
+
+    def test_citation_found_by_naid_after_page_edit(self) -> None:
+        """Verify the record's citation is found by its NAID attribute."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        first = attacher.attach(self.person_handle, self.parsed, download=False)
+        citation = self.db.get_citation_from_handle(first.citation_handle)
+        citation.set_page("Naturalization index card, Lyman Angus MacDonald")
+        with DbTxn("Edit page", self.db) as trans:
+            self.db.commit_citation(citation, trans)
+
+        second = attacher.attach(self.person_handle, self.parsed, download=False)
+        self.assertEqual(second.citation_handle, first.citation_handle)
+        self.assertFalse(second.citation_created)
+
+    def test_download_one_for_preview(self) -> None:
+        """Verify a preview download is reused by a later attach."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        review = attacher.review(self.person_handle, self.parsed)
+        path = attacher.download_one(self.parsed, review.images[0])
+        self.assertTrue(os.path.isfile(path))
+
+        result = attacher.attach(self.person_handle, self.parsed, selected=[0])
+        self.assertEqual(result.already_downloaded, 1)
+        self.assertEqual(result.downloaded, 0)
+        self.assertEqual(self.session.get.call_count, 1)
+
+    def test_attach_with_page_descriptions_and_text(self) -> None:
+        """Verify page descriptions and Transcript notes on new media."""
+        from gramps.gen.lib import NoteType
+
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        attacher.attach(
+            self.person_handle,
+            self.parsed,
+            download=False,
+            descriptions={0: "MacDonald, Lyman Angus - 1942, page 1: Cover or jacket"},
+            page_texts={0: "Box 123 Cert. 456", 1: "   "},
+        )
+        media = sorted(self.db.iter_media(), key=lambda m: m.get_path())
+        self.assertEqual(
+            media[0].get_description(),
+            "MacDonald, Lyman Angus - 1942, page 1: Cover or jacket",
+        )
+        self.assertEqual(
+            media[1].get_description(), "MacDonald, Lyman Angus - 1942, image 2 of 2"
+        )
+        notes = [self.db.get_note_from_handle(h) for h in media[0].get_note_list()]
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0].get_type(), NoteType.TRANSCRIPT)
+        self.assertIn("Box 123 Cert. 456", notes[0].get())
+        self.assertIn("machine-read", notes[0].get())
+        self.assertEqual(media[1].get_note_list(), [])
+
+
+class TestNaraRecordText(unittest.TestCase):
+    """Test fetching a record's machine-read page text."""
+
+    @patch("requests.get")
+    def test_fetch_record_text(self, mock_get: Mock) -> None:
+        """Verify one call returns every page's text by object ID."""
+        reply = Mock()
+        reply.status_code = 200
+        reply.json.return_value = _load_sample("nara_record_pension_text.json")
+        mock_get.return_value = reply
+        client = NaraCatalogInterface(api_key="key99")
+
+        texts = client.fetch_record_text("115768360")
+
+        self.assertEqual(mock_get.call_count, 1)
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params, {"naId": "115768360", "includeExtractedText": "true"})
+        self.assertEqual(len(texts), 12)
+        self.assertIn("Box 31981", texts["115768361"])
+        self.assertIn("CLAIM FOR WIDOW'S PENSION", texts["115768362"])
+
+    @patch("requests.get")
+    def test_fetch_record_text_failure(self, mock_get: Mock) -> None:
+        """Verify a failed call returns None."""
+        reply = Mock()
+        reply.status_code = 403
+        mock_get.return_value = reply
+        self.assertIsNone(NaraCatalogInterface().fetch_record_text("1"))
+
+        import requests
+
+        mock_get.side_effect = requests.exceptions.ConnectionError("down")
+        self.assertIsNone(NaraCatalogInterface().fetch_record_text("1"))
+
+    def test_texts_from_hits_without_text(self) -> None:
+        """Verify images without extracted text map to ''."""
+        hits = [
+            {
+                "_source": {
+                    "record": {
+                        "digitalObjects": [{"objectId": "9"}, {"objectUrl": "x"}]
+                    }
+                }
+            }
+        ]
+        self.assertEqual(NaraCatalogInterface.texts_from_hits(hits), {"9": ""})

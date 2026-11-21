@@ -60,10 +60,12 @@ from gramps.gen.lib import (
     Repository,
     RepositoryType,
     RepoRef,
+    Attribute,
     Media,
     MediaRef,
     Note,
     NoteType,
+    SrcAttribute,
     Url,
     UrlType,
 )
@@ -270,13 +272,24 @@ class NaraCatalogInterface:
         rows: int = 25,
         material_type: str | None = None,
         available_online: bool = False,
+        start_year: str = "",
+        end_year: str = "",
     ) -> dict[str, Any] | None:
-        """Search the NARA catalog and return its decoded response."""
+        """
+        Search the NARA catalog and return its decoded response.
+
+        :param start_year: Only records dated in or after this year (YYYY).
+        :param end_year: Only records dated in or before this year (YYYY).
+        """
         params: dict[str, str | int] = {"q": query, "limit": rows}
         if material_type:
             params["typeOfMaterials"] = material_type
         if available_online:
             params["availableOnline"] = "true"
+        if start_year:
+            params["startDate"] = start_year
+        if end_year:
+            params["endDate"] = end_year
 
         request_options: dict[str, Any] = {
             "params": params,
@@ -306,6 +319,56 @@ class NaraCatalogInterface:
         except ValueError:
             LOG.exception("NARA catalog returned invalid JSON")
             return None
+
+    def fetch_record_text(self, naid: str) -> dict[str, str] | None:
+        """
+        Fetch the text NARA machine-read from each image of one record.
+
+        This is one API call, however many images the record has.
+
+        :param naid: The record's National Archives Identifier.
+        :returns: Each image's text keyed by its object ID ('' for an image
+            without text), or None when the call fails.
+        """
+        request_options: dict[str, Any] = {
+            "params": {"naId": naid, "includeExtractedText": "true"},
+            "headers": self.headers,
+            "timeout": 60,
+        }
+        if self.verify_ssl is not None:
+            request_options["verify"] = self.verify_ssl
+        try:
+            response = requests.get(
+                f"{self.base_url}/records/search", **request_options
+            )
+        except requests.exceptions.RequestException:
+            LOG.exception("NARA page text request failed for %s", naid)
+            return None
+        if response.status_code != 200:
+            LOG.warning(
+                "NARA page text for %s returned HTTP %s", naid, response.status_code
+            )
+            return None
+        try:
+            hits = self.extract_hits(response.json())
+        except ValueError:
+            LOG.warning("NARA page text for %s was not valid JSON", naid)
+            return None
+        return self.texts_from_hits(hits)
+
+    @staticmethod
+    def texts_from_hits(hits: list[dict[str, Any]]) -> dict[str, str]:
+        """Return each image's extracted text by object ID from search hits."""
+        texts: dict[str, str] = {}
+        for hit in hits:
+            source = hit.get("_source") if isinstance(hit, dict) else None
+            record = (source or {}).get("record") or {}
+            for digital_object in record.get("digitalObjects") or []:
+                if isinstance(digital_object, dict) and digital_object.get("objectId"):
+                    texts[str(digital_object["objectId"])] = str(
+                        digital_object.get("extractedText") or ""
+                    )
+        return texts
 
     @staticmethod
     def extract_hits(response: Any) -> list[dict[str, Any]]:
@@ -454,9 +517,19 @@ class NaraCatalogInterface:
                 continue
             url = digital_object.get("objectUrl")
             if url:
+                try:
+                    size = int(digital_object.get("objectFileSize") or 0)
+                except TypeError, ValueError:
+                    size = 0
                 parsed_media.append(
                     {
                         "url": str(url),
+                        "object_id": str(digital_object.get("objectId") or ""),
+                        "filename": str(
+                            digital_object.get("objectFilename")
+                            or os.path.basename(str(url).split("?", 1)[0])
+                        ),
+                        "size": size,
                         "mime_type": NaraCatalogInterface._mime_type_of(digital_object),
                         "description": str(
                             digital_object.get("objectDescription")
@@ -507,6 +580,8 @@ class NaraGWizard(GedGWizard):
         self.context["rows"] = kwargs.get("limit", kwargs.get("rows", 25))
         self.context["material_type"] = kwargs.get("material_type")
         self.context["available_online"] = bool(kwargs.get("available_online", False))
+        self.context["start_year"] = str(kwargs.get("start_year") or "")
+        self.context["end_year"] = str(kwargs.get("end_year") or "")
         self.context["client"] = kwargs.get("client") or NaraCatalogInterface(
             api_key=api_key
         )
@@ -525,6 +600,8 @@ class NaraGWizard(GedGWizard):
                 rows=int(self.context.get("rows", 25)),
                 material_type=self.context.get("material_type"),
                 available_online=self.context.get("available_online", False),
+                start_year=self.context.get("start_year", ""),
+                end_year=self.context.get("end_year", ""),
             )
             if response is None:
                 raise RuntimeError("NARA catalog search failed.")
@@ -675,6 +752,20 @@ class NaraGWizard(GedGWizard):
         return given, surname, birth_year, death_year
 
 
+def format_size(size: int) -> str:
+    """Return a file size for display, such as '870 KB' or '1.2 GB'."""
+    if size <= 0:
+        return ""
+    value = float(size)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            if unit in ("B", "KB") or value >= 100:
+                return f"{value:.0f} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return ""
+
+
 # ------------------------------------------------------------
 #
 # Attach a NARA record to a person
@@ -692,6 +783,60 @@ NARA_REPOSITORY_URL = "https://www.archives.gov"
 NARA_MEDIA_FOLDER = "NARA"
 
 
+# Attributes this tool puts on what it creates, so a record or image can be
+# recognised later even after Citation Fix edits the citation's page or
+# Media Fix renames and moves the file.
+NAID_ATTRIBUTE = "NAID"
+OBJECT_ID_ATTRIBUTE = "NARA Object ID"
+
+# Image statuses reported by NaraRecordAttacher.review().
+IMAGE_NEW = "new"
+IMAGE_IN_TREE = "in_tree"
+IMAGE_LINKED = "linked"
+
+
+@dataclass
+class ImageStatus:
+    """One image of a NARA record, and whether the tree already has it."""
+
+    index: int
+    object_id: str
+    filename: str
+    size: int
+    url: str
+    mime_type: str
+    status: str = IMAGE_NEW
+    media_handle: str = ""
+    media_path: str = ""
+
+
+@dataclass
+class ExistingCitation:
+    """A NARA citation the person already has."""
+
+    handle: str
+    page: str
+    source_title: str
+    naid: str
+    media_count: int
+    is_this_record: bool = False
+
+
+@dataclass
+class RecordReview:
+    """How a NARA record compares with what is already in the tree."""
+
+    citation_handle: str = ""
+    citation_on_person: bool = False
+    images: list[ImageStatus] = field(default_factory=list)
+    person_citations: list[ExistingCitation] = field(default_factory=list)
+
+    @property
+    def new_images(self) -> list[ImageStatus]:
+        """The images the tree does not have yet."""
+        return [image for image in self.images if image.status == IMAGE_NEW]
+
+
 @dataclass
 class AttachResult:
     """What attaching one NARA record to a person did."""
@@ -702,6 +847,7 @@ class AttachResult:
     citation_created: bool = False
     person_linked: bool = False
     media_added: int = 0
+    media_linked: int = 0
     downloaded: int = 0
     already_downloaded: int = 0
     failed: list[str] = field(default_factory=list)
@@ -710,15 +856,18 @@ class AttachResult:
 
 class NaraRecordAttacher:
     """
-    Attach a NARA catalog record to an existing person as a source and
-    citation, with the record's images as media linked to the citation.
+    Compare a NARA catalog record with what an existing person already has,
+    and attach it as a source and citation with the chosen images.
 
     - Repository: NARA, reused when one with the same name exists.
     - Source: the record's series (or the record itself when it has no
       series), reused when a NARA source with that title exists.
-    - Citation: the record (title and NAID) with a note holding its catalog
-      link and description, reused when attached before.
-    - Media: one object per image, linked to the citation. Downloaded images
+    - Citation: the record (title and NAID), with a "NAID" attribute and a
+      note holding its catalog link and description; reused when the tree
+      already has a citation for that NAID.
+    - Media: one object per chosen image, with a "NARA Object ID" attribute,
+      linked to the citation. Images the tree already has (same object ID,
+      path or web address) are linked, not added again. Downloaded images
       are stored under <media base path>/NARA/<NAID>/; an image that is not
       downloaded, or fails to download, is linked by its web address.
 
@@ -737,10 +886,145 @@ class NaraRecordAttacher:
         self.session = session if session is not None else requests
         self.timeout = timeout
 
+    # ------------------------------------------------------------------
+    # Comparing
+    # ------------------------------------------------------------------
     def download_folder(self, naid: str) -> str:
         """Return the absolute folder a record's images are downloaded to."""
         return os.path.join(media_path(self.db), NARA_MEDIA_FOLDER, naid or "unknown")
 
+    def download_path(self, parsed: dict[str, Any], image: ImageStatus) -> str:
+        """Return the absolute path an image is (or would be) downloaded to."""
+        name = image.filename or f"image_{image.index + 1}"
+        return os.path.join(self.download_folder(str(parsed.get("naid") or "")), name)
+
+    def review(self, person_handle: str, parsed: dict[str, Any]) -> RecordReview:
+        """
+        Compare a parsed NARA record with the tree and the person.
+
+        :returns: The record's existing citation (if any), each image's status
+            (new, in the tree, or already linked to that citation), and the
+            NARA citations the person already has.
+        """
+        person = self.db.get_person_from_handle(person_handle)
+        review = RecordReview()
+        citation = self._find_citation(parsed)
+        linked: set[str] = set()
+        if citation is not None:
+            review.citation_handle = citation.get_handle()
+            linked = {ref.ref for ref in citation.get_media_list()}
+            if person is not None:
+                review.citation_on_person = (
+                    citation.get_handle() in person.get_citation_list()
+                )
+
+        index = self._media_index()
+        base = media_path(self.db)
+        for number, digital_object in enumerate(parsed.get("digital_objects") or []):
+            image = ImageStatus(
+                index=number,
+                object_id=str(digital_object.get("object_id") or ""),
+                filename=str(digital_object.get("filename") or ""),
+                size=int(digital_object.get("size") or 0),
+                url=str(digital_object.get("url") or ""),
+                mime_type=str(digital_object.get("mime_type") or ""),
+            )
+            download = relative_path(self.download_path(parsed, image), base)
+            handle = self._match_media(index, image, download)
+            if handle:
+                media = self.db.get_media_from_handle(handle)
+                image.media_handle = handle
+                image.media_path = str(media.get_path()) if media else ""
+                image.status = IMAGE_LINKED if handle in linked else IMAGE_IN_TREE
+            review.images.append(image)
+
+        if person is not None:
+            review.person_citations = self._person_nara_citations(
+                person, review.citation_handle
+            )
+        return review
+
+    def _media_index(self) -> dict[str, str]:
+        """
+        Return a lookup from 'id:<object id>' and 'path:<path or URL>' to the
+        handle of the media object that has it.
+        """
+        index: dict[str, str] = {}
+        for media in self.db.iter_media():
+            index.setdefault(f"path:{media.get_path()}", media.get_handle())
+            for attribute in media.get_attribute_list():
+                if str(attribute.get_type()) == OBJECT_ID_ATTRIBUTE:
+                    index.setdefault(f"id:{attribute.get_value()}", media.get_handle())
+        return index
+
+    @staticmethod
+    def _match_media(index: dict[str, str], image: ImageStatus, download: str) -> str:
+        """Return the handle of the tree's copy of an image, or ''."""
+        keys = []
+        if image.object_id:
+            keys.append(f"id:{image.object_id}")
+        keys.extend([f"path:{download}", f"path:{image.url}"])
+        for key in keys:
+            if key in index:
+                return index[key]
+        return ""
+
+    def _find_citation(self, parsed: dict[str, Any]) -> Citation | None:
+        """Return the tree's citation for this NAID, or None."""
+        naid = str(parsed.get("naid") or "")
+        if not naid:
+            return None
+        page = self._page(parsed)
+        for citation in self.db.iter_citations():
+            for attribute in citation.get_attribute_list():
+                if (
+                    str(attribute.get_type()) == NAID_ATTRIBUTE
+                    and str(attribute.get_value()) == naid
+                ):
+                    return citation
+            if citation.get_page() == page:
+                return citation
+        return None
+
+    def _person_nara_citations(
+        self, person: Person, this_handle: str
+    ) -> list[ExistingCitation]:
+        """Return the person's citations whose source is held by NARA."""
+        nara_repos = {
+            repository.get_handle()
+            for repository in self.db.iter_repositories()
+            if str(repository.get_name() or "").strip().casefold()
+            == NARA_REPOSITORY_NAME.casefold()
+        }
+        found: list[ExistingCitation] = []
+        for handle in person.get_citation_list():
+            citation = self.db.get_citation_from_handle(handle)
+            if citation is None:
+                continue
+            source = self.db.get_source_from_handle(citation.get_reference_handle())
+            if source is None or not any(
+                ref.ref in nara_repos for ref in source.get_reporef_list()
+            ):
+                continue
+            naid = ""
+            for attribute in citation.get_attribute_list():
+                if str(attribute.get_type()) == NAID_ATTRIBUTE:
+                    naid = str(attribute.get_value())
+            found.append(
+                ExistingCitation(
+                    handle=handle,
+                    page=str(citation.get_page() or ""),
+                    source_title=str(source.get_title() or ""),
+                    naid=naid,
+                    media_count=len(citation.get_media_list()),
+                    is_this_record=handle == this_handle,
+                )
+            )
+        return found
+
+    # ------------------------------------------------------------------
+    # Attaching
+    # ------------------------------------------------------------------
     def attach(
         self,
         person_handle: str,
@@ -748,28 +1032,44 @@ class NaraRecordAttacher:
         download: bool = True,
         max_images: int = 0,
         progress: Callable[[int, int], bool] | None = None,
+        selected: list[int] | None = None,
+        descriptions: dict[int, str] | None = None,
+        page_texts: dict[int, str] | None = None,
     ) -> AttachResult:
         """
         Attach a parsed NARA record (see NaraCatalogInterface.parse_record).
 
         :param person_handle: Handle of the person to attach the record to.
         :param parsed: The parsed record.
-        :param download: Download the images (otherwise link them by URL).
-        :param max_images: Most images to add; 0 means all.
+        :param download: Download the new images (otherwise link them by URL).
+        :param max_images: Most images to add; 0 means all. Ignored when
+            'selected' is given.
         :param progress: Called as progress(done, total) after each image is
             downloaded; returning False cancels the remaining downloads. The
             images already downloaded are still added.
+        :param selected: Indexes (into the record's images) of the images to
+            add; None adds all of them, up to max_images.
+        :param descriptions: Descriptions for new media by image index, such
+            as "..., page 3: Claim brief"; others get "..., image N of M".
+        :param page_texts: NARA's machine-read text by image index; each new
+            media object gets it as a Transcript note.
         :returns: What was done.
         """
         person = self.db.get_person_from_handle(person_handle)
         if person is None:
             raise RuntimeError(_("The target person could not be found."))
 
+        review = self.review(person_handle, parsed)
+        if selected is not None:
+            wanted = set(selected)
+            images = [image for image in review.images if image.index in wanted]
+        else:
+            images = list(review.images)
+            if max_images > 0:
+                images = images[:max_images]
+
         result = AttachResult()
-        objects = list(parsed.get("digital_objects") or [])
-        if max_images > 0:
-            objects = objects[:max_images]
-        images = self._fetch_images(parsed, objects, download, progress, result)
+        paths = self._fetch_images(parsed, images, download, progress, result)
 
         title = parsed.get("title") or parsed.get("naid") or _("NARA record")
         with DbTxn(
@@ -780,32 +1080,32 @@ class NaraRecordAttacher:
             citation = self._citation(trans, parsed, source, title, result)
             result.citation_handle = citation.get_handle()
 
-            existing = {
-                str(media.get_path()): media.get_handle()
-                for media in self.db.iter_media()
-            }
             linked = {ref.ref for ref in citation.get_media_list()}
-            for number, (path, mime_type) in enumerate(images, start=1):
-                handle = existing.get(path)
-                if handle is None:
-                    media = Media()
-                    media.set_path(path)
-                    media.set_mime_type(mime_type)
-                    media.set_description(
-                        _("%(title)s, image %(number)d")
-                        % {"title": title, "number": number}
+            for image in images:
+                if image.index not in paths:
+                    continue
+                handle = image.media_handle
+                if not handle:
+                    handle = self._add_media(
+                        trans,
+                        image,
+                        paths[image.index],
+                        (descriptions or {}).get(image.index)
+                        or _("%(title)s, image %(number)d of %(total)d")
+                        % {
+                            "title": title,
+                            "number": image.index + 1,
+                            "total": len(review.images),
+                        },
+                        (page_texts or {}).get(image.index, ""),
                     )
-                    if not path.startswith(("http://", "https://")):
-                        full_path = os.path.join(media_path(self.db), path)
-                        media.set_checksum(create_checksum(full_path))
-                    handle = self.db.add_media(media, trans)
-                    existing[path] = handle
                     result.media_added += 1
                 if handle not in linked:
                     media_ref = MediaRef()
                     media_ref.set_reference_handle(handle)
                     citation.add_media_reference(media_ref)
                     linked.add(handle)
+                    result.media_linked += 1
             self.db.commit_citation(citation, trans)
 
             if citation.get_handle() not in person.get_citation_list():
@@ -814,46 +1114,92 @@ class NaraRecordAttacher:
                 result.person_linked = True
         return result
 
+    def _add_media(
+        self,
+        trans: DbTxn,
+        image: ImageStatus,
+        path: str,
+        description: str,
+        page_text: str = "",
+    ) -> str:
+        """
+        Add a media object for an image and return its handle; a page text
+        becomes a Transcript note on it.
+        """
+        media = Media()
+        media.set_path(path)
+        media.set_mime_type(image.mime_type)
+        media.set_description(description)
+        if page_text.strip():
+            note = Note(
+                _(
+                    "Text machine-read by the National Archives Catalog; it may "
+                    "contain errors.\n\n%s"
+                )
+                % page_text.strip()
+            )
+            note.set_type(NoteType(NoteType.TRANSCRIPT))
+            self.db.add_note(note, trans)
+            media.add_note(note.get_handle())
+        if not path.startswith(("http://", "https://")):
+            media.set_checksum(create_checksum(os.path.join(media_path(self.db), path)))
+        if image.object_id:
+            attribute = Attribute()
+            attribute.set_type(OBJECT_ID_ATTRIBUTE)
+            attribute.set_value(image.object_id)
+            media.add_attribute(attribute)
+        return self.db.add_media(media, trans)
+
     def _fetch_images(
         self,
         parsed: dict[str, Any],
-        objects: list[dict[str, Any]],
+        images: list[ImageStatus],
         download: bool,
         progress: Callable[[int, int], bool] | None,
         result: AttachResult,
-    ) -> list[tuple[str, str]]:
+    ) -> dict[int, str]:
         """
-        Download the images (when asked) and return (media path, MIME type)
-        for each: a path relative to the media base path, or the web address.
+        Download the new images (when asked) and return each usable image's
+        media path by index: a path relative to the media base path, or the
+        web address. Images already in the tree keep their own path.
         """
-        images: list[tuple[str, str]] = []
-        folder = self.download_folder(str(parsed.get("naid") or ""))
+        paths: dict[int, str] = {}
         base = media_path(self.db)
-        for number, digital_object in enumerate(objects, start=1):
-            url = str(digital_object.get("url") or "")
-            mime_type = str(digital_object.get("mime_type") or "")
-            if not url:
-                continue
-            if result.cancelled or not download:
-                if not result.cancelled:
-                    images.append((url, mime_type))
-                continue
+        to_download = [image for image in images if not image.media_handle]
+        for image in images:
+            if image.media_handle:
+                paths[image.index] = image.media_path
+            elif image.url and not download:
+                paths[image.index] = image.url
+        if not download:
+            return paths
 
-            name = os.path.basename(url.split("?", 1)[0]) or f"image_{number}"
-            full_path = os.path.join(folder, name)
+        for done, image in enumerate(to_download, start=1):
+            if result.cancelled or not image.url:
+                continue
+            full_path = self.download_path(parsed, image)
             if os.path.isfile(full_path) and os.path.getsize(full_path) > 0:
                 result.already_downloaded += 1
-                images.append((relative_path(full_path, base), mime_type))
-            elif self._download(url, full_path):
+                paths[image.index] = relative_path(full_path, base)
+            elif self._download(image.url, full_path):
                 result.downloaded += 1
-                images.append((relative_path(full_path, base), mime_type))
+                paths[image.index] = relative_path(full_path, base)
             else:
-                result.failed.append(url)
-                images.append((url, mime_type))
-
-            if progress is not None and progress(number, len(objects)) is False:
+                result.failed.append(image.url)
+                paths[image.index] = image.url
+            if progress is not None and progress(done, len(to_download)) is False:
                 result.cancelled = True
-        return images
+        return paths
+
+    def download_one(self, parsed: dict[str, Any], image: ImageStatus) -> str:
+        """
+        Download one image for previewing (reusing a copy already on disk)
+        and return its absolute path, or '' when it cannot be downloaded.
+        """
+        full_path = self.download_path(parsed, image)
+        if os.path.isfile(full_path) and os.path.getsize(full_path) > 0:
+            return full_path
+        return full_path if self._download(image.url, full_path) else ""
 
     def _download(self, url: str, full_path: str) -> bool:
         """Download url to full_path; return False (and log why) on failure."""
@@ -941,6 +1287,15 @@ class NaraRecordAttacher:
         result.source_created = True
         return source
 
+    @staticmethod
+    def _page(parsed: dict[str, Any]) -> str:
+        """Return the citation page text for a record."""
+        title = parsed.get("title") or parsed.get("naid") or _("NARA record")
+        return _("%(title)s (NAID %(naid)s)") % {
+            "title": title,
+            "naid": str(parsed.get("naid") or ""),
+        }
+
     def _citation(
         self,
         trans: DbTxn,
@@ -951,17 +1306,18 @@ class NaraRecordAttacher:
     ) -> Citation:
         """Return the citation for this record, creating it if needed."""
         naid = str(parsed.get("naid") or "")
-        page = _("%(title)s (NAID %(naid)s)") % {"title": title, "naid": naid}
-        for class_name, handle in self.db.find_backlink_handles(
-            source.get_handle(), ["Citation"]
-        ):
-            citation = self.db.get_citation_from_handle(handle)
-            if citation and citation.get_page() == page:
-                return citation
+        existing = self._find_citation(parsed)
+        if existing is not None:
+            return existing
 
         citation = Citation()
         citation.set_reference_handle(source.get_handle())
-        citation.set_page(page)
+        citation.set_page(self._page(parsed))
+        if naid:
+            attribute = SrcAttribute()
+            attribute.set_type(NAID_ATTRIBUTE)
+            attribute.set_value(naid)
+            citation.add_attribute(attribute)
         lines = [
             value
             for value in (

@@ -1,0 +1,275 @@
+{
+  "body": {
+    "hits": {
+      "total": {
+        "value": 1,
+        "relation": "eq"
+      },
+      "max_score": null,
+      "hits": [
+        {
+          "_index": "nac-records2",
+          "_id": "115768360",
+          "_score": 77,
+          "_source": {
+            "metadata": {
+              "fileName": "NAC_2020_Bulk_FileUnit_115768360.xml",
+              "controlGroup": {
+                "indexName": "records",
+                "type": "recordGroup",
+                "naId": 344
+              },
+              "ingestTime": "2022-11-16 20:26:54.254622",
+              "uuid": "fa488473-6cd6-416a-a666-113d41b40584"
+            },
+            "record": {
+              "onlineResources": [
+                {
+                  "note": "This file was scanned as part of a collaboration effort between Family Search and the National Archives.",
+                  "description": "Fold3",
+                  "url": "https://www.fold3.com/image/270898040"
+                }
+              ],
+              "levelOfDescription": "fileUnit",
+              "recordType": "description",
+              "useRestriction": {
+                "status": "Unrestricted"
+              },
+              "title": "Approved Pension Application File for Mary Kreizer Smith, Widow of John A Smith, Company B, 4th Maryland Infantry Regiment (Application No. WC47795)",
+              "physicalOccurrences": [
+                {
+                  "referenceUnits": [
+                    {
+                      "address2": "7th and Pennsylvania Avenue NW",
+                      "city": "Washington",
+                      "name": "National Archives at Washington, DC - Textual Reference",
+                      "state": "DC"
+                    }
+                  ],
+                  "mediaOccurrences": [
+                    {
+                      "generalMediaTypes": [
+                        "Loose Sheets"
+                      ],
+                      "specificMediaType": "Paper"
+                    }
+                  ],
+                  "copyStatus": "Preservation-Reproduction-Reference"
+                }
+              ],
+              "accessRestriction": {
+                "status": "Unrestricted"
+              },
+              "dataControlGroup": {
+                "groupId": "ou=RDTP1,ou=groups",
+                "groupCd": "RDTP1"
+              },
+              "generalRecordsTypes": [
+                "Textual Records"
+              ],
+              "variantControlNumbers": [
+                {
+                  "number": "Family Search 2018",
+                  "type": "Search Identifier"
+                }
+              ],
+              "digitalObjects": [
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00001.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00001.jpg",
+                  "extractedText": "\nBox 31981\nCurt . 47795\nof\nmary Smith\nBill 67",
+                  "objectFileSize": 6009258,
+                  "objectDesignator": "Fold3 File #270898040",
+                  "objectId": "115768361",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00003.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00003.jpg",
+                  "extractedText": "\nWAR OF 1861.\nAct of July 14, 1862.\nCLAIM FOR WIDOW'S PENSION.\n47,795\nBRIEF in the case of\nJohn A, alias adam smith Private leo oB \"lith manyland bre ,\nmary Smith\nwidow of\nresident of Baltimone\nCounty and State of\nmanyland.\nPost Office address\nWarren, md.\nDECLARATION AND IDENTIFICATION IN DUE FORM.\nPROOF EXHIBITED.\nService.\nThe adjt General reports that adam Schuidtz was\nmurtered as a Private 21 august 1862, and as\nDeath.\nadam of Schmidt rid in Hospital of wannds\nJohn A aleas adam Smith rid at us a Depot\nclamer Chied princip al musician maker oath that\nFaederick hug. Da 13 may 1864, from the effe it, of a\ngun shot wared accewed at batter of Shottylouing ba\n8th may 1864, he was present and nition if ed the Irang\nauthinital.\nMarriage.\n16 September 1860, Church necrs Evidence filed.\nNames and\ndates of birth\none states.\nof children.\nLoyalty.\nDeclared\nAgent and his\nP. O. address.\nWilliam B. Hill, Balterione, no.\nAdmitted 20 may , 186 5, to a Pension of $ 8\nper month,\ncommencing 13 may\n, 186 4\nExd. By\nClerk.\nLAT",
+                  "objectFileSize": 3608609,
+                  "objectDesignator": "Fold3 File #270898042",
+                  "objectId": "115768362",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00005.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00005.jpg",
+                  "extractedText": "\n(Signatures of Witnesses.)\nAt same me\nthe time, before personally appeared May Smith\nwho is known to me to be the claimant named in the foregoing Declaration and Power of Attorney, and ac-\nand John George\nknowledged the same to be her act and deed:\nalso, personally appeared Lober Ltremen\nresidents of shubbity\npersons whom I certify to be respectable, and entitled to credit, and who, being by me duly sworn, say that they\nwere present and saw saw wary smitter (aline maryarth Smith) sign her mark to the foregoing\nDeclaration, (and Power of Attorn\u00e9y.) And they further swear, that they have known the parties above described\nto have lived together as husband and wife for\nyears previous to and up to the time of enlistment of\ndeceased. And they have every reason to believe, from the appearance of the applicant, and their acquaintance\nwith her, that she is the identical person she represents herself to be; that she is still a widow, that\nJohn Adam Smith\nher said deceased husband left surviving him one children\nis\nunder sixteen years of age, whose names and ages are as follows, viz :\nWilliam Edward bre 18 September 1864\nthat said children resideswith thoir mother, the said many Smith\nits\nthat they, the affi-\nants reside in the City oBBanher aforesaid: and they further that they\nstate have no in-\nterest in the prosecution of this claim.\nJohn Kovamen\nCofexeness Gerry\n(Signature of Witnesses.)\nth\nSworn to and subscribed before me, this 7 II day of Novem fer A. D. 186 4. And I hereby\ncertify, that before the declarant and attesting witnesses affixed their marks or signatures to the foregoing\ndeclara-\ntion and affidavits, I read to them and fully explained to them the contents thereof, and I further certify, that I\nhave no interest, direct or indirect, in the prosecution of this claim.\nIn TESTIMONY WHEREOF, I have hereunto set my hand,\nand affixed the seal of the Inpiron\nCourt for\nthe City of Baltimore and State aforesaid,\nthis\ngate day of november 1864.\nAlparellan Clerk of\nthe\nSuprive\nor",
+                  "objectFileSize": 2745801,
+                  "objectDesignator": "Fold3 File #270898051",
+                  "objectId": "115768364",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00007.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00007.jpg",
+                  "extractedText": "\nAdjutant General's Office,\nWashington, D. b.,\nNovember 22nd 1864\nLiw:\nthe 21st know 1864, relative to acknowledge to the receipt from your Office\noff, application for Pension No. 71,895 and to return its\nherewith, with such information as is furnished by the files of this\nOffices\nIt appears from the Polls on file in this Office, thats\nHadam Schamitty\nwow enrolled on the\n21st.\nday of aug , 1862 at Baltimore ma in Co. 13\n,\n4th\nRogiment of maryland Volunteers, to\n3\nserve\nyears, and during the war, and `mustered into\nservice as a Similar on the 21st day of august,\n1862 at Baltimore ma , in Co. BB\n4th\nRegiment of maryland Volunteers, to serve\n3\nyears, on during the war.d On the Muster of Co. B\nof that Regiment, for the months of may and fine\n1864, he is reported \" Ded in Hospital from wounds\n\"may 12th 1864\"\nof am,B Sin very respectfully\nYour obedients servants\nAssistant Adjutant General:\nThe Commissioner of Pensions,\n(2.)\nWashington, D. b.\nMemorandap\nSame of applicant\nAddress,B\nNEW,",
+                  "objectFileSize": 2492399,
+                  "objectDesignator": "Fold3 File #270898059",
+                  "objectId": "115768366",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00008.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00008.jpg",
+                  "extractedText": "\nWM. B. HILL,\nAttorney at Caw,\nRECORD PROOF OF MARRIAGE.\n70 W. Fayette St. Balto Md.\nPractices in the United States Court of\nClaims, and also prosecutes SOLDIERS\nand SEAMEN'S (or their widows or heirs)\nClaims for BOUNTY, PENSIONS, PAY,\nPRIZE MONEY, and all other just claims\nagainst United States.\nI*\nMartin Kratt\nPastor of the\nBalhmire\nt Evanyel Lubh Trinity\nChurch in the lasty\nof\ndo hereby certify that upon the Records of the said Church,\nof which Records I am the proper custodian, appears the following entry of the Marriage of\nJohn Adam Smith\nand\nby\nthe\nRev.\nMartin Khatt\nviz:\nThis is to certify that Mr. John Adam Smith\nbern in the Klong dom of Prassian and min\nMangaretha Kneyger born in the I. D. Hep Darmstair\novere Campaly joined together in Holy Wedlock on\nthe sischenth September (16 Paph) A. J. 1860\nby the Rev. Marker Knatt Raster of the Every Lath Tranity March\nand I do further certify that from the Records of said Church it appears that the\nRev\nMartin Knall\nwho celebrated said Marriage, was, at the date of said Mar-\nriage, a duly authorized Pastor of the Church aforesaid, and as such, empowered to celebrate the rites\nof matrimony\nWITNESS my hand and the Corporate Seal of the\n[L. S.]\nsaid Church on this 9th day\nof\nNovember A. D. 186 H\nMartin Kinalt\n(Signature of person having charge of Records.)\nState of maryland\nbity of Balhmine\nto wit:\nOn this io\" day of Mool.\nA. D. 1864, before the subscriber, a Justice of\npersonally appeared Rew Krath\nthe Peace of the State of manyfand\nin\nand for the City aforesaid,\nwhose name is signed to the fore-\ngoing certificate, and made oath on the Holy Evangely of Almighty God, that the matters and facts\nstated in the foregoing Certificate are true as therein stated ; and I hereby certify that I have no in-\nterest\ndirect or indirect in the prosecution of this claim. Hamila Signatire of Officer.) N.\nbeffricin\nState of margland\nBaltinad bity\nSS.\nI hereby certify that Samul S gacer Esq. before whom the\nforegoing\naffidavit was made and subscribed, and who has thereunto subscribed his name, was, at the time of\nso doing, a Justice of the Peace of the State of Maeyland\nin and for the\nCity valate aforesaid, duly commissioned and sworn, and that his signature thereto\nis genurne.\nIN TESTIMONY WHEREOF I have hereunto set my hand, and\naffixed the seal of\nCourt for\nthe City the and State aforesaid,\nthis\n11 day of November 186 4\nAeform maw\nClerk.\n* Here insert name and official title of Keeper of Records of the Church, if such there/be. + Here insert Corporate name of Church in full.\nCity\n*",
+                  "objectFileSize": 4166177,
+                  "objectDesignator": "Fold3 File #270898064",
+                  "objectId": "115768367",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00009.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00009.jpg",
+                  "extractedText": "\nINTERIOR 14 1004\nSION OFFICE",
+                  "objectFileSize": 3905507,
+                  "objectDesignator": "Fold3 File #270898068",
+                  "objectId": "115768368",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00021.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00021.jpg",
+                  "extractedText": "\nmy\n3\nTHIS CERTIFIES, That Christian Schleicher of Baltimore, Md.,\nand Mary Schmidt of Baltimore, Md., were by me united in Marriage\naccording to the ordinance of God and the laws of the State of\nMaryland, at Baltimore, Md., on this 6th day of August, One Thousand\nEight Hundred and Sixty-five.\nWitnesses Present:\nJakob Heinz and Barbara Rudolph.\nL.D. Maier, Pastor.\n(Church Seal. \"German Ev. Guth. St. Matthews Congregation, Incorpo-\nrated, 18502\no\nThis Certifies, That the above is a true and correct\ncopy of the original paper filed, Jan-\nuary 10, 1898, in the claim of Mary C.\nSchleicher for pension as the widow of\nChristian Schleicher, Orig. No.660,176.\nE NOV\nNovember 2, 1900.\nyes C.Durant. Act. Chief, Law\nDivision.\n1900",
+                  "objectFileSize": 2835158,
+                  "objectDesignator": "Fold3 File #270898102",
+                  "objectId": "115768380",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00022.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00022.jpg",
+                  "extractedText": "\n3-448.\nI NDEX\nTO SPECIAL EXAMINER'S REPORT.\nClaim of many b. Schlicher\nmicrig No. 660176\nPAGES.\nNAMES OF WITNESSES, ETC.\nExhibits.\nDeposi-\nREPUTATION.\ntions.\n1 to\nIndex\nNotice to claimant\nto 2\nSummary\nto\nClaimant's statement\nBurean letter. Debastrain Admined\n3 to I\nDebastian Schneider\na\nGoor\nBureauletter Christair bramer\n5 to 6\nChristain breancer\nB.\nFair\nBureau letter. many Epplet",
+                  "objectFileSize": 1849651,
+                  "objectDesignator": "Fold3 File #270898105",
+                  "objectId": "115768381",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00025.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00025.jpg",
+                  "extractedText": "\nBaltinion, ne June 15\n, 1899\nTHE COMMISSIONER OF PENSIONS.\nChristian\nSIR : certify that I have personally interviewed and questioned\nbreamer\nas\n,\nthe witness referred to herein, and that has\ndisnt\nreplies indicatel full knowledge of the facts stated in his affidavit,\ndeposition, hemingh, was taken.\nA\nI further certify that h is reputation for veracity is Fair\nmalboodrun\nSpecial Examiner.\n*UOISIAIP 941 ui pally 0q 01\n:",
+                  "objectFileSize": 2690414,
+                  "objectDesignator": "Fold3 File #270898121",
+                  "objectId": "115768384",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00026.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00026.jpg",
+                  "extractedText": "\n1\n3-446.\nDEPOSITION\nCase of Nedor of Christiair Schlicker No. 660176\nBaltineon\nOz this\n15\nday of\nJune\n, 1899, at\n,\ncounty of\nPlate of me-\nbefore me,\nmalbodrum\n,\n, a\nspecial examiner of the Bureau of Pensions, personally appeared.\nChristain branner , who, being by me first duly sworn to\nanswer truly all interrogatories profounded to hzir during this special\nreamination of aforesaid claim for pension, deposes and says:\nI\nam 61 years of age; my post-office address is 733\nstarting\nBaetinon ms T by recepation a powler.\nI Know elamant many Ochlicher t hair Know\nher about we my life. - The mannie my uncle\nI shink bet am not sum, Heat Clamach has\nhave niami twice X that foll her husband\nness Joedier, Her first husband was I thank\nnames smile T her last huobaus was my\nuncle bhnshan Ichlicher, I Know very little\nof elaminat until the married my week\nI have known elamants second husband\nof did not Know anything abret her for husband\nJunce he Came bsthis country. bank Day when\nhat my except that it was fann the nor, Dr\nnot Know how oes he new 220 doe Coculits\nthis Country fm Scrumary If he mas eves kearrer\nbefore he names clamache I never Arcur or\nheard of it V dont mank he mas. I know that\nhe was in the amy, seiving m the 2xth\nme. Inft He has presionsly served in the\nPressian amy an I muderatord. He served for\nseveral years in He union army, the was in\nfirst class health when he neut mels the any\nto lr m food health but since tune after he\nWhen he setunes from the amy he appears\nreturned home he look a desease of source their\no died. Dont Know new he contracter the discross\nor what it was, no Can a bee when he did\nI Daw lini during his eaot illness tret I just Caich\nPage\nDeposition",
+                  "objectFileSize": 3860447,
+                  "objectDesignator": "Fold3 File #270898127",
+                  "objectId": "115768385",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00027.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00027.jpg",
+                  "extractedText": "\nPage\ntell what ailed him. my recollection is than\nhe dies not a mas while after he came honee\nform the amey. see his mdow often rd keoro\nthat the has not revamed senci Chrotean\nachligeio death - the lives in modberry I Cooh\nDair her ne night bafor last bherotueas a\nhaviet sea her succe. now that you mention\nit Jhunk polder died of describary or charlose,\nbut am not rara. I don't Show nhew Claumaet\nnames Inedear but Muck it was bafon he need\ninto nw amey. That is my murression. I have\nundertoor your questions V answer are Correctly\nrecorded.\nb. Creamer\nDeponent\nDeponent.\nPwonn to and subscribed before me this 15 day of June\n1899, and I certify that the contents were fully made known to deponent\nbefore signing.\nSpecial Examiner.\n0-2\n1\nt",
+                  "objectFileSize": 3598191,
+                  "objectDesignator": "Fold3 File #270898131",
+                  "objectId": "115768386",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00057.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00057.jpg",
+                  "extractedText": "\n5\nThis form of fee contract is prescribed by the Commiss of Pensions and approved by the Secretary of the Interior\nJuly 8, 1884, under the provisions of the Act of Congress approved July 4, 1884.\nR\nTO BE EXECUTED IN DUPLICATE WITHOUT ADDITIONAL COST TO CLAIMANT.\nARTICLES OF\nWhereas I, Many l Schlerchervclon\nof Chrishan Achleicher late a Pnrali\nin Company B of\nthe\n4\nRegiment\nof hid Super Volunteers,\nwar\nof application pension the laws of the United\nmade for under States.\nNOW THIS AGREEMENT WITNESSETH: That for and in consideration of services done and to be done in the\npremises, I hereby agree to allow my agent, A. PARLETT LLOYD, of Baltimore, Maryland, the fee of TWENTY-FIVE\nDOLLARS, which shall include all amounts to be paid for any services in the furtherance of said claim; and said fee\nshall not be demanded by, or payable to my said agent, in whole or in part, except in case of the granting of my\npension by the Commissioner of Pensions; and then the same shall be paid to him in accordance with the provisions\nof sections 4768 and 4769 of the Revised Statutes, U. S.\nTheory Jabman\nMaryl schliker\nTwo Witnesses Signatures.)\n(Signature of Claimant.)\n(Post-office Address.)\nState or Maryland, City of Beltim ore, SS=\nAUG 9 1897\nBe it known that on this, the\nday of\nA. D. 189. , personally appeared\nMany b Achlichenor the above named, who, after having had read over\nto\nhe\nthe hearing and presence of the two attesting witnesses the contents of the foregoing articles of agreement, voluntarily\nsigned and acknowledged the same to be here free act\nand deed.\nL. S.]\n2\nontoor\n(Official Signature.)\nis\nJP.\n\"Agent's Acceptance.\nN\nof\nAUG 9\nI\n00\nAnd now, to wit, this\nday of\n1897\nA. D. 189\nI accept the provi-\nsions contained in the foregoing articles of agreement, and will to the best of my ability, endeavor faithfully to repre-\nsent the interest of the claimant in the premises. I hereby certify that I have received from the claimant above\nnamed the sum of\nno\ndollars and no more,\n200 dollars being for fee, and the sum of U dollars being for\npostage\nand\nother expenses. And that these agreements have been executed in duplicate without additional cost to the claimant, as\nrequired by law, in excess of the fee above-named, the said agent making no charge therefor.\nWitness my hand the year and day above written.\nA (Signature of Agent.)\nState of Maryland, City of Baltimore, SS:\nPersonally came A. PARLETT LLOYD, whom I know to be theperson he represents himself to be, and who, having\nsigned above acceptance of agreement, acknowledged the same be his free act and deed.\nWitness my hand and seal this\nday\nf6\nSCOCCOR\nOF\n9 7907 189 2\n[L.S.]\n(Official Signature.)\nJ.P.\nApproval.\nAPPROVED FOR\nof\nDOLLARS and payable to\nof\nthe recognized attorney.\nCommissioner of Pensions.\n.",
+                  "objectFileSize": 3936668,
+                  "objectDesignator": "Fold3 File #270898220",
+                  "objectId": "115768416",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                }
+              ],
+              "ancestors": [
+                {
+                  "inclusiveStartDate": {
+                    "year": 1773,
+                    "logicalDate": "1773-01-01"
+                  },
+                  "distance": 2,
+                  "levelOfDescription": "recordGroup",
+                  "recordGroupNumber": 15,
+                  "inclusiveEndDate": {
+                    "year": 2007,
+                    "logicalDate": "2007-12-31"
+                  },
+                  "title": "Records of the Department of Veterans Affairs",
+                  "naId": 344
+                },
+                {
+                  "inclusiveStartDate": {
+                    "year": 1861,
+                    "logicalDate": "1861-01-01"
+                  },
+                  "distance": 1,
+                  "levelOfDescription": "series",
+                  "creators": [
+                    {
+                      "creatorType": "Most Recent",
+                      "heading": "Veterans Administration. (7/21/1930 - 3/15/1989)",
+                      "abolishDate": {
+                        "month": 3,
+                        "year": 1989,
+                        "day": 15,
+                        "logicalDate": "1989-03-15"
+                      },
+                      "authorityType": "organization",
+                      "establishDate": {
+                        "month": 7,
+                        "year": 1930,
+                        "day": 21,
+                        "logicalDate": "1930-07-21"
+                      },
+                      "naId": 10461938
+                    },
+                    {
+                      "creatorType": "Predecessor",
+                      "heading": "Department of the Interior. Bureau of Pensions. 1849-1930",
+                      "abolishDate": {
+                        "year": 1930,
+                        "logicalDate": "1930-12-31"
+                      },
+                      "authorityType": "organization",
+                      "establishDate": {
+                        "year": 1849,
+                        "logicalDate": "1849-01-01"
+                      },
+                      "naId": 10505832
+                    }
+                  ],
+                  "inclusiveEndDate": {
+                    "year": 1934,
+                    "logicalDate": "1934-12-31"
+                  },
+                  "title": "Case Files of Approved Pension Applications of Widows and Other Dependents of the Army and Navy Who Served Mainly in the Civil War and the War With Spain",
+                  "naId": 300020
+                }
+              ],
+              "naId": 115768360
+            }
+          },
+          "sort": [
+            77,
+            "115768360"
+          ]
+        }
+      ]
+    }
+  },
+  "statusCode": 200
+}

@@ -27,12 +27,18 @@ gramps_versions = ["5.2.0", "6.2.0"]
 
 [files]
 modules = [
+    "gramps/gen/gwizard/gwizardnaramatch.py",
     "gramps/gen/gwizard/gwizardnaramerge.py",
+    "gramps/gen/gwizard/gwizardnarapages.py",
+    "gramps/gui/gwizard/gwizardnaraattachdialog.py",
     "gramps/gui/gwizard/gwizardnaralauncher.py",
     "gramps/plugins/tool/gwizardnara.py",
 ]
 tests = [
     "gramps/gen/gwizard/test/gwizardnara_test.py",
+    "gramps/gen/gwizard/test/gwizardnaramatch_test.py",
+    "gramps/gen/gwizard/test/gwizardnarapages_test.py",
+    "gramps/gui/gwizard/test/gwizardnaraattachdialog_test.py",
     "gramps/gui/gwizard/test/gwizardnaralauncher_test.py",
 ]
 
@@ -41,7 +47,11 @@ tests = [
 [files.test_data]
 source = "gramps/gen/gwizard/test/data"
 target = "data"
-required = ["nara_record_naturalization.json", "nara_search_pension.json"]
+required = [
+    "nara_record_naturalization.json",
+    "nara_record_pension_text.json",
+    "nara_search_pension.json",
+]
 
 # The shared gwizard modules ship in GWizardFileMerge.
 [[dependencies]]
