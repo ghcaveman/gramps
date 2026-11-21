@@ -54,6 +54,11 @@ from gramps.gen.gwizard.gwizardwikitree import (
     extract_wikitree_id,
     get_wikitree_id,
 )
+from gramps.gen.gwizard.gwizardwikitreematch import (
+    MatchQuery,
+    match_text,
+    score_profile,
+)
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -437,8 +442,10 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         # 6: Death Location (str)
         # 7: Parents (str)
         # 8: Raw match data (object)
+        # 9: Match (str), such as "92%" or "92% (name only)"
+        # 10: Match score (float), for sorting the Match column
         self.results_store = Gtk.ListStore(
-            str, str, str, str, str, str, str, str, object
+            str, str, str, str, str, str, str, str, object, str, float
         )
         self.tree_view = Gtk.TreeView(model=self.results_store)
         self.tree_view.set_rules_hint(True)
@@ -639,6 +646,30 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             return ""
         return str(self.term_entries[key].get_text()).strip()
 
+    def _match_query(self) -> MatchQuery:
+        """
+        Return the details to score results against: the names, years and
+        gender in the search boxes (filled from the target person), checked
+        or not.
+        """
+
+        def text(key: str) -> str:
+            return str(self.term_entries[key].get_text()).strip()
+
+        def year(key: str) -> int | None:
+            value = text(key)[:4]
+            return int(value) if len(value) == 4 and value.isdigit() else None
+
+        surnames = [name for name in (text("last_name"), text("married_name")) if name]
+        return MatchQuery(
+            given=text("first_name"),
+            middle=text("middle_name"),
+            surnames=surnames,
+            birth_year=year("birth_year"),
+            death_year=year("death_year"),
+            gender=text("gender"),
+        )
+
     def _date_spread(self) -> int:
         """
         Return the date spread to search with, or 0 when none is set.
@@ -680,6 +711,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         cols = [
             (_("WikiTree ID"), 0, False),
             (_("Name"), 1, True),
+            (_("Match"), 9, False),
             (_("Gender"), 2, False),
             (_("Birth Date"), 3, False),
             (_("Birth Location"), 4, True),
@@ -692,7 +724,8 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             if is_expand:
                 renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
             col = Gtk.TreeViewColumn(title, renderer, text=col_id)
-            col.set_sort_column_id(col_id)
+            # The Match column sorts by its numeric score.
+            col.set_sort_column_id(10 if col_id == 9 else col_id)
             col.set_resizable(True)
             if is_expand:
                 col.set_expand(True)
@@ -876,6 +909,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             )
             return
 
+        match_query = self._match_query()
         for match in matches:
             item_wt_id = str(match.get("Name") or match.get("Id") or "")
             item_name = (
@@ -902,6 +936,11 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                         if pname:
                             parent_names.append(str(pname))
             parents_str = ", ".join(parent_names)
+            if match_query.has_name():
+                result = score_profile(match_query, match)
+                item_match, item_score = match_text(result), result.score
+            else:
+                item_match, item_score = "-", 0.0
 
             self.results_store.append(
                 [
@@ -914,6 +953,8 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                     item_dplace,
                     parents_str,
                     match,
+                    item_match,
+                    item_score,
                 ]
             )
 

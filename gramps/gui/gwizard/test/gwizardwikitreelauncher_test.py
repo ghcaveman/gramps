@@ -436,6 +436,8 @@ class TestWikiTreeLauncher(unittest.TestCase):
         dialog.birth_year_entry.get_text.return_value = "1706"
         dialog.death_year_entry.get_text.return_value = "1790"
         dialog.wt_id_entry.get_text.return_value = ""
+        for key in ("middle_name", "married_name", "gender"):
+            dialog.term_entries[key].get_text.return_value = ""
 
         first_iter = Mock()
         dialog.results_store.get_iter_first.return_value = first_iter
@@ -452,9 +454,50 @@ class TestWikiTreeLauncher(unittest.TestCase):
         self.assertEqual(appended_row[5], "1790-04-17")
         self.assertEqual(appended_row[6], "Philadelphia, PA")
         self.assertEqual(appended_row[7], "Josiah Franklin, Abiah Folger")
+        self.assertEqual(appended_row[9], "100%")
+        self.assertEqual(appended_row[10], 100.0)
 
         dialog.btn_merge.set_sensitive.assert_called_with(True)
         self.assertIn("Found 1 matching", dialog.status_label.set_text.call_args[0][0])
+
+    def test_match_column_without_target_name(self) -> None:
+        """Verify the Match column shows "-" when there is no name to match."""
+        mock_client = Mock()
+        mock_client.get_person.return_value = None
+        mock_client.search_person.return_value = [
+            {"Id": 1, "Name": "Smith-1", "FirstName": "Ann", "LastNameCurrent": "Smith"}
+        ]
+        dialog = WikiTreeSearchDialog(client=mock_client)
+        for key in dialog.term_entries:
+            dialog.term_entries[key].get_text.return_value = ""
+        dialog.term_checks["birth_year"].get_active.return_value = True
+        dialog.term_entries["birth_year"].get_text.return_value = "1800"
+        dialog.cb_search()
+        row = dialog.results_store.append.call_args[0][0]
+        self.assertEqual((row[9], row[10]), ("-", 0.0))
+
+    def test_match_query_uses_unchecked_boxes(self) -> None:
+        """Verify the match uses the boxes' text whether checked or not."""
+        dialog = WikiTreeSearchDialog(client=Mock())
+        values = {
+            "first_name": "Mary",
+            "middle_name": "Ann",
+            "last_name": "Kreizer",
+            "married_name": "Smith",
+            "gender": "Female",
+            "birth_year": "1841-03-02",
+            "death_year": "19xx",
+        }
+        for key in dialog.term_entries:
+            dialog.term_entries[key].get_text.return_value = values.get(key, "")
+            dialog.term_checks[key].get_active.return_value = False
+        query = dialog._match_query()
+        self.assertEqual(query.surnames, ["Kreizer", "Smith"])
+        self.assertEqual(query.birth_year, 1841)
+        self.assertIsNone(query.death_year)
+        self.assertEqual(
+            (query.given, query.middle, query.gender), ("Mary", "Ann", "Female")
+        )
 
     def test_dialog_search_with_url_in_entry(self) -> None:
         """Verify searching when a full WikiTree URL is entered in the ID field."""
