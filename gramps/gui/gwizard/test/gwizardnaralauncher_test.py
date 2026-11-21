@@ -139,8 +139,14 @@ from gramps.gen.lib import (
     Person,
     Surname,
 )
-from gramps.gen.gwizard.gwizardnaramerge import AttachResult, NaraCatalogInterface
+from gramps.gen.gwizard.gwizardnaramerge import (
+    AttachResult,
+    NaraCatalogInterface,
+    NaraGWizard,
+    NaraRecordAttacher,
+)
 from gramps.gui.gwizard.gwizardnaralauncher import (
+    ATTACH_HIDDEN_SECTIONS,
     SEARCH_TERM_DEFAULTS,
     _extract_person_search_defaults,
     build_nara_query,
@@ -743,10 +749,24 @@ class TestNaraLauncher(unittest.TestCase):
         dialog.btn_merge.set_sensitive.assert_called_with(False)
 
     def _attach_dialog(self, target: str | None = "I_handle") -> Any:
-        """Return a dialog with a selected row holding the naturalization record."""
+        """
+        Return a dialog with a selected row holding the naturalization record;
+        target "I_handle" is replaced by a real person in the tree.
+        """
+        if target == "I_handle":
+            person = Person()
+            name = Name()
+            name.set_first_name("Lyman Angus")
+            surname = Surname()
+            surname.set_surname("MacDonald")
+            name.add_surname(surname)
+            person.set_primary_name(name)
+            with DbTxn("Add person", self.db) as trans:
+                target = self.db.add_person(person, trans)
         dbstate = Mock()
         dbstate.db = self.db
         dialog = NaraSearchDialog(dbstate=dbstate, client=Mock())
+        dialog.client.fetch_record_text.return_value = {}
         dialog.target_handle = target
         hit = NaraCatalogInterface.extract_hits(_load_sample_response())[0]
         model = Mock()
@@ -768,56 +788,128 @@ class TestNaraLauncher(unittest.TestCase):
             "Choose a target person", dialog.status_label.set_text.call_args[0][0]
         )
 
-    def test_cb_attach_opens_review_window(self) -> None:
-        """Verify Attach opens the review window and reports what it did."""
+    def test_cb_attach_opens_merge_window(self) -> None:
+        """Verify Attach opens the merge window without the family sections."""
         dialog = self._attach_dialog()
-        result = AttachResult(citation_created=True, downloaded=1, media_added=1)
-        with patch(
-            "gramps.gui.gwizard.gwizardnaraattachdialog.NaraAttachDialog"
-        ) as review_cls:
-            review = review_cls.return_value
-            review.run.return_value = _gtk.ResponseType.OK
-            review.run_attach.return_value = result
+        window = Mock()
+        window.run.return_value = _gtk.ResponseType.OK
+        seen: dict[str, int] = {}
+
+        def open_window(_dbstate, gwizard, handle, _target, **_kwargs):
+            # The incoming database is closed once the window closes.
+            incoming = gwizard.context["source_db"].get_person_from_handle(handle)
+            seen["images"] = len(incoming.get_media_list())
+            return window
+
+        with (
+            patch(
+                "gramps.gui.gwizard.gwizardmergedialog.GWizardMergeDialog",
+                side_effect=open_window,
+            ) as merge_cls,
+            patch.object(
+                NaraSearchDialog, "_finish_attach", return_value="finished"
+            ) as finish,
+        ):
             dialog.cb_attach()
 
-        args = review_cls.call_args[0]
-        self.assertEqual(args[3], "I_handle")
-        self.assertEqual(args[4]["naid"], "90361620")
-        review.run_attach.assert_called_once()
-        review.destroy.assert_called_once()
-        message = dialog.status_label.set_text.call_args[0][0]
-        self.assertIn("attached as a new citation", message)
-        self.assertIn("Images downloaded: 1", message)
+        args, kwargs = merge_cls.call_args
+        self.assertEqual(args[3], dialog.target_handle)
+        self.assertEqual(kwargs["hidden_sections"], ATTACH_HIDDEN_SECTIONS)
+        self.assertIn("90361620", kwargs["incoming_title"])
+        self.assertEqual(seen["images"], 2)
+        window.destroy.assert_called_once()
+        finish.assert_called_once()
+        dialog.client.fetch_record_text.assert_called_once_with("90361620")
+        self.assertEqual(dialog.status_label.set_text.call_args[0][0], "finished")
+        # Nothing was copied, since the merge window was a stand-in.
+        self.assertEqual(self.db.get_number_of_citations(), 0)
+
+    def test_merge_window_rows_for_a_record(self) -> None:
+        """
+        Verify the merge window, given a record's incoming person, leaves out
+        the family sections and offers arrows for the citation and images.
+        """
+        from gramps.gui.gwizard import gwizardmergedialog
+        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
+
+        dialog = self._attach_dialog()
+        hit = NaraCatalogInterface.extract_hits(_load_sample_response())[0]
+        parsed = NaraCatalogInterface.parse_record(hit)
+        gwizard = NaraGWizard(self.db)
+        handle = gwizard.load_for_person(dialog.target_handle, parsed)
+        source_db = gwizard.context["source_db"]
+        window = Mock(spec=GWizardMergeDialog)
+        window.source_person = source_db.get_person_from_handle(handle)
+        window.target_person = self.db.get_person_from_handle(dialog.target_handle)
+        window.source_db = source_db
+        window.target_db = self.db
+        window.gwizard = gwizard
+        window._hidden_sections = frozenset(ATTACH_HIDDEN_SECTIONS)
+        window._incoming_title = "NARA Record"
+        window._grid = Mock()
+        window._value_column_size_group = Mock()
+        window._mergeable_count = 0
+        window._format_diff_line = lambda label, a, b, show_label, is_left: a
+        window._event_for = lambda db, person, kind: ("", None, None)
+        window._event_display_from = lambda event: ""
+        window._related_text = lambda rel, db: ""
+        window._spouses = lambda db, person: []
+        window._parents = lambda db, person, role: []
+        window._children = lambda db, person: []
+        window._sorted_relatives = lambda db, persons: persons
+        headings: list[str] = []
+
+        def label(*_args, **_kwargs):
+            widget = Mock()
+            widget.set_markup.side_effect = headings.append
+            return widget
+
+        try:
+            with (
+                patch.object(gwizardmergedialog.Gtk, "Label", side_effect=label),
+                patch.object(gwizardmergedialog.Gtk, "Separator"),
+                patch.object(gwizardmergedialog, "create_diff_cell"),
+            ):
+                GWizardMergeDialog._populate_fields(window)
+        finally:
+            source_db.close()
+
+        # The test's GLib stub may not escape markup.
+        self.assertEqual(
+            [heading.replace("&amp;", "&") for heading in headings],
+            [
+                "<b>NARA Record</b>",
+                "<b>Current Family Tree</b>",
+                "<b>Individual Details</b>",
+                "<b>Events & Other Records</b>",
+                "<b>Other Details</b>",
+            ],
+        )
+        arrows = [call.args[0] for call in window._make_arrow.call_args_list]
+        self.assertEqual(arrows, ["person_sources", "media:0", "media:1"])
 
     def test_cb_attach_cancel_changes_nothing(self) -> None:
-        """Verify cancelling the review window attaches nothing."""
+        """Verify cancelling the merge window changes nothing."""
         dialog = self._attach_dialog()
-        with patch(
-            "gramps.gui.gwizard.gwizardnaraattachdialog.NaraAttachDialog"
-        ) as review_cls:
-            review_cls.return_value.run.return_value = _gtk.ResponseType.CANCEL
+        with (
+            patch(
+                "gramps.gui.gwizard.gwizardmergedialog.GWizardMergeDialog"
+            ) as merge_cls,
+            patch.object(NaraSearchDialog, "_finish_attach") as finish,
+        ):
+            merge_cls.return_value.run.return_value = _gtk.ResponseType.CANCEL
             dialog.cb_attach()
-        review_cls.return_value.run_attach.assert_not_called()
-        review_cls.return_value.destroy.assert_called_once()
-
-    def test_cb_attach_failure_keeps_window_open(self) -> None:
-        """Verify a failed attach returns to the review window."""
-        dialog = self._attach_dialog()
-        with patch(
-            "gramps.gui.gwizard.gwizardnaraattachdialog.NaraAttachDialog"
-        ) as review_cls:
-            review = review_cls.return_value
-            review.run.side_effect = [_gtk.ResponseType.OK, _gtk.ResponseType.CANCEL]
-            review.run_attach.return_value = None
-            dialog.cb_attach()
-        self.assertEqual(review.run.call_count, 2)
-        review.destroy.assert_called_once()
+        finish.assert_not_called()
+        merge_cls.return_value.destroy.assert_called_once()
+        self.assertEqual(
+            dialog.status_label.set_text.call_args[0][0], "Nothing was changed."
+        )
 
     def test_cb_attach_reports_window_errors(self) -> None:
-        """Verify a review window that cannot open is reported."""
+        """Verify a merge window that cannot open is reported."""
         dialog = self._attach_dialog()
         with patch(
-            "gramps.gui.gwizard.gwizardnaraattachdialog.NaraAttachDialog",
+            "gramps.gui.gwizard.gwizardmergedialog.GWizardMergeDialog",
             side_effect=RuntimeError("boom"),
         ):
             dialog.cb_attach()
@@ -826,20 +918,68 @@ class TestNaraLauncher(unittest.TestCase):
             dialog.status_label.set_text.call_args[0][0],
         )
 
-    def test_attach_summary_mentions_failures_and_cancel(self) -> None:
-        """Verify the summary reports failed downloads, relinks and cancelling."""
-        text = NaraSearchDialog._attach_summary(
-            AttachResult(
-                person_linked=True,
-                failed=["u1", "u2"],
-                cancelled=True,
-                media_added=2,
-                media_linked=3,
-            )
+    def test_page_details_describe_pages(self) -> None:
+        """Verify page text from NARA becomes descriptions and notes."""
+        dialog = self._attach_dialog()
+        hit = NaraCatalogInterface.extract_hits(_load_sample_response())[0]
+        parsed = NaraCatalogInterface.parse_record(hit)
+        first = parsed["digital_objects"][0]["object_id"]
+        dialog.client.fetch_record_text.return_value = {first: "AFFIDAVIT of Lyman"}
+        descriptions, texts = dialog._page_details(dialog.target_handle, parsed)
+        self.assertEqual(sorted(descriptions), [0, 1])
+        self.assertTrue(descriptions[0].endswith("page 1: Affidavit"))
+        self.assertEqual(texts[0], "AFFIDAVIT of Lyman")
+        self.assertEqual(texts[1], "")
+
+    def test_page_details_without_text(self) -> None:
+        """Verify a record with no page text gets no descriptions."""
+        dialog = self._attach_dialog()
+        dialog.client.fetch_record_text.return_value = None
+        hit = NaraCatalogInterface.extract_hits(_load_sample_response())[0]
+        parsed = NaraCatalogInterface.parse_record(hit)
+        self.assertEqual(dialog._page_details(dialog.target_handle, parsed), ({}, {}))
+
+    def test_finish_attach_without_online_images(self) -> None:
+        """Verify no download question is asked when nothing is online."""
+        dialog = self._attach_dialog()
+        with (
+            patch.object(
+                NaraRecordAttacher, "merged_images", return_value=([Mock()], [])
+            ),
+            patch.object(
+                NaraRecordAttacher, "finish_merge", return_value=AttachResult()
+            ) as finish,
+            patch.object(NaraSearchDialog, "_ask_download") as ask,
+        ):
+            message = dialog._finish_attach(dialog.target_handle, {"naid": "1"})
+        ask.assert_not_called()
+        self.assertFalse(finish.call_args[1]["download"])
+        self.assertIn("this person has 1 of its images", message)
+
+    def test_finish_attach_declined_download(self) -> None:
+        """Verify declining the download leaves images linked online."""
+        dialog = self._attach_dialog()
+        online = [Mock(size=10)]
+        with (
+            patch.object(
+                NaraRecordAttacher, "merged_images", return_value=(online, online)
+            ),
+            patch.object(
+                NaraRecordAttacher, "finish_merge", return_value=AttachResult()
+            ) as finish,
+            patch.object(NaraSearchDialog, "_ask_download", return_value=False),
+        ):
+            message = dialog._finish_attach(dialog.target_handle, {"naid": "1"})
+        self.assertFalse(finish.call_args[1]["download"])
+        self.assertIn("1 images are linked by their web address", message)
+
+    def test_merge_summary_mentions_failures_and_cancel(self) -> None:
+        """Verify the summary reports downloads, failures and cancelling."""
+        text = NaraSearchDialog._merge_summary(
+            AttachResult(downloaded=2, failed=["u1"], cancelled=True), 3, 3, True
         )
-        self.assertIn("existing citation", text)
-        self.assertIn("2 images could not be downloaded", text)
-        self.assertIn("now linked: 1", text)
+        self.assertIn("Images downloaded: 2", text)
+        self.assertIn("1 images could not be downloaded", text)
         self.assertIn("cancelled", text)
 
     def test_dialog_merge_launches_merge_dialog(self) -> None:

@@ -30,6 +30,7 @@ GWizard import and merge framework.
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import copy
 import logging
 import mimetypes
 import os
@@ -728,6 +729,28 @@ class NaraGWizard(GedGWizard):
         self.context["nara_records"] = hits
         return people
 
+    def load_for_person(
+        self,
+        person_handle: str,
+        parsed: dict[str, Any],
+        descriptions: dict[int, str] | None = None,
+        page_texts: dict[int, str] | None = None,
+    ) -> str:
+        """
+        Load one parsed record as an incoming copy of an existing person,
+        for the GWizard merge window (see NaraRecordAttacher.build_incoming).
+
+        :returns: The incoming person's handle.
+        """
+        attacher = NaraRecordAttacher(self.db)
+        source_db, handle = attacher.build_incoming(
+            person_handle, parsed, descriptions, page_texts
+        )
+        self.context["source_db"] = source_db
+        self.context["source_title"] = _("NARA Catalog")
+        self.context["nara_parsed"] = parsed
+        return handle
+
     @staticmethod
     def _parse_person_name(heading: str) -> tuple[str, str, str, str]:
         """Parse a NARA creator heading into given, surname, birth and death."""
@@ -1114,6 +1137,218 @@ class NaraRecordAttacher:
                 result.person_linked = True
         return result
 
+    # ------------------------------------------------------------------
+    # Merging through the GWizard merge window
+    # ------------------------------------------------------------------
+    def build_incoming(
+        self,
+        person_handle: str,
+        parsed: dict[str, Any],
+        descriptions: dict[int, str] | None = None,
+        page_texts: dict[int, str] | None = None,
+    ) -> tuple[Any, str]:
+        """
+        Build an in-memory database holding an "incoming" copy of the person
+        that carries this record, for the GWizard merge window.
+
+        The copy has the person's own name and gender (so those rows match
+        and offer nothing to copy), the record's citation as a person
+        source, and every image of the record in its gallery. The window's
+        arrows then copy the citation and the chosen images over.
+
+        The tree's NARA repository, source, citation and images, when it
+        already has them, are copied in with their own handles, so the merge
+        reuses them instead of adding duplicates. New images are linked by
+        their web address; finish_merge downloads them afterwards.
+
+        :param person_handle: The tree person the record is attached to.
+        :param parsed: The parsed record.
+        :param descriptions: Descriptions for new images by index.
+        :param page_texts: NARA's machine-read text by image index; each new
+            image gets it as a Transcript note.
+        :returns: The in-memory database and the incoming person's handle.
+        """
+        person = self.db.get_person_from_handle(person_handle)
+        if person is None:
+            raise RuntimeError(_("The target person could not be found."))
+        review = self.review(person_handle, parsed)
+        title = parsed.get("title") or parsed.get("naid") or _("NARA record")
+
+        source_db = make_database("sqlite")
+        source_db.load(":memory:")
+        staging = NaraRecordAttacher(source_db, self.session, self.timeout)
+        result = AttachResult()
+        try:
+            with DbTxn(
+                _("NARA record %s") % parsed.get("naid", ""), source_db
+            ) as trans:
+                repository = self._find_repository()
+                if repository is not None:
+                    repository = self._bare_copy(repository)
+                    source_db.add_repository(repository, trans)
+                else:
+                    repository = staging._repository(trans, result)
+
+                source = self._find_source(parsed, repository.get_handle())
+                if source is not None:
+                    source = self._bare_copy(source)
+                    source_db.add_source(source, trans)
+                else:
+                    source = staging._source(trans, parsed, repository, result)
+
+                citation = (
+                    self.db.get_citation_from_handle(review.citation_handle)
+                    if review.citation_handle
+                    else None
+                )
+                if citation is not None:
+                    citation = self._bare_copy(citation)
+                    citation.set_reference_handle(source.get_handle())
+                    source_db.add_citation(citation, trans)
+                else:
+                    citation = staging._citation(trans, parsed, source, title, result)
+
+                incoming = Person()
+                name = copy.deepcopy(person.get_primary_name())
+                name.set_citation_list([])
+                name.set_note_list([])
+                incoming.set_primary_name(name)
+                incoming.set_gender(person.get_gender())
+                incoming.add_citation(citation.get_handle())
+
+                for image in review.images:
+                    if image.media_handle:
+                        media = self.db.get_media_from_handle(image.media_handle)
+                        if media is None:
+                            continue
+                        media = self._bare_copy(media)
+                        source_db.add_media(media, trans)
+                        handle = media.get_handle()
+                    else:
+                        handle = staging._add_media(
+                            trans,
+                            image,
+                            image.url,
+                            (descriptions or {}).get(image.index)
+                            or _("%(title)s, image %(number)d of %(total)d")
+                            % {
+                                "title": title,
+                                "number": image.index + 1,
+                                "total": len(review.images),
+                            },
+                            (page_texts or {}).get(image.index, ""),
+                        )
+                    media_ref = MediaRef()
+                    media_ref.set_reference_handle(handle)
+                    incoming.add_media_reference(media_ref)
+                source_db.add_person(incoming, trans)
+        except Exception:
+            source_db.close()
+            raise
+        return source_db, incoming.get_handle()
+
+    @staticmethod
+    def _bare_copy(obj: Any) -> Any:
+        """
+        Return a copy of a tree object, with the same handle, for the
+        incoming database: notes, citations, media and tags are left off,
+        since the merge reuses the tree's object as it is.
+        """
+        duplicate = copy.deepcopy(obj)
+        for setter in (
+            "set_note_list",
+            "set_citation_list",
+            "set_media_list",
+            "set_tag_list",
+        ):
+            if hasattr(duplicate, setter):
+                getattr(duplicate, setter)([])
+        return duplicate
+
+    def merged_images(
+        self, person_handle: str, parsed: dict[str, Any]
+    ) -> tuple[list[ImageStatus], list[ImageStatus]]:
+        """
+        Return the record's images in the person's gallery, and those of
+        them that are linked by web address only (not downloaded yet).
+        """
+        person = self.db.get_person_from_handle(person_handle)
+        if person is None:
+            return [], []
+        gallery = {ref.ref for ref in person.get_media_list()}
+        review = self.review(person_handle, parsed)
+        images = [image for image in review.images if image.media_handle in gallery]
+        online = [
+            image
+            for image in images
+            if image.media_path.startswith(("http://", "https://"))
+        ]
+        return images, online
+
+    def finish_merge(
+        self,
+        person_handle: str,
+        parsed: dict[str, Any],
+        download: bool = False,
+        progress: Callable[[int, int], bool] | None = None,
+    ) -> AttachResult:
+        """
+        Tidy up after the merge window copied a record over: link the
+        record's images in the person's gallery to the record's citation,
+        and (when asked) download the ones linked by web address and point
+        them at the downloaded files.
+
+        :param progress: Called as progress(done, total) after each
+            download; returning False cancels the rest.
+        """
+        result = AttachResult()
+        images, online = self.merged_images(person_handle, parsed)
+        citation = self._find_citation(parsed)
+        if citation is not None:
+            result.citation_handle = citation.get_handle()
+
+        base = media_path(self.db)
+        new_paths: dict[str, str] = {}
+        if download:
+            for done, image in enumerate(online, start=1):
+                if result.cancelled:
+                    break
+                full_path = self.download_path(parsed, image)
+                if os.path.isfile(full_path) and os.path.getsize(full_path) > 0:
+                    result.already_downloaded += 1
+                elif self._download(image.url, full_path):
+                    result.downloaded += 1
+                else:
+                    result.failed.append(image.url)
+                    full_path = ""
+                if full_path:
+                    new_paths[image.media_handle] = full_path
+                if progress is not None and progress(done, len(online)) is False:
+                    result.cancelled = True
+
+        linked = {ref.ref for ref in citation.get_media_list()} if citation else set()
+        to_link = [image for image in images if image.media_handle not in linked]
+        if not new_paths and not (citation is not None and to_link):
+            return result
+        with DbTxn(
+            _("Finish NARA record %s") % parsed.get("naid", ""), self.db
+        ) as trans:
+            for handle, full_path in new_paths.items():
+                media = self.db.get_media_from_handle(handle)
+                if media is None:
+                    continue
+                media.set_path(relative_path(full_path, base))
+                media.set_checksum(create_checksum(full_path))
+                self.db.commit_media(media, trans)
+            if citation is not None and to_link:
+                for image in to_link:
+                    media_ref = MediaRef()
+                    media_ref.set_reference_handle(image.media_handle)
+                    citation.add_media_reference(media_ref)
+                    result.media_linked += 1
+                self.db.commit_citation(citation, trans)
+        return result
+
     def _add_media(
         self,
         trans: DbTxn,
@@ -1236,10 +1471,9 @@ class NaraRecordAttacher:
 
     def _repository(self, trans: DbTxn, result: AttachResult) -> Repository:
         """Return the NARA repository, creating it when there is none."""
-        wanted = NARA_REPOSITORY_NAME.casefold()
-        for repository in self.db.iter_repositories():
-            if str(repository.get_name() or "").strip().casefold() == wanted:
-                return repository
+        existing = self._find_repository()
+        if existing is not None:
+            return existing
         repository = Repository()
         repository.set_name(NARA_REPOSITORY_NAME)
         repository.set_type(RepositoryType(RepositoryType.ARCHIVE))
@@ -1250,6 +1484,27 @@ class NaraRecordAttacher:
         self.db.add_repository(repository, trans)
         result.repository_created = True
         return repository
+
+    def _find_repository(self) -> Repository | None:
+        """Return the tree's NARA repository, or None."""
+        wanted = NARA_REPOSITORY_NAME.casefold()
+        for repository in self.db.iter_repositories():
+            if str(repository.get_name() or "").strip().casefold() == wanted:
+                return repository
+        return None
+
+    def _find_source(self, parsed: dict[str, Any], repo_handle: str) -> Source | None:
+        """Return the tree's source for the record's series, or None."""
+        title = parsed.get("series_title") or parsed.get("title") or ""
+        for source in self.db.iter_sources():
+            if str(source.get_title() or "").strip() != title.strip():
+                continue
+            if any(
+                ref.get_reference_handle() == repo_handle
+                for ref in source.get_reporef_list()
+            ):
+                return source
+        return None
 
     def _source(
         self,
@@ -1262,14 +1517,9 @@ class NaraRecordAttacher:
         title = parsed.get("series_title") or parsed.get("title") or ""
         series_naid = parsed.get("series_naid") or ""
         repo_handle = repository.get_handle()
-        for source in self.db.iter_sources():
-            if str(source.get_title() or "").strip() != title.strip():
-                continue
-            if any(
-                ref.get_reference_handle() == repo_handle
-                for ref in source.get_reporef_list()
-            ):
-                return source
+        existing = self._find_source(parsed, repo_handle)
+        if existing is not None:
+            return existing
 
         source = Source()
         source.set_title(title)

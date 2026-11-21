@@ -1030,6 +1030,118 @@ class TestNaraRecordAttacher(unittest.TestCase):
         self.assertEqual(media[1].get_note_list(), [])
 
 
+class TestNaraMergeWindowFlow(unittest.TestCase):
+    """
+    Test attaching a record through the GWizard merge window: an incoming
+    copy of the person, the window's own apply step, then finish_merge.
+    """
+
+    # The same tree, record and download stub as TestNaraRecordAttacher.
+    setUp = TestNaraRecordAttacher.setUp
+    tearDown = TestNaraRecordAttacher.tearDown
+
+    def _merge(self, resolutions: dict[str, str]) -> bool:
+        """Load the record as an incoming person and apply the resolutions."""
+        gwizard = NaraGWizard(self.db)
+        handle = gwizard.load_for_person(self.person_handle, self.parsed)
+        try:
+            return gwizard.run_step(
+                "apply",
+                source_person_handle=handle,
+                target_person_handle=self.person_handle,
+                resolutions=resolutions,
+            )
+        finally:
+            gwizard.context["source_db"].close()
+
+    def test_incoming_person(self) -> None:
+        """Verify the incoming copy has the name, the citation and the images."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        source_db, handle = attacher.build_incoming(
+            self.person_handle, self.parsed, descriptions={0: "Page one"}
+        )
+        try:
+            incoming = source_db.get_person_from_handle(handle)
+            self.assertEqual(
+                incoming.get_primary_name().get_first_name(), "Lyman Angus"
+            )
+            self.assertEqual(len(incoming.get_citation_list()), 1)
+            citation = source_db.get_citation_from_handle(
+                incoming.get_citation_list()[0]
+            )
+            self.assertEqual(
+                [str(a.get_type()) for a in citation.get_attribute_list()],
+                [NAID_ATTRIBUTE],
+            )
+            self.assertEqual(citation.get_media_list(), [])
+            media = [
+                source_db.get_media_from_handle(r.ref)
+                for r in incoming.get_media_list()
+            ]
+            self.assertEqual(len(media), 2)
+            self.assertTrue(media[0].get_path().startswith("https://"))
+            self.assertEqual(media[0].get_description(), "Page one")
+            self.assertEqual(
+                str(media[0].get_attribute_list()[0].get_type()), OBJECT_ID_ATTRIBUTE
+            )
+            # Nothing is written to the family tree.
+            self.assertEqual(self.db.get_number_of_citations(), 0)
+            self.assertEqual(self.db.get_number_of_media(), 0)
+        finally:
+            source_db.close()
+
+    def test_merge_copies_chosen_image_then_downloads_it(self) -> None:
+        """Verify the chosen image is copied, downloaded and cited."""
+        self.assertTrue(self._merge({"person_sources": "source", "media:0": "source"}))
+        person = self.db.get_person_from_handle(self.person_handle)
+        self.assertEqual(len(person.get_citation_list()), 1)
+        self.assertEqual(len(person.get_media_list()), 1)
+        self.assertEqual(self.db.get_number_of_media(), 1)
+
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        images, online = attacher.merged_images(self.person_handle, self.parsed)
+        self.assertEqual(len(images), 1)
+        self.assertEqual(len(online), 1)
+
+        result = attacher.finish_merge(self.person_handle, self.parsed, download=True)
+        self.assertEqual(result.downloaded, 1)
+        self.assertEqual(result.media_linked, 1)
+        media = self.db.get_media_from_handle(person.get_media_list()[0].ref)
+        self.assertEqual(media.get_path(), os.path.join("NARA", "90361620", "2480.jpg"))
+        self.assertTrue(media.get_checksum())
+        citation = self.db.get_citation_from_handle(person.get_citation_list()[0])
+        self.assertEqual([r.ref for r in citation.get_media_list()], [media.handle])
+        self.assertEqual(attacher.merged_images(self.person_handle, self.parsed)[1], [])
+
+    def test_finish_without_download_keeps_web_address(self) -> None:
+        """Verify an image not downloaded keeps its web address but is cited."""
+        self._merge({"person_sources": "source", "media:0": "source"})
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        result = attacher.finish_merge(self.person_handle, self.parsed)
+        self.assertEqual(result.downloaded, 0)
+        self.assertEqual(result.media_linked, 1)
+        self.session.get.assert_not_called()
+        media = next(self.db.iter_media())
+        self.assertTrue(media.get_path().startswith("https://"))
+
+    def test_second_merge_reuses_citation_and_image(self) -> None:
+        """Verify merging the record again adds no duplicates."""
+        self._merge({"person_sources": "source", "media:0": "source"})
+        NaraRecordAttacher(self.db, session=self.session).finish_merge(
+            self.person_handle, self.parsed, download=True
+        )
+        self._merge(
+            {"person_sources": "source", "media:0": "source", "media:1": "source"}
+        )
+        self.assertEqual(self.db.get_number_of_repositories(), 1)
+        self.assertEqual(self.db.get_number_of_sources(), 1)
+        self.assertEqual(self.db.get_number_of_citations(), 1)
+        self.assertEqual(self.db.get_number_of_media(), 2)
+        person = self.db.get_person_from_handle(self.person_handle)
+        self.assertEqual(len(person.get_citation_list()), 1)
+        self.assertEqual(len(person.get_media_list()), 2)
+
+
 class TestNaraRecordText(unittest.TestCase):
     """Test fetching a record's machine-read page text."""
 

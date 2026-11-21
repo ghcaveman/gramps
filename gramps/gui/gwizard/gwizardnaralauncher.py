@@ -55,6 +55,7 @@ from gramps.gen.gwizard.gwizardnaramerge import (
     format_size,
     NaraCatalogInterface,
     NaraGWizard,
+    NaraRecordAttacher,
 )
 
 _ = glocale.translation.sgettext
@@ -78,6 +79,10 @@ SEARCH_TERM_DEFAULTS: dict[str, bool] = {
 # the death year by default, because pension, estate and similar records are
 # made after a death.
 RECORD_YEARS_AFTER_DEATH = 10
+
+# Merge window sections left out when attaching a record to a person: the
+# record's incoming copy of the person has no family.
+ATTACH_HIDDEN_SECTIONS = ("family_relations", "children", "families")
 
 
 # ------------------------------------------------------------
@@ -1035,26 +1040,188 @@ class NaraSearchDialog(Gtk.Dialog):
         model, tree_iter = self.tree_view.get_selection().get_selected()
         self._update_merge_button(model, tree_iter)
 
+    def _page_details(
+        self, person_handle: str, parsed: dict[str, Any]
+    ) -> tuple[dict[int, str], dict[int, str]]:
+        """
+        Read the record's page text from NARA (one API call) and return a
+        description ("<title>, page 3: Claim brief") and the text of each
+        page, by image index. Both are empty when there is no text.
+        """
+        from gramps.gen.gwizard.gwizardnarapages import classify_pages
+        from gramps.gui.gwizard.gwizardnaraattachdialog import (
+            page_description,
+            person_names,
+        )
+
+        objects = parsed.get("digital_objects") or []
+        naid = str(parsed.get("naid") or "")
+        if not objects or not naid or self.client is None:
+            return {}, {}
+        try:
+            texts = self.client.fetch_record_text(naid)
+        except Exception as err:
+            LOG.warning("NARA page text for %s failed: %s", naid, err)
+            texts = None
+        if not texts:
+            return {}, {}
+        person = self.dbstate.db.get_person_from_handle(person_handle)
+        infos = classify_pages(
+            [str(item.get("filename") or "") for item in objects],
+            [texts.get(str(item.get("object_id") or ""), "") for item in objects],
+            person_names(person),
+        )
+        title = str(parsed.get("title") or naid)
+        descriptions = {
+            index: page_description(title, info) for index, info in enumerate(infos)
+        }
+        page_texts = {index: info.text for index, info in enumerate(infos)}
+        return descriptions, page_texts
+
+    def cb_attach(self, _widget: Any = None) -> None:
+        """
+        Open the GWizard merge window for the selected NARA record: the
+        record (as an incoming copy of the target person, with its citation
+        and images) on the left, the target person on the right. Arrows copy
+        the citation and the chosen images; afterwards the new images can
+        be downloaded.
+        """
+        model, tree_iter = self.tree_view.get_selection().get_selected()
+        target = self.target_handle
+        if tree_iter is None or not target or not self._has_target():
+            return
+        hit = model.get_value(tree_iter, 7)
+        if not hit:
+            return
+        parsed = NaraCatalogInterface.parse_record(hit)
+
+        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
+
+        self.status_label.set_text(_("Reading the record's pages from NARA..."))
+        while Gtk.events_pending():
+            Gtk.main_iteration_do(False)
+        descriptions, page_texts = self._page_details(target, parsed)
+
+        gwizard = NaraGWizard(self.dbstate.db)
+        try:
+            source_handle = gwizard.load_for_person(
+                target, parsed, descriptions, page_texts
+            )
+        except Exception as err:
+            LOG.warning("Failed to load NARA record %s: %s", parsed.get("naid"), err)
+            self.status_label.set_text(
+                _("Could not review the NARA record: %s") % str(err)
+            )
+            return
+        source_db = gwizard.context["source_db"]
+        try:
+            try:
+                merge_dialog = GWizardMergeDialog(
+                    self.dbstate,
+                    gwizard,
+                    source_handle,
+                    target,
+                    parent=self,
+                    hidden_sections=ATTACH_HIDDEN_SECTIONS,
+                    incoming_title=_("NARA Record: NAID %s") % parsed.get("naid", ""),
+                )
+            except Exception as err:
+                LOG.warning("Failed to open the NARA merge window: %s", err)
+                self.status_label.set_text(
+                    _("Could not review the NARA record: %s") % str(err)
+                )
+                return
+            merge_dialog.set_title(_("GWizard NARA Merge"))
+            try:
+                response = merge_dialog.run()
+            finally:
+                merge_dialog.destroy()
+        finally:
+            source_db.close()
+
+        if response != Gtk.ResponseType.OK:
+            self.status_label.set_text(_("Nothing was changed."))
+            return
+        self.status_label.set_text(self._finish_attach(target, parsed))
+
+    def _finish_attach(self, person_handle: str, parsed: dict[str, Any]) -> str:
+        """
+        After the merge window copied a record over, offer to download the
+        new images, link them to the record's citation, and return the
+        status message.
+        """
+        attacher = NaraRecordAttacher(self.dbstate.db)
+        images, online = attacher.merged_images(person_handle, parsed)
+        download = bool(online) and self._ask_download(online)
+
+        from gramps.gui.utils import ProgressMeter
+
+        meter = None
+        if download:
+            meter = ProgressMeter(_("Attach NARA Record"), can_cancel=True, parent=self)
+            meter.set_pass(
+                _("Downloading %d images from NARA...") % len(online), len(online)
+            )
+
+        def progress(_done: int, _total: int) -> bool:
+            if meter is None:
+                return True
+            meter.step()
+            return not meter.get_cancelled()
+
+        try:
+            result = attacher.finish_merge(
+                person_handle, parsed, download=download, progress=progress
+            )
+        except Exception as err:
+            LOG.warning("Finishing NARA record %s failed: %s", parsed.get("naid"), err)
+            return _(
+                "The NARA record was merged, but its images could not be "
+                "downloaded or linked to its citation: %s"
+            ) % str(err)
+        finally:
+            if meter is not None:
+                meter.close()
+        return self._merge_summary(result, len(images), len(online), download)
+
+    def _ask_download(self, online: list[Any]) -> bool:
+        """Ask whether to download the images now linked by web address."""
+        size = format_size(sum(image.size for image in online))
+        question = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text=_("Download the NARA images?"),
+        )
+        question.format_secondary_text(
+            _(
+                "%(count)d images from this record are linked by their web "
+                "address (%(size)s). Download them into your media folder now? "
+                "Otherwise they stay linked to NARA's web site."
+            )
+            % {"count": len(online), "size": size or _("size unknown")}
+        )
+        try:
+            return question.run() == Gtk.ResponseType.YES
+        finally:
+            question.destroy()
+
     @staticmethod
-    def _attach_summary(result: AttachResult) -> str:
-        """Return the status message for a finished attach."""
-        if result.citation_created:
-            text = _("The NARA record was attached as a new citation.")
-        elif result.person_linked:
-            text = _("The NARA record's existing citation was attached.")
-        else:
-            text = _("The NARA record was already attached to this person.")
-        parts = [text]
+    def _merge_summary(
+        result: AttachResult, images: int, online: int, download: bool
+    ) -> str:
+        """Return the status message after merging a record."""
+        parts = [
+            _("The NARA record was merged; this person has %d of its images.") % images
+        ]
         if result.downloaded or result.already_downloaded:
             parts.append(
                 _("Images downloaded: %(new)d (already there: %(old)d).")
                 % {"new": result.downloaded, "old": result.already_downloaded}
             )
-        if result.media_added:
-            parts.append(_("Media added: %d.") % result.media_added)
-        relinked = result.media_linked - result.media_added
-        if relinked > 0:
-            parts.append(_("Media already in your tree, now linked: %d.") % relinked)
+        if online and not download:
+            parts.append(_("%d images are linked by their web address.") % online)
         if result.failed:
             parts.append(
                 _(
@@ -1066,46 +1233,6 @@ class NaraSearchDialog(Gtk.Dialog):
         if result.cancelled:
             parts.append(_("Downloading was cancelled; the rest were skipped."))
         return " ".join(parts)
-
-    def cb_attach(self, _widget: Any = None) -> None:
-        """
-        Open the review window for the selected NARA record: it shows the
-        person's existing NARA citations next to this record's citation and
-        images, and attaches only the images the user checks.
-        """
-        model, tree_iter = self.tree_view.get_selection().get_selected()
-        target = self.target_handle
-        if tree_iter is None or not target or not self._has_target():
-            return
-        hit = model.get_value(tree_iter, 7)
-        if not hit:
-            return
-        parsed = NaraCatalogInterface.parse_record(hit)
-
-        from gramps.gui.gwizard.gwizardnaraattachdialog import NaraAttachDialog
-
-        try:
-            dialog = NaraAttachDialog(
-                self, self.dbstate, self.uistate, target, parsed, client=self.client
-            )
-        except Exception as err:
-            LOG.warning("Failed to open NARA attach window: %s", err)
-            self.status_label.set_text(
-                _("Could not review the NARA record: %s") % str(err)
-            )
-            return
-        try:
-            while True:
-                response = dialog.run()
-                if response != Gtk.ResponseType.OK:
-                    return
-                result = dialog.run_attach()
-                if result is not None:
-                    self.status_label.set_text(self._attach_summary(result))
-                    return
-                # The attach failed; the window shows why and stays open.
-        finally:
-            dialog.destroy()
 
     def cb_selection_changed(self, selection: Gtk.TreeSelection) -> None:
         """
