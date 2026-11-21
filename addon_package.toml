@@ -20,17 +20,34 @@ modules = [
     "gramps/gen/gwizard/*.py",
     "gramps/gui/gwizard/*.py",
     "gramps/plugins/tool/gwizardmerge.py",
+    "gramps/plugins/tool/gwizard_filemerge_scan.py",
 ]
 tests = [
     "gramps/gen/gwizard/test/*_test.py",
     "gramps/gui/gwizard/test/*_test.py",
     "gramps/plugins/tool/test/gwizardmerge*_test.py",
+    "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
 ]
 # gwizardmerge.py imports the launcher flat, and falls back to the core
 # location when run from the source tree; keep that fallback as written.
 keep_unrewritten = [
     '^\s*from\s+gramps\.gui\.gwizard\.gwizardlauncher\s+import\s*\(\s*$',
 ]
+
+# The GWizard Record Scan: a second Tools menu entry in the same addon. It
+# lists every person with the record sources (WikiTree, NARA, ...) other
+# GWizard addons register as GENERAL plugins in category GWizardRecordSource.
+[[extra_registrations]]
+id = "gwizardrecordscan"
+name = "GWizard Record Scan"
+description = "Check every person in the Family Tree against the installed GWizard record sources (WikiTree, NARA, ...), count the likely matches at three match levels, and open a merge window for a match."
+fname = "gwizard_filemerge_scan.py"
+toolclass = "GWizardRecordScan"
+optionclass = "GWizardRecordScanOptions"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
+gramps_versions = ["5.2.0", "6.2.0"]
 
 [files.test_data]
 source = "gramps/gen/gwizard/test/data"
