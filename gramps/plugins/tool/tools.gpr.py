@@ -534,6 +534,12 @@ register(
     help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
 )
 
+# ------------------------------------------------------------------------
+#
+# GWizard File Merge ALT
+#
+# ------------------------------------------------------------------------
+
 register(
     TOOL,
     id="gwizardmergealt",
@@ -583,6 +589,32 @@ register(
     optionclass="GWizardNaraMergeToolOptions",
     tool_modes=[TOOL_MODE_GUI],
     help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardNaraMerge_Tool",
+)
+
+# ------------------------------------------------------------------------
+#
+# GWizard File Merge
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardmediafix",
+    name=_("GWizard Media Fix"),
+    description=_(
+        "Find missing media files, consolidate media locations, and apply filename standards."
+    ),
+    version="1.0",
+    gramps_target_version=MODULE_VERSION,
+    status=STABLE,
+    fname="gwizardmediafix.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardMediaFix",
+    optionclass="GWizardMediaFixOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url=TOOLS_HELP,
 )
 
 # ------------------------------------------------------------------------

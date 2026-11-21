@@ -1,41 +1,41 @@
-# GWizard File Merge addon -- built by package_addon.py (from gramps_devutil).
+# GWizard Media Fix addon -- built by package_addon.py (from gramps_devutil).
 # See addon_package.example.toml in gramps_devutil for every option.
+#
+# The citation-fix repo builds this addon too (CitationFix depends on it):
+# there, save this file as addon_package_mediafix.toml and run
+#   python package_addon.py --config addon_package_mediafix.toml <version>
 
-package = "GWizardFileMerge"
+package = "MediaFix"
 
 [registration]
-id = "gwizardmerge"
-name = "GWizard File Merge"
-description = "Family Tree Processing Tool to compare another genealogy file (GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree and merge selected differences person by person."
-fname = "gwizardmerge.py"
-toolclass = "GWizardFileMerge"
-optionclass = "GWizardFileMergeOptions"
+id = "gwizardmediafix"
+name = "Media Fix"
+description = "Fix media references in a Gramps database."
+fname = "gwizardmediafix.py"
+toolclass = "GWizardMediaFix"
+optionclass = "GWizardMediaFixOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
-help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardMediaFix_Tool"
 gramps_versions = ["5.2.0", "6.2.0"]
 
 [files]
+# Listed explicitly: in the citation-fix tree gw_*.py also matches the
+# citation-fix dialogs. gwizard_common.py is owned by this addon; CitationFix
+# uses this copy through its dependency.
 modules = [
-    "gramps/gen/gwizard/*.py",
-    "gramps/gui/gwizard/*.py",
-    "gramps/plugins/tool/gwizardmerge.py",
+    "gramps/plugins/tool/gwizardmediafix.py",
+    "gramps/plugins/tool/gwizard_common.py",
+    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/plugins/tool/gw_mediapreview.py",
 ]
 tests = [
-    "gramps/gen/gwizard/test/*_test.py",
-    "gramps/gui/gwizard/test/*_test.py",
-    "gramps/plugins/tool/test/gwizardmerge*_test.py",
+    "gramps/plugins/tool/test/gwizardmediafix*_test.py",
+    "gramps/plugins/tool/test/gwizard_common_test.py",
 ]
-# gwizardmerge.py imports the launcher flat, and falls back to the core
-# location when run from the source tree; keep that fallback as written.
-keep_unrewritten = [
-    '^\s*from\s+gramps\.gui\.gwizard\.gwizardlauncher\s+import\s*\(\s*$',
+test_helpers = [
+    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
 ]
-
-[files.test_data]
-source = "gramps/gen/gwizard/test/data"
-target = "data"
-required = ["gwizard_mergefrom_sources.ged"]
 
 [check]
 # The branch this feature branch was started from (local name first, then
@@ -43,8 +43,12 @@ required = ["gwizard_mergefrom_sources.ged"]
 base = ["functionality_base", "origin/functionality_base"]
 ignore = [
     "featuredocs/**",
-    "gwizard_filemerge_*.txt",
-    "package_gwizard_filemerge.py",
+    # Notes and helper scripts in the repo root (* stays in the root folder).
+    "*.md",
+    "*.txt",
+    "check_banner.bash",
+    "environment_create.py",
+    "package_gwizard_mediafix.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",
