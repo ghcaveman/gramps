@@ -111,7 +111,9 @@ def candidate_from_profile(profile: dict[str, Any]) -> RecordCandidate:
         if value and value not in surnames:
             surnames.append(value)
     given = str(profile.get("FirstName") or "").strip()
-    middle = str(profile.get("MiddleName") or "").strip()
+    middle = str(
+        profile.get("MiddleName") or profile.get("MiddleInitial") or ""
+    ).strip()
     if not given:
         # Some results carry only RealName (the preferred first name).
         given = str(profile.get("RealName") or "").strip()

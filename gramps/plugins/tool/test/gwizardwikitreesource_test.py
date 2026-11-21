@@ -33,7 +33,7 @@ from unittest.mock import Mock, patch
 # Gramps modules
 #
 # -------------------------------------------------------------------------
-from gramps.gen.gwizard.gwizard_base import TIER_GSB, RecordQuery
+from gramps.gen.gwizard.gwizard_base import TIER_GMSB, TIER_GS, TIER_GSB, RecordQuery
 from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     STATUS_ERROR,
     STATUS_LINKED,
@@ -82,18 +82,72 @@ class WikiTreeSourceTest(unittest.TestCase):
         self.assertEqual([s.source_id for s in sources], ["wikitree"])
         self.assertTrue(sources[0].has_links)
 
-    def test_search_uses_birth_surname_and_year(self) -> None:
-        """One searchPerson call, errors raised, profiles without ID skipped."""
+    def _first_names(self) -> list[tuple[str, str]]:
+        """(first_name, birth_date) of each search made."""
+        return [
+            (c.kwargs["first_name"], c.kwargs["birth_date"])
+            for c in self.client.search_person.call_args_list
+        ]
+
+    def test_search_with_and_without_birth_year(self) -> None:
+        """A dated search and a names-only search; results combined once."""
         matches = self.source.search(self.query)
-        kwargs = self.client.search_person.call_args.kwargs
-        self.assertEqual(kwargs["first_name"], "Benjamin")
-        self.assertEqual(kwargs["last_name"], "Franklin")
-        self.assertEqual(kwargs["birth_date"], "1706")
-        self.assertEqual(kwargs["date_spread"], 2)
-        self.assertTrue(kwargs["raise_errors"])
+        self.assertEqual(self._first_names(), [("Benjamin", "1706"), ("Benjamin", "")])
+        first, second = self.client.search_person.call_args_list
+        self.assertEqual(first.kwargs["last_name"], "Franklin")
+        self.assertEqual(first.kwargs["date_spread"], 2)
+        self.assertEqual(second.kwargs["date_spread"], 0)
+        self.assertTrue(first.kwargs["raise_errors"])
+        self.assertIn("MiddleName", first.kwargs["fields"])
         self.assertEqual([m.key for m in matches], ["Franklin-1"])
         self.assertEqual(matches[0].label, "Benjamin Franklin (1706–1790) [Franklin-1]")
         self.assertEqual(matches[0].url, "https://www.wikitree.com/wiki/Franklin-1")
+
+    def test_other_birth_year_still_found(self) -> None:
+        """A name match born years away comes from the names-only search."""
+        other = dict(FRANKLIN, Name="Franklin-9", BirthDate="1650-01-01")
+        self.client.search_person.side_effect = [[FRANKLIN], [FRANKLIN, other]]
+        scored = score_matches(self.query, self.source.search(self.query))
+        self.assertEqual({s.match.key for s in scored}, {"Franklin-1", "Franklin-9"})
+        self.assertEqual(tier_cell(scored, TIER_GS, 80).count, 2)
+        self.assertEqual(tier_cell(scored, TIER_GSB, 80).count, 1)
+
+    def test_no_birth_year_one_search(self) -> None:
+        """Without a birth year only the names-only search is made."""
+        query = RecordQuery(given="Benjamin", surnames=["Franklin"])
+        self.source.search(query)
+        self.assertEqual(self._first_names(), [("Benjamin", "")])
+
+    def test_middle_name_tried_first(self) -> None:
+        """ "Given Middle" is tried, then "Given", then names only."""
+        query = RecordQuery(
+            given="Benjamin", middle="Lee", surnames=["Franklin"], birth_year=1706
+        )
+        self.client.search_person.side_effect = [[], [FRANKLIN], []]
+        self.source.search(query)
+        self.assertEqual(
+            self._first_names(),
+            [("Benjamin Lee", "1706"), ("Benjamin", "1706"), ("Benjamin", "")],
+        )
+
+    def test_middle_name_hit_skips_first_name_retry(self) -> None:
+        """When "Given Middle" finds profiles, the dated retry is skipped."""
+        query = RecordQuery(
+            given="Benjamin", middle="Lee", surnames=["Franklin"], birth_year=1706
+        )
+        self.source.search(query)
+        self.assertEqual(
+            self._first_names(), [("Benjamin Lee", "1706"), ("Benjamin", "")]
+        )
+
+    def test_middle_initial_counts_as_middle(self) -> None:
+        """A profile with only MiddleInitial can be judged at g/m/s/b."""
+        profile = dict(FRANKLIN, MiddleInitial="L")
+        query = RecordQuery(
+            given="Benjamin", middle="Lee", surnames=["Franklin"], birth_year=1706
+        )
+        scored = score_matches(query, [self.source.to_match(profile)])
+        self.assertEqual(tier_cell(scored, TIER_GMSB, 80).count, 1)
 
     def test_matches_score_at_every_tier(self) -> None:
         """A WikiTree profile scores through the shared scoring."""

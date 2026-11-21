@@ -66,6 +66,13 @@ _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
 
 WIKITREE_URL = "https://www.wikitree.com/wiki/%s"
+# Profile fields asked for in searches: everything matching and the result
+# labels use. Without a field list WikiTree leaves some out (MiddleName).
+SEARCH_FIELDS = (
+    "Id,Name,FirstName,MiddleName,MiddleInitial,RealName,LastNameAtBirth,"
+    "LastNameCurrent,LastNameOther,LongName,ShortName,Gender,BirthDate,"
+    "DeathDate,BirthDateDecade,DeathDateDecade"
+)
 
 
 # ------------------------------------------------------------
@@ -109,19 +116,51 @@ class WikiTreeSource(RecordSource):
         return get_wikitree_id(person)
 
     def search(self, query: RecordQuery) -> list[SourceMatch]:
-        """Search WikiTree by first name, birth surname and birth year."""
+        """
+        Search WikiTree for a person; the results of up to two searches are
+        combined:
+
+        * by given names, birth surname and birth year (within
+          ``date_spread`` years), when the birth year is known. A person
+          with a middle name is searched with it ("Thomas Lee"), and again
+          with the first name alone when that finds nothing.
+        * by first name and birth surname only, so a profile whose birth
+          year differs (or is missing) is still found. It scores well at
+          g/s and lower at g/s/b.
+        """
+        profiles: list[dict[str, Any]] = []
+        if query.birth_year:
+            first_names = [query.given]
+            if query.given and query.middle:
+                first_names.insert(0, f"{query.given} {query.middle}")
+            for first_name in first_names:
+                found = self._search(query, first_name, with_birth=True)
+                if found:
+                    profiles.extend(found)
+                    break
+        profiles.extend(self._search(query, query.given, with_birth=False))
+        matches: dict[str, SourceMatch] = {}
+        for profile in profiles:
+            if isinstance(profile, dict) and profile.get("Name"):
+                match = self.to_match(profile)
+                matches.setdefault(match.key, match)
+        return list(matches.values())
+
+    def _search(
+        self, query: RecordQuery, first_name: str, with_birth: bool
+    ) -> list[dict[str, Any]]:
+        """One searchPerson request, with or without the birth year."""
         surname = query.surnames[0] if query.surnames else ""
-        profiles = self.client().search_person(
-            first_name=query.given,
+        birth = str(query.birth_year) if with_birth and query.birth_year else ""
+        return self.client().search_person(
+            first_name=first_name,
             last_name=surname,
-            birth_date=str(query.birth_year) if query.birth_year else "",
-            date_spread=self.date_spread if query.birth_year else 0,
+            birth_date=birth,
+            date_spread=self.date_spread if birth else 0,
             limit=self.search_limit,
             raise_errors=True,
+            fields=SEARCH_FIELDS,
         )
-        return [
-            self.to_match(p) for p in profiles if isinstance(p, dict) and p.get("Name")
-        ]
 
     def lookup(self, key: str) -> SourceMatch | None:
         """Return the profile the person is linked to."""
