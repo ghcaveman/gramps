@@ -68,6 +68,7 @@ from gramps.gen.gwizard.gwizardgedcom import (
     format_link_preview,
     pair_extra_items,
 )
+from gramps.gen.gwizard.gwizard_filemerge_media import media_handles_of, media_note
 from gramps.gen.gwizard.gwizard_base import (
     is_empty_event,
     safe_get_event,
@@ -461,6 +462,14 @@ class GWizardAddNewDialog(Gtk.Dialog):
         box.pack_start(note, False, False, 0)
         if scroll is not None:
             box.pack_start(scroll, True, True, 0)
+        # Pictures whose files are missing, or a tree without a base path.
+        pictures = media_note(
+            media_handles_of(person, source_db), source_db, gwizard.db
+        )
+        if pictures:
+            media_label = Gtk.Label(label=pictures, xalign=0.0)
+            media_label.set_line_wrap(True)
+            box.pack_start(media_label, False, False, 0)
 
         self.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL)
         self.add_button(_("_Add"), Gtk.ResponseType.OK)
@@ -1095,8 +1104,8 @@ class GWizardMergeDialog(Gtk.Dialog):
                     else None
                 ),
                 extra_label(kind),
-                extra_text(kind, s_item) if s_item is not None else "",
-                extra_text(kind, t_item) if t_item is not None else "",
+                extra_text(kind, s_item, sd, td) if s_item is not None else "",
+                extra_text(kind, t_item, td) if t_item is not None else "",
                 # Notes, links and media carry no citations of their own to show.
                 left_obj=s_item if kind not in ("note", "url", "media") else None,
                 right_obj=t_item if kind not in ("note", "url", "media") else None,
@@ -1602,6 +1611,10 @@ class GWizardMergeDialog(Gtk.Dialog):
                 "along with your selected details. Do you confirm importing these "
                 "missing references?"
             ) % ", ".join(details)
+
+            pictures = media_note(missing["media"], self.source_db, self.target_db)
+            if pictures:
+                msg += "\n\n" + pictures
 
             if self._matched_sources:
                 count = len(self._matched_sources)

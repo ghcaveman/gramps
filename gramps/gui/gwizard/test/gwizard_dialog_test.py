@@ -294,6 +294,53 @@ class GWizardDialogTest(unittest.TestCase):
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
+    @unittest.skipUnless(
+        _HAS_GTK_DISPLAY,
+        "needs a real Gtk display; skipped in headless/no-display environments",
+    )
+    def test_add_new_dialog_tells_about_missing_pictures(self) -> None:
+        """
+        The Add as New dialog says when a picture's file cannot be found.
+        """
+        from gi.repository import Gtk
+        from gramps.gui.gwizard.gwizardmergedialog import GWizardAddNewDialog
+
+        gedcom_data = """0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Solo /Person/
+1 OBJE @M1@
+0 @M1@ OBJE
+1 FILE no_such_folder/solo.png
+2 FORM png
+0 TRLR
+"""
+        with tempfile.NamedTemporaryFile(suffix=".ged", mode="w", delete=False) as f:
+            f.write(gedcom_data)
+            temp_path = f.name
+
+        try:
+            gwizard = GedGWizard(self.db)
+            gwizard.run_step("connect", gedcom_path=temp_path)
+            (person,) = gwizard.run_step("load")
+            dialog = GWizardAddNewDialog(gwizard, person.handle)
+            try:
+                texts = [
+                    child.get_text()
+                    for child in dialog.get_content_area().get_children()
+                    if isinstance(child, Gtk.Label)
+                ]
+            finally:
+                dialog.destroy()
+            self.assertTrue(
+                any("1 of 1 media files could not be found" in t for t in texts),
+                texts,
+            )
+        finally:
+            gwizard.context["source_db"].close()
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
 
 if __name__ == "__main__":
     unittest.main()
