@@ -47,6 +47,7 @@ from gi.repository import Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.gwizard.gwizard_base import surname_text
+from gramps.gen.lib import NameType, Person
 from gramps.gen.gwizard.gwizardwikitree import (
     WikiTreeGWizard,
     WikiTreeInterface,
@@ -56,6 +57,26 @@ from gramps.gen.gwizard.gwizardwikitree import (
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
+
+# Gramps gender codes and the values WikiTree's searchPerson accepts.
+_WIKITREE_GENDERS: dict[int, str] = {Person.MALE: "Male", Person.FEMALE: "Female"}
+
+# Search terms that start checked. First name, last name and birth year are
+# the most effective WikiTree search terms; the others are filled in from the
+# target person but left out until checked. A WikiTree ID, when known, is an
+# exact lookup and stays checked.
+SEARCH_TERM_DEFAULTS: dict[str, bool] = {
+    "first_name": True,
+    "middle_name": False,
+    "last_name": True,
+    "married_name": False,
+    "gender": False,
+    "birth_year": True,
+    "birth_location": False,
+    "death_year": False,
+    "death_location": False,
+    "wt_id": True,
+}
 
 
 # ------------------------------------------------------------
@@ -67,13 +88,22 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
     """
     Extract default search values (names, dates, WikiTree ID) from a Person.
 
+    The first word of the Gramps given name is returned as 'first_name' and
+    any further words as 'middle_name', so the dialog can search on the
+    first given name alone.
+
     :param db: Active Gramps database.
     :param person: Gramps Person object.
-    :returns: Dictionary with keys 'first_name', 'last_name', 'birth_year',
-        'death_year', 'wt_id'.
+    'married_name' comes from a Married Name alternate name, or failing that
+    (for women only) from the husband's surname in the most recent family.
+
+    :returns: Dictionary with keys 'first_name', 'middle_name', 'last_name',
+        'birth_year', 'death_year', 'wt_id', 'gender', 'birth_location',
+        'death_location', 'married_name'.
     """
     defaults = {
         "first_name": "",
+        "middle_name": "",
         "last_name": "",
         "birth_year": "",
         "death_year": "",
@@ -81,13 +111,17 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
         "gender": "",
         "birth_location": "",
         "death_location": "",
+        "married_name": "",
     }
     if not person:
         return defaults
 
     pname = person.get_primary_name()
     if pname:
-        defaults["first_name"] = str(pname.get_first_name() or "").strip()
+        given_names = str(pname.get_first_name() or "").split()
+        if given_names:
+            defaults["first_name"] = given_names[0]
+            defaults["middle_name"] = " ".join(given_names[1:])
         defaults["last_name"] = str(surname_text(pname) or "").strip()
 
     # Look for existing WikiTree ID in attributes or Internet URLs
@@ -118,10 +152,8 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
                         dplace_obj.get_name().get_value() or ""
                     ).strip()
 
-    # Gender
-    gender = person.get_gender()
-    if gender:
-        defaults["gender"] = str(gender)
+    # Gender, as WikiTree spells it (Male or Female); unknown is left blank.
+    defaults["gender"] = _WIKITREE_GENDERS.get(person.get_gender(), "")
 
     # Birth location
     bref = person.get_birth_ref()
@@ -136,7 +168,40 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
                         bplace_obj.get_name().get_value() or ""
                     ).strip()
 
+    defaults["married_name"] = _married_surname(db, person)
+
     return defaults
+
+
+def _married_surname(db: Any, person: Any) -> str:
+    """
+    Return the person's married surname, or '' when none is known.
+
+    A Married Name alternate name wins. Otherwise, for a woman, the husband's
+    surname from her most recent family (the last in her family list) is
+    used; this is a guess, so the dialog leaves the term unchecked.
+    """
+    for alt_name in person.get_alternate_names():
+        if int(alt_name.get_type()) == NameType.MARRIED:
+            married = surname_text(alt_name).strip()
+            if married:
+                return married
+
+    if not db or person.get_gender() != Person.FEMALE:
+        return ""
+    for family_handle in reversed(person.get_family_handle_list()):
+        family = db.get_family_from_handle(family_handle)
+        if not family:
+            continue
+        husband_handle = family.get_father_handle()
+        if not husband_handle or husband_handle == person.get_handle():
+            continue
+        husband = db.get_person_from_handle(husband_handle)
+        if husband:
+            married = surname_text(husband.get_primary_name()).strip()
+            if married:
+                return married
+    return ""
 
 
 # ------------------------------------------------------------
@@ -208,131 +273,139 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         # -----------------------------------------------------------------
         # 2. Horizontal Search Criteria Grid
         # -----------------------------------------------------------------
+        # Each search term has a check button above its entry. An unchecked
+        # term keeps its text but is left out of the search, so terms can be
+        # added or dropped with one click, or with Alt plus the underlined
+        # letter, instead of retyping them.
         search_grid = Gtk.Grid()
         search_grid.set_column_spacing(8)
         search_grid.set_row_spacing(4)
 
-        # First Name
-        fn_label = Gtk.Label(label=_("First Name:"))
-        fn_label.set_xalign(0.0)
-        search_grid.attach(fn_label, 0, 0, 1, 1)
+        self.term_checks: dict[str, Any] = {}
+        self.term_entries: dict[str, Any] = {}
+        for column, (key, label, placeholder, tooltip, width) in enumerate(
+            self._term_specs()
+        ):
+            check = Gtk.CheckButton(label=label, use_underline=True)
+            check.set_tooltip_text(
+                _(
+                    "Include this term in the search. Unchecked terms are "
+                    "kept but ignored."
+                )
+            )
+            check.connect("toggled", self.cb_term_toggled, key)
+            search_grid.attach(check, column, 0, 1, 1)
 
-        self.first_name_entry = Gtk.Entry()
-        self.first_name_entry.set_hexpand(True)
-        self.first_name_entry.set_placeholder_text(_("e.g. Benjamin"))
-        self.first_name_entry.set_tooltip_text(
-            _("Given name (supports wildcards * and ?).")
+            entry = Gtk.Entry()
+            if width:
+                entry.set_width_chars(width)
+            else:
+                entry.set_hexpand(True)
+            entry.set_placeholder_text(placeholder)
+            entry.set_tooltip_text(tooltip)
+            entry.connect("activate", self.cb_entry_activate)
+            search_grid.attach(entry, column, 1, 1, 1)
+
+            self.term_checks[key] = check
+            self.term_entries[key] = entry
+
+        self.first_name_entry = self.term_entries["first_name"]
+        self.middle_name_entry = self.term_entries["middle_name"]
+        self.last_name_entry = self.term_entries["last_name"]
+        self.married_name_entry = self.term_entries["married_name"]
+        self.gender_entry = self.term_entries["gender"]
+        self.birth_year_entry = self.term_entries["birth_year"]
+        self.birth_location_entry = self.term_entries["birth_location"]
+        self.death_year_entry = self.term_entries["death_year"]
+        self.death_location_entry = self.term_entries["death_location"]
+        self.wt_id_entry = self.term_entries["wt_id"]
+
+        # Search options, in a third row under the name and date columns.
+        # Each one is left out of the request at its default ("WikiTree
+        # default", unchecked or 0), so WikiTree's own defaults apply.
+        term_keys = [key for key, *_rest in self._term_specs()]
+
+        # Surname options: which last name to match, and spelling variants.
+        name_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        match_label = Gtk.Label(label=_("Last name matc_h:"), use_underline=True)
+        self.last_name_match_combo = Gtk.ComboBoxText()
+        for match_id, match_text in self._last_name_match_options():
+            self.last_name_match_combo.append(match_id, match_text)
+        self.last_name_match_combo.set_active_id("")
+        self.last_name_match_combo.set_tooltip_text(
+            _(
+                "Which WikiTree last name to match: the last name at birth, the "
+                "current (often married) last name, or either."
+            )
         )
-        self.first_name_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.first_name_entry, 0, 1, 1, 1)
-
-        # Last Name
-        ln_label = Gtk.Label(label=_("Last Name:"))
-        ln_label.set_xalign(0.0)
-        search_grid.attach(ln_label, 1, 0, 1, 1)
-
-        self.last_name_entry = Gtk.Entry()
-        self.last_name_entry.set_hexpand(True)
-        self.last_name_entry.set_placeholder_text(_("e.g. Franklin"))
-        self.last_name_entry.set_tooltip_text(
-            _("Surname at birth or current surname (supports wildcards * and ?).")
+        match_label.set_mnemonic_widget(self.last_name_match_combo)
+        self.skip_variants_check = Gtk.CheckButton(
+            label=_("_Exact spelling only"), use_underline=True
         )
-        self.last_name_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.last_name_entry, 1, 1, 1, 1)
-
-        # Gender
-        gen_label = Gtk.Label(label=_("Gender:"))
-        gen_label.set_xalign(0.0)
-        search_grid.attach(gen_label, 2, 0, 1, 1)
-
-        self.gender_entry = Gtk.Entry()
-        self.gender_entry.set_width_chars(10)
-        self.gender_entry.set_placeholder_text(_("e.g. Male"))
-        self.gender_entry.set_tooltip_text(
-            _("Filter by gender (Male, Female, Unknown).")
+        self.skip_variants_check.set_tooltip_text(
+            _(
+                "Match only the exact surname, skipping spelling variants "
+                "(for example Smith but not Smyth)."
+            )
         )
-        self.gender_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.gender_entry, 2, 1, 1, 1)
+        name_box.pack_start(match_label, False, False, 0)
+        name_box.pack_start(self.last_name_match_combo, False, False, 0)
+        name_box.pack_start(self.skip_variants_check, False, False, 0)
+        search_grid.attach(name_box, 0, 2, term_keys.index("birth_year"), 1)
 
-        # Birth Year
-        by_label = Gtk.Label(label=_("Birth Year:"))
-        by_label.set_xalign(0.0)
-        search_grid.attach(by_label, 3, 0, 1, 1)
-
-        self.birth_year_entry = Gtk.Entry()
-        self.birth_year_entry.set_width_chars(10)
-        self.birth_year_entry.set_placeholder_text(_("e.g. 1706"))
-        self.birth_year_entry.set_tooltip_text(
-            _("Birth year (4 digits) or full date (YYYY-MM-DD).")
+        # Date options: spread of years, and profiles without dates.
+        date_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        spread_label = Gtk.Label(label=_("Date s_pread (years):"), use_underline=True)
+        self.date_spread_spin = Gtk.SpinButton.new_with_range(
+            0, WikiTreeInterface.MAX_DATE_SPREAD, 1
         )
-        self.birth_year_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.birth_year_entry, 3, 1, 1, 1)
-
-        # Birth Location
-        bl_label = Gtk.Label(label=_("Birth Location:"))
-        bl_label.set_xalign(0.0)
-        search_grid.attach(bl_label, 4, 0, 1, 1)
-
-        self.birth_location_entry = Gtk.Entry()
-        self.birth_location_entry.set_width_chars(16)
-        self.birth_location_entry.set_placeholder_text(_("e.g. London"))
-        self.birth_location_entry.set_tooltip_text(
-            _("Filter by birth place (supports wildcards * and ?).")
+        self.date_spread_spin.set_value(0)
+        self.date_spread_spin.set_tooltip_text(
+            _(
+                "How many years WikiTree may allow around the birth and death "
+                "years when matching (1-20). 0 uses WikiTree's default."
+            )
         )
-        self.birth_location_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.birth_location_entry, 4, 1, 1, 1)
-
-        # Death Year
-        dy_label = Gtk.Label(label=_("Death Year:"))
-        dy_label.set_xalign(0.0)
-        search_grid.attach(dy_label, 5, 0, 1, 1)
-
-        self.death_year_entry = Gtk.Entry()
-        self.death_year_entry.set_width_chars(10)
-        self.death_year_entry.set_placeholder_text(_("e.g. 1790"))
-        self.death_year_entry.set_tooltip_text(
-            _("Death year (4 digits) or full date (YYYY-MM-DD).")
+        self.date_spread_spin.connect("activate", self.cb_entry_activate)
+        spread_label.set_mnemonic_widget(self.date_spread_spin)
+        include_label = Gtk.Label(label=_("Und_ated profiles:"), use_underline=True)
+        self.date_include_combo = Gtk.ComboBoxText()
+        for include_id, include_text in self._date_include_options():
+            self.date_include_combo.append(include_id, include_text)
+        self.date_include_combo.set_active_id("")
+        self.date_include_combo.set_tooltip_text(
+            _(
+                "Whether profiles with no birth or death date may match a "
+                "search that includes dates."
+            )
         )
-        self.death_year_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.death_year_entry, 5, 1, 1, 1)
+        include_label.set_mnemonic_widget(self.date_include_combo)
+        date_box.pack_start(spread_label, False, False, 0)
+        date_box.pack_start(self.date_spread_spin, False, False, 0)
+        date_box.pack_start(include_label, False, False, 0)
+        date_box.pack_start(self.date_include_combo, False, False, 0)
+        date_column = term_keys.index("birth_year")
+        search_grid.attach(date_box, date_column, 2, len(term_keys) - date_column, 1)
 
-        # Death Location
-        dl_label = Gtk.Label(label=_("Death Location:"))
-        dl_label.set_xalign(0.0)
-        search_grid.attach(dl_label, 6, 0, 1, 1)
-
-        self.death_location_entry = Gtk.Entry()
-        self.death_location_entry.set_width_chars(16)
-        self.death_location_entry.set_placeholder_text(_("e.g. London"))
-        self.death_location_entry.set_tooltip_text(
-            _("Filter by death place (supports wildcards * and ?).")
+        # Reset and Search Buttons
+        button_column = len(self.term_entries)
+        self.btn_reset = Gtk.Button(label=_("_Reset"), use_underline=True)
+        self.btn_reset.set_tooltip_text(
+            _(
+                "Restore the search terms taken from the target person and "
+                "the default selection (first name, last name, birth year)."
+            )
         )
-        self.death_location_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.death_location_entry, 6, 1, 1, 1)
+        self.btn_reset.connect("clicked", self.cb_reset_terms)
+        search_grid.attach(self.btn_reset, button_column, 1, 1, 1)
 
-        # WikiTree ID
-        wt_label = Gtk.Label(label=_("WikiTree ID:"))
-        wt_label.set_xalign(0.0)
-        search_grid.attach(wt_label, 7, 0, 1, 1)
-
-        self.wt_id_entry = Gtk.Entry()
-        self.wt_id_entry.set_width_chars(16)
-        self.wt_id_entry.set_placeholder_text(_("e.g. Franklin-1"))
-        self.wt_id_entry.set_tooltip_text(
-            _("Exact WikiTree ID for direct lookup (e.g. 'Franklin-1').")
-        )
-        self.wt_id_entry.connect("activate", self.cb_entry_activate)
-        search_grid.attach(self.wt_id_entry, 7, 1, 1, 1)
-
-        # Search Button
-        search_grid.attach(Gtk.Label(label=""), 8, 0, 1, 1)
         self.btn_search = Gtk.Button(label=_("_Search"), use_underline=True)
         self.btn_search.get_style_context().add_class("suggested-action")
         self.btn_search.set_tooltip_text(
-            _("Search WikiTree using the parameters entered above.")
+            _("Search WikiTree using the checked terms above.")
         )
         self.btn_search.connect("clicked", self.cb_search)
-        search_grid.attach(self.btn_search, 9, 1, 1, 1)
+        search_grid.attach(self.btn_search, button_column + 1, 1, 1, 1)
 
         content.pack_start(search_grid, False, False, 0)
 
@@ -343,7 +416,11 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         self.status_label.set_xalign(0.0)
         self.status_label.set_line_wrap(True)
         self.status_label.set_text(
-            _("Enter search terms above and click Search, or look up by WikiTree ID.")
+            _(
+                "Check the terms to search on and click Search, or look up by "
+                "WikiTree ID. Alt plus an underlined letter checks or unchecks "
+                "a term."
+            )
         )
         content.pack_start(self.status_label, False, False, 0)
 
@@ -399,9 +476,202 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         action_area.pack_end(self.btn_merge, False, False, 0)
 
         # Pre-populate search entries from target person or default query
+        self.default_query = default_query
         self._prefill_entries(default_query=default_query)
+        self._apply_default_terms()
 
         self.show_all()
+
+    @staticmethod
+    def _term_specs() -> list[tuple[str, str, str, str, int]]:
+        """
+        Return (key, check label, placeholder, entry tooltip, width) for each
+        search term, in column order. A width of 0 lets the entry expand.
+
+        The underlined letters must not clash with each other, with the
+        search option labels (matc_h, _Exact, s_pread, Und_ated), or with
+        the _Search, _Reset, _Merge and _Close buttons.
+        """
+        return [
+            (
+                "first_name",
+                _("_First Name"),
+                _("Given name"),
+                _("First given name (supports wildcards * and ?)."),
+                0,
+            ),
+            (
+                "middle_name",
+                _("M_iddle Name"),
+                _("Other given names"),
+                _(
+                    "Other given names. When checked, they are searched "
+                    "together with the first name."
+                ),
+                10,
+            ),
+            (
+                "last_name",
+                _("_Last Name"),
+                _("Surname"),
+                _("Surname at birth or current surname (supports wildcards * and ?)."),
+                0,
+            ),
+            (
+                "married_name",
+                _("Married _Name"),
+                _("Current surname"),
+                _(
+                    "Married or other current surname, searched as WikiTree's "
+                    "current last name. Filled from a Married Name alternate "
+                    "name, or for a woman from her husband's surname."
+                ),
+                14,
+            ),
+            (
+                "gender",
+                _("_Gender"),
+                _("Male or Female"),
+                _("Filter by gender: Male or Female."),
+                10,
+            ),
+            (
+                "birth_year",
+                _("_Birth Year"),
+                _("YYYY or YYYY-MM-DD"),
+                _("Birth year (4 digits) or full date (YYYY-MM-DD)."),
+                10,
+            ),
+            (
+                "birth_location",
+                _("Birth L_ocation"),
+                _("Place"),
+                _("Filter by birth place (supports wildcards * and ?)."),
+                16,
+            ),
+            (
+                "death_year",
+                _("_Death Year"),
+                _("YYYY or YYYY-MM-DD"),
+                _("Death year (4 digits) or full date (YYYY-MM-DD)."),
+                10,
+            ),
+            (
+                "death_location",
+                _("Death Loca_tion"),
+                _("Place"),
+                _("Filter by death place (supports wildcards * and ?)."),
+                16,
+            ),
+            (
+                "wt_id",
+                _("_WikiTree ID"),
+                _("Surname-number"),
+                _("Exact WikiTree ID for direct lookup (e.g. 'Franklin-1')."),
+                16,
+            ),
+        ]
+
+    @staticmethod
+    def _last_name_match_options() -> list[tuple[str, str]]:
+        """
+        Return (lastNameMatch value, label) choices; '' means not sent.
+
+        WikiTree also accepts 'strict', which it does not document, so it is
+        not offered.
+        """
+        return [
+            ("", _("WikiTree default")),
+            ("all", _("Birth or current")),
+            ("birth", _("Birth name only")),
+            ("current", _("Current name only")),
+        ]
+
+    @staticmethod
+    def _date_include_options() -> list[tuple[str, str]]:
+        """
+        Return (dateInclude value, label) choices; '' means not sent.
+        """
+        return [
+            ("", _("WikiTree default")),
+            ("neither", _("Include")),
+            ("both", _("Leave out")),
+        ]
+
+    def _search_options(self) -> dict[str, Any]:
+        """
+        Return the extra searchPerson options that are set, keyed by their
+        WikiTree parameter names. Options at their default are left out.
+        """
+        options: dict[str, Any] = {}
+        married = self._term_value("married_name")
+        if married:
+            options["LastNameCurrent"] = married
+        match = self.last_name_match_combo.get_active_id()
+        if match:
+            options["lastNameMatch"] = str(match)
+        if self.skip_variants_check.get_active():
+            options["skipVariants"] = 1
+        include = self.date_include_combo.get_active_id()
+        if include:
+            options["dateInclude"] = str(include)
+        return options
+
+    def _apply_default_terms(self) -> None:
+        """
+        Check the default search terms and uncheck the rest.
+        """
+        for key, check in self.term_checks.items():
+            check.set_active(SEARCH_TERM_DEFAULTS.get(key, False))
+            self._sync_term_entry(key)
+
+    def _sync_term_entry(self, key: str) -> None:
+        """
+        Make a term's entry editable only while its check button is checked.
+        """
+        self.term_entries[key].set_sensitive(bool(self.term_checks[key].get_active()))
+
+    def _term_value(self, key: str) -> str:
+        """
+        Return a term's text, or '' when the term is unchecked.
+        """
+        if not self.term_checks[key].get_active():
+            return ""
+        return str(self.term_entries[key].get_text()).strip()
+
+    def _date_spread(self) -> int:
+        """
+        Return the date spread to search with, or 0 when none is set.
+        """
+        return max(0, int(self.date_spread_spin.get_value_as_int()))
+
+    def _search_first_name(self) -> str:
+        """
+        Return the given names to search on: the first name, followed by the
+        middle name when that term is checked.
+        """
+        parts = [self._term_value("first_name"), self._term_value("middle_name")]
+        return " ".join(part for part in parts if part)
+
+    def cb_term_toggled(self, _check: Gtk.CheckButton, key: str) -> None:
+        """
+        Enable or disable a term's entry when its check button is toggled.
+        """
+        self._sync_term_entry(key)
+
+    def cb_reset_terms(self, _widget: Any = None) -> None:
+        """
+        Restore the starting search values, the default term selection and
+        the default search options.
+        """
+        for entry in self.term_entries.values():
+            entry.set_text("")
+        self._prefill_entries(default_query=self.default_query)
+        self._apply_default_terms()
+        self.date_spread_spin.set_value(0)
+        self.date_include_combo.set_active_id("")
+        self.last_name_match_combo.set_active_id("")
+        self.skip_variants_check.set_active(False)
 
     def _build_tree_columns(self) -> None:
         """
@@ -445,7 +715,9 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         if target_person:
             defaults = _extract_person_search_defaults(db, target_person)
             self.first_name_entry.set_text(defaults["first_name"])
+            self.middle_name_entry.set_text(defaults["middle_name"])
             self.last_name_entry.set_text(defaults["last_name"])
+            self.married_name_entry.set_text(defaults["married_name"])
             self.birth_year_entry.set_text(defaults["birth_year"])
             self.death_year_entry.set_text(defaults["death_year"])
             self.wt_id_entry.set_text(defaults["wt_id"])
@@ -496,15 +768,19 @@ class WikiTreeSearchDialog(Gtk.Dialog):
     def cb_search(self, _widget: Any = None) -> None:
         """
         Execute search against WikiTree and populate the results table.
+
+        Only checked terms are used.
         """
-        first_name = self.first_name_entry.get_text().strip()
-        last_name = self.last_name_entry.get_text().strip()
-        birth_year = self.birth_year_entry.get_text().strip()
-        death_year = self.death_year_entry.get_text().strip()
-        wt_id = self.wt_id_entry.get_text().strip()
-        gender = self.gender_entry.get_text().strip()
-        birth_location = self.birth_location_entry.get_text().strip()
-        death_location = self.death_location_entry.get_text().strip()
+        first_name = self._search_first_name()
+        last_name = self._term_value("last_name")
+        birth_year = self._term_value("birth_year")
+        death_year = self._term_value("death_year")
+        wt_id = self._term_value("wt_id")
+        gender = self._term_value("gender")
+        birth_location = self._term_value("birth_location")
+        death_location = self._term_value("death_location")
+        date_spread = self._date_spread()
+        married_name = self._term_value("married_name")
         extracted_wt = extract_wikitree_id(wt_id)
         if extracted_wt:
             wt_id = extracted_wt
@@ -524,6 +800,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         if not (
             first_name
             or last_name
+            or married_name
             or birth_year
             or death_year
             or wt_id
@@ -532,7 +809,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             or death_location
         ):
             self.status_label.set_text(
-                _("Please enter a name, year, or WikiTree ID to search.")
+                _("Please check and fill in a name, year, or WikiTree ID to search.")
             )
             return
 
@@ -557,6 +834,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             if (
                 first_name
                 or last_name
+                or married_name
                 or birth_year
                 or death_year
                 or gender
@@ -571,7 +849,9 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                     Gender=gender,
                     BirthLocation=birth_location,
                     DeathLocation=death_location,
-                    limit=50,
+                    date_spread=date_spread,
+                    limit=WikiTreeInterface.MAX_SEARCH_LIMIT,
+                    **self._search_options(),
                 )
                 for item in search_matches:
                     m_id = str(item.get("Name") or "")
@@ -770,16 +1050,16 @@ class WikiTreeSearchDialog(Gtk.Dialog):
 
     def get_query_parameters(self) -> dict[str, Any]:
         """
-        Retrieve user-entered parameters from the dialog fields.
+        Retrieve the checked search terms from the dialog fields.
 
         :returns: Parameter dictionary for WikiTreeGWizard.
         :rtype: dict[str, Any]
         """
-        first_name = self.first_name_entry.get_text().strip()
-        last_name = self.last_name_entry.get_text().strip()
-        birth_year = self.birth_year_entry.get_text().strip()
-        death_year = self.death_year_entry.get_text().strip()
-        wt_id = self.wt_id_entry.get_text().strip()
+        first_name = self._search_first_name()
+        last_name = self._term_value("last_name")
+        birth_year = self._term_value("birth_year")
+        death_year = self._term_value("death_year")
+        wt_id = self._term_value("wt_id")
 
         query = wt_id or f"{first_name} {last_name}".strip()
 
@@ -790,6 +1070,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             "birth_date": birth_year,
             "death_date": death_year,
             "wt_id": wt_id,
+            "date_spread": self._date_spread(),
             "ancestors": self.ancestors,
             "app_id": self.app_id,
         }

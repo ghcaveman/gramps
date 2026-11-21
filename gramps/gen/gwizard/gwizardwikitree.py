@@ -270,6 +270,9 @@ class WikiTreeInterface:
 
     DEFAULT_BASE_URL = "https://api.wikitree.com/api.php"
     DEFAULT_APP_ID = "Gramps_GWizard_1.0"
+    # searchPerson limits from the WikiTree API documentation.
+    MAX_SEARCH_LIMIT = 100
+    MAX_DATE_SPREAD = 20
 
     def __init__(
         self,
@@ -413,6 +416,7 @@ class WikiTreeInterface:
         death_date: str = "",
         limit: int = 25,
         timeout: int = 30,
+        date_spread: int = 0,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """
@@ -422,15 +426,17 @@ class WikiTreeInterface:
         :param last_name: Last/surname.
         :param birth_date: Birth year or full date.
         :param death_date: Death year or full date.
-        :param limit: Maximum records to return.
+        :param limit: Maximum records to return (WikiTree allows 1-100).
         :param timeout: HTTP request timeout.
+        :param date_spread: Span of years WikiTree allows when matching
+            dates (1-20); 0 leaves it to WikiTree's default.
         :returns: List of matching profile dictionaries.
         """
         import requests
 
         params: dict[str, Any] = {
             "action": "searchPerson",
-            "limit": max(1, min(limit, 50)),
+            "limit": max(1, min(limit, self.MAX_SEARCH_LIMIT)),
             "appId": self.app_id,
         }
         if first_name:
@@ -441,6 +447,8 @@ class WikiTreeInterface:
             params["BirthDate"] = birth_date
         if death_date:
             params["DeathDate"] = death_date
+        if date_spread > 0:
+            params["dateSpread"] = min(date_spread, self.MAX_DATE_SPREAD)
 
         for key, val in kwargs.items():
             if val is not None:

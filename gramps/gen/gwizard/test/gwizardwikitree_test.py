@@ -225,6 +225,30 @@ class TestWikiTreeInterface(unittest.TestCase):
         self.assertEqual(sent_params.get("limit"), 50)
 
     @patch("requests.get")
+    def test_search_person_limit_and_date_spread(self, mock_get: Mock) -> None:
+        """Verify the 100-result cap and that dateSpread is sent only when set."""
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [{"status": 0, "matches": []}]
+        mock_get.return_value = mock_resp
+        client = WikiTreeInterface()
+
+        client.search_person(last_name="Franklin", limit=100, date_spread=5)
+        sent = mock_get.call_args.kwargs["params"]
+        self.assertEqual(sent["limit"], 100)
+        self.assertEqual(sent["dateSpread"], 5)
+
+        client.search_person(last_name="Franklin", limit=500, date_spread=50)
+        sent = mock_get.call_args.kwargs["params"]
+        self.assertEqual(sent["limit"], 100)
+        self.assertEqual(sent["dateSpread"], 20)
+
+        client.search_person(last_name="Franklin", limit=0)
+        sent = mock_get.call_args.kwargs["params"]
+        self.assertEqual(sent["limit"], 1)
+        self.assertNotIn("dateSpread", sent)
+
+    @patch("requests.get")
     def test_get_bio_success(self, mock_get: Mock) -> None:
         """Verify getBio returns raw biography markdown text."""
         mock_resp = Mock()
