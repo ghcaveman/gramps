@@ -862,6 +862,14 @@ class NaraSearchDialog(Gtk.Dialog):
             self.status_label.set_text(_("NARA search failed: %s") % str(err))
             return
 
+        self._show_hits(hits, query)
+
+    def _show_hits(self, hits: list[dict[str, Any]], query: str) -> None:
+        """
+        Fill the results table with NARA search hits and select the first.
+
+        :param query: The query the hits came from, for the status message.
+        """
         self.results_store.clear()
         self.btn_merge.set_sensitive(False)
 
@@ -1396,6 +1404,47 @@ def _show_nara_api_error(parent: Any, message: str) -> None:
     dialog.format_secondary_text(message)
     dialog.run()
     dialog.destroy()
+
+
+def open_nara_record(
+    uistate: Any,
+    dbstate: Any,
+    person_handle: str,
+    hit: dict[str, Any],
+    parent: Any = None,
+    client: Any = None,
+) -> bool:
+    """
+    Open the NARA window for a person with one record already listed and
+    selected, and go straight to its Attach to Person review (the merge
+    window with the record on the left and the person on the right). The
+    NARA window stays open afterwards, so Merge is still there for a record
+    that names a person as its creator. Used by the GWizard Record Scan.
+
+    :param hit: The record as the NARA search returned it.
+    :returns: True (the person may have changed).
+    """
+    dialog = NaraSearchDialog(
+        uistate=uistate,
+        dbstate=dbstate,
+        target_handle=person_handle,
+        parent=parent,
+        client=client,
+    )
+    parsed = NaraCatalogInterface.parse_record(hit)
+    dialog._show_hits([hit], str(parsed.get("naid") or ""))
+
+    def cb_open() -> bool:
+        if dialog.btn_attach.get_sensitive():
+            dialog.cb_attach()
+        return False
+
+    GLib.idle_add(cb_open)
+    try:
+        dialog.run()
+    finally:
+        dialog.destroy()
+    return True
 
 
 def ask_nara_parameters(parent: Any, default_query: str = "") -> dict[str, Any] | None:

@@ -898,6 +898,7 @@ gramps/plugins/tool/findloop.py
 gramps/plugins/tool/gwizardaddonutil.py
 gramps/plugins/tool/gwizardmerge.py
 gramps/plugins/tool/gwizardnara.py
+gramps/plugins/tool/gwizardnarasource.py
 gramps/plugins/tool/mediamanager.py
 gramps/plugins/tool/gw_fixmediareferencesdialog.py
 gramps/plugins/tool/gw_mediapreview.py

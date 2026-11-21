@@ -33,6 +33,7 @@ modules = [
     "gramps/gui/gwizard/gwizardnaraattachdialog.py",
     "gramps/gui/gwizard/gwizardnaralauncher.py",
     "gramps/plugins/tool/gwizardnara.py",
+    "gramps/plugins/tool/gwizardnarasource.py",
 ]
 tests = [
     "gramps/gen/gwizard/test/gwizardnara_test.py",
@@ -40,7 +41,22 @@ tests = [
     "gramps/gen/gwizard/test/gwizardnarapages_test.py",
     "gramps/gui/gwizard/test/gwizardnaraattachdialog_test.py",
     "gramps/gui/gwizard/test/gwizardnaralauncher_test.py",
+    "gramps/plugins/tool/test/gwizardnarasource_test.py",
 ]
+
+# NARA as a record source for the GWizard Record Scan (which ships in
+# GWizard File Merge): a GENERAL plugin the scan finds by its category.
+[[extra_registrations]]
+type = "GENERAL"
+id = "gwizardnarasource"
+name = "GWizard NARA record source"
+description = "Lets the GWizard Record Scan search the NARA catalog."
+fname = "gwizardnarasource.py"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+category = "GWizardRecordSource"
+load_on_reg = true
+gramps_versions = ["5.2.0", "6.2.0"]
 
 # Real NARA Catalog API v2 responses the tests read. The folder is shared
 # with File Merge's fixtures, so those are copied too.
@@ -60,6 +76,7 @@ package = "GWizardFileMerge"
 modules = [
     "gramps/gen/gwizard/gwizard_base.py",
     "gramps/gen/gwizard/gwizard_filemerge_media.py",
+    "gramps/gen/gwizard/gwizard_filemerge_recordscan.py",
     "gramps/gen/gwizard/gwizardaltmatch.py",
     "gramps/gen/gwizard/gwizardgedcom.py",
     "gramps/gui/gwizard/gwizardaltcompare.py",
@@ -93,6 +110,10 @@ ignore = [
     "gramps/gen/gwizard/test/gwizard_*_test.py",
     "gramps/gui/gwizard/test/gwizard_*_test.py",
     "gramps/plugins/tool/test/gwizardmerge*_test.py",
+    "gramps/gen/gwizard/gwizard_filemerge_*.py",
+    "gramps/gui/gwizard/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
     # Media Fix files, built from the gwizard_mediafix repo (not listed as a
     # dependency yet; see the note at the top).
     "gramps/plugins/tool/gwizardmediafix.py",

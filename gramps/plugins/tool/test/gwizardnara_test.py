@@ -79,8 +79,8 @@ class GWizardNaraToolTest(unittest.TestCase):
         self.assertIn('id="gwizardnara"', content)
         self.assertIn('name=_("GWizard NARA Merge")', content)
         self.assertIn('fname="gwizardnara.py"', content)
-        self.assertIn('toolclass="GWizardNaraMergeTool"', content)
-        self.assertIn('optionclass="GWizardNaraMergeToolOptions"', content)
+        self.assertIn('toolclass="GWizardNaraMerge"', content)
+        self.assertIn('optionclass="GWizardNaraMergeOptions"', content)
         self.assertIn("category=TOOL_DBPROC", content)
 
 
