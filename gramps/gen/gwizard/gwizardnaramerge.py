@@ -31,6 +31,7 @@ GWizard import and merge framework.
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import logging
+import mimetypes
 import os
 import re
 from typing import Any
@@ -318,12 +319,85 @@ class NaraCatalogInterface:
         return []
 
     @staticmethod
+    def _creators_of(entry: dict[str, Any]) -> tuple[list[str], list[str]]:
+        """
+        Return (all creator headings, person creator headings) of a record or
+        ancestor entry from its 'creators' list.
+        """
+        creators: list[str] = []
+        person_creators: list[str] = []
+        creators_data = entry.get("creators") or []
+        if isinstance(creators_data, dict):
+            creators_data = [creators_data]
+        for creator in creators_data if isinstance(creators_data, list) else []:
+            if isinstance(creator, dict):
+                heading = str(creator.get("heading") or "").strip()
+            else:
+                heading = str(creator or "").strip()
+            if not heading:
+                continue
+            creators.append(heading)
+            if NaraCatalogInterface.is_person_creator(creator, heading):
+                person_creators.append(heading)
+        return creators, person_creators
+
+    @staticmethod
+    def _date_range_of(entry: dict[str, Any]) -> str:
+        """
+        Return an entry's inclusive (or coverage) date range as "YYYY" or
+        "YYYY-YYYY", or '' when it has none.
+        """
+
+        def year(value: Any) -> str:
+            if isinstance(value, dict):
+                value = value.get("year") or value.get("logicalDate") or ""
+            match = re.match(r"\s*(\d{4})", str(value or ""))
+            return match.group(1) if match else ""
+
+        for start_key, end_key in (
+            ("inclusiveStartDate", "inclusiveEndDate"),
+            ("coverageStartDate", "coverageEndDate"),
+        ):
+            start, end = year(entry.get(start_key)), year(entry.get(end_key))
+            if start or end:
+                return (
+                    f"{start}-{end}" if start and end and start != end else start or end
+                )
+        return ""
+
+    @staticmethod
+    def _mime_type_of(digital_object: dict[str, Any]) -> str:
+        """
+        Return a MIME type for a digital object. NARA gives a description
+        such as "Image (JPG)" in objectType, so the file name decides.
+        """
+        object_type = str(digital_object.get("objectType") or "")
+        if "/" in object_type:
+            return object_type
+        name = str(
+            digital_object.get("objectFilename")
+            or digital_object.get("objectUrl")
+            or ""
+        )
+        guessed, _encoding = mimetypes.guess_type(name)
+        return guessed or ""
+
+    @staticmethod
     def parse_record(hit: dict[str, Any]) -> dict[str, Any]:
         """
         Normalize a NARA search hit into fields used by the merge flow.
 
-        'creators' holds every creator heading (people and agencies);
-        'person_creators' holds only those that name a person.
+        Field names follow real NARA Catalog API v2 responses (see the
+        nara_*.json samples in the test data folder):
+
+        - 'creators' holds the record's own creator headings (people and
+          agencies). File units and items usually have none; then the
+          creators of the nearest ancestor (normally the series) are used and
+          'creators_from' names that ancestor's level.
+        - 'person_creators' holds only the record's own creators that name a
+          person; ancestor creators are never treated as the record's person.
+        - 'date_str' is the record's own date range, or the nearest
+          ancestor's, with 'date_from' naming the ancestor's level.
         """
         record_source = hit.get("_source")
         if not isinstance(record_source, dict):
@@ -332,72 +406,48 @@ class NaraCatalogInterface:
         if not isinstance(record, dict):
             record = record_source
 
-        naid = str(
-            record_source.get("naId") or record.get("naId") or hit.get("_id") or ""
+        naid = str(record.get("naId") or hit.get("_id") or "")
+        creators, person_creators = NaraCatalogInterface._creators_of(record)
+        date_str = NaraCatalogInterface._date_range_of(record)
+        creators_from = ""
+        date_from = ""
+
+        ancestors = record.get("ancestors") or []
+        ancestors = sorted(
+            (a for a in ancestors if isinstance(a, dict)),
+            key=lambda a: int(a.get("distance") or 0),
         )
-        creators_data = record.get("authors", {})
-        if isinstance(creators_data, dict):
-            creators_data = creators_data.get("creator", [])
-        if not isinstance(creators_data, list):
-            creators_data = [creators_data] if creators_data else []
-        creators: list[str] = []
-        person_creators: list[str] = []
-        for creator in creators_data:
-            if isinstance(creator, str):
-                heading = creator
-            elif isinstance(creator, dict):
-                heading = (
-                    creator.get("heading")
-                    or creator.get("creatorName")
-                    or creator.get("name")
-                    or ""
-                )
-            else:
-                heading = ""
-            if heading and str(heading).strip():
-                heading = str(heading).strip()
-                creators.append(heading)
-                if NaraCatalogInterface.is_person_creator(creator, heading):
-                    person_creators.append(heading)
+        for ancestor in ancestors:
+            level = str(ancestor.get("levelOfDescription") or "")
+            if not creators:
+                creators = NaraCatalogInterface._creators_of(ancestor)[0]
+                creators_from = level if creators else ""
+            if not date_str:
+                date_str = NaraCatalogInterface._date_range_of(ancestor)
+                date_from = level if date_str else ""
 
-        dates = record.get("dates", [])
-        if isinstance(dates, dict):
-            dates = [dates]
-        date_values: list[str] = []
-        for date_value in dates if isinstance(dates, list) else []:
-            if isinstance(date_value, dict):
-                start = str(date_value.get("startDate") or date_value.get("date") or "")
-                end = str(date_value.get("endDate") or "")
-                value = (
-                    f"{start}-{end}" if start and end and start != end else start or end
-                )
-            else:
-                value = str(date_value)
-            if value:
-                date_values.append(value)
+        record_types = record.get("generalRecordsTypes") or []
+        if isinstance(record_types, str):
+            record_types = [record_types]
 
-        digital_objects = record.get("digitalObjects", [])
+        parsed_media = []
+        digital_objects = record.get("digitalObjects") or []
         if isinstance(digital_objects, dict):
             digital_objects = [digital_objects]
-        parsed_media = []
         for digital_object in (
             digital_objects if isinstance(digital_objects, list) else []
         ):
             if not isinstance(digital_object, dict):
                 continue
-            url = digital_object.get("objectUrl") or digital_object.get("url")
+            url = digital_object.get("objectUrl")
             if url:
                 parsed_media.append(
                     {
                         "url": str(url),
-                        "mime_type": str(
-                            digital_object.get("mimeType")
-                            or digital_object.get("objectType")
-                            or ""
-                        ),
+                        "mime_type": NaraCatalogInterface._mime_type_of(digital_object),
                         "description": str(
-                            digital_object.get("title")
-                            or digital_object.get("caption")
+                            digital_object.get("objectDescription")
+                            or digital_object.get("objectDesignator")
                             or ""
                         ),
                     }
@@ -406,11 +456,14 @@ class NaraCatalogInterface:
         return {
             "naid": naid,
             "title": str(record.get("title") or ""),
+            "level": str(record.get("levelOfDescription") or ""),
             "creators": creators,
+            "creators_from": creators_from,
             "person_creators": person_creators,
             "scope_note": str(record.get("scopeAndContentNote") or ""),
-            "material_type": str(record.get("typeOfMaterials") or ""),
-            "date_str": ", ".join(date_values),
+            "material_type": ", ".join(str(t) for t in record_types if t),
+            "date_str": date_str,
+            "date_from": date_from,
             "web_url": f"https://catalog.archives.gov/id/{naid}" if naid else "",
             "digital_objects": parsed_media,
         }

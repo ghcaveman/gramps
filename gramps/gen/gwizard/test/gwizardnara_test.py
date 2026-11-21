@@ -28,6 +28,7 @@ Unit tests for the NARA Catalog API interface and GWizard NARA merge backend.
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import json
 import os
 import shutil
 import tempfile
@@ -106,6 +107,21 @@ from gramps.gen.lib import Person, Name, Surname
 #
 # -------------------------------------------------------------------------
 from ..gwizardnaramerge import NaraCatalogInterface, NaraGWizard
+
+_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+
+def _load_sample(name: str) -> dict[str, Any]:
+    """
+    Load a NARA Catalog API v2 response saved in the test data folder.
+
+    nara_record_naturalization.json (NAID 90361620) and
+    nara_search_pension.json ("john smith pension") are real responses,
+    trimmed to two hits and two digital objects each, with the archives'
+    contact details removed.
+    """
+    with open(os.path.join(_DATA_DIR, name), encoding="utf-8") as sample:
+        return json.load(sample)
 
 
 # ------------------------------------------------------------
@@ -229,12 +245,15 @@ class TestNaraCatalogInterface(unittest.TestCase):
                 "naId": "999",
                 "record": {
                     "title": "Lincoln, Abraham - Pension Application",
-                    "authors": {
-                        "creator": [{"heading": "Lincoln, Abraham, 1809-1865"}]
-                    },
+                    "creators": [
+                        {
+                            "heading": "Lincoln, Abraham, 1809-1865",
+                            "authorityType": "person",
+                        }
+                    ],
                     "scopeAndContentNote": "Contains pension files.",
-                    "typeOfMaterials": "textual records",
-                    "dates": [{"startDate": "1861"}],
+                    "generalRecordsTypes": ["Textual Records"],
+                    "inclusiveStartDate": {"year": 1861, "logicalDate": "1861-01-01"},
                     "digitalObjects": [
                         {
                             "objectUrl": "https://catalog.archives.gov/image.jpg",
@@ -251,7 +270,7 @@ class TestNaraCatalogInterface(unittest.TestCase):
         self.assertEqual(parsed["creators"], ["Lincoln, Abraham, 1809-1865"])
         self.assertEqual(parsed["person_creators"], ["Lincoln, Abraham, 1809-1865"])
         self.assertEqual(parsed["scope_note"], "Contains pension files.")
-        self.assertEqual(parsed["material_type"], "textual records")
+        self.assertEqual(parsed["material_type"], "Textual Records")
         self.assertEqual(parsed["date_str"], "1861")
         self.assertEqual(parsed["web_url"], "https://catalog.archives.gov/id/999")
         self.assertEqual(len(parsed["digital_objects"]), 1)
@@ -318,12 +337,16 @@ class TestNaraCatalogInterface(unittest.TestCase):
                 "naId": "777",
                 "record": {
                     "title": "Pension File of John Smith",
-                    "authors": {
-                        "creator": [
-                            {"heading": "Department of Veterans Affairs. 1989-"},
-                            {"heading": "Smith, John, 1840-1910"},
-                        ]
-                    },
+                    "creators": [
+                        {
+                            "heading": "Department of Veterans Affairs. 1989-",
+                            "authorityType": "organization",
+                        },
+                        {
+                            "heading": "Smith, John, 1840-1910",
+                            "authorityType": "person",
+                        },
+                    ],
                 },
             }
         }
@@ -333,6 +356,79 @@ class TestNaraCatalogInterface(unittest.TestCase):
             ["Department of Veterans Affairs. 1989-", "Smith, John, 1840-1910"],
         )
         self.assertEqual(parsed["person_creators"], ["Smith, John, 1840-1910"])
+
+    def test_parse_real_naturalization_record(self) -> None:
+        """Verify parsing of a real file unit whose creators are on its series."""
+        hits = NaraCatalogInterface.extract_hits(
+            _load_sample("nara_record_naturalization.json")
+        )
+        self.assertEqual(len(hits), 1)
+
+        parsed = NaraCatalogInterface.parse_record(hits[0])
+        self.assertEqual(parsed["naid"], "90361620")
+        self.assertEqual(parsed["title"], "MacDonald, Lyman Angus - 1942")
+        self.assertEqual(parsed["level"], "fileUnit")
+        self.assertEqual(
+            parsed["creators"], ["California. Superior Court (San Diego County)"]
+        )
+        self.assertEqual(parsed["creators_from"], "series")
+        self.assertEqual(parsed["person_creators"], [])
+        self.assertEqual(parsed["date_str"], "1929-1956")
+        self.assertEqual(parsed["date_from"], "series")
+        self.assertEqual(parsed["material_type"], "Textual Records")
+        self.assertEqual(len(parsed["digital_objects"]), 2)
+        self.assertEqual(parsed["digital_objects"][0]["mime_type"], "image/jpeg")
+        self.assertTrue(
+            parsed["digital_objects"][0]["url"].endswith("/images/2480.jpg")
+        )
+        self.assertEqual(
+            parsed["digital_objects"][0]["description"], "Image provided by Fold3."
+        )
+
+    def test_parse_real_pension_search(self) -> None:
+        """Verify real pension file units take the nearest ancestor's creators."""
+        hits = NaraCatalogInterface.extract_hits(
+            _load_sample("nara_search_pension.json")
+        )
+        self.assertEqual(len(hits), 2)
+        for hit in hits:
+            parsed = NaraCatalogInterface.parse_record(hit)
+            self.assertIn("Approved Pension Application File for", parsed["title"])
+            self.assertEqual(parsed["person_creators"], [])
+            self.assertEqual(
+                parsed["creators"],
+                [
+                    "Veterans Administration. (7/21/1930 - 3/15/1989)",
+                    "Department of the Interior. Bureau of Pensions. 1849-1930",
+                ],
+            )
+            self.assertEqual(parsed["creators_from"], "series")
+            self.assertEqual(parsed["date_str"], "1861-1934")
+            self.assertEqual(parsed["material_type"], "Textual Records")
+            self.assertEqual(len(parsed["digital_objects"]), 2)
+
+    def test_parse_record_own_dates_win(self) -> None:
+        """Verify a record's own dates are used before its ancestors'."""
+        hit = {
+            "_source": {
+                "record": {
+                    "naId": 5,
+                    "coverageStartDate": {"year": 1918, "logicalDate": "1918-01-01"},
+                    "ancestors": [
+                        {
+                            "distance": 1,
+                            "levelOfDescription": "series",
+                            "inclusiveStartDate": {"year": 1900},
+                            "inclusiveEndDate": {"year": 1950},
+                        }
+                    ],
+                }
+            }
+        }
+        parsed = NaraCatalogInterface.parse_record(hit)
+        self.assertEqual(parsed["naid"], "5")
+        self.assertEqual(parsed["date_str"], "1918")
+        self.assertEqual(parsed["date_from"], "")
 
 
 # ------------------------------------------------------------
@@ -394,9 +490,12 @@ class TestNaraGWizard(unittest.TestCase):
                     "record": {
                         "title": "Abraham Lincoln Military Papers",
                         "scopeAndContentNote": "Official papers and orders.",
-                        "authors": {
-                            "creator": [{"heading": "Lincoln, Abraham, 1809-1865"}]
-                        },
+                        "creators": [
+                            {
+                                "heading": "Lincoln, Abraham, 1809-1865",
+                                "authorityType": "person",
+                            }
+                        ],
                         "digitalObjects": [
                             {
                                 "objectUrl": "https://catalog.archives.gov/doc1.png",
@@ -443,12 +542,16 @@ class TestNaraGWizard(unittest.TestCase):
                     "naId": "888",
                     "record": {
                         "title": "Pension File of John Smith",
-                        "authors": {
-                            "creator": [
-                                {"heading": "Department of Veterans Affairs"},
-                                {"heading": "Smith, John, 1840-1910"},
-                            ]
-                        },
+                        "creators": [
+                            {
+                                "heading": "Department of Veterans Affairs",
+                                "authorityType": "organization",
+                            },
+                            {
+                                "heading": "Smith, John, 1840-1910",
+                                "authorityType": "person",
+                            },
+                        ],
                     },
                 }
             }
@@ -474,17 +577,32 @@ class TestNaraGWizard(unittest.TestCase):
                     "naId": "889",
                     "record": {
                         "title": "Civil War Pension Index",
-                        "authors": {
-                            "creator": [
-                                {"heading": "United States. Bureau of Pensions."},
-                                {"heading": "Veterans Administration"},
-                            ]
-                        },
+                        "creators": [
+                            {
+                                "heading": "United States. Bureau of Pensions.",
+                                "authorityType": "organization",
+                            },
+                            {
+                                "heading": "Veterans Administration",
+                                "authorityType": "organization",
+                            },
+                        ],
                     },
                 }
             }
         ]
         gw.run_step("connect", query="pension", hits=hits)
+        with self.assertRaises(RuntimeError) as ctx:
+            gw.run_step("load")
+        self.assertIn("names no person", str(ctx.exception))
+
+    def test_load_real_record_without_person_raises(self) -> None:
+        """Verify the real naturalization record makes no person."""
+        gw = NaraGWizard(self.db)
+        hits = NaraCatalogInterface.extract_hits(
+            _load_sample("nara_record_naturalization.json")
+        )
+        gw.run_step("connect", query="90361620", hits=hits)
         with self.assertRaises(RuntimeError) as ctx:
             gw.run_step("load")
         self.assertIn("names no person", str(ctx.exception))
@@ -510,9 +628,12 @@ class TestNaraGWizard(unittest.TestCase):
                     "naId": "111",
                     "record": {
                         "title": "Lincoln, Abraham - Orders",
-                        "authors": {
-                            "creator": [{"heading": "Lincoln, Abraham, 1809-1865"}]
-                        },
+                        "creators": [
+                            {
+                                "heading": "Lincoln, Abraham, 1809-1865",
+                                "authorityType": "person",
+                            }
+                        ],
                     },
                 },
             }
