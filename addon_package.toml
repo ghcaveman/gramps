@@ -23,6 +23,7 @@ gramps_versions = ["5.2.0", "6.2.0"]
 [files]
 modules = [
     "gramps/gen/gwizard/gwizardwikitree.py",
+    "gramps/gen/gwizard/gwizardwikitreematch.py",
     "gramps/gui/gwizard/gwizardwikitreelauncher.py",
     "gramps/gui/gwizard/gwizardwikitreemergedialog.py",
     "gramps/plugins/tool/gwizardwikitreemerge.py",
@@ -31,6 +32,7 @@ modules = [
 ]
 tests = [
     "gramps/gen/gwizard/test/gwizardwikitree_test.py",
+    "gramps/gen/gwizard/test/gwizardwikitreematch_test.py",
     "gramps/gui/gwizard/test/gwizardwikitreelauncher_test.py",
     "gramps/plugins/tool/test/gwizardwikitree*_test.py",
 ]
