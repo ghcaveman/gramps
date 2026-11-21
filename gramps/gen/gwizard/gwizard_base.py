@@ -33,6 +33,7 @@ implementation in ``gwizardgedcom.py``).
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import abc
+from dataclasses import dataclass, field
 import difflib
 import functools
 import logging
@@ -560,3 +561,299 @@ class CandidateMatcher:
                 continue
         results.sort(key=lambda item: item[1], reverse=True)
         return results
+
+
+# ------------------------------------------------------------
+#
+# Record matching
+#
+# ------------------------------------------------------------
+# Scoring of a person found on an outside record source (a WikiTree
+# profile, a person named by a NARA record, ...) against a person in the
+# Family Tree. WikiTree and NARA turn their own data into a RecordCandidate
+# and score it here, so both rank results the same way, and so does the
+# GWizard Record Scan.
+#
+# The score follows a weighted scheme: surname 35, given and middle names 30,
+# birth year 25 (fading to nothing at 5 years apart) and death year 10
+# (fading at 3 years), counting only the parts both sides have. Names are
+# compared with Jaro-Winkler similarity plus a sound-alike bonus from Gramps'
+# Soundex, all in plain Python so the addons need no extra packages. A known
+# gender that differs halves the score.
+
+# Match levels for the Record Scan: which parts must be on both sides and
+# count towards the score. Death years are left out of every level.
+TIER_GMSB = "g/m/s/b"  # given, middle, surname and birth year
+TIER_GSB = "g/s/b"  # given, surname and birth year
+TIER_GS = "g/s"  # given and surname
+RECORD_TIERS = (TIER_GMSB, TIER_GSB, TIER_GS)
+
+
+def jaro_winkler(first: str, second: str, prefix_scale: float = 0.1) -> float:
+    """
+    Return the Jaro-Winkler similarity of two strings, from 0.0 (nothing in
+    common) to 1.0 (equal). Comparison is case-insensitive.
+    """
+    first, second = first.casefold(), second.casefold()
+    if first == second:
+        return 1.0 if first else 0.0
+    if not first or not second:
+        return 0.0
+    window = max(len(first), len(second)) // 2 - 1
+    window = max(window, 0)
+    first_matched = [False] * len(first)
+    second_matched = [False] * len(second)
+    matches = 0
+    for i, char in enumerate(first):
+        low, high = max(0, i - window), min(len(second), i + window + 1)
+        for j in range(low, high):
+            if not second_matched[j] and second[j] == char:
+                first_matched[i] = second_matched[j] = True
+                matches += 1
+                break
+    if not matches:
+        return 0.0
+    first_chars = [c for c, m in zip(first, first_matched) if m]
+    second_chars = [c for c, m in zip(second, second_matched) if m]
+    transpositions = sum(a != b for a, b in zip(first_chars, second_chars)) / 2
+    jaro = (
+        matches / len(first)
+        + matches / len(second)
+        + (matches - transpositions) / matches
+    ) / 3
+    prefix = 0
+    for a, b in zip(first[:4], second[:4]):
+        if a != b:
+            break
+        prefix += 1
+    return jaro + prefix * prefix_scale * (1 - jaro)
+
+
+def sounds_alike(first: str, second: str) -> bool:
+    """Return True when two names have the same (non-empty) Soundex code."""
+    try:
+        code = soundex(first)
+        return bool(code) and code != "Z000" and code == soundex(second)
+    except Exception:
+        return False
+
+
+def name_similarity(first: str, second: str) -> float:
+    """Jaro-Winkler similarity with a 0.15 bonus for sound-alike names."""
+    if not first or not second:
+        return 0.0
+    bonus = 0.15 if sounds_alike(first, second) else 0.0
+    return min(1.0, jaro_winkler(first, second) + bonus)
+
+
+# ------------------------------------------------------------
+#
+# RecordQuery
+#
+# ------------------------------------------------------------
+@dataclass
+class RecordQuery:
+    """The Family Tree person's details used for matching."""
+
+    given: str = ""
+    middle: str = ""
+    surnames: list[str] = field(default_factory=list)
+    birth_year: int | None = None
+    death_year: int | None = None
+    gender: str = ""  # "male", "female" or "" (any case)
+
+    def has_name(self) -> bool:
+        """Return True when there is a name to match against."""
+        return bool(self.given or self.surnames)
+
+
+# ------------------------------------------------------------
+#
+# RecordCandidate
+#
+# ------------------------------------------------------------
+@dataclass
+class RecordCandidate:
+    """
+    A person found on an outside record source, in the form scoring uses.
+
+    Years are (first, last) ranges, so a date known only to the decade
+    ("1840s") is (1840, 1849) and a full date is (year, year). With
+    ``maiden_from_middle`` set, the last middle name is also tried as a
+    surname (at 0.95), for records that write a married woman as
+    "Mary Kreizer Smith".
+    """
+
+    given: str = ""
+    middle: str = ""
+    surnames: list[str] = field(default_factory=list)
+    birth_years: tuple[int, int] | None = None
+    death_years: tuple[int, int] | None = None
+    gender: str = ""
+    maiden_from_middle: bool = False
+
+
+# ------------------------------------------------------------
+#
+# RecordScore
+#
+# ------------------------------------------------------------
+@dataclass
+class RecordScore:
+    """How well a candidate fits the Family Tree person."""
+
+    score: float
+    compared_years: bool
+
+
+def year_range(year: int | None) -> tuple[int, int] | None:
+    """Return the (first, last) range of a single known year, else None."""
+    return (year, year) if year else None
+
+
+def years_apart(year: int, years: tuple[int, int]) -> int:
+    """Return how far a year is outside a (first, last) range; 0 inside it."""
+    first, last = years
+    if year < first:
+        return first - year
+    if year > last:
+        return year - last
+    return 0
+
+
+def _first_word(text: str) -> str:
+    """Return the first word of a name, case-folded."""
+    return text.split()[0].casefold() if text.split() else ""
+
+
+def record_given_similarity(
+    query: RecordQuery, candidate: RecordCandidate, use_middle: bool = True
+) -> float:
+    """
+    Given/middle name similarity, allowing initials and swapped names.
+
+    With ``use_middle`` off, differing middle names neither help nor hurt.
+    """
+    q_given, c_given = query.given.casefold(), candidate.given.casefold()
+    if len(q_given) == 1 or len(c_given) == 1:
+        direct = 0.85 if q_given[:1] == c_given[:1] else 0.0
+    else:
+        direct = name_similarity(q_given, c_given)
+    c_mid = _first_word(candidate.middle)
+    swapped = name_similarity(q_given, c_mid) * 0.85 if c_mid else 0.0
+    best = max(direct, swapped)
+    q_mid = _first_word(query.middle) if use_middle else ""
+    factor = 1.0
+    if q_mid and c_mid:
+        if q_mid[0] == c_mid[0]:
+            if len(q_mid) == 1 or len(c_mid) == 1:
+                factor = 1.05
+            else:
+                factor = 0.9 + 0.15 * jaro_winkler(q_mid, c_mid)
+        else:
+            factor = 0.85
+    return min(1.0, best * factor)
+
+
+def record_surname_similarity(query: RecordQuery, candidate: RecordCandidate) -> float:
+    """
+    Best similarity of any of the person's surnames (birth or married) to
+    any of the candidate's, or to its maiden name (see RecordCandidate).
+    """
+    best = 0.0
+    words = candidate.middle.split()
+    maiden = words[-1] if candidate.maiden_from_middle and words else ""
+    for wanted in query.surnames:
+        for surname in candidate.surnames:
+            best = max(best, name_similarity(wanted, surname))
+        if maiden and len(maiden) > 1:
+            best = max(best, name_similarity(wanted, maiden) * 0.95)
+    return best
+
+
+def _tier_parts(tier: str | None) -> tuple[bool, bool, bool, bool]:
+    """Return (middle, birth required, use birth, use death) for a tier."""
+    if tier is None:
+        return False, False, True, True
+    if tier == TIER_GS:
+        return False, False, False, False
+    if tier == TIER_GSB:
+        return False, True, True, False
+    if tier == TIER_GMSB:
+        return True, True, True, False
+    raise ValueError(f"unknown match tier: {tier}")
+
+
+def score_record(query: RecordQuery, candidate: RecordCandidate) -> RecordScore:
+    """
+    Return how well a candidate matches the person, from 0 to 100. Every
+    part both sides have counts (names, birth and death years).
+    """
+    result = _score_record(query, candidate, None)
+    return result if result is not None else RecordScore(0.0, False)
+
+
+def score_record_tier(
+    query: RecordQuery, candidate: RecordCandidate, tier: str
+) -> RecordScore | None:
+    """
+    Return how well a candidate matches the person at one match level
+    (TIER_GS, TIER_GSB or TIER_GMSB), from 0 to 100.
+
+    Only the tier's parts count, and each must be on both sides: None is
+    returned when one is missing, as the tier cannot be judged.
+    """
+    return _score_record(query, candidate, tier)
+
+
+def _score_record(
+    query: RecordQuery, candidate: RecordCandidate, tier: str | None
+) -> RecordScore | None:
+    """Score a candidate in full (``tier`` None) or at one tier."""
+    need_middle, need_birth, use_birth, use_death = _tier_parts(tier)
+    if tier is not None:
+        if not (query.given and candidate.given):
+            return None
+        if not (query.surnames and candidate.surnames):
+            return None
+        if need_birth and not (query.birth_year and candidate.birth_years):
+            return None
+        if need_middle and not (query.middle and candidate.middle):
+            return None
+    score = 0.0
+    possible = 0.0
+    if query.surnames and candidate.surnames:
+        possible += 35.0
+        score += 35.0 * record_surname_similarity(query, candidate)
+    if query.given and candidate.given:
+        possible += 30.0
+        use_middle = tier is None or need_middle
+        score += 30.0 * record_given_similarity(query, candidate, use_middle)
+    compared_years = False
+    if use_birth and query.birth_year and candidate.birth_years:
+        compared_years = True
+        possible += 25.0
+        diff = years_apart(query.birth_year, candidate.birth_years)
+        if diff <= 5:
+            score += 25.0 * (1.0 - diff * 0.18)
+    if use_death and query.death_year and candidate.death_years:
+        compared_years = True
+        possible += 10.0
+        diff = years_apart(query.death_year, candidate.death_years)
+        if diff <= 3:
+            score += 10.0 * (1.0 - diff * 0.25)
+    if not possible:
+        return RecordScore(0.0, False)
+    result = score / possible * 100.0
+    wanted = query.gender.casefold()
+    found = candidate.gender.casefold()
+    if wanted in ("male", "female") and found in ("male", "female"):
+        if wanted != found:
+            result /= 2
+    return RecordScore(round(result, 1), compared_years)
+
+
+def record_match_text(result: RecordScore) -> str:
+    """Return Match column text, such as "92%" or "92% (name only)"."""
+    text = f"{result.score:.0f}%"
+    return text if result.compared_years else f"{text} (name only)"
