@@ -585,8 +585,8 @@ register(
     authors=["Kevin White"],
     authors_email=["gocaveman@gmail.com"],
     category=TOOL_DBPROC,
-    toolclass="GWizardNaraMergeTool",
-    optionclass="GWizardNaraMergeToolOptions",
+    toolclass="GWizardNaraMerge",
+    optionclass="GWizardNaraMergeOptions",
     tool_modes=[TOOL_MODE_GUI],
     help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardNaraMerge_Tool",
 )

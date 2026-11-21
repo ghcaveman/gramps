@@ -43,10 +43,10 @@ LOG = logging.getLogger(__name__)
 
 # ------------------------------------------------------------
 #
-# GWizardNaraMergeToolOptions
+# GWizardNaraMergeOptions
 #
 # ------------------------------------------------------------
-class GWizardNaraMergeToolOptions(tool.ToolOptions):
+class GWizardNaraMergeOptions(tool.ToolOptions):
     """Defines options and provides handling interface."""
 
     def __init__(self, name: str, person_id: str | None = None) -> None:
@@ -58,10 +58,10 @@ class GWizardNaraMergeToolOptions(tool.ToolOptions):
 
 # ------------------------------------------------------------
 #
-# GWizardNaraMergeTool
+# GWizardNaraMerge
 #
 # ------------------------------------------------------------
-class GWizardNaraMergeTool(tool.Tool):
+class GWizardNaraMerge(tool.Tool):
     """
     Launch the GWizard NARA Merge flow.
 

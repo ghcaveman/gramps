@@ -1,41 +1,63 @@
-# GWizard File Merge addon -- built by package_addon.py (from gramps_devutil).
+# GWizard NARA Merge addon -- built by package_addon.py (from gramps_devutil).
 # See addon_package.example.toml in gramps_devutil for every option.
+#
+# Depends on the GWizard File Merge addon, which is built from the
+# gwizard_filemerge branch (its own addon_package.toml). This branch takes
+# the shared gwizard modules from gwizard_filemerge unchanged, by way of
+# gwizard_mediafix; merge that branch into this one before a release so they
+# stay in step.
+#
+# Media Fix is merged in for the planned image downloads, which will name
+# files with its template. Until the NARA code imports it, it is not listed
+# as a dependency; its files are ignored in [check] below.
 
-package = "GWizardFileMerge"
+package = "GWizardNaraMerge"
 
 [registration]
-id = "gwizardmerge"
-name = "GWizard File Merge"
-description = "Family Tree Processing Tool to compare another genealogy file (GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree and merge selected differences person by person."
-fname = "gwizardmerge.py"
-toolclass = "GWizardFileMerge"
-optionclass = "GWizardFileMergeOptions"
+id = "gwizardnara"
+name = "GWizard NARA Merge"
+description = "Family Tree Processing Tool to search the National Archives (NARA) catalog and compare/merge archival data side-by-side with the open Family Tree."
+fname = "gwizardnara.py"
+toolclass = "GWizardNaraMerge"
+optionclass = "GWizardNaraMergeOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
-help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardNaraMerge_Tool"
 gramps_versions = ["5.2.0", "6.2.0"]
 
 [files]
 modules = [
-    "gramps/gen/gwizard/*.py",
-    "gramps/gui/gwizard/*.py",
-    "gramps/plugins/tool/gwizardmerge.py",
+    "gramps/gen/gwizard/gwizardnaramerge.py",
+    "gramps/gui/gwizard/gwizardnaralauncher.py",
+    "gramps/plugins/tool/gwizardnara.py",
 ]
 tests = [
-    "gramps/gen/gwizard/test/*_test.py",
-    "gramps/gui/gwizard/test/*_test.py",
-    "gramps/plugins/tool/test/gwizardmerge*_test.py",
-]
-# gwizardmerge.py imports the launcher flat, and falls back to the core
-# location when run from the source tree; keep that fallback as written.
-keep_unrewritten = [
-    '^\s*from\s+gramps\.gui\.gwizard\.gwizardlauncher\s+import\s*\(\s*$',
+    "gramps/gen/gwizard/test/gwizardnara_test.py",
+    "gramps/gui/gwizard/test/gwizardnaralauncher_test.py",
 ]
 
+# Real NARA Catalog API v2 responses the tests read. The folder is shared
+# with File Merge's fixtures, so those are copied too.
 [files.test_data]
 source = "gramps/gen/gwizard/test/data"
 target = "data"
-required = ["gwizard_mergefrom_sources.ged"]
+required = ["nara_record_naturalization.json", "nara_search_pension.json"]
+
+# The shared gwizard modules ship in GWizardFileMerge.
+[[dependencies]]
+id = "gwizardmerge"
+package = "GWizardFileMerge"
+modules = [
+    "gramps/gen/gwizard/gwizard_base.py",
+    "gramps/gen/gwizard/gwizard_filemerge_media.py",
+    "gramps/gen/gwizard/gwizardaltmatch.py",
+    "gramps/gen/gwizard/gwizardgedcom.py",
+    "gramps/gui/gwizard/gwizardaltcompare.py",
+    "gramps/gui/gwizard/gwizardcompare.py",
+    "gramps/gui/gwizard/gwizardlauncher.py",
+    "gramps/gui/gwizard/gwizardmergedialog.py",
+    "gramps/plugins/tool/gwizardmerge.py",
+]
 
 [check]
 # The branch this feature branch was started from (local name first, then
@@ -43,8 +65,33 @@ required = ["gwizard_mergefrom_sources.ged"]
 base = ["functionality_base", "origin/functionality_base"]
 ignore = [
     "featuredocs/**",
-    "gwizard_filemerge_*.txt",
+    # Notes and helper scripts in the repo root (* stays in the root folder).
+    "*.md",
+    "*.txt",
+    "*.bash",
+    "*.ged",
+    "environment_create*.py",
+    "make_gwizard_testdata_images.py",
     "package_gwizard_filemerge.py",
+    # File Merge files and tests come with the dependency; GWizardFileMerge
+    # ships them.
+    "gramps/gen/gwizard/__init__.py",
+    "gramps/gui/gwizard/__init__.py",
+    "gramps/gen/gwizard/test/__init__.py",
+    "gramps/gui/gwizard/test/__init__.py",
+    "gramps/gen/gwizard/test/gwizard_test.py",
+    "gramps/gen/gwizard/test/gwizard_*_test.py",
+    "gramps/gui/gwizard/test/gwizard_*_test.py",
+    "gramps/plugins/tool/test/gwizardmerge*_test.py",
+    # Media Fix files, built from the gwizard_mediafix repo (not listed as a
+    # dependency yet; see the note at the top).
+    "gramps/plugins/tool/gwizardmediafix.py",
+    "gramps/plugins/tool/gwizard_common.py",
+    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/plugins/tool/gw_mediapreview.py",
+    "gramps/plugins/tool/test/gwizardmediafix*_test.py",
+    "gramps/plugins/tool/test/gwizard_common_test.py",
+    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",
