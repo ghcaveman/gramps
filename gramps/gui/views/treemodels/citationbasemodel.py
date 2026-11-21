@@ -137,6 +137,15 @@ class CitationBaseModel:
     def citation_sort_change(self, data):
         return "%012x" % data.change
 
+    def citation_media_count(self, data):
+        """
+        Return the number of media references on the citation.
+        """
+        return str(len(data.media_list))
+
+    def citation_sort_media_count(self, data):
+        return "%06d" % len(data.media_list)
+
     def citation_source(self, data):
         return data.source_handle
 
@@ -309,6 +318,15 @@ class CitationBaseModel:
 
     def source_sort2_change(self, data):
         return "%012x" % data.change
+
+    def source_media_count(self, data):
+        """
+        Return the number of media references on the source.
+        """
+        return str(len(data.media_list))
+
+    def source_sort_media_count(self, data):
+        return "%06d" % len(data.media_list)
 
     def dummy_sort_key(self, data):
         # dummy sort key for columns that don't have data

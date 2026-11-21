@@ -90,6 +90,7 @@ class CitationTreeView(LibSourceView, ListView):
     COL_SRC_AUTH = 7
     COL_SRC_ABBR = 8
     COL_SRC_PINFO = 9
+    COL_MEDIA_COUNT = 10
     # column definitions
     COLUMNS = [
         (_("Source: Title or Citation: Volume/Page"), TEXT, None),
@@ -102,6 +103,7 @@ class CitationTreeView(LibSourceView, ListView):
         (_("Source: Author"), TEXT, None),
         (_("Source: Abbreviation"), TEXT, None),
         (_("Source: Publication Information"), TEXT, None),
+        (_("Media Count"), TEXT, None),
     ]
     COLUMN_FILTERABLE = [
         COL_TITLE_PAGE,
@@ -121,15 +123,16 @@ class CitationTreeView(LibSourceView, ListView):
                 COL_ID,
                 COL_DATE,
                 COL_CONFIDENCE,
-                COL_PRIV,
-                COL_TAGS,
-                COL_CHAN,
                 COL_SRC_AUTH,
                 COL_SRC_ABBR,
                 COL_SRC_PINFO,
+                COL_MEDIA_COUNT,
+                COL_PRIV,
+                COL_TAGS,
+                COL_CHAN,
             ],
         ),
-        ("columns.size", [200, 75, 100, 75, 40, 100, 100, 150, 100, 150]),
+        ("columns.size", [200, 75, 100, 75, 150, 100, 150, 75, 40, 100, 100]),
     )
     ADD_MSG = _("Add a new citation and a new source")
     ADD_SOURCE_MSG = _("Add a new source")

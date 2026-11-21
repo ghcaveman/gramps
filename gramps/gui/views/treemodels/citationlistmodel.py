@@ -85,6 +85,7 @@ class CitationListModel(CitationBaseModel, FlatBaseModel):
             self.citation_src_pinfo,
             self.citation_src_private,
             self.citation_src_chan,
+            self.citation_media_count,
             self.citation_tag_color,
         ]
         self.smap = [
@@ -102,6 +103,7 @@ class CitationListModel(CitationBaseModel, FlatBaseModel):
             self.citation_src_pinfo,
             self.citation_src_private,
             self.citation_src_sort_change,
+            self.citation_sort_media_count,
             self.citation_tag_color,
         ]
         FlatBaseModel.__init__(
@@ -123,7 +125,7 @@ class CitationListModel(CitationBaseModel, FlatBaseModel):
         """
         Return the color column.
         """
-        return 14
+        return 15
 
     def on_get_n_columns(self):
         return len(self.fmap) + 1

@@ -71,6 +71,7 @@ class SourceModel(FlatBaseModel):
             self.column_private,
             self.column_tags,
             self.column_change,
+            self.column_repository,
             self.column_tag_color,
         ]
         self.smap = [
@@ -82,6 +83,7 @@ class SourceModel(FlatBaseModel):
             self.column_private,
             self.column_tags,
             self.sort_change,
+            self.column_repository,
             self.column_tag_color,
         ]
         FlatBaseModel.__init__(
@@ -104,7 +106,7 @@ class SourceModel(FlatBaseModel):
         Return the color column.
         """
         # This is for model.get_value() arg
-        return 8
+        return 9
 
     def on_get_n_columns(self):
         return len(self.fmap) + 1
@@ -136,6 +138,32 @@ class SourceModel(FlatBaseModel):
 
     def sort_change(self, data):
         return "%012x" % data.change
+
+    def column_repository(self, data):
+        """
+        Return the names of the repositories holding this source,
+        in the order they appear on the source.
+        """
+        names = []
+        for reporef in data.reporef_list:
+            name = self.get_repository_name(reporef["ref"])
+            if name and name not in names:
+                names.append(name)
+        # TODO for Arabic, should the next line's comma be translated?
+        return ", ".join(names)
+
+    def get_repository_name(self, repo_handle):
+        """
+        Return the repository name from the given repository handle.
+        """
+        cached, value = self.get_cached_value(repo_handle, "REPO_NAME")
+        if not cached:
+            try:
+                value = self.db.get_repository_from_handle(repo_handle).get_name()
+            except Exception:
+                value = ""
+            self.set_cached_value(repo_handle, "REPO_NAME", value)
+        return value
 
     def get_tag_name(self, tag_handle):
         """

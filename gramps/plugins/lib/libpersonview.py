@@ -94,6 +94,9 @@ class BasePersonView(ListView):
     COL_PRIV = 12
     COL_TAGS = 13
     COL_CHAN = 14
+    COL_CONFIDENCE = 15
+    COL_CITE_COUNT = 16
+    COL_MEDIA_COUNT = 17
     # column definitions
     COLUMNS = [
         (_("Name"), TEXT, None),
@@ -111,6 +114,9 @@ class BasePersonView(ListView):
         (_("Private"), ICON, "gramps-lock"),
         (_("Tags"), TEXT, None),
         (_("Last Changed"), TEXT, None),
+        (_("Confidence"), TEXT, None),
+        (_("Citation Count"), TEXT, None),
+        (_("Media Count"), TEXT, None),
     ]
     # default setting with visible columns, order of the col, and their size
     CONFIGSETTINGS = (
@@ -130,6 +136,9 @@ class BasePersonView(ListView):
                 COL_MARRIAGES,
                 COL_CHILDREN,
                 COL_TODO,
+                COL_CONFIDENCE,
+                COL_CITE_COUNT,
+                COL_MEDIA_COUNT,
                 COL_PRIV,
                 COL_TAGS,
                 COL_CHAN,
@@ -137,7 +146,7 @@ class BasePersonView(ListView):
         ),
         (
             "columns.size",
-            [250, 75, 75, 100, 175, 100, 175, 100, 30, 30, 30, 30, 30, 100, 100],
+            [250, 75, 75, 100, 175, 100, 175, 100, 30, 30, 30, 30, 100, 75, 75, 30, 100, 100],
         ),
     )
     ADD_MSG = _("Add a new person")

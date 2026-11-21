@@ -46,7 +46,10 @@ from gramps.gen.lib import EventRoleType, FamilyRelType
 from .flatbasemodel import FlatBaseModel
 from gramps.gen.utils.db import get_marriage_or_fallback
 from gramps.gen.config import config
+from gramps.gen.utils.string import conf_strings
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+
+_ = glocale.translation.gettext
 
 invalid_date_format = config.get("preferences.invalid-date-format")
 
@@ -78,6 +81,11 @@ class FamilyModel(FlatBaseModel):
             self.column_private,
             self.column_tags,
             self.column_change,
+            self.column_children,
+            self.column_citation_count,
+            self.column_media_count,
+            self.column_confidence,
+            self.column_event_count,
             self.column_tag_color,
         ]
         self.smap = [
@@ -89,6 +97,11 @@ class FamilyModel(FlatBaseModel):
             self.column_private,
             self.column_tags,
             self.sort_change,
+            self.sort_children,
+            self.sort_citation_count,
+            self.sort_media_count,
+            self.sort_confidence,
+            self.sort_event_count,
             self.column_tag_color,
         ]
         FlatBaseModel.__init__(
@@ -110,7 +123,7 @@ class FamilyModel(FlatBaseModel):
         """
         Return the color column.
         """
-        return 8
+        return 13
 
     def on_get_n_columns(self):
         return len(self.fmap) + 1
@@ -206,6 +219,90 @@ class FamilyModel(FlatBaseModel):
         else:
             # There is a problem returning None here.
             return ""
+
+    def column_children(self, data):
+        return str(len(data.child_ref_list))
+
+    def sort_children(self, data):
+        return "%06d" % len(data.child_ref_list)
+
+    def column_event_count(self, data):
+        return str(len(data.event_ref_list))
+
+    def sort_event_count(self, data):
+        return "%06d" % len(data.event_ref_list)
+
+    def column_citation_count(self, data):
+        return str(len(self.get_citation_handles(data)))
+
+    def sort_citation_count(self, data):
+        return "%06d" % len(self.get_citation_handles(data))
+
+    def column_media_count(self, data):
+        return str(len(data.media_list))
+
+    def sort_media_count(self, data):
+        return "%06d" % len(data.media_list)
+
+    def get_citation_handles(self, data):
+        """
+        Return the distinct citation handles supporting a family: the
+        family's own citations and those on the family's events.
+        """
+        cached, value = self.get_cached_value(data.handle, "CITATIONS")
+        if not cached:
+            value = []
+            for handle in data["citation_list"]:
+                if handle not in value:
+                    value.append(handle)
+            self._add_event_citations(data["event_ref_list"], value)
+            self.set_cached_value(data.handle, "CITATIONS", value)
+        return value
+
+    def _add_event_citations(self, event_ref_list, handles):
+        """
+        Add the citations of the referenced events to handles (a list,
+        kept free of duplicates).
+        """
+        for event_ref in event_ref_list:
+            try:
+                event = self.db.get_raw_event_data(event_ref["ref"])
+            except Exception:
+                event = None
+            if event:
+                for handle in event["citation_list"]:
+                    if handle not in handles:
+                        handles.append(handle)
+
+    def get_confidence(self, data):
+        """
+        Return the highest confidence level among the family's citations
+        (own and family events), or None if there are none.
+        """
+        best = None
+        for citation_handle in self.get_citation_handles(data):
+            cached, value = self.get_cached_value(citation_handle, "CIT_CONF")
+            if not cached:
+                try:
+                    value = self.db.get_raw_citation_data(citation_handle).confidence
+                except Exception:
+                    value = None
+                self.set_cached_value(citation_handle, "CIT_CONF", value)
+            if value is not None and (best is None or value > best):
+                best = value
+        return best
+
+    def column_confidence(self, data):
+        best = self.get_confidence(data)
+        if best is None:
+            return ""
+        return _(conf_strings[best])
+
+    def sort_confidence(self, data):
+        best = self.get_confidence(data)
+        if best is None:
+            return ""
+        return str(best)
 
     def sort_change(self, data):
         return "%012x" % data.change

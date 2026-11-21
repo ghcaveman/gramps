@@ -77,6 +77,7 @@ class SourceView(LibSourceView, ListView):
     COL_PRIV = 5
     COL_TAGS = 6
     COL_CHAN = 7
+    COL_REPO = 8
 
     # column definitions
     COLUMNS = [
@@ -88,6 +89,7 @@ class SourceView(LibSourceView, ListView):
         (_("Private"), ICON, "gramps-lock"),
         (_("Tags"), TEXT, None),
         (_("Last Changed"), TEXT, None),
+        (_("Repository"), TEXT, None),
     ]
     # default setting with visible columns, order of the col, and their size
     CONFIGSETTINGS = (
@@ -100,12 +102,13 @@ class SourceView(LibSourceView, ListView):
                 COL_AUTH,
                 COL_ABBR,
                 COL_PINFO,
+                COL_REPO,
                 COL_PRIV,
                 COL_TAGS,
                 COL_CHAN,
             ],
         ),
-        ("columns.size", [200, 75, 150, 100, 150, 40, 100, 100]),
+        ("columns.size", [200, 75, 150, 100, 150, 150, 40, 100, 100]),
     )
     ADD_MSG = _("Add a new source")
     EDIT_MSG = _("Edit the selected source")

@@ -49,6 +49,7 @@ from gi.repository import GObject
 # -------------------------------------------------------------------------
 from .managedwindow import ManagedWindow
 from .glade import Glade
+from .dialog import QuestionDialog2
 
 # -------------------------------------------------------------------------
 #
@@ -64,7 +65,14 @@ class ColumnOrder(Gtk.Box):
     """
 
     def __init__(
-        self, config, column_names, widths, on_apply, tree=False, resizable=None
+        self,
+        config,
+        column_names,
+        widths,
+        on_apply,
+        tree=False,
+        resizable=None,
+        on_reset=None,
     ):
         """
         Create the Column Ordering widget based on config
@@ -75,6 +83,10 @@ class ColumnOrder(Gtk.Box):
         on_apply: function to run when apply is clicked
         tree: are the columns for a treeview, if so, the first columns is not
             changable
+        on_reset: optional function to run when Reset to Defaults is clicked;
+            it must put the column settings back to their defaults and
+            rebuild the view.  If not given, the column settings are reset
+            here and on_apply is called.
         """
         Gtk.Box.__init__(self, orientation=Gtk.Orientation.VERTICAL)
 
@@ -82,6 +94,7 @@ class ColumnOrder(Gtk.Box):
         self.colnames = column_names
         self.config = config
         self.on_apply = on_apply
+        self.on_reset = on_reset
         self.resizable = resizable
 
         self.pack_start(Gtk.Label(label=" "), False, False, 0)
@@ -113,9 +126,15 @@ class ColumnOrder(Gtk.Box):
         self.tree.set_reorderable(True)
         scroll.add(self.tree)
         self.apply_button = Gtk.Button.new_with_mnemonic(_("_Apply"))
-        btns = Gtk.ButtonBox()
-        btns.set_layout(Gtk.ButtonBoxStyle.END)
-        btns.pack_start(self.apply_button, True, True, 0)
+        self.reset_button = Gtk.Button.new_with_mnemonic(_("_Reset to Defaults"))
+        self.reset_button.set_tooltip_text(
+            _("Restore this view's default columns, order and widths")
+        )
+        btns = Gtk.ButtonBox(orientation=Gtk.Orientation.VERTICAL)
+        btns.set_layout(Gtk.ButtonBoxStyle.START)
+        btns.set_spacing(6)
+        btns.pack_start(self.apply_button, False, False, 0)
+        btns.pack_start(self.reset_button, False, False, 0)
         hbox.pack_start(btns, False, True, 0)
         self.pack_start(hbox, True, True, 0)
 
@@ -146,6 +165,9 @@ class ColumnOrder(Gtk.Box):
         self.tree.append_column(column_n)
 
         self.apply_button.connect("clicked", self.__on_apply)
+        self.reset_button.connect("clicked", self.__on_reset)
+        # A drop onto (rather than between) rows can lose the dragged row
+        self.tree.connect("drag-end", self.__restore_missing_rows)
 
         # obtain the columns from config file
         self.oldorder = self.config.get("columns.rank")
@@ -167,13 +189,30 @@ class ColumnOrder(Gtk.Box):
         else:
             self.oldsize = oldsize
         self.oldvis = self.config.get("columns.visible")
+        self.__fill_model(widths)
+
+    def __fill_model(self, widths=None):
+        """
+        Fill the list from oldorder/oldsize/oldvis.  If widths (the current
+        widths of the visible columns) is given, use it in place of the
+        stored sizes for the visible columns.
+        """
+        self.model.clear()
+        self.sizes = {}
         colord = []
         index = 0
-        for val, size in zip(self.oldorder, self.oldsize):
+        sizes = list(self.oldsize)
+        if len(sizes) < len(self.oldorder):
+            sizes.extend([100] * (len(self.oldorder) - len(sizes)))
+        for val, size in zip(self.oldorder, sizes):
+            if not 0 <= val < len(self.colnames) or val in self.sizes:
+                continue
+            self.sizes[val] = size
             if val in self.oldvis:
-                if val != self.oldvis[-1]:
+                if widths is not None and val != self.oldvis[-1]:
                     # don't use last col width, its wrong
-                    size = widths[index]
+                    if index < len(widths):
+                        size = widths[index]
                     index += 1
                 colord.append((1, val, size))
             else:
@@ -181,8 +220,66 @@ class ColumnOrder(Gtk.Box):
         for item in colord[self.startrow :]:
             node = self.model.append()
             self.model.set(
-                node, 0, item[0], 1, column_names[item[1]], 2, item[1], 3, item[2]
+                node, 0, item[0], 1, self.colnames[item[1]], 2, item[1], 3, item[2]
             )
+        self.__restore_missing_rows()
+
+    def __restore_missing_rows(self, *args):
+        """
+        Make sure every column the view offers is in the list: add any that
+        are missing (from the saved settings, or lost in a drag and drop)
+        at the end, not displayed.
+        """
+        present = {row[2] for row in self.model}
+        if self.treeview and self.oldorder:
+            present.add(self.oldorder[0])  # fixed first column, not listed
+        for col in range(len(self.colnames)):
+            if col not in present:
+                node = self.model.append()
+                self.model.set(
+                    node,
+                    0,
+                    False,
+                    1,
+                    self.colnames[col],
+                    2,
+                    col,
+                    3,
+                    self.sizes.get(col, 100),
+                )
+
+    def __on_reset(self, obj):
+        """
+        Called when the Reset to Defaults button is pressed.
+        """
+        parent = self.get_toplevel()
+        if not isinstance(parent, Gtk.Window):
+            parent = None
+        if not QuestionDialog2(
+            _("Reset columns to defaults?"),
+            _(
+                "This view's column choices, order and widths will be "
+                "replaced by the defaults."
+            ),
+            _("_Reset"),
+            _("_Cancel"),
+            parent=parent,
+        ).run():
+            return
+
+        if self.on_reset:
+            self.on_reset()
+        else:
+            for key in ("columns.rank", "columns.size", "columns.visible"):
+                self.config.reset(key)
+            self.config.save()
+            if self.on_apply:
+                self.on_apply()
+
+        self.oldorder = self.config.get("columns.rank")
+        self.oldsize = self.config.get("columns.size")
+        self.oldvis = self.config.get("columns.visible")
+        self.__fill_model()
 
     def __on_apply(self, obj):
         """
@@ -196,11 +293,11 @@ class ColumnOrder(Gtk.Box):
             neworder.append(self.oldorder[0])
             newvis.append(self.oldvis[0])
             newsize.append(self.oldsize[0])
-        for i in range(0, len(self.colnames[self.startrow :])):
-            node = self.model.get_iter((int(i),))
-            enable = self.model.get_value(node, 0)
-            index = self.model.get_value(node, 2)
-            size = self.model.get_value(node, 3)
+        self.__restore_missing_rows()
+        for row in self.model:
+            enable, index, size = row[0], row[2], row[3]
+            if index in neworder:
+                continue
             if enable:
                 newvis.append(index)
             neworder.append(index)
