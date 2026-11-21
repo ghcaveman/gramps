@@ -139,7 +139,7 @@ from gramps.gen.lib import (
     Person,
     Surname,
 )
-from gramps.gen.gwizard.gwizardnaramerge import NaraCatalogInterface
+from gramps.gen.gwizard.gwizardnaramerge import AttachResult, NaraCatalogInterface
 from gramps.gui.gwizard.gwizardnaralauncher import (
     _extract_person_search_defaults,
     NaraSearchDialog,
@@ -381,6 +381,113 @@ class TestNaraLauncher(unittest.TestCase):
         selection.get_selected.return_value = (model, None)
         dialog.cb_selection_changed(selection)
         dialog.btn_merge.set_sensitive.assert_called_with(False)
+
+    def _attach_dialog(self, target: str | None = "I_handle") -> Any:
+        """Return a dialog with a selected row holding the naturalization record."""
+        dbstate = Mock()
+        dbstate.db = self.db
+        dialog = NaraSearchDialog(dbstate=dbstate, client=Mock())
+        dialog.target_handle = target
+        sample = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..",
+            "..",
+            "..",
+            "gen",
+            "gwizard",
+            "test",
+            "data",
+            "nara_record_naturalization.json",
+        )
+        with open(sample, encoding="utf-8") as handle:
+            hit = NaraCatalogInterface.extract_hits(json.load(handle))[0]
+        model = Mock()
+        model.get_value.side_effect = lambda _it, col: {7: hit, 8: False}.get(col, "")
+        dialog.tree_view.get_selection().get_selected.return_value = (model, Mock())
+        dialog.download_check.get_active.return_value = True
+        dialog.max_images_spin.get_value.return_value = 0
+        return dialog
+
+    def test_attach_button_needs_target_person(self) -> None:
+        """Verify Attach to Person is enabled only with a target person."""
+        dialog = self._attach_dialog(target="I_handle")
+        dialog._refresh_action_buttons()
+        dialog.btn_attach.set_sensitive.assert_called_with(True)
+        dialog.btn_merge.set_sensitive.assert_called_with(False)
+        self.assertIn("Attach to Person", dialog.status_label.set_text.call_args[0][0])
+
+        dialog.cb_set_target_none()
+        dialog.btn_attach.set_sensitive.assert_called_with(False)
+        self.assertIn(
+            "Choose a target person", dialog.status_label.set_text.call_args[0][0]
+        )
+
+    def test_cb_attach_runs_attacher_with_options(self) -> None:
+        """Verify cb_attach passes the target, record and image options."""
+        dialog = self._attach_dialog()
+        dialog.max_images_spin.get_value.return_value = 1
+        result = AttachResult(citation_created=True, downloaded=1, media_added=1)
+        with (
+            patch(
+                "gramps.gui.gwizard.gwizardnaralauncher.NaraRecordAttacher"
+            ) as attacher_cls,
+            patch("gramps.gui.utils.ProgressMeter") as meter_cls,
+        ):
+            attacher_cls.return_value.attach.return_value = result
+            dialog.cb_attach()
+
+        attacher_cls.assert_called_once_with(self.db)
+        args, kwargs = attacher_cls.return_value.attach.call_args
+        self.assertEqual(args[0], "I_handle")
+        self.assertEqual(args[1]["naid"], "90361620")
+        self.assertTrue(kwargs["download"])
+        self.assertEqual(kwargs["max_images"], 1)
+        meter_cls.return_value.set_pass.assert_called_once()
+        meter_cls.return_value.close.assert_called_once()
+        message = dialog.status_label.set_text.call_args[0][0]
+        self.assertIn("attached as a new citation", message)
+        self.assertIn("Images downloaded: 1", message)
+
+    def test_cb_attach_without_download_skips_progress(self) -> None:
+        """Verify no progress window opens when images are only linked."""
+        dialog = self._attach_dialog()
+        dialog.download_check.get_active.return_value = False
+        with (
+            patch(
+                "gramps.gui.gwizard.gwizardnaralauncher.NaraRecordAttacher"
+            ) as attacher_cls,
+            patch("gramps.gui.utils.ProgressMeter") as meter_cls,
+        ):
+            attacher_cls.return_value.attach.return_value = AttachResult()
+            dialog.cb_attach()
+        meter_cls.assert_not_called()
+        self.assertFalse(attacher_cls.return_value.attach.call_args.kwargs["download"])
+        self.assertIn("already attached", dialog.status_label.set_text.call_args[0][0])
+
+    def test_cb_attach_reports_errors(self) -> None:
+        """Verify an attach failure is shown in the status line."""
+        dialog = self._attach_dialog()
+        dialog.download_check.get_active.return_value = False
+        with patch(
+            "gramps.gui.gwizard.gwizardnaralauncher.NaraRecordAttacher"
+        ) as attacher_cls:
+            attacher_cls.return_value.attach.side_effect = RuntimeError("boom")
+            dialog.cb_attach()
+        self.assertIn(
+            "Could not attach the NARA record: boom",
+            dialog.status_label.set_text.call_args[0][0],
+        )
+
+    def test_attach_summary_mentions_failures_and_cancel(self) -> None:
+        """Verify the summary reports failed downloads and cancelling."""
+        text = NaraSearchDialog._attach_summary(
+            AttachResult(
+                person_linked=True, failed=["u1", "u2"], cancelled=True, media_added=2
+            )
+        )
+        self.assertIn("existing citation", text)
+        self.assertIn("2 images could not be downloaded", text)
+        self.assertIn("cancelled", text)
 
     def test_dialog_merge_launches_merge_dialog(self) -> None:
         """Verify that cb_merge connects to NaraGWizard and launches GWizardMergeDialog."""

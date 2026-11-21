@@ -100,13 +100,19 @@ from gramps.gen.db.base import DbWriteBase
 from gramps.gen.db.txn import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Person, Name, Surname
+from gramps.gen.utils.file import media_path
 
 # -------------------------------------------------------------------------
 #
 # Local imports
 #
 # -------------------------------------------------------------------------
-from ..gwizardnaramerge import NaraCatalogInterface, NaraGWizard
+from ..gwizardnaramerge import (
+    NARA_REPOSITORY_NAME,
+    NaraCatalogInterface,
+    NaraGWizard,
+    NaraRecordAttacher,
+)
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
@@ -677,3 +683,175 @@ class TestNaraGWizard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ------------------------------------------------------------
+#
+# TestNaraRecordAttacher
+#
+# ------------------------------------------------------------
+class _FakeReply:
+    """A requests-style reply with fixed content."""
+
+    def __init__(self, status_code: int = 200, content: bytes = b"jpegdata") -> None:
+        self.status_code = status_code
+        self.content = content
+
+    def iter_content(self, chunk_size: int = 65536):
+        """Yield the content in one chunk."""
+        yield self.content
+
+
+class TestNaraRecordAttacher(unittest.TestCase):
+    """Test attaching real NARA records to an existing person."""
+
+    def setUp(self) -> None:
+        """Set up a family tree with one person and a temporary media folder."""
+        self.media_dir = tempfile.mkdtemp(prefix="nara-media-")
+        self.db: DbWriteBase = make_database("sqlite")
+        self.db.load(":memory:")
+        self.db.set_mediapath(self.media_dir)
+        person = Person()
+        name = Name()
+        name.set_first_name("Lyman Angus")
+        surname = Surname()
+        surname.set_surname("MacDonald")
+        name.add_surname(surname)
+        person.set_primary_name(name)
+        with DbTxn("Add person", self.db) as trans:
+            self.person_handle = self.db.add_person(person, trans)
+        hits = NaraCatalogInterface.extract_hits(
+            _load_sample("nara_record_naturalization.json")
+        )
+        self.parsed = NaraCatalogInterface.parse_record(hits[0])
+        self.session = Mock()
+        self.session.get.return_value = _FakeReply()
+
+    def tearDown(self) -> None:
+        """Close the tree and remove the media folder."""
+        self.db.close()
+        shutil.rmtree(self.media_dir, ignore_errors=True)
+
+    def test_parse_record_series(self) -> None:
+        """Verify the series title and NAID are taken from the ancestors."""
+        self.assertEqual(self.parsed["series_title"], "Index to Naturalization Records")
+        self.assertEqual(self.parsed["series_naid"], "7551473")
+
+    def test_attach_with_downloads(self) -> None:
+        """Verify repository, source, citation and downloaded media are created."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        result = attacher.attach(self.person_handle, self.parsed)
+
+        self.assertTrue(result.repository_created)
+        self.assertTrue(result.source_created)
+        self.assertTrue(result.citation_created)
+        self.assertTrue(result.person_linked)
+        self.assertEqual(result.downloaded, 2)
+        self.assertEqual(result.media_added, 2)
+        self.assertEqual(result.failed, [])
+
+        repositories = list(self.db.iter_repositories())
+        self.assertEqual([r.get_name() for r in repositories], [NARA_REPOSITORY_NAME])
+        sources = list(self.db.iter_sources())
+        self.assertEqual(sources[0].get_title(), "Index to Naturalization Records")
+        self.assertEqual(
+            sources[0].get_reporef_list()[0].get_call_number(), "NAID 7551473"
+        )
+
+        citation = self.db.get_citation_from_handle(result.citation_handle)
+        self.assertEqual(
+            citation.get_page(), "MacDonald, Lyman Angus - 1942 (NAID 90361620)"
+        )
+        note = self.db.get_note_from_handle(citation.get_note_list()[0])
+        self.assertIn("https://catalog.archives.gov/id/90361620", note.get())
+
+        person = self.db.get_person_from_handle(self.person_handle)
+        self.assertIn(result.citation_handle, person.get_citation_list())
+
+        media = [
+            self.db.get_media_from_handle(r.ref) for r in citation.get_media_list()
+        ]
+        paths = sorted(m.get_path() for m in media)
+        self.assertEqual(
+            paths,
+            [
+                os.path.join("NARA", "90361620", "2480.jpg"),
+                os.path.join("NARA", "90361620", "2481.jpg"),
+            ],
+        )
+        for item in media:
+            self.assertEqual(item.get_mime_type(), "image/jpeg")
+            self.assertTrue(item.get_checksum())
+            self.assertTrue(
+                os.path.isfile(os.path.join(media_path(self.db), item.get_path()))
+            )
+
+    def test_attach_twice_reuses_everything(self) -> None:
+        """Verify attaching the same record again adds nothing new."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        first = attacher.attach(self.person_handle, self.parsed)
+        second = attacher.attach(self.person_handle, self.parsed)
+
+        self.assertEqual(second.citation_handle, first.citation_handle)
+        self.assertFalse(second.repository_created)
+        self.assertFalse(second.source_created)
+        self.assertFalse(second.citation_created)
+        self.assertFalse(second.person_linked)
+        self.assertEqual(second.media_added, 0)
+        self.assertEqual(second.downloaded, 0)
+        self.assertEqual(second.already_downloaded, 2)
+        self.assertEqual(self.db.get_number_of_media(), 2)
+        self.assertEqual(self.db.get_number_of_citations(), 1)
+
+    def test_attach_without_download_links_urls(self) -> None:
+        """Verify images are linked by URL when not downloaded."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        result = attacher.attach(self.person_handle, self.parsed, download=False)
+
+        self.session.get.assert_not_called()
+        self.assertEqual(result.media_added, 2)
+        paths = [m.get_path() for m in self.db.iter_media()]
+        self.assertTrue(all(p.startswith("https://") for p in paths), paths)
+
+    def test_failed_download_falls_back_to_url(self) -> None:
+        """Verify a failed download leaves the image linked by its URL."""
+        self.session.get.return_value = _FakeReply(status_code=403)
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        result = attacher.attach(self.person_handle, self.parsed, max_images=1)
+
+        self.assertEqual(result.downloaded, 0)
+        self.assertEqual(len(result.failed), 1)
+        paths = [m.get_path() for m in self.db.iter_media()]
+        self.assertEqual(len(paths), 1)
+        self.assertTrue(paths[0].startswith("https://"))
+        folder = attacher.download_folder("90361620")
+        self.assertFalse(
+            os.path.exists(os.path.join(folder, "2480.jpg.part")), "partial left"
+        )
+
+    def test_cancel_keeps_downloaded_images(self) -> None:
+        """Verify cancelling after the first image keeps only that image."""
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        result = attacher.attach(
+            self.person_handle, self.parsed, progress=lambda done, total: False
+        )
+
+        self.assertTrue(result.cancelled)
+        self.assertEqual(result.downloaded, 1)
+        self.assertEqual(self.db.get_number_of_media(), 1)
+        self.assertEqual(self.session.get.call_count, 1)
+
+    def test_existing_nara_repository_is_reused(self) -> None:
+        """Verify a repository named like Citation Fix's NARA entry is reused."""
+        from gramps.gen.lib import Repository
+
+        repository = Repository()
+        repository.set_name(NARA_REPOSITORY_NAME)
+        with DbTxn("Add repository", self.db) as trans:
+            self.db.add_repository(repository, trans)
+
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        result = attacher.attach(self.person_handle, self.parsed, download=False)
+
+        self.assertFalse(result.repository_created)
+        self.assertEqual(self.db.get_number_of_repositories(), 1)

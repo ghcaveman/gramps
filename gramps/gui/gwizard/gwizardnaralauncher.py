@@ -48,7 +48,12 @@ from gi.repository import Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.gwizard.gwizard_base import surname_text
-from gramps.gen.gwizard.gwizardnaramerge import NaraGWizard, NaraCatalogInterface
+from gramps.gen.gwizard.gwizardnaramerge import (
+    AttachResult,
+    NaraCatalogInterface,
+    NaraGWizard,
+    NaraRecordAttacher,
+)
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
@@ -272,6 +277,34 @@ class NaraSearchDialog(Gtk.Dialog):
         self.limit_spin = Gtk.SpinButton(adjustment=limit_adj, climb_rate=1, digits=0)
         adv_box.pack_start(self.limit_spin, False, False, 0)
 
+        # Image options for Attach to Person
+        adv_box.pack_start(
+            Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 6
+        )
+        self.download_check = Gtk.CheckButton(
+            label=_("Download _images"), use_underline=True
+        )
+        self.download_check.set_active(True)
+        self.download_check.set_tooltip_text(
+            _(
+                "When attaching a record, download its images into the NARA "
+                "folder under your media base path. Unchecked, the images are "
+                "linked by their web address instead."
+            )
+        )
+        adv_box.pack_start(self.download_check, False, False, 0)
+        images_label = Gtk.Label(label=_("up to"))
+        adv_box.pack_start(images_label, False, False, 0)
+        images_adj = Gtk.Adjustment(value=0, lower=0, upper=999, step_increment=1)
+        self.max_images_spin = Gtk.SpinButton(
+            adjustment=images_adj, climb_rate=1, digits=0
+        )
+        self.max_images_spin.set_tooltip_text(
+            _("Most images to add from one record; 0 adds all of them.")
+        )
+        adv_box.pack_start(self.max_images_spin, False, False, 0)
+        adv_box.pack_start(Gtk.Label(label=_("(0 = all)")), False, False, 0)
+
         search_grid.attach(adv_box, 0, 2, 5, 1)
 
         content.pack_start(search_grid, False, False, 0)
@@ -332,14 +365,28 @@ class NaraSearchDialog(Gtk.Dialog):
         self.add_button(_("_Close"), Gtk.ResponseType.CLOSE)
 
         self.btn_merge = Gtk.Button(label=_("_Merge..."), use_underline=True)
-        self.btn_merge.get_style_context().add_class("suggested-action")
         self.btn_merge.set_tooltip_text(
-            _("Open the field-by-field merge dialog for the selected NARA record.")
+            _(
+                "Open the field-by-field merge dialog for the selected NARA "
+                "record. Only for records that name a person as their creator."
+            )
         )
         self.btn_merge.set_sensitive(False)
         self.btn_merge.connect("clicked", self.cb_merge)
         action_area = self.get_action_area()
         action_area.pack_end(self.btn_merge, False, False, 0)
+
+        self.btn_attach = Gtk.Button(label=_("A_ttach to Person"), use_underline=True)
+        self.btn_attach.get_style_context().add_class("suggested-action")
+        self.btn_attach.set_tooltip_text(
+            _(
+                "Add the selected NARA record to the target person as a source "
+                "and citation, with its images."
+            )
+        )
+        self.btn_attach.set_sensitive(False)
+        self.btn_attach.connect("clicked", self.cb_attach)
+        action_area.pack_end(self.btn_attach, False, False, 0)
 
         # Pre-populate search entries from target person or default query
         self._prefill_entries(default_query=default_query)
@@ -436,6 +483,7 @@ class NaraSearchDialog(Gtk.Dialog):
                 self.target_handle = handle
                 self._update_target_label()
                 self._prefill_entries()
+                self._refresh_action_buttons()
         except Exception as err:
             LOG.error("Failed to select target person: %s", err)
 
@@ -445,6 +493,7 @@ class NaraSearchDialog(Gtk.Dialog):
         """
         self.target_handle = None
         self._update_target_label()
+        self._refresh_action_buttons()
 
     def cb_entry_activate(self, _widget: Gtk.Entry) -> None:
         """
@@ -552,11 +601,19 @@ class NaraSearchDialog(Gtk.Dialog):
             "• <b>Material Type:</b> Narrow records to textual files, photographs, maps, etc.\n"
             "• <b>Online Only:</b> Restrict results to records with digitized online assets (images/documents).\n"
             "• Set the <b>NARA_API_KEY</b> environment variable before launching Gramps to authenticate with the catalog.\n\n"
+            "<b>Attach to Person:</b>\n"
+            "Select a record and click <b>Attach to Person</b> to add it to the target "
+            "person: NARA as the repository, the record's series as the source, and the "
+            "record as a citation with a note holding its catalog link. With "
+            "<b>Download images</b> checked, its images are saved under the NARA folder "
+            "of your media base path (one folder per NAID) and linked to the citation; "
+            "otherwise they are linked by web address. Attaching the same record again "
+            "adds nothing new.\n\n"
             "<b>Merging:</b>\n"
-            "Select a record from the search results table and click <b>Merge...</b> "
-            "(or double-click the row). This opens the side-by-side merge dialog "
-            "where you can review extracted person details, citations, notes, and digital media "
-            "to merge into your Family Tree."
+            "Most NARA records are created by agencies, so the Person column shows a dash "
+            "and Merge is unavailable. For a record that names a person as its creator, "
+            "click <b>Merge...</b> (or double-click the row) to open the side-by-side "
+            "merge dialog."
         )
         dialog.format_secondary_markup(help_text)
         dialog.run()
@@ -574,21 +631,118 @@ class NaraSearchDialog(Gtk.Dialog):
             return text
         return _("%(text)s (from %(level)s)") % {"text": text, "level": level}
 
+    def _has_target(self) -> bool:
+        """Return True when a target person is set and the tree is open."""
+        return bool(self.target_handle and self.dbstate and self.dbstate.db)
+
     def _update_merge_button(self, model: Any, tree_iter: Any) -> None:
         """
         Enable Merge only for a record that names a person as its creator,
-        and say why when it is disabled.
+        and Attach to Person for any record when a target person is set; say
+        why Merge is disabled.
         """
         mergeable = tree_iter is not None and bool(model.get_value(tree_iter, 8))
         self.btn_merge.set_sensitive(mergeable)
+        self.btn_attach.set_sensitive(tree_iter is not None and self._has_target())
         if tree_iter is not None and not mergeable:
-            self.status_label.set_text(
-                _(
+            if self._has_target():
+                text = _(
                     "This record names no person as its creator, so it cannot "
-                    "be merged as a person. The person it is about is usually "
-                    "named in its title."
+                    "be merged as a person. Use Attach to Person to add it to "
+                    "the target person as a source."
                 )
+            else:
+                text = _(
+                    "This record names no person as its creator, so it cannot "
+                    "be merged as a person. Choose a target person to attach "
+                    "it to instead."
+                )
+            self.status_label.set_text(text)
+
+    def _refresh_action_buttons(self) -> None:
+        """Update Merge and Attach to Person for the current selection."""
+        model, tree_iter = self.tree_view.get_selection().get_selected()
+        self._update_merge_button(model, tree_iter)
+
+    @staticmethod
+    def _attach_summary(result: AttachResult) -> str:
+        """Return the status message for a finished attach."""
+        if result.citation_created:
+            text = _("The NARA record was attached as a new citation.")
+        elif result.person_linked:
+            text = _("The NARA record's existing citation was attached.")
+        else:
+            text = _("The NARA record was already attached to this person.")
+        parts = [text]
+        if result.downloaded or result.already_downloaded:
+            parts.append(
+                _("Images downloaded: %(new)d (already there: %(old)d).")
+                % {"new": result.downloaded, "old": result.already_downloaded}
             )
+        if result.media_added:
+            parts.append(_("Media added: %d.") % result.media_added)
+        if result.failed:
+            parts.append(
+                _(
+                    "%d images could not be downloaded and are linked by their "
+                    "web address instead."
+                )
+                % len(result.failed)
+            )
+        if result.cancelled:
+            parts.append(_("Downloading was cancelled; the rest were skipped."))
+        return " ".join(parts)
+
+    def cb_attach(self, _widget: Any = None) -> None:
+        """
+        Attach the selected NARA record to the target person as a source and
+        citation, downloading its images when asked.
+        """
+        model, tree_iter = self.tree_view.get_selection().get_selected()
+        target = self.target_handle
+        if tree_iter is None or not target or not self._has_target():
+            return
+        hit = model.get_value(tree_iter, 7)
+        if not hit:
+            return
+        parsed = NaraCatalogInterface.parse_record(hit)
+        download = bool(self.download_check.get_active())
+        max_images = int(self.max_images_spin.get_value())
+
+        from gramps.gui.utils import ProgressMeter
+
+        meter = None
+        total = len(parsed["digital_objects"])
+        if max_images > 0:
+            total = min(total, max_images)
+        if download and total:
+            meter = ProgressMeter(_("Attach NARA Record"), can_cancel=True, parent=self)
+            meter.set_pass(_("Downloading %d images from NARA...") % total, total)
+
+        def progress(_done: int, _total: int) -> bool:
+            if meter is None:
+                return True
+            meter.step()
+            return not meter.get_cancelled()
+
+        try:
+            result = NaraRecordAttacher(self.dbstate.db).attach(
+                target,
+                parsed,
+                download=download,
+                max_images=max_images,
+                progress=progress,
+            )
+        except Exception as err:
+            LOG.warning("Failed to attach NARA record %s: %s", parsed["naid"], err)
+            self.status_label.set_text(
+                _("Could not attach the NARA record: %s") % str(err)
+            )
+            return
+        finally:
+            if meter is not None:
+                meter.close()
+        self.status_label.set_text(self._attach_summary(result))
 
     def cb_selection_changed(self, selection: Gtk.TreeSelection) -> None:
         """
@@ -603,6 +757,8 @@ class NaraSearchDialog(Gtk.Dialog):
         """
         if self.btn_merge.get_sensitive():
             self.cb_merge()
+        elif self.btn_attach.get_sensitive():
+            self.cb_attach()
 
     def cb_merge(self, _widget: Any = None) -> None:
         """
