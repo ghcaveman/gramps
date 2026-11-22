@@ -382,6 +382,7 @@ gramps/gen/gwizard/gwizard_base.py
 gramps/gen/gwizard/gwizardgedcom.py
 gramps/gen/gwizard/gwizard_filemerge_media.py
 gramps/gen/gwizard/gwizardnaramerge.py
+gramps/gen/gwizard/gwizardnarapages.py
 gramps/gen/lib/address.py
 gramps/gen/lib/attribute.py
 gramps/gen/lib/attrtype.py
