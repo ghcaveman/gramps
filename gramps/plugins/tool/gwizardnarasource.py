@@ -20,10 +20,10 @@
 
 """
 The National Archives Catalog (NARA) as a record source for the GWizard
-Record Scan.
+Multi-Archive Record Scan.
 
 Registered as a GENERAL plugin in category "GWizardRecordSource"; Gramps
-calls ``load_on_reg`` at start-up and the Record Scan (in GWizard File
+calls ``load_on_reg`` at start-up and the Multi-Archive Record Scan (in GWizard File
 Merge) lists NARA as a column group. Gramps imports this module at
 start-up, so the NARA modules are only imported when they are used.
 """
@@ -204,5 +204,5 @@ class NaraSource(RecordSource):
 
 
 def load_on_reg(dbstate: Any, uistate: Any, plugin: Any) -> list[RecordSource]:
-    """Offer NARA to the GWizard Record Scan."""
+    """Offer NARA to the GWizard Multi-Archive Record Scan."""
     return [NaraSource()]

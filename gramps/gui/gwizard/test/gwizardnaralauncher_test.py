@@ -601,7 +601,7 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertIn(
             "No matching records found", dialog.status_label.set_text.call_args[0][0]
         )
-        dialog.btn_merge.set_sensitive.assert_called_with(False)
+        dialog.btn_attach.set_sensitive.assert_called_with(False)
 
     def test_dialog_search_with_matches(self) -> None:
         """Verify that search results populate the results store table."""
@@ -656,11 +656,14 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertEqual(appended_row[6], "1")
         self.assertIs(appended_row[8], True)
 
-        dialog.btn_merge.set_sensitive.assert_called_with(True)
-        self.assertIn("Found 1 matching", dialog.status_label.set_text.call_args[0][0])
+        # No target person here, so Merge stays off and says why.
+        dialog.btn_attach.set_sensitive.assert_called_with(False)
+        self.assertIn(
+            "Choose a target person", dialog.status_label.set_text.call_args[0][0]
+        )
 
-    def test_dialog_search_real_records_disable_merge(self) -> None:
-        """Verify real agency-created records show a dash and disable Merge."""
+    def test_dialog_search_real_records(self) -> None:
+        """Verify real agency-created records fill the table."""
         sample = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "..",
@@ -700,8 +703,7 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertEqual(rows[0][5], "Textual Records")
         self.assertRegex(rows[0][6], r"^2 \(\d+(\.\d)? MB\)$")
         self.assertIs(rows[0][8], False)
-        dialog.btn_merge.set_sensitive.assert_called_with(False)
-        self.assertIn("names no person", dialog.status_label.set_text.call_args[0][0])
+        dialog.btn_attach.set_sensitive.assert_called_with(False)
 
     def test_search_scores_matches_against_the_person(self) -> None:
         """Verify the Match column scores each record's named person."""
@@ -729,24 +731,33 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertLess(rows[1][10], rows[0][10])
         self.assertEqual(rows[1][2], "Smith, Sarah Butt")
 
-    def test_selection_changed_enables_merge_for_person_records(self) -> None:
-        """Verify Merge follows whether the selected record names a person."""
-        dialog = NaraSearchDialog(client=Mock())
+    def test_selection_changed_enables_merge_with_target(self) -> None:
+        """Verify Merge needs a selected record and a target person."""
+        dbstate = Mock()
+        dialog = NaraSearchDialog(dbstate=dbstate, client=Mock())
         model = Mock()
         selection = Mock()
         selection.get_selected.return_value = (model, Mock())
 
-        model.get_value.return_value = True
+        dialog.target_handle = "I_handle"
         dialog.cb_selection_changed(selection)
-        dialog.btn_merge.set_sensitive.assert_called_with(True)
-
-        model.get_value.return_value = False
-        dialog.cb_selection_changed(selection)
-        dialog.btn_merge.set_sensitive.assert_called_with(False)
+        dialog.btn_attach.set_sensitive.assert_called_with(True)
 
         selection.get_selected.return_value = (model, None)
         dialog.cb_selection_changed(selection)
-        dialog.btn_merge.set_sensitive.assert_called_with(False)
+        dialog.btn_attach.set_sensitive.assert_called_with(False)
+
+        selection.get_selected.return_value = (model, Mock())
+        dialog.target_handle = None
+        dialog.cb_selection_changed(selection)
+        dialog.btn_attach.set_sensitive.assert_called_with(False)
+
+    def test_no_separate_person_merge_button(self) -> None:
+        """Verify there is one Merge button (the record review) only."""
+        dialog = NaraSearchDialog(client=Mock())
+        self.assertFalse(hasattr(dialog, "btn_merge"))
+        self.assertFalse(hasattr(dialog, "btn_new_target"))
+        self.assertFalse(hasattr(NaraSearchDialog, "cb_merge"))
 
     def _attach_dialog(self, target: str | None = "I_handle") -> Any:
         """
@@ -775,14 +786,13 @@ class TestNaraLauncher(unittest.TestCase):
         return dialog
 
     def test_attach_button_needs_target_person(self) -> None:
-        """Verify Attach to Person is enabled only with a target person."""
+        """Verify Merge is enabled only with a target person."""
         dialog = self._attach_dialog(target="I_handle")
         dialog._refresh_action_buttons()
         dialog.btn_attach.set_sensitive.assert_called_with(True)
-        dialog.btn_merge.set_sensitive.assert_called_with(False)
-        self.assertIn("Attach to Person", dialog.status_label.set_text.call_args[0][0])
 
-        dialog.cb_set_target_none()
+        dialog.target_handle = None
+        dialog._refresh_action_buttons()
         dialog.btn_attach.set_sensitive.assert_called_with(False)
         self.assertIn(
             "Choose a target person", dialog.status_label.set_text.call_args[0][0]
@@ -981,87 +991,6 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertIn("Images downloaded: 2", text)
         self.assertIn("1 images could not be downloaded", text)
         self.assertIn("cancelled", text)
-
-    def test_dialog_merge_launches_merge_dialog(self) -> None:
-        """Verify that cb_merge connects to NaraGWizard and launches GWizardMergeDialog."""
-        mock_client = Mock()
-        mock_hit = {
-            "_id": "55555",
-            "_source": {
-                "naId": "55555",
-                "record": {
-                    "title": "Abraham Lincoln Commission",
-                    "creators": [
-                        {
-                            "heading": "Lincoln, Abraham, 1809-1865",
-                            "authorityType": "person",
-                        }
-                    ],
-                },
-            },
-        }
-
-        dbstate = Mock()
-        dbstate.db = self.db
-
-        dialog = NaraSearchDialog(dbstate=dbstate, client=mock_client)
-
-        mock_iter = Mock()
-        dialog.tree_view.get_selection().get_selected.return_value = (
-            dialog.results_store,
-            mock_iter,
-        )
-
-        # Model returns naid at 0, hit at 7
-        def get_val(_it, col):
-            if col == 0:
-                return "55555"
-            if col == 7:
-                return mock_hit
-            return ""
-
-        dialog.results_store.get_value.side_effect = get_val
-
-        # Create dummy source_db with a person
-        source_db = make_database("sqlite")
-        source_db.load(":memory:")
-        s_person = Person()
-        pname = Name()
-        pname.set_first_name("Abraham")
-        surn = Surname()
-        surn.set_surname("Lincoln")
-        pname.add_surname(surn)
-        s_person.set_primary_name(pname)
-        with DbTxn("Add source person", source_db) as trans:
-            source_db.add_person(s_person, trans)
-
-        def fake_run_step(self_gw, step, **kwargs):
-            if step == "connect":
-                return True
-            if step == "load":
-                self_gw.context["source_db"] = source_db
-                return [s_person]
-            return True
-
-        with (
-            patch(
-                "gramps.gen.gwizard.gwizardnaramerge.NaraGWizard.run_step",
-                autospec=True,
-                side_effect=fake_run_step,
-            ),
-            patch(
-                "gramps.gui.gwizard.gwizardmergedialog.GWizardMergeDialog"
-            ) as mock_merge_cls,
-        ):
-            mock_merge_instance = Mock()
-            mock_merge_instance.run.return_value = 1  # Gtk.ResponseType.OK
-            mock_merge_cls.return_value = mock_merge_instance
-
-            dialog.cb_merge()
-
-            mock_merge_instance.run.assert_called_once()
-            mock_merge_instance.destroy.assert_called_once()
-        source_db.close()
 
     def test_ask_nara_parameters_compatibility(self) -> None:
         """Verify ask_nara_parameters compatibility helper."""

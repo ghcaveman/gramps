@@ -341,15 +341,6 @@ class NaraSearchDialog(Gtk.Dialog):
         self.btn_change_target.connect("clicked", self.cb_change_target)
         header_box.pack_start(self.btn_change_target, False, False, 0)
 
-        self.btn_new_target = Gtk.Button(label=_("Add as Ne_w"), use_underline=True)
-        self.btn_new_target.set_tooltip_text(
-            _(
-                "Import selected NARA record as a new person rather than merging into an existing record."
-            )
-        )
-        self.btn_new_target.connect("clicked", self.cb_set_target_none)
-        header_box.pack_start(self.btn_new_target, False, False, 0)
-
         content.pack_start(header_box, False, False, 0)
         self._update_target_label()
 
@@ -539,24 +530,15 @@ class NaraSearchDialog(Gtk.Dialog):
 
         self.add_button(_("_Close"), Gtk.ResponseType.CLOSE)
 
-        self.btn_merge = Gtk.Button(label=_("_Merge..."), use_underline=True)
-        self.btn_merge.set_tooltip_text(
-            _(
-                "Open the field-by-field merge dialog for the selected NARA "
-                "record. Only for records that name a person as their creator."
-            )
-        )
-        self.btn_merge.set_sensitive(False)
-        self.btn_merge.connect("clicked", self.cb_merge)
+        # Merge: review the selected record against the target person and
+        # copy its citation and images onto them (cb_attach).
         action_area = self.get_action_area()
-        action_area.pack_end(self.btn_merge, False, False, 0)
-
-        self.btn_attach = Gtk.Button(label=_("A_ttach to Person"), use_underline=True)
+        self.btn_attach = Gtk.Button(label=_("_Merge..."), use_underline=True)
         self.btn_attach.get_style_context().add_class("suggested-action")
         self.btn_attach.set_tooltip_text(
             _(
-                "Add the selected NARA record to the target person as a source "
-                "and citation, with its images."
+                "Review the selected NARA record against the target person and "
+                "add it to them as a source and citation, with its images."
             )
         )
         self.btn_attach.set_sensitive(False)
@@ -634,8 +616,8 @@ class NaraSearchDialog(Gtk.Dialog):
         search term, in column order. A width of 0 lets the entry expand.
 
         The underlined letters must not clash with each other, with E_xact
-        name, or with the dialog's buttons (Change Tar_get, Add as Ne_w,
-        _Reset, _Search, A_ttach to Person, _Merge, _Help, _Close).
+        name, or with the dialog's buttons (Change Tar_get, _Reset, _Search,
+        _Merge, _Help, _Close).
         """
         return [
             (
@@ -821,14 +803,6 @@ class NaraSearchDialog(Gtk.Dialog):
         except Exception as err:
             LOG.error("Failed to select target person: %s", err)
 
-    def cb_set_target_none(self, _widget: Any = None) -> None:
-        """
-        Set target person to None so selected profile will be added as new.
-        """
-        self.target_handle = None
-        self._update_target_label()
-        self._refresh_action_buttons()
-
     def cb_entry_activate(self, _widget: Gtk.Entry) -> None:
         """
         Trigger search when pressing Enter in any search entry box.
@@ -879,7 +853,7 @@ class NaraSearchDialog(Gtk.Dialog):
         :param query: The query the hits came from, for the status message.
         """
         self.results_store.clear()
-        self.btn_merge.set_sensitive(False)
+        self.btn_attach.set_sensitive(False)
 
         if not hits:
             self.status_label.set_text(
@@ -891,12 +865,10 @@ class NaraSearchDialog(Gtk.Dialog):
             )
             return
 
-        mergeable_count = 0
         match_query = self._match_query()
         for hit in hits:
             parsed = NaraCatalogInterface.parse_record(hit)
             people = parsed["person_creators"]
-            mergeable_count += 1 if people else 0
             digital_str = _media_summary(parsed["digital_objects"])
             match = best_match(match_query, parsed)
             if people:
@@ -925,11 +897,7 @@ class NaraSearchDialog(Gtk.Dialog):
             )
 
         self.status_label.set_text(
-            _(
-                "Found %(found)d matching records in the National Archives "
-                "Catalog; %(people)d name a person and can be merged."
-            )
-            % {"found": len(hits), "people": mergeable_count}
+            _("Found %d matching records in the National Archives Catalog.") % len(hits)
         )
 
         first_iter = self.results_store.get_iter_first()
@@ -965,20 +933,15 @@ class NaraSearchDialog(Gtk.Dialog):
             "• <b>Material Type:</b> Narrow records to textual files, photographs, maps, etc.\n"
             "• <b>Online Only:</b> Restrict results to records with digitized online assets (images/documents).\n"
             "• Set the <b>NARA_API_KEY</b> environment variable before launching Gramps to authenticate with the catalog.\n\n"
-            "<b>Attach to Person:</b>\n"
-            "Select a record and click <b>Attach to Person</b> to review it: the left side "
+            "<b>Merge:</b>\n"
+            "Select a record and click <b>Merge...</b> (or double-click it) to review it: the left side "
             "shows the NARA citations the person already has, the right side this record's "
             "citation and images with their sizes and whether your tree already has them. "
             "Check the images you want (Preview downloads just one to look at) and click "
-            "<b>Attach</b>: NARA becomes the repository, the record's series the source, "
+            "<b>Merge</b>: NARA becomes the repository, the record's series the source, "
             "and the record a citation with its catalog link. New images are saved under "
             "the NARA folder of your media base path (one folder per NAID) and linked to "
-            "the citation. Images already in your tree are linked, never added twice.\n\n"
-            "<b>Merging:</b>\n"
-            "Most NARA records are created by agencies, so the Person column shows a dash "
-            "and Merge is unavailable. For a record that names a person as its creator, "
-            "click <b>Merge...</b> (or double-click the row) to open the side-by-side "
-            "merge dialog."
+            "the citation. Images already in your tree are linked, never added twice."
         )
         dialog.format_secondary_markup(help_text)
         dialog.run()
@@ -1029,30 +992,17 @@ class NaraSearchDialog(Gtk.Dialog):
 
     def _update_merge_button(self, model: Any, tree_iter: Any) -> None:
         """
-        Enable Merge only for a record that names a person as its creator,
-        and Attach to Person for any record when a target person is set; say
-        why Merge is disabled.
+        Enable Merge for a selected record when a target person is set;
+        otherwise say a target person is needed.
         """
-        mergeable = tree_iter is not None and bool(model.get_value(tree_iter, 8))
-        self.btn_merge.set_sensitive(mergeable)
         self.btn_attach.set_sensitive(tree_iter is not None and self._has_target())
-        if tree_iter is not None and not mergeable:
-            if self._has_target():
-                text = _(
-                    "This record names no person as its creator, so it cannot "
-                    "be merged as a person. Use Attach to Person to add it to "
-                    "the target person as a source."
-                )
-            else:
-                text = _(
-                    "This record names no person as its creator, so it cannot "
-                    "be merged as a person. Choose a target person to attach "
-                    "it to instead."
-                )
-            self.status_label.set_text(text)
+        if tree_iter is not None and not self._has_target():
+            self.status_label.set_text(
+                _("Choose a target person (Change Target) to merge this record into.")
+            )
 
     def _refresh_action_buttons(self) -> None:
-        """Update Merge and Attach to Person for the current selection."""
+        """Update Merge for the current selection."""
         model, tree_iter = self.tree_view.get_selection().get_selected()
         self._update_merge_button(model, tree_iter)
 
@@ -1174,7 +1124,7 @@ class NaraSearchDialog(Gtk.Dialog):
 
         meter = None
         if download:
-            meter = ProgressMeter(_("Attach NARA Record"), can_cancel=True, parent=self)
+            meter = ProgressMeter(_("Merge NARA Record"), can_cancel=True, parent=self)
             meter.set_pass(
                 _("Downloading %d images from NARA...") % len(online), len(online)
             )
@@ -1259,108 +1209,10 @@ class NaraSearchDialog(Gtk.Dialog):
 
     def cb_row_activated(self, _tree: Any, _path: Any, _col: Any) -> None:
         """
-        Handle double-clicking a row to trigger merge directly.
+        Handle double-clicking a row to open its merge review directly.
         """
-        if self.btn_merge.get_sensitive():
-            self.cb_merge()
-        elif self.btn_attach.get_sensitive():
+        if self.btn_attach.get_sensitive():
             self.cb_attach()
-
-    def cb_merge(self, _widget: Any = None) -> None:
-        """
-        Load the selected NARA record and launch the GWizardMergeDialog.
-        """
-        selection = self.tree_view.get_selection()
-        model, tree_iter = selection.get_selected()
-        if not tree_iter:
-            return
-
-        naid = model.get_value(tree_iter, 0)
-        hit = model.get_value(tree_iter, 7)
-        if not hit:
-            return
-
-        self.status_label.set_text(
-            _("Loading details for NAID '%s' from NARA...") % naid
-        )
-        while Gtk.events_pending():
-            Gtk.main_iteration_do(False)
-
-        from gramps.gen.gwizard.gwizardnaramerge import NaraGWizard
-
-        db = self.dbstate.db if self.dbstate else None
-        if not db:
-            self.status_label.set_text(_("No open database available for merge."))
-            return
-
-        try:
-            gwizard = NaraGWizard(db)
-            if not gwizard.run_step(
-                "connect",
-                query=naid,
-                api_key=self.api_key,
-                hits=[hit],
-                client=self.client,
-            ):
-                self.status_label.set_text(_("Could not configure connection to NARA."))
-                return
-            gwizard.run_step("load")
-        except Exception as err:
-            LOG.warning("Failed to load records from NARA for NAID %s: %s", naid, err)
-            self.status_label.set_text(
-                _("Failed to load records from NARA: %s") % str(err)
-            )
-            return
-
-        source_db = gwizard.context.get("source_db")
-        if not source_db or source_db.get_number_of_people() == 0:
-            self.status_label.set_text(
-                _("No person data found in NARA record for NAID '%s'.") % naid
-            )
-            return
-
-        # Find source person handle
-        source_handle: str | None = None
-        for h in source_db.iter_person_handles():
-            source_handle = h
-            break
-
-        if not source_handle:
-            self.status_label.set_text(
-                _("Could not resolve source person for NAID '%s'.") % naid
-            )
-            return
-
-        from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
-
-        merge_dialog = GWizardMergeDialog(
-            self.dbstate,
-            gwizard,
-            source_handle,
-            self.target_handle,
-            parent=self,
-        )
-        try:
-            response = merge_dialog.run()
-        finally:
-            merge_dialog.destroy()
-
-        if response == Gtk.ResponseType.OK:
-            target_name = ""
-            if self.target_handle and self.dbstate and self.dbstate.db:
-                tp = self.dbstate.db.get_person_from_handle(self.target_handle)
-                if tp:
-                    target_name = tp.get_primary_name().get_name()
-                    self._prefill_entries()
-            if target_name:
-                self.status_label.set_text(
-                    _("Successfully merged NAID '%(naid)s' into '%(target)s'.")
-                    % {"naid": naid, "target": target_name}
-                )
-            else:
-                self.status_label.set_text(
-                    _("Successfully imported NAID '%s' as a new person.") % naid
-                )
 
     def get_query_parameters(self) -> dict[str, Any]:
         """
@@ -1424,10 +1276,9 @@ def open_nara_record(
 ) -> bool:
     """
     Open the NARA window for a person with one record already listed and
-    selected, and go straight to its Attach to Person review (the merge
-    window with the record on the left and the person on the right). The
-    NARA window stays open afterwards, so Merge is still there for a record
-    that names a person as its creator. Used by the GWizard Record Scan.
+    selected, and go straight to its merge review (the merge window with the
+    record on the left and the person on the right). The NARA window stays
+    open afterwards. Used by the GWizard Multi-Archive Record Scan.
 
     :param hit: The record as the NARA search returned it.
     :returns: True (the person may have changed).
