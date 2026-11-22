@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Tools/Family Tree Processing/GWizard Record Scan."""
+"""Tools/Family Tree Processing/GWizard Multi-Archive Record Scan."""
 
 # -------------------------------------------------------------------------
 #
@@ -65,7 +65,7 @@ class GWizardRecordScanOptions(tool.ToolOptions):
 # ------------------------------------------------------------
 class GWizardRecordScan(tool.Tool):
     """
-    Open the GWizard Record Scan window: every person in the Family Tree,
+    Open the GWizard Multi-Archive Record Scan window: every person in the Family Tree,
     scored against the record sources (WikiTree, NARA, ...) installed
     addons provide.
     """
@@ -87,13 +87,13 @@ class GWizardRecordScan(tool.Tool):
         if addon_dir not in sys.path:
             sys.path.insert(0, addon_dir)
         if uistate is None:
-            LOG.error("GWizard Record Scan needs the Gramps GUI")
+            LOG.error("GWizard Multi-Archive Record Scan needs the Gramps GUI")
             return
         from gramps.gui.dialog import ErrorDialog
 
         if not dbstate.is_open():
             ErrorDialog(
-                _("GWizard Record Scan"),
+                _("GWizard Multi-Archive Record Scan"),
                 _("Open a Family Tree before running this tool."),
                 parent=uistate.window,
             )

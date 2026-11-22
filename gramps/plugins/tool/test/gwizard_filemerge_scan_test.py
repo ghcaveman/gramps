@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Unit tests for the GWizard Record Scan tool registration."""
+"""Unit tests for the GWizard Multi-Archive Record Scan tool registration."""
 
 # -------------------------------------------------------------------------
 #

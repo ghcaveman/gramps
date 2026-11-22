@@ -572,7 +572,7 @@ class CandidateMatcher:
 # profile, a person named by a NARA record, ...) against a person in the
 # Family Tree. WikiTree and NARA turn their own data into a RecordCandidate
 # and score it here, so both rank results the same way, and so does the
-# GWizard Record Scan.
+# GWizard Multi-Archive Record Scan.
 #
 # The score follows a weighted scheme: surname 35, given and middle names 30,
 # birth year 25 (fading to nothing at 5 years apart) and death year 10
@@ -581,7 +581,7 @@ class CandidateMatcher:
 # Soundex, all in plain Python so the addons need no extra packages. A known
 # gender that differs halves the score.
 
-# Match levels for the Record Scan: which parts must be on both sides and
+# Match levels for the Multi-Archive Record Scan: which parts must be on both sides and
 # count towards the score. Death years are left out of every level.
 TIER_GMSB = "g/m/s/b"  # given, middle, surname and birth year
 TIER_GSB = "g/s/b"  # given, surname and birth year

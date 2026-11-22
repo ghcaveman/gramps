@@ -19,7 +19,7 @@
 #
 
 """
-GWizard Record Scan: check every person in the Family Tree against the
+GWizard Multi-Archive Record Scan: check every person in the Family Tree against the
 installed record sources (WikiTree, NARA, ...) and count how many likely
 matches each source has, at three match levels.
 
@@ -149,7 +149,7 @@ class SourceMatch:
 # ------------------------------------------------------------
 class RecordSource(abc.ABC):
     """
-    A site the Record Scan can search for the people in the Family Tree.
+    A site the Multi-Archive Record Scan can search for the people in the Family Tree.
 
     Subclasses set ``source_id`` (short, stable, used in the cache) and
     ``title`` (the column heading), and implement ``search``. ``search`` and
