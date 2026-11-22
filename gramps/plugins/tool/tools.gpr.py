@@ -616,7 +616,7 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard WikiTree record source (for the GWizard Record Scan)
+# GWizard WikiTree record source (for the GWizard Multi-Archive Record Scan)
 #
 # ------------------------------------------------------------------------
 
@@ -624,7 +624,7 @@ register(
     GENERAL,
     id="gwizardwikitreesource",
     name=_("GWizard WikiTree record source"),
-    description=_("Lets the GWizard Record Scan search WikiTree."),
+    description=_("Lets the GWizard Multi-Archive Record Scan search WikiTree."),
     version="0.0.1",
     gramps_target_version=MODULE_VERSION,
     status=EXPERIMENTAL,

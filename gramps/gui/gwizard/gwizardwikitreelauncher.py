@@ -1062,7 +1062,7 @@ def merge_wikitree_profile(
     """
     Load a WikiTree profile (with its relatives) and open the merge window
     against a person in the tree, or as a new person when target_handle is
-    None. Used by the search window and by the GWizard Record Scan.
+    None. Used by the search window and by the GWizard Multi-Archive Record Scan.
 
     :param status: Called with progress messages, if given.
     :returns: (whether the merge was applied, a message for the user).

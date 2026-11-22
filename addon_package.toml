@@ -38,13 +38,13 @@ tests = [
     "gramps/plugins/tool/test/gwizardwikitree*_test.py",
 ]
 
-# WikiTree as a record source for the GWizard Record Scan (which ships in
+# WikiTree as a record source for the GWizard Multi-Archive Record Scan (which ships in
 # GWizard File Merge): a GENERAL plugin the scan finds by its category.
 [[extra_registrations]]
 type = "GENERAL"
 id = "gwizardwikitreesource"
 name = "GWizard WikiTree record source"
-description = "Lets the GWizard Record Scan search WikiTree."
+description = "Lets the GWizard Multi-Archive Record Scan search WikiTree."
 fname = "gwizardwikitreesource.py"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]

@@ -18,7 +18,7 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-"""Unit tests for WikiTree as a GWizard Record Scan source."""
+"""Unit tests for WikiTree as a GWizard Multi-Archive Record Scan source."""
 
 # -------------------------------------------------------------------------
 #
