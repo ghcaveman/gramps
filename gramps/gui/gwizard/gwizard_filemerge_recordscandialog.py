@@ -110,6 +110,13 @@ TIER_WIDTH = 90
 # Most of the screen width the window opens at.
 MAX_SCREEN_FRACTION = 0.9
 
+# Response ids of the action buttons that do not close the window. All
+# action buttons are added with add_button(), so GTK (and Gramps' button
+# order setting) arranges them in the platform's order.
+RESPONSE_EXPORT = 1
+RESPONSE_SEARCH = 2
+RESPONSE_MERGE = 3
+
 # Scope choices besides the custom person filters.
 SCOPE_ALL = "all"
 SCOPE_ACTIVE = "active"
@@ -485,25 +492,25 @@ class RecordScanDialog(Gtk.Dialog):
         renderer.set_property("foreground-set", bool(colour))
 
     def _build_actions(self) -> None:
-        """Bottom buttons."""
+        """
+        Bottom buttons. Every one is added with add_button() and a response
+        id, never packed by hand, so GTK places them in the platform's order
+        (gtk-alternative-button-order); cb_response handles the ones that
+        keep the window open.
+        """
         self.add_button(_("_Close"), Gtk.ResponseType.CLOSE)
-        action_area = self.get_action_area()
 
-        self.btn_export = Gtk.Button(label=_("_Export CSV..."), use_underline=True)
+        self.btn_export = self.add_button(_("_Export CSV..."), RESPONSE_EXPORT)
         self.btn_export.set_tooltip_text(
             _("Save the list and its scores as a CSV file.")
         )
-        self.btn_export.connect("clicked", self.cb_export)
-        action_area.pack_end(self.btn_export, False, False, 0)
 
-        self.btn_search = Gtk.Button(label=_("Open _Search..."), use_underline=True)
+        self.btn_search = self.add_button(_("Open _Search..."), RESPONSE_SEARCH)
         self.btn_search.set_tooltip_text(
             _("Open the record source's own search window for the selected person.")
         )
-        self.btn_search.connect("clicked", self.cb_open_search)
-        action_area.pack_end(self.btn_search, False, False, 0)
 
-        self.btn_merge = Gtk.Button(label=_("Open _Merge..."), use_underline=True)
+        self.btn_merge = self.add_button(_("Open _Merge..."), RESPONSE_MERGE)
         self.btn_merge.get_style_context().add_class("suggested-action")
         self.btn_merge.set_tooltip_text(
             _(
@@ -511,8 +518,6 @@ class RecordScanDialog(Gtk.Dialog):
                 "found for them. Double-click a score to do the same."
             )
         )
-        self.btn_merge.connect("clicked", self.cb_open_merge)
-        action_area.pack_end(self.btn_merge, False, False, 0)
         self._update_buttons()
 
     # -----------------------------------------------------------------
@@ -1248,7 +1253,21 @@ class RecordScanDialog(Gtk.Dialog):
         return len(self.items)
 
     def cb_response(self, _dialog: Gtk.Dialog, response: int) -> None:
-        """Save the cache when the window closes."""
+        """
+        Run the action buttons without closing the window; save the cache
+        when it closes.
+        """
+        actions = {
+            RESPONSE_EXPORT: (self.cb_export, self.btn_export),
+            RESPONSE_SEARCH: (self.cb_open_search, self.btn_search),
+            RESPONSE_MERGE: (self.cb_open_merge, self.btn_merge),
+        }
+        if response in actions:
+            # Keep Gtk.Dialog.run() going: these buttons are not closing ones.
+            self.stop_emission_by_name("response")
+            handler, button = actions[response]
+            handler(button)
+            return
         if response in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
             self.cache.save()
 
