@@ -89,6 +89,15 @@ from .gwizard_base import (
     normalize_source_text,
     source_signature,
 )
+from .gwizard_filemerge_media import (
+    TargetMediaIndex,
+    file_checksum,
+    find_file,
+    is_url,
+    mark_incoming,
+    same_media,
+    target_path,
+)
 
 # -------------------------------------------------------------------------
 #
@@ -317,8 +326,26 @@ def extra_signature(kind: str, item: Any) -> tuple[Any, ...]:
     return (_norm_text(item.get_type()), _norm_text(item.get()))
 
 
-def extra_text(kind: str, item: Any) -> str:
-    """Return a short one-line description of an item."""
+def same_extra_item(kind: str, s_item: Any, s_db: Any, t_item: Any, t_db: Any) -> bool:
+    """
+    Return True when an incoming item and a tree item are the same item.
+
+    Media is the same picture when the paths are written alike, point at
+    the same file, or the files have the same checksum; everything else
+    compares by :func:`extra_signature`.
+    """
+    if kind == "media":
+        return same_media(s_item, s_db, t_item, t_db)
+    return extra_signature(kind, s_item) == extra_signature(kind, t_item)
+
+
+def extra_text(kind: str, item: Any, db: Any = None, fallback_db: Any = None) -> str:
+    """
+    Return a short one-line description of an item.
+
+    For media, ``db`` (and ``fallback_db``, for incoming media exported
+    from the tree itself) are used to say when the file cannot be found.
+    """
     if kind == "altname":
         return "%s (%s)" % (name_displayer.display_name(item), item.get_type())
     if kind == "attribute":
@@ -345,6 +372,13 @@ def extra_text(kind: str, item: Any) -> str:
         text = item.get_path()
         if item.get_description():
             text += " (%s)" % item.get_description()
+        path = item.get_path() or ""
+        if (
+            db is not None
+            and not is_url(path)
+            and find_file(db, path, fallback_db) is None
+        ):
+            text += " " + _("[file not found]")
         return text
     if kind == "lds":
         parts = [
@@ -376,9 +410,8 @@ def pair_extra_items(
     paired = []
     source_only = []
     for s_index, s_item in extra_items(kind, s_person, s_db):
-        signature = extra_signature(kind, s_item)
         for position, (t_index, t_item) in enumerate(unused):
-            if extra_signature(kind, t_item) == signature:
+            if same_extra_item(kind, s_item, s_db, t_item, t_db):
                 del unused[position]
                 paired.append((s_index, s_item, t_index, t_item))
                 break
@@ -573,11 +606,14 @@ class GedGWizard(GWizardBase):
         if not source_db:
             raise RuntimeError("Failed to import GEDCOM file.")
 
+        # Media paths in the incoming file are read from where it came from.
+        mark_incoming(source_db, gedcom_path)
         self.context["source_db"] = source_db
         # Handles copied for an earlier file mean nothing for this one.
         self.context["handle_map"] = {}
         self.context["person_map"] = {}
         self.context.pop("place_index", None)
+        self.context.pop("media_index", None)
 
         people: list[Person] = []
         for handle in source_db.iter_person_handles():
@@ -1089,10 +1125,14 @@ class GedGWizard(GWizardBase):
                         status="source_only" if t_item is None else "target_only",
                         field=extra_label(kind),
                         source_val=(
-                            extra_text(kind, s_item) if s_item is not None else ""
+                            extra_text(kind, s_item, source_db, self.db)
+                            if s_item is not None
+                            else ""
                         ),
                         target_val=(
-                            extra_text(kind, t_item) if t_item is not None else ""
+                            extra_text(kind, t_item, self.db)
+                            if t_item is not None
+                            else ""
                         ),
                         field_type=kind,
                         extra_data={"source_index": s_index, "target_index": t_index},
@@ -1450,6 +1490,15 @@ class GedGWizard(GWizardBase):
             if not obj.handle or exists(obj.handle):
                 obj.set_handle(create_id())
 
+        def drop_tags(obj: Any) -> None:
+            """
+            Clear the tags of a copied object, as for a new person.
+
+            Its tag handles belong to the incoming file (the importer can tag
+            every object it reads) and mean nothing in the target.
+            """
+            obj.set_tag_list([])
+
         def copy_note_list(obj: Any, trans: Any) -> None:
             """Replace the notes of ``obj`` with copies in the target."""
             obj.set_note_list(
@@ -1463,13 +1512,23 @@ class GedGWizard(GWizardBase):
             )
 
         def copy_media_refs(obj: Any, trans: Any) -> None:
-            """Point the media references of ``obj`` at copies in the target."""
+            """
+            Point the media references of ``obj`` at copies in the target.
+
+            A reference whose media could not be copied is dropped rather
+            than left pointing at a handle the target lacks. The citations
+            and notes of each reference (and of its attributes) are copied too.
+            """
             kept = []
             for mref in obj.get_media_list():
                 new_handle = copy_media(mref.get_reference_handle(), trans)
-                if new_handle:
-                    mref.set_reference_handle(new_handle)
-                    kept.append(mref)
+                if not new_handle:
+                    continue
+                mref.set_reference_handle(new_handle)
+                remap_citations_notes(mref)
+                for attribute in mref.get_attribute_list():
+                    remap_citations_notes(attribute)
+                kept.append(mref)
             obj.set_media_list(kept)
 
         def copy_citation_list(obj: Any, trans: Any) -> None:
@@ -1552,6 +1611,7 @@ class GedGWizard(GWizardBase):
 
                 new_place = copy.deepcopy(s_place)
                 unused_handle(new_place, self.db.has_place_handle)
+                drop_tags(new_place)
                 copy_note_list(new_place, trans)
                 copy_media_refs(new_place, trans)
                 copy_citation_list(new_place, trans)
@@ -1597,6 +1657,7 @@ class GedGWizard(GWizardBase):
                         return remember("note", s_note_handle, s_note_handle)
                 new_note = copy.deepcopy(s_note)
                 unused_handle(new_note, self.db.has_note_handle)
+                drop_tags(new_note)
                 fresh_gramps_id(new_note, self.db.has_note_gramps_id)
                 self.db.add_note(new_note, trans)
                 return remember("note", s_note_handle, new_note.handle)
@@ -1608,27 +1669,70 @@ class GedGWizard(GWizardBase):
                 )
             return None
 
+        def media_index() -> TargetMediaIndex:
+            """Return the index of the target's media, built on first use."""
+            index = self.context.get("media_index")
+            if index is None or index.db is not self.db:
+                index = TargetMediaIndex(self.db)
+                self.context["media_index"] = index
+            return index
+
+        # Media and citations can refer to each other (a citation's media
+        # reference citing that citation). An object reached again while it
+        # is being copied is left out rather than recursed into forever.
+        copies_in_progress: set[tuple[str, str]] = set()
+
         # Helper to copy media
         def copy_media(s_media_handle: str | None, trans: Any) -> str | None:
+            """
+            Return the target media for an incoming one, copying it if needed.
+
+            The incoming path is read from where the incoming file came from
+            and recorded so it means the same file in the target (relative to
+            the tree's base media path when the file is under it, otherwise
+            in full). A picture the tree already has, by file, recorded path
+            or checksum, is reused instead of added again. A file that cannot
+            be found keeps its path as written.
+            """
             if not s_media_handle:
                 return None
             hit = mapped_handle("media", s_media_handle, self.db.has_media_handle)
             if hit:
                 return hit
+            if ("media", s_media_handle) in copies_in_progress:
+                return None
+            copies_in_progress.add(("media", s_media_handle))
             try:
                 s_media = source_db.get_media_from_handle(s_media_handle)
                 if not s_media:
                     return None
+                s_path = s_media.get_path() or ""
+                full = find_file(source_db, s_path, fallback_db=self.db)
+                new_path = target_path(full, self.db) if full else s_path
+                checksum = (s_media.get_checksum() or "").strip() or file_checksum(full)
                 if self.db.has_media_handle(s_media_handle):
                     t_media = self.db.get_media_from_handle(s_media_handle)
-                    if t_media.get_path() == s_media.get_path():
+                    if t_media.get_path() in (s_path, new_path):
                         return remember("media", s_media_handle, s_media_handle)
+                found = media_index().find(full, checksum, new_path)
+                if found:
+                    LOG.info(
+                        "Media %r is already in the family tree; reusing it", s_path
+                    )
+                    return remember("media", s_media_handle, found)
                 new_media = copy.deepcopy(s_media)
                 unused_handle(new_media, self.db.has_media_handle)
+                drop_tags(new_media)
+                new_media.set_path(new_path)
+                if checksum:
+                    new_media.set_checksum(checksum)
+                if full is None and not is_url(s_path):
+                    LOG.warning("Media file not found: %s", s_path)
                 copy_note_list(new_media, trans)
                 copy_citation_list(new_media, trans)
                 fresh_gramps_id(new_media, self.db.has_media_gramps_id)
                 self.db.add_media(new_media, trans)
+                media_index().add(new_media)
                 return remember("media", s_media_handle, new_media.handle)
             except Exception:
                 LOG.warning(
@@ -1636,6 +1740,8 @@ class GedGWizard(GWizardBase):
                     "media",
                     exc_info=True,
                 )
+            finally:
+                copies_in_progress.discard(("media", s_media_handle))
             return None
 
         # Helper to copy repository
@@ -1657,6 +1763,7 @@ class GedGWizard(GWizardBase):
                         return remember("repo", s_repo_handle, s_repo_handle)
                 new_repo = copy.deepcopy(s_repo)
                 unused_handle(new_repo, self.db.has_repository_handle)
+                drop_tags(new_repo)
                 copy_note_list(new_repo, trans)
                 fresh_gramps_id(new_repo, self.db.has_repository_gramps_id)
                 self.db.add_repository(new_repo, trans)
@@ -1702,6 +1809,7 @@ class GedGWizard(GWizardBase):
                     )
                 new_source = copy.deepcopy(s_source)
                 unused_handle(new_source, self.db.has_source_handle)
+                drop_tags(new_source)
                 copy_note_list(new_source, trans)
                 copy_media_refs(new_source, trans)
                 kept_repos = []
@@ -1733,6 +1841,9 @@ class GedGWizard(GWizardBase):
             )
             if hit:
                 return hit
+            if ("citation", s_citation_handle) in copies_in_progress:
+                return None
+            copies_in_progress.add(("citation", s_citation_handle))
             try:
                 s_citation = source_db.get_citation_from_handle(s_citation_handle)
                 if not s_citation:
@@ -1747,6 +1858,7 @@ class GedGWizard(GWizardBase):
                         )
                 new_citation = copy.deepcopy(s_citation)
                 unused_handle(new_citation, self.db.has_citation_handle)
+                drop_tags(new_citation)
                 copy_note_list(new_citation, trans)
                 copy_media_refs(new_citation, trans)
                 new_sh = copy_source(new_citation.get_reference_handle(), trans)
@@ -1766,6 +1878,8 @@ class GedGWizard(GWizardBase):
                     "citation",
                     exc_info=True,
                 )
+            finally:
+                copies_in_progress.discard(("citation", s_citation_handle))
             return None
 
         # Helper to resolve references on an Event
@@ -1777,10 +1891,7 @@ class GedGWizard(GWizardBase):
                     new_notes.append(new_nh)
             new_event.set_note_list(new_notes)
 
-            for mref in new_event.media_list:
-                new_mh = copy_media(mref.get_reference_handle(), trans)
-                if new_mh:
-                    mref.set_reference_handle(new_mh)
+            copy_media_refs(new_event, trans)
 
             new_citations = []
             for ch in new_event.get_citation_list():
@@ -1798,10 +1909,7 @@ class GedGWizard(GWizardBase):
                     new_notes.append(new_nh)
             new_person.set_note_list(new_notes)
 
-            for mref in new_person.media_list:
-                new_mh = copy_media(mref.get_reference_handle(), trans)
-                if new_mh:
-                    mref.set_reference_handle(new_mh)
+            copy_media_refs(new_person, trans)
 
             new_citations = []
             for ch in new_person.get_citation_list():
@@ -1824,6 +1932,7 @@ class GedGWizard(GWizardBase):
                     new_event.set_handle(None)
                 new_place = get_or_create_place(s_event.get_place_handle(), trans)
                 new_event.set_place_handle(new_place)
+                drop_tags(new_event)
                 resolve_references_for_event(new_event, trans)
                 fresh_gramps_id(new_event, self.db.has_event_gramps_id)
                 self.db.add_event(new_event, trans)
@@ -2185,11 +2294,10 @@ class GedGWizard(GWizardBase):
             wanted = dict(extra_items(kind, s_person, source_db)).get(index)
             if wanted is None:
                 return
-            known = {
-                extra_signature(kind, item)
+            if any(
+                same_extra_item(kind, wanted, source_db, item, self.db)
                 for _index, item in extra_items(kind, t_person_obj, self.db)
-            }
-            if extra_signature(kind, wanted) in known:
+            ):
                 return
             if kind == "note":
                 new_handle = copy_note(s_person.get_note_list()[index], trans)
@@ -2267,10 +2375,8 @@ class GedGWizard(GWizardBase):
                     remap_citations_notes(attribute)
                 for address in new_person.get_address_list():
                     remap_citations_notes(address)
-                for mref in new_person.get_media_list():
-                    remap_citations_notes(mref)
-                    for attribute in mref.get_attribute_list():
-                        remap_citations_notes(attribute)
+                # Media references and their citations were copied by
+                # resolve_references_for_person.
                 for ordinance in new_person.get_lds_ord_list():
                     remap_citations_notes(ordinance)
                     ordinance.set_place_handle(
