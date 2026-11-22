@@ -80,6 +80,9 @@ SEARCH_TERM_DEFAULTS: dict[str, bool] = {
 # made after a death.
 RECORD_YEARS_AFTER_DEATH = 10
 
+# Response id of the Merge button (a non-closing action button).
+RESPONSE_MERGE = 1
+
 # Merge window sections left out when attaching a record to a person: the
 # record's incoming copy of the person has no family.
 ATTACH_HIDDEN_SECTIONS = ("family_relations", "children", "families")
@@ -525,15 +528,18 @@ class NaraSearchDialog(Gtk.Dialog):
         # -----------------------------------------------------------------
         # 5. Action Bar
         # -----------------------------------------------------------------
+        # Every action button is added with add_button() and a response id,
+        # never packed by hand, so GTK places them in the platform's order
+        # (gtk-alternative-button-order). Help and Merge keep the window
+        # open; cb_response handles them.
         btn_action_help = self.add_button(_("_Help"), Gtk.ResponseType.HELP)
-        btn_action_help.connect("clicked", self.cb_help)
+        self.get_action_area().set_child_secondary(btn_action_help, True)
 
         self.add_button(_("_Close"), Gtk.ResponseType.CLOSE)
 
         # Merge: review the selected record against the target person and
         # copy its citation and images onto them (cb_attach).
-        action_area = self.get_action_area()
-        self.btn_attach = Gtk.Button(label=_("_Merge..."), use_underline=True)
+        self.btn_attach = self.add_button(_("_Merge..."), RESPONSE_MERGE)
         self.btn_attach.get_style_context().add_class("suggested-action")
         self.btn_attach.set_tooltip_text(
             _(
@@ -542,8 +548,7 @@ class NaraSearchDialog(Gtk.Dialog):
             )
         )
         self.btn_attach.set_sensitive(False)
-        self.btn_attach.connect("clicked", self.cb_attach)
-        action_area.pack_end(self.btn_attach, False, False, 0)
+        self.connect("response", self.cb_response)
 
         # Pre-populate search entries from target person or default query
         self.default_query = default_query
@@ -904,6 +909,18 @@ class NaraSearchDialog(Gtk.Dialog):
         if first_iter:
             self.tree_view.get_selection().select_iter(first_iter)
             self._update_merge_button(self.results_store, first_iter)
+
+    def cb_response(self, _dialog: Any, response: int) -> None:
+        """
+        Run Help and Merge without closing the window (Gtk.Dialog.run()
+        returns on any other response).
+        """
+        if response == Gtk.ResponseType.HELP:
+            self.stop_emission_by_name("response")
+            self.cb_help()
+        elif response == RESPONSE_MERGE:
+            self.stop_emission_by_name("response")
+            self.cb_attach()
 
     def cb_help(self, _widget: Any = None) -> None:
         """

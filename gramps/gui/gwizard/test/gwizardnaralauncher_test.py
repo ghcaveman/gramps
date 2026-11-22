@@ -49,6 +49,15 @@ class DummyDialog:
         self.resizable: bool | None = None
         self.title: str = ""
         self.border_width: int = 0
+        self.buttons: dict[int, Any] = {}
+        self.handlers: dict[str, Any] = {}
+        self.stopped: list[str] = []
+
+    def connect(self, signal: str, handler: Any) -> None:
+        self.handlers[signal] = handler
+
+    def stop_emission_by_name(self, signal: str) -> None:
+        self.stopped.append(signal)
 
     def get_content_area(self) -> Any:
         return self._content_area
@@ -69,7 +78,10 @@ class DummyDialog:
         self.border_width = width
 
     def add_button(self, text: str, response: int) -> Any:
-        return MagicMock()
+        button = MagicMock()
+        button.label = text
+        self.buttons[response] = button
+        return button
 
     def show_all(self) -> None:
         pass
@@ -751,6 +763,35 @@ class TestNaraLauncher(unittest.TestCase):
         dialog.target_handle = None
         dialog.cb_selection_changed(selection)
         dialog.btn_attach.set_sensitive.assert_called_with(False)
+
+    def test_action_buttons_are_response_buttons(self) -> None:
+        """
+        Help, Close and Merge are added as dialog response buttons (so GTK
+        orders them per platform); Help and Merge keep the window open.
+        """
+        from gramps.gui.gwizard.gwizardnaralauncher import RESPONSE_MERGE
+
+        dialog = NaraSearchDialog(client=Mock())
+        self.assertIs(dialog.buttons[RESPONSE_MERGE], dialog.btn_attach)
+        self.assertEqual(dialog.buttons[RESPONSE_MERGE].label, "_Merge...")
+        self.assertIn(_gtk.ResponseType.HELP, dialog.buttons)
+        self.assertIn(_gtk.ResponseType.CLOSE, dialog.buttons)
+        dialog.get_action_area().pack_end.assert_not_called()
+        self.assertIs(
+            dialog.handlers["response"].__func__, NaraSearchDialog.cb_response
+        )
+
+        with (
+            patch.object(NaraSearchDialog, "cb_help") as cb_help,
+            patch.object(NaraSearchDialog, "cb_attach") as cb_attach,
+        ):
+            dialog.cb_response(dialog, _gtk.ResponseType.HELP)
+            cb_help.assert_called_once()
+            dialog.cb_response(dialog, RESPONSE_MERGE)
+            cb_attach.assert_called_once()
+            self.assertEqual(dialog.stopped, ["response", "response"])
+            dialog.cb_response(dialog, _gtk.ResponseType.CLOSE)
+            self.assertEqual(dialog.stopped, ["response", "response"])
 
     def test_no_separate_person_merge_button(self) -> None:
         """Verify there is one Merge button (the record review) only."""

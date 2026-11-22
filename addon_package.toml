@@ -44,13 +44,13 @@ tests = [
     "gramps/plugins/tool/test/gwizardnarasource_test.py",
 ]
 
-# NARA as a record source for the GWizard Record Scan (which ships in
+# NARA as a record source for the GWizard Multi-Archive Record Scan (which ships in
 # GWizard File Merge): a GENERAL plugin the scan finds by its category.
 [[extra_registrations]]
 type = "GENERAL"
 id = "gwizardnarasource"
 name = "GWizard NARA record source"
-description = "Lets the GWizard Record Scan search the NARA catalog."
+description = "Lets the GWizard Multi-Archive Record Scan search the NARA catalog."
 fname = "gwizardnarasource.py"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]

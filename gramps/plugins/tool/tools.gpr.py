@@ -622,7 +622,7 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard NARA record source (for the GWizard Record Scan)
+# GWizard NARA record source (for the GWizard Multi-Archive Record Scan)
 #
 # ------------------------------------------------------------------------
 
@@ -630,7 +630,9 @@ register(
     GENERAL,
     id="gwizardnarasource",
     name=_("GWizard NARA record source"),
-    description=_("Lets the GWizard Record Scan search the NARA catalog."),
+    description=_(
+        "Lets the GWizard Multi-Archive Record Scan search the NARA catalog."
+    ),
     version="0.0.1",
     gramps_target_version=MODULE_VERSION,
     status=EXPERIMENTAL,
