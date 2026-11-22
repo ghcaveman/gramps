@@ -1,0 +1,332 @@
+{
+  "body": {
+    "hits": {
+      "total": {
+        "value": 259740,
+        "relation": "eq"
+      },
+      "max_score": null,
+      "hits": [
+        {
+          "_index": "nac-records2",
+          "_id": "115768360",
+          "_score": 116.152435,
+          "_source": {
+            "metadata": {
+              "fileName": "NAC_2020_Bulk_FileUnit_115768360.xml",
+              "controlGroup": {
+                "indexName": "records",
+                "type": "recordGroup",
+                "naId": 344
+              },
+              "ingestTime": "2022-11-16 20:26:54.254622",
+              "uuid": "fa488473-6cd6-416a-a666-113d41b40584"
+            },
+            "record": {
+              "onlineResources": [
+                {
+                  "note": "This file was scanned as part of a collaboration effort between Family Search and the National Archives.",
+                  "description": "Fold3",
+                  "url": "https://www.fold3.com/image/270898040"
+                }
+              ],
+              "levelOfDescription": "fileUnit",
+              "recordType": "description",
+              "useRestriction": {
+                "status": "Unrestricted"
+              },
+              "title": "Approved Pension Application File for Mary Kreizer Smith, Widow of John A Smith, Company B, 4th Maryland Infantry Regiment (Application No. WC47795)",
+              "physicalOccurrences": [
+                {
+                  "referenceUnits": [
+                    {
+                      "address2": "7th and Pennsylvania Avenue NW",
+                      "city": "Washington",
+                      "name": "National Archives at Washington, DC - Textual Reference",
+                      "state": "DC"
+                    }
+                  ],
+                  "mediaOccurrences": [
+                    {
+                      "generalMediaTypes": [
+                        "Loose Sheets"
+                      ],
+                      "specificMediaType": "Paper"
+                    }
+                  ],
+                  "copyStatus": "Preservation-Reproduction-Reference"
+                }
+              ],
+              "accessRestriction": {
+                "status": "Unrestricted"
+              },
+              "dataControlGroup": {
+                "groupId": "ou=RDTP1,ou=groups",
+                "groupCd": "RDTP1"
+              },
+              "generalRecordsTypes": [
+                "Textual Records"
+              ],
+              "variantControlNumbers": [
+                {
+                  "number": "Family Search 2018",
+                  "type": "Search Identifier"
+                }
+              ],
+              "digitalObjects": [
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00001.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00001.jpg",
+                  "objectFileSize": 6009258,
+                  "objectDesignator": "Fold3 File #270898040",
+                  "objectId": "115768361",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC47795-SMITH-John-A_M_00003.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB125/WC47795-SMITH-John-A/WC47795-SMITH-John-A/images/WC47795-SMITH-John-A_M_00003.jpg",
+                  "objectFileSize": 3608609,
+                  "objectDesignator": "Fold3 File #270898042",
+                  "objectId": "115768362",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                }
+              ],
+              "ancestors": [
+                {
+                  "inclusiveStartDate": {
+                    "year": 1773,
+                    "logicalDate": "1773-01-01"
+                  },
+                  "distance": 2,
+                  "levelOfDescription": "recordGroup",
+                  "recordGroupNumber": 15,
+                  "inclusiveEndDate": {
+                    "year": 2007,
+                    "logicalDate": "2007-12-31"
+                  },
+                  "title": "Records of the Department of Veterans Affairs",
+                  "naId": 344
+                },
+                {
+                  "inclusiveStartDate": {
+                    "year": 1861,
+                    "logicalDate": "1861-01-01"
+                  },
+                  "distance": 1,
+                  "levelOfDescription": "series",
+                  "creators": [
+                    {
+                      "creatorType": "Most Recent",
+                      "heading": "Veterans Administration. (7/21/1930 - 3/15/1989)",
+                      "abolishDate": {
+                        "month": 3,
+                        "year": 1989,
+                        "day": 15,
+                        "logicalDate": "1989-03-15"
+                      },
+                      "authorityType": "organization",
+                      "establishDate": {
+                        "month": 7,
+                        "year": 1930,
+                        "day": 21,
+                        "logicalDate": "1930-07-21"
+                      },
+                      "naId": 10461938
+                    },
+                    {
+                      "creatorType": "Predecessor",
+                      "heading": "Department of the Interior. Bureau of Pensions. 1849-1930",
+                      "abolishDate": {
+                        "year": 1930,
+                        "logicalDate": "1930-12-31"
+                      },
+                      "authorityType": "organization",
+                      "establishDate": {
+                        "year": 1849,
+                        "logicalDate": "1849-01-01"
+                      },
+                      "naId": 10505832
+                    }
+                  ],
+                  "inclusiveEndDate": {
+                    "year": 1934,
+                    "logicalDate": "1934-12-31"
+                  },
+                  "title": "Case Files of Approved Pension Applications of Widows and Other Dependents of the Army and Navy Who Served Mainly in the Civil War and the War With Spain",
+                  "naId": 300020
+                }
+              ],
+              "naId": 115768360
+            }
+          },
+          "sort": [
+            116.152435,
+            "115768360"
+          ]
+        },
+        {
+          "_index": "nac-records2",
+          "_id": "116130670",
+          "_score": 116.079475,
+          "_source": {
+            "metadata": {
+              "fileName": "NAC_2020_Bulk_FileUnit_116130670.xml",
+              "controlGroup": {
+                "indexName": "records",
+                "type": "recordGroup",
+                "naId": 344
+              },
+              "ingestTime": "2022-11-16 20:01:05.403754",
+              "uuid": "1eacd304-2fe0-4b75-881a-b06f6427769d"
+            },
+            "record": {
+              "onlineResources": [
+                {
+                  "note": "This file was scanned as part of a collaboration effort between Family Search and the National Archives.",
+                  "description": "Fold3",
+                  "url": "https://www.fold3.com/image/292253500"
+                }
+              ],
+              "levelOfDescription": "fileUnit",
+              "recordType": "description",
+              "useRestriction": {
+                "status": "Unrestricted"
+              },
+              "title": "Approved Pension Application File for Sarah Butt Smith, Widow of John H Smith, Company B, 36th Iowa Infantry Regiment (Application No. WC58891)",
+              "physicalOccurrences": [
+                {
+                  "referenceUnits": [
+                    {
+                      "address2": "7th and Pennsylvania Avenue NW",
+                      "city": "Washington",
+                      "name": "National Archives at Washington, DC - Textual Reference",
+                      "state": "DC"
+                    }
+                  ],
+                  "mediaOccurrences": [
+                    {
+                      "generalMediaTypes": [
+                        "Loose Sheets"
+                      ],
+                      "specificMediaType": "Paper"
+                    }
+                  ],
+                  "copyStatus": "Preservation-Reproduction-Reference"
+                }
+              ],
+              "accessRestriction": {
+                "status": "Unrestricted"
+              },
+              "dataControlGroup": {
+                "groupId": "ou=RDTP1,ou=groups",
+                "groupCd": "RDTP1"
+              },
+              "generalRecordsTypes": [
+                "Textual Records"
+              ],
+              "variantControlNumbers": [
+                {
+                  "number": "Family Search 2018",
+                  "type": "Search Identifier"
+                }
+              ],
+              "digitalObjects": [
+                {
+                  "objectFilename": "WC58891-SMITH-John-H_00001.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB147/WC58891-SMITH-John-H/WC58891-SMITH-John-H/images/WC58891-SMITH-John-H_00001.jpg",
+                  "objectFileSize": 5389961,
+                  "objectDesignator": "Fold3 File #292253500",
+                  "objectId": "116130671",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                },
+                {
+                  "objectFilename": "WC58891-SMITH-John-H_00003.jpg",
+                  "objectUrl": "https://catalog.archives.gov/medialz/partnerships/Civil_War_Pensions-Paper/0007/TB147/WC58891-SMITH-John-H/WC58891-SMITH-John-H/images/WC58891-SMITH-John-H_00003.jpg",
+                  "objectFileSize": 3281563,
+                  "objectDesignator": "Fold3 File #292253501",
+                  "objectId": "116130672",
+                  "objectDescription": "Image provided by Fold3.",
+                  "objectType": "Image (JPG)"
+                }
+              ],
+              "ancestors": [
+                {
+                  "inclusiveStartDate": {
+                    "year": 1773,
+                    "logicalDate": "1773-01-01"
+                  },
+                  "distance": 2,
+                  "levelOfDescription": "recordGroup",
+                  "recordGroupNumber": 15,
+                  "inclusiveEndDate": {
+                    "year": 2007,
+                    "logicalDate": "2007-12-31"
+                  },
+                  "title": "Records of the Department of Veterans Affairs",
+                  "naId": 344
+                },
+                {
+                  "inclusiveStartDate": {
+                    "year": 1861,
+                    "logicalDate": "1861-01-01"
+                  },
+                  "distance": 1,
+                  "levelOfDescription": "series",
+                  "creators": [
+                    {
+                      "creatorType": "Most Recent",
+                      "heading": "Veterans Administration. (7/21/1930 - 3/15/1989)",
+                      "abolishDate": {
+                        "month": 3,
+                        "year": 1989,
+                        "day": 15,
+                        "logicalDate": "1989-03-15"
+                      },
+                      "authorityType": "organization",
+                      "establishDate": {
+                        "month": 7,
+                        "year": 1930,
+                        "day": 21,
+                        "logicalDate": "1930-07-21"
+                      },
+                      "naId": 10461938
+                    },
+                    {
+                      "creatorType": "Predecessor",
+                      "heading": "Department of the Interior. Bureau of Pensions. 1849-1930",
+                      "abolishDate": {
+                        "year": 1930,
+                        "logicalDate": "1930-12-31"
+                      },
+                      "authorityType": "organization",
+                      "establishDate": {
+                        "year": 1849,
+                        "logicalDate": "1849-01-01"
+                      },
+                      "naId": 10505832
+                    }
+                  ],
+                  "inclusiveEndDate": {
+                    "year": 1934,
+                    "logicalDate": "1934-12-31"
+                  },
+                  "title": "Case Files of Approved Pension Applications of Widows and Other Dependents of the Army and Navy Who Served Mainly in the Civil War and the War With Spain",
+                  "naId": 300020
+                }
+              ],
+              "naId": 116130670
+            }
+          },
+          "sort": [
+            116.079475,
+            "116130670"
+          ]
+        }
+      ]
+    }
+  },
+  "statusCode": 200
+}

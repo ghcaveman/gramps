@@ -586,6 +586,12 @@ register(
     help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
 )
 
+# ------------------------------------------------------------------------
+#
+# GWizard File Merge ALT
+#
+# ------------------------------------------------------------------------
+
 register(
     TOOL,
     id="gwizardmergealt",
