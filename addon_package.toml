@@ -37,14 +37,16 @@ tests = [
     "gramps/plugins/tool/test/gwizardwikitree*_test.py",
 ]
 
-# WikiTree as a record source for the GWizard Multi-Archive Record Scan (which ships in
-# GWizard File Merge): a GENERAL plugin the scan finds by its category.
+# The GWizard Multi-Archive Record Scan: a second Tools menu entry in the same addon. It
+# lists every person with the record sources (WikiTree, NARA, ...) other
+# GWizard addons register as GENERAL plugins in category GWizardRecordSource.
 [[extra_registrations]]
-type = "GENERAL"
-id = "gwizardwikitreesource"
-name = "GWizard WikiTree record source"
-description = "Lets the GWizard Multi-Archive Record Scan search WikiTree."
-fname = "gwizardwikitreesource.py"
+id = "gwizardrecordscan"
+name = "GWizard Multi-Archive Record Scan"
+description = "Check every person in the Family Tree against the installed GWizard record sources (WikiTree, NARA, ...), count the likely matches at three match levels, and open a merge window for a match."
+fname = "gwizard_filemerge_scan.py"
+toolclass = "GWizardRecordScan"
+optionclass = "GWizardRecordScanOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
 category = "GWizardRecordSource"
