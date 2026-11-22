@@ -35,10 +35,11 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import importlib
 import sys
 import tempfile
 import unittest
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, Mock, patch
 
 
@@ -105,15 +106,14 @@ class FakeListStore:
         self.rows[tree_iter][column] = value
 
 
-_gi = sys.modules.get("gi") or MagicMock()
-sys.modules["gi"] = _gi
-_gi_repo: Any = sys.modules.get("gi.repository") or MagicMock()
-sys.modules["gi.repository"] = _gi_repo
-_glib: Any = sys.modules.get("gi.repository.GLib") or MagicMock()
+# Fresh stand-ins, put in sys.modules only while this module's tests run.
+_STUB_MODULES: dict[str, Any] = {}
+_gi: Any = MagicMock()
+_gi_repo: Any = MagicMock()
+_glib: Any = MagicMock()
 _glib.markup_escape_text = lambda s: str(s)
-sys.modules["gi.repository.GLib"] = _glib
 _gi_repo.GLib = _glib
-_gtk: Any = sys.modules.get("gi.repository.Gtk") or MagicMock()
+_gtk: Any = MagicMock()
 _gtk.Dialog = DummyDialog
 for _name in (
     "Label",
@@ -133,12 +133,78 @@ for _name in (
 _gtk.ResponseType.OK = 1
 _gtk.ResponseType.CANCEL = 2
 _gtk.events_pending.return_value = False
-sys.modules["gi.repository.Gtk"] = _gtk
 _gi_repo.Gtk = _gtk
 for _module in ("Gdk", "Pango"):
-    _stub = sys.modules.get(f"gi.repository.{_module}") or MagicMock()
-    sys.modules[f"gi.repository.{_module}"] = _stub
+    _stub = MagicMock()
+    _STUB_MODULES[f"gi.repository.{_module}"] = _stub
     setattr(_gi_repo, _module, _stub)
+
+_gi.repository = _gi_repo
+_STUB_MODULES.update(
+    {
+        "gi": _gi,
+        "gi.repository": _gi_repo,
+        "gi.repository.GLib": _glib,
+        "gi.repository.Gtk": _gtk,
+    }
+)
+
+
+def _uses_gtk(name: str) -> bool:
+    """
+    True for modules that must be imported again under the stand-ins.
+
+    Test modules stay put: unittest finds a module's tearDownModule through
+    sys.modules, and they do not use GTK themselves.
+    """
+    if ".test." in name or name.endswith(".test"):
+        return False
+    return (
+        name in ("gi", "gramps.gui")
+        or name.startswith("gi.")
+        or name.startswith("gramps.gui.")
+    )
+
+
+_SAVED_MODULES: dict[str, Any] = {}
+
+
+def setUpModule() -> None:  # pylint: disable=invalid-name
+    """
+    Import the window under this module's own GTK stand-ins.
+
+    Never reuse real GTK, or a stub another test module put in sys.modules:
+    changing it there leaks into other tests (a real GLib whose
+    markup_escape_text no longer escapes, for one). Modules that use GTK
+    (gi and gramps.gui.*) are set aside and imported afresh, so neither the
+    stand-ins nor anything imported with them is seen by other test
+    modules; tearDownModule puts the originals back.
+    """
+    _SAVED_MODULES.clear()
+    _SAVED_MODULES.update(sys.modules)
+    for name in [name for name in sys.modules if _uses_gtk(name)]:
+        del sys.modules[name]
+    sys.modules.update(_STUB_MODULES)
+
+    module = importlib.import_module("gramps.gui.gwizard.gwizardnaraattachdialog")
+    globals().update({name: getattr(module, name) for name in _IMPORTED_NAMES})
+
+
+def tearDownModule() -> None:  # pylint: disable=invalid-name
+    """Put back the modules setUpModule set aside."""
+    sys.modules.clear()
+    sys.modules.update(_SAVED_MODULES)
+    # Importing afresh re-pointed package attributes (gramps.gui, ...) at
+    # the fresh modules; point them back at the originals.
+    for name, module in _SAVED_MODULES.items():
+        parent, _sep, child = name.rpartition(".")
+        if parent and _uses_gtk(name) and parent in _SAVED_MODULES:
+            try:
+                setattr(_SAVED_MODULES[parent], child, module)
+            except (AttributeError, TypeError):
+                pass
+    _SAVED_MODULES.clear()
+
 
 # ------------------------------------------------------------
 #
@@ -157,18 +223,35 @@ from gramps.gen.gwizard.gwizardnaramerge import (
     RecordReview,
 )
 from gramps.gen.lib import Name, Person, Surname
-from gramps.gui.gwizard.gwizardnaraattachdialog import (
-    COL_SELECTED,
-    NaraAttachDialog,
-    COL_MENTIONS,
-    COL_NUMBER,
-    COL_PROBABLY,
-    citation_text,
-    has_work,
-    page_description,
-    person_names,
-    selection_summary,
-    status_text,
+
+# Imported by setUpModule, under this module's GTK stand-ins.
+if TYPE_CHECKING:
+    from gramps.gui.gwizard.gwizardnaraattachdialog import (
+        COL_SELECTED,
+        NaraAttachDialog,
+        COL_MENTIONS,
+        COL_NUMBER,
+        COL_PROBABLY,
+        citation_text,
+        has_work,
+        page_description,
+        person_names,
+        selection_summary,
+        status_text,
+    )
+
+_IMPORTED_NAMES = (
+    "COL_SELECTED",
+    "NaraAttachDialog",
+    "COL_MENTIONS",
+    "COL_NUMBER",
+    "COL_PROBABLY",
+    "citation_text",
+    "has_work",
+    "page_description",
+    "person_names",
+    "selection_summary",
+    "status_text",
 )
 
 
