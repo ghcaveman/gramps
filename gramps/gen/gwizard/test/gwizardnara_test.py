@@ -56,7 +56,7 @@ def _find_source_root() -> str | None:
         spec = importlib.util.find_spec("gramps")
         for location in (spec.submodule_search_locations or []) if spec else []:
             candidates.append(os.path.dirname(os.path.abspath(location)))
-    except ImportError, ValueError:
+    except (ImportError, ValueError):
         pass
     for candidate in candidates:
         if all(os.path.isfile(os.path.join(candidate, *f)) for f in _RESOURCE_FILES):
@@ -174,11 +174,11 @@ class TestNaraCatalogInterface(unittest.TestCase):
         self.assertEqual(kwargs["headers"]["x-api-key"], "secret123")
 
         response.json.return_value = {"statusCode": 403}
-        self.assertIn("rejected", client.validate_api_key())
+        self.assertIn("rejected", client.validate_api_key() or "")
 
         response.json.return_value = {"statusCode": 200}
         response.status_code = 403
-        self.assertIn("rejected", client.validate_api_key())
+        self.assertIn("rejected", client.validate_api_key() or "")
 
     @patch("requests.get")
     def test_search_records_success(self, mock_get: Mock) -> None:
@@ -545,7 +545,7 @@ class TestNaraGWizard(unittest.TestCase):
         self.assertEqual(person.get_primary_name().get_name(), "Lincoln, Abraham")
 
         source_db = gw.context.get("source_db")
-        self.assertIsNotNone(source_db)
+        assert source_db is not None
 
         # Check repository and source creation
         sources = list(source_db.iter_source_handles())
@@ -1037,6 +1037,13 @@ class TestNaraMergeWindowFlow(unittest.TestCase):
     """
 
     # The same tree, record and download stub as TestNaraRecordAttacher.
+    # Borrowing its setUp hides the attributes from mypy, so name them here.
+    media_dir: str
+    db: DbWriteBase
+    person_handle: str
+    parsed: dict[str, Any]
+    session: Mock
+
     setUp = TestNaraRecordAttacher.setUp
     tearDown = TestNaraRecordAttacher.tearDown
 
@@ -1155,6 +1162,7 @@ class TestNaraRecordText(unittest.TestCase):
         client = NaraCatalogInterface(api_key="key99")
 
         texts = client.fetch_record_text("115768360")
+        assert texts is not None
 
         self.assertEqual(mock_get.call_count, 1)
         params = mock_get.call_args.kwargs["params"]

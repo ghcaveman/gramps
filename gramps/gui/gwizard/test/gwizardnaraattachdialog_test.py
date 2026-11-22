@@ -107,13 +107,13 @@ class FakeListStore:
 
 _gi = sys.modules.get("gi") or MagicMock()
 sys.modules["gi"] = _gi
-_gi_repo = sys.modules.get("gi.repository") or MagicMock()
+_gi_repo: Any = sys.modules.get("gi.repository") or MagicMock()
 sys.modules["gi.repository"] = _gi_repo
-_glib = sys.modules.get("gi.repository.GLib") or MagicMock()
+_glib: Any = sys.modules.get("gi.repository.GLib") or MagicMock()
 _glib.markup_escape_text = lambda s: str(s)
 sys.modules["gi.repository.GLib"] = _glib
 _gi_repo.GLib = _glib
-_gtk = sys.modules.get("gi.repository.Gtk") or MagicMock()
+_gtk: Any = sys.modules.get("gi.repository.Gtk") or MagicMock()
 _gtk.Dialog = DummyDialog
 for _name in (
     "Label",
@@ -343,7 +343,7 @@ class TestNaraAttachDialog(_ReviewWindowBase):
             meter_cls.return_value.get_cancelled.return_value = False
             result = dialog.run_attach()
 
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result.downloaded, 1)
         self.assertEqual(result.media_added, 1)
         self.assertEqual(self.session.get.call_count, 1)
