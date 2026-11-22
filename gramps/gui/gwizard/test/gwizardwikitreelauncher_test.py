@@ -45,6 +45,15 @@ class DummyDialog:
         self._action_area = MagicMock()
         self.default_size: tuple[int, int] | None = None
         self.resizable: bool | None = None
+        self.buttons: dict[int, Any] = {}
+        self.handlers: dict[str, Any] = {}
+        self.stopped: list[str] = []
+
+    def connect(self, signal: str, handler: Any) -> None:
+        self.handlers[signal] = handler
+
+    def stop_emission_by_name(self, signal: str) -> None:
+        self.stopped.append(signal)
 
     def get_content_area(self) -> Any:
         return self._content_area
@@ -65,7 +74,10 @@ class DummyDialog:
         self.border_width = width
 
     def add_button(self, text: str, response: int) -> Any:
-        return MagicMock()
+        button = MagicMock()
+        button.label = text
+        self.buttons[response] = button
+        return button
 
     def show_all(self) -> None:
         pass
@@ -475,6 +487,28 @@ class TestWikiTreeLauncher(unittest.TestCase):
         dialog.cb_search()
         row = dialog.results_store.append.call_args[0][0]
         self.assertEqual((row[9], row[10]), ("-", 0.0))
+
+    def test_merge_is_a_response_button(self) -> None:
+        """
+        Close and Merge are added as dialog response buttons (so GTK orders
+        them per platform); Merge keeps the window open.
+        """
+        launcher = sys.modules["gramps.gui.gwizard.gwizardwikitreelauncher"]
+        dialog = WikiTreeSearchDialog(client=Mock())
+        merge = launcher.RESPONSE_MERGE
+        self.assertIs(dialog.buttons[merge], dialog.btn_merge)
+        self.assertEqual(dialog.btn_merge.label, "_Merge...")
+        self.assertIn(launcher.Gtk.ResponseType.CLOSE, dialog.buttons)
+        dialog.get_action_area().pack_end.assert_not_called()
+        self.assertIn("response", dialog.handlers)
+
+        with patch.object(WikiTreeSearchDialog, "cb_merge") as cb_merge:
+            dialog.cb_response(dialog, merge)
+            cb_merge.assert_called_once()
+            self.assertEqual(dialog.stopped, ["response"])
+            dialog.cb_response(dialog, launcher.Gtk.ResponseType.CLOSE)
+            cb_merge.assert_called_once()
+            self.assertEqual(dialog.stopped, ["response"])
 
     def test_match_query_uses_unchecked_boxes(self) -> None:
         """Verify the match uses the boxes' text whether checked or not."""

@@ -63,6 +63,9 @@ from gramps.gen.gwizard.gwizardwikitreematch import (
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
 
+# Response id of the Merge button (a non-closing action button).
+RESPONSE_MERGE = 1
+
 # Gramps gender codes and the values WikiTree's searchPerson accepts.
 _WIKITREE_GENDERS: dict[int, str] = {Person.MALE: "Male", Person.FEMALE: "Female"}
 
@@ -470,17 +473,19 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         # -----------------------------------------------------------------
         # 5. Action Bar
         # -----------------------------------------------------------------
+        # Every action button is added with add_button() and a response id,
+        # never packed by hand, so GTK places them in the platform's order
+        # (gtk-alternative-button-order). Merge keeps the window open;
+        # cb_response handles it.
         self.add_button(_("_Close"), Gtk.ResponseType.CLOSE)
 
-        self.btn_merge = Gtk.Button(label=_("_Merge..."), use_underline=True)
+        self.btn_merge = self.add_button(_("_Merge..."), RESPONSE_MERGE)
         self.btn_merge.get_style_context().add_class("suggested-action")
         self.btn_merge.set_tooltip_text(
             _("Open the field-by-field merge dialog for the selected WikiTree profile.")
         )
         self.btn_merge.set_sensitive(False)
-        self.btn_merge.connect("clicked", self.cb_merge)
-        action_area = self.get_action_area()
-        action_area.pack_end(self.btn_merge, False, False, 0)
+        self.connect("response", self.cb_response)
 
         # Pre-populate search entries from target person or default query
         self.default_query = default_query
@@ -976,6 +981,15 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         """
         model, tree_iter = selection.get_selected()
         self.btn_merge.set_sensitive(tree_iter is not None)
+
+    def cb_response(self, _dialog: Any, response: int) -> None:
+        """
+        Run Merge without closing the window (Gtk.Dialog.run() returns on
+        any other response).
+        """
+        if response == RESPONSE_MERGE:
+            self.stop_emission_by_name("response")
+            self.cb_merge()
 
     def cb_row_activated(self, _tree: Any, _path: Any, _col: Any) -> None:
         """
