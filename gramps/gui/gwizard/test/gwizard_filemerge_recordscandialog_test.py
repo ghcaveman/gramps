@@ -19,7 +19,7 @@
 #
 
 """
-Unit tests for the GWizard Record Scan window. The window tests need a
+Unit tests for the GWizard Multi-Archive Record Scan window. The window tests need a
 display and are skipped without one; cell_values runs everywhere.
 """
 
@@ -343,6 +343,52 @@ class RecordScanDialogTest(unittest.TestCase):
         scored = dialog.scored[("fake", self.handles["White"])]
         dialog.cb_menu_merge(None, self.handles["White"], self.source, scored[0])
         self.assertEqual(self.source.opened[-1][0], self.handles["White"])
+
+    def test_action_buttons_keep_window_open(self) -> None:
+        """
+        Action buttons are dialog response buttons (so GTK orders them per
+        platform), and pressing one does not end run(); Close does.
+        """
+        from gi.repository import GLib, Gtk
+
+        from gramps.gui.gwizard.gwizard_filemerge_recordscandialog import (
+            RESPONSE_EXPORT,
+            RESPONSE_MERGE,
+            RESPONSE_SEARCH,
+        )
+
+        dialog = self._dialog()
+        for response, button in (
+            (RESPONSE_EXPORT, dialog.btn_export),
+            (RESPONSE_SEARCH, dialog.btn_search),
+            (RESPONSE_MERGE, dialog.btn_merge),
+        ):
+            self.assertIs(dialog.get_widget_for_response(response), button)
+        dialog.run_scan([self.source], list(dialog.items.values()), True, FakeMeter)
+        path = Gtk.TreePath(
+            [r.path[0] for r in dialog.sort_model if r[1] == "Devault"][0]
+        )
+        dialog.tree_view.get_selection().select_path(path)
+        dialog.tree_view.set_cursor(path, None, False)
+        steps = iter(
+            [
+                lambda: dialog.response(RESPONSE_SEARCH),
+                lambda: dialog.response(RESPONSE_MERGE),
+                lambda: dialog.response(Gtk.ResponseType.CLOSE),
+            ]
+        )
+
+        def cb_step() -> bool:
+            step = next(steps, None)
+            if step is None:
+                return False
+            step()
+            return True
+
+        GLib.timeout_add(50, cb_step)
+        self.assertEqual(dialog.run(), Gtk.ResponseType.CLOSE)
+        self.assertEqual(self.source.searched, [self.handles["Devault"]])
+        self.assertEqual(self.source.opened, [(self.handles["Devault"], "D1")])
 
     def test_export_csv(self) -> None:
         """The CSV has a header and one row per person."""

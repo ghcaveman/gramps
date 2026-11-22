@@ -565,14 +565,14 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard Record Scan
+# GWizard Multi-Archive Record Scan
 #
 # ------------------------------------------------------------------------
 
 register(
     TOOL,
     id="gwizardrecordscan",
-    name=_("GWizard Record Scan"),
+    name=_("GWizard Multi-Archive Record Scan"),
     description=_(
         "Check every person in the Family Tree against the installed GWizard "
         "record sources (WikiTree, NARA, ...), count the likely matches at "
