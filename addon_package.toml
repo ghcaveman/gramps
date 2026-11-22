@@ -34,12 +34,12 @@ keep_unrewritten = [
     '^\s*from\s+gramps\.gui\.gwizard\.gwizardlauncher\s+import\s*\(\s*$',
 ]
 
-# The GWizard Record Scan: a second Tools menu entry in the same addon. It
+# The GWizard Multi-Archive Record Scan: a second Tools menu entry in the same addon. It
 # lists every person with the record sources (WikiTree, NARA, ...) other
 # GWizard addons register as GENERAL plugins in category GWizardRecordSource.
 [[extra_registrations]]
 id = "gwizardrecordscan"
-name = "GWizard Record Scan"
+name = "GWizard Multi-Archive Record Scan"
 description = "Check every person in the Family Tree against the installed GWizard record sources (WikiTree, NARA, ...), count the likely matches at three match levels, and open a merge window for a match."
 fname = "gwizard_filemerge_scan.py"
 toolclass = "GWizardRecordScan"

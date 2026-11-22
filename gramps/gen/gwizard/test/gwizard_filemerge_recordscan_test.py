@@ -20,7 +20,7 @@
 
 """
 Unit tests for the shared record scoring in gwizard_base (tiers) and the
-GWizard Record Scan engine (gwizard_filemerge_recordscan).
+GWizard Multi-Archive Record Scan engine (gwizard_filemerge_recordscan).
 """
 
 # -------------------------------------------------------------------------

@@ -19,7 +19,7 @@
 #
 
 """
-Unit tests for the GWizard Record Scan window. The window tests need a
+Unit tests for the GWizard Multi-Archive Record Scan window. The window tests need a
 display and are skipped without one; cell_values runs everywhere.
 """
 
@@ -197,14 +197,28 @@ class CellValuesTest(unittest.TestCase):
         scored = score_matches(query, [_match("W1", "Kevin", "White", 1958)])
         scan = PersonScan("fake", "h", STATUS_OK, matches=[])
         self.assertEqual(cell_values(None, [], TIER_GS, 80)[0], "")
+        self.assertEqual(cell_values(scan, [], TIER_GS, 80)[0], "–")
         error = PersonScan("fake", "h", STATUS_ERROR, error="x")
-        self.assertEqual(cell_values(error, [], TIER_GS, 80)[1], -2.0)
+        self.assertEqual(cell_values(error, [], TIER_GS, 80)[0], "error")
         text, sort, colour = cell_values(scan, scored, TIER_GSB, 80)
         self.assertEqual(text, "1 · 100%")
         self.assertEqual(sort, 100.0)
         self.assertIsNotNone(colour)
-        self.assertEqual(cell_values(scan, scored, TIER_GSB, 101)[0], "–")
-        self.assertEqual(cell_values(scan, scored, TIER_GMSB, 80)[0], "")
+        self.assertEqual(cell_values(scan, scored, TIER_GSB, 101)[0], "0 · 100%")
+        self.assertEqual(cell_values(scan, scored, TIER_GMSB, 80)[0], "n/a")
+
+    def test_tier_gap(self) -> None:
+        """The tooltip names what is missing, in the tree or the records."""
+        from gramps.gui.gwizard.gwizard_filemerge_recordscandialog import tier_gap
+
+        query = RecordQuery(given="Kevin", surnames=["White"], birth_year=1958)
+        scored = score_matches(query, [_match("W1", "Kevin", "White", 1958)])
+        self.assertIn("no middle name in the tree", tier_gap(query, scored, TIER_GMSB))
+        query.middle = "Lee"
+        scored = score_matches(query, [_match("W1", "Kevin", "White", 1958)])
+        self.assertIn("records found has a middle", tier_gap(query, scored, TIER_GMSB))
+        query.birth_year = None
+        self.assertIn("no birth year in the tree", tier_gap(query, scored, TIER_GSB))
 
 
 # ------------------------------------------------------------
@@ -282,7 +296,8 @@ class RecordScanDialogTest(unittest.TestCase):
         self.assertEqual(done, 3)
         self.assertEqual(self._cell(dialog, "White", TIER_GS), "2 · 100%")
         self.assertEqual(self._cell(dialog, "Devault", TIER_GS), "1 · 100%")
-        self.assertEqual(self._cell(dialog, "Abbot", TIER_GS), "")
+        self.assertEqual(self._cell(dialog, "Abbot", TIER_GS), "–")
+        self.assertEqual(self._cell(dialog, "White", TIER_GMSB), "n/a")
         self.assertIn("3 of 3 scanned", dialog.summary_label.get_text())
         self.assertIn("2 g/s", dialog.summary_label.get_text())
 
