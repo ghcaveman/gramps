@@ -21,44 +21,51 @@ gramps_versions = ["5.2.0", "6.2.0"]
 
 [files]
 modules = [
-    "gramps/gen/gwizard/*.py",
-    "gramps/gui/gwizard/*.py",
-    "gramps/plugins/tool/gwizardmerge.py",
-    "gramps/plugins/tool/gwizard_filemerge_scan.py",
+    "gramps/gen/gwizard/gwizardwikitree.py",
+    "gramps/gen/gwizard/gwizardwikitreematch.py",
+    "gramps/gui/gwizard/gwizardwikitreelauncher.py",
+    "gramps/gui/gwizard/gwizardwikitreemergedialog.py",
+    "gramps/plugins/tool/gwizardwikitreemerge.py",
+    "gramps/plugins/tool/gwizardwikitreeprovenance.py",
+    "gramps/plugins/tool/gwizardaddonutil.py",
+    "gramps/plugins/tool/gwizardwikitreesource.py",
 ]
 tests = [
-    "gramps/gen/gwizard/test/*_test.py",
-    "gramps/gui/gwizard/test/*_test.py",
-    "gramps/plugins/tool/test/gwizardmerge*_test.py",
-    "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
-]
-test_helpers = [
-    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
-]
-# Media-fix dialog: ships in MediaFix (listed under the dependency below).
-exclude = [
-    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/gen/gwizard/test/gwizardwikitree_test.py",
+    "gramps/gen/gwizard/test/gwizardwikitreematch_test.py",
+    "gramps/gui/gwizard/test/gwizardwikitreelauncher_test.py",
+    "gramps/plugins/tool/test/gwizardwikitree*_test.py",
 ]
 
-# The GWizard Multi-Archive Record Scan: a second Tools menu entry in the same addon. It
-# lists every person with the record sources (WikiTree, NARA, ...) other
-# GWizard addons register as GENERAL plugins in category GWizardRecordSource.
+# WikiTree as a record source for the GWizard Multi-Archive Record Scan (which ships in
+# GWizard File Merge): a GENERAL plugin the scan finds by its category.
 [[extra_registrations]]
-id = "gwizardrecordscan"
-name = "GWizard Multi-Archive Record Scan"
-description = "Check every person in the Family Tree against the installed GWizard record sources (WikiTree, NARA, ...), count the likely matches at three match levels, and open a merge window for a match."
-fname = "gwizard_filemerge_scan.py"
-toolclass = "GWizardRecordScan"
-optionclass = "GWizardRecordScanOptions"
+type = "GENERAL"
+id = "gwizardwikitreesource"
+name = "GWizard WikiTree record source"
+description = "Lets the GWizard Multi-Archive Record Scan search WikiTree."
+fname = "gwizardwikitreesource.py"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
-help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
+category = "GWizardRecordSource"
+load_on_reg = true
 gramps_versions = ["5.2.0", "6.2.0"]
 
-[files.test_data]
-source = "gramps/gen/gwizard/test/data"
-target = "data"
-required = ["gwizard_mergefrom_sources.ged"]
+# The shared gwizard modules ship in GWizardFileMerge.
+[[dependencies]]
+id = "gwizardmerge"
+package = "GWizardFileMerge"
+modules = [
+    "gramps/gen/gwizard/gwizard_base.py",
+    "gramps/gen/gwizard/gwizard_filemerge_recordscan.py",
+    "gramps/gen/gwizard/gwizardaltmatch.py",
+    "gramps/gen/gwizard/gwizardgedcom.py",
+    "gramps/gui/gwizard/gwizardaltcompare.py",
+    "gramps/gui/gwizard/gwizardcompare.py",
+    "gramps/gui/gwizard/gwizardlauncher.py",
+    "gramps/gui/gwizard/gwizardmergedialog.py",
+    "gramps/plugins/tool/gwizardmerge.py",
+]
 
 [check]
 # The branch this feature branch was started from (local name first, then
@@ -69,11 +76,21 @@ ignore = [
     # Notes and helper scripts in the repo root (* stays in the root folder).
     "*.md",
     "*.txt",
-    "check_banner.bash",
-    "environment_create.py",
-    # Media Fix tests come with the dependency; MediaFix ships them.
-    "gramps/plugins/tool/test/gwizardmediafix*_test.py",
-    "gramps/plugins/tool/test/gwizard_common_test.py",
+    # File Merge files and tests come with the dependency; GWizardFileMerge
+    # ships them.
+    "gramps/gen/gwizard/__init__.py",
+    "gramps/gui/gwizard/__init__.py",
+    "gramps/gen/gwizard/test/__init__.py",
+    "gramps/gui/gwizard/test/__init__.py",
+    "gramps/gen/gwizard/test/gwizard_test.py",
+    "gramps/gen/gwizard/test/gwizard_*_test.py",
+    "gramps/gen/gwizard/test/data/**",
+    "gramps/gui/gwizard/test/gwizard_*_test.py",
+    "gramps/plugins/tool/test/gwizardmerge*_test.py",
+    "gramps/gen/gwizard/gwizard_filemerge_*.py",
+    "gramps/gui/gwizard/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",

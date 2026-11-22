@@ -45,6 +45,15 @@ class DummyDialog:
         self._action_area = MagicMock()
         self.default_size: tuple[int, int] | None = None
         self.resizable: bool | None = None
+        self.buttons: dict[int, Any] = {}
+        self.handlers: dict[str, Any] = {}
+        self.stopped: list[str] = []
+
+    def connect(self, signal: str, handler: Any) -> None:
+        self.handlers[signal] = handler
+
+    def stop_emission_by_name(self, signal: str) -> None:
+        self.stopped.append(signal)
 
     def get_content_area(self) -> Any:
         return self._content_area
@@ -65,7 +74,10 @@ class DummyDialog:
         self.border_width = width
 
     def add_button(self, text: str, response: int) -> Any:
-        return MagicMock()
+        button = MagicMock()
+        button.label = text
+        self.buttons[response] = button
+        return button
 
     def show_all(self) -> None:
         pass
@@ -90,6 +102,13 @@ def _gtk_stub_modules() -> dict[str, Any]:
     gtk.Entry.side_effect = lambda *a, **k: MagicMock()
     gtk.Label.side_effect = lambda *a, **k: MagicMock()
     gtk.Button.side_effect = lambda *a, **k: MagicMock()
+    gtk.CheckButton.side_effect = lambda *a, **k: MagicMock()
+    gtk.ComboBoxText.side_effect = lambda *a, **k: MagicMock(
+        **{"get_active_id.return_value": ""}
+    )
+    gtk.SpinButton.new_with_range.side_effect = lambda *a, **k: MagicMock(
+        **{"get_value_as_int.return_value": 0}
+    )
     gtk.Box.side_effect = lambda *a, **k: MagicMock()
     gtk.Grid.side_effect = lambda *a, **k: MagicMock()
     gtk.TreeView.side_effect = lambda *a, **k: MagicMock()
@@ -151,7 +170,7 @@ def setUpModule() -> None:  # pylint: disable=invalid-name
     """
     global _extract_person_search_defaults, WikiTreeSearchDialog
     global ask_wikitree_parameters, load_wikitree_gwizard
-    global run_gwizard_wikitree_flow
+    global run_gwizard_wikitree_flow, SEARCH_TERM_DEFAULTS
 
     _SAVED_MODULES.clear()
     _SAVED_MODULES.update(sys.modules)
@@ -166,6 +185,7 @@ def setUpModule() -> None:  # pylint: disable=invalid-name
     ask_wikitree_parameters = launcher.ask_wikitree_parameters
     load_wikitree_gwizard = launcher.load_wikitree_gwizard
     run_gwizard_wikitree_flow = launcher.run_gwizard_wikitree_flow
+    SEARCH_TERM_DEFAULTS = launcher.SEARCH_TERM_DEFAULTS
 
 
 def tearDownModule() -> None:  # pylint: disable=invalid-name
@@ -198,7 +218,9 @@ from gramps.gen.lib import (
     Event,
     EventRef,
     EventType,
+    Family,
     Name,
+    NameType,
     Person,
     Surname,
     Url,
@@ -211,6 +233,7 @@ WikiTreeSearchDialog: Any = None
 ask_wikitree_parameters: Any = None
 load_wikitree_gwizard: Any = None
 run_gwizard_wikitree_flow: Any = None
+SEARCH_TERM_DEFAULTS: Any = None
 
 
 # ------------------------------------------------------------
@@ -286,6 +309,7 @@ class TestWikiTreeLauncher(unittest.TestCase):
             _extract_person_search_defaults(self.db, None),
             {
                 "first_name": "",
+                "middle_name": "",
                 "last_name": "",
                 "birth_year": "",
                 "death_year": "",
@@ -293,6 +317,7 @@ class TestWikiTreeLauncher(unittest.TestCase):
                 "gender": "",
                 "birth_location": "",
                 "death_location": "",
+                "married_name": "",
             },
         )
 
@@ -423,6 +448,8 @@ class TestWikiTreeLauncher(unittest.TestCase):
         dialog.birth_year_entry.get_text.return_value = "1706"
         dialog.death_year_entry.get_text.return_value = "1790"
         dialog.wt_id_entry.get_text.return_value = ""
+        for key in ("middle_name", "married_name", "gender"):
+            dialog.term_entries[key].get_text.return_value = ""
 
         first_iter = Mock()
         dialog.results_store.get_iter_first.return_value = first_iter
@@ -439,9 +466,72 @@ class TestWikiTreeLauncher(unittest.TestCase):
         self.assertEqual(appended_row[5], "1790-04-17")
         self.assertEqual(appended_row[6], "Philadelphia, PA")
         self.assertEqual(appended_row[7], "Josiah Franklin, Abiah Folger")
+        self.assertEqual(appended_row[9], "100%")
+        self.assertEqual(appended_row[10], 100.0)
 
         dialog.btn_merge.set_sensitive.assert_called_with(True)
         self.assertIn("Found 1 matching", dialog.status_label.set_text.call_args[0][0])
+
+    def test_match_column_without_target_name(self) -> None:
+        """Verify the Match column shows "-" when there is no name to match."""
+        mock_client = Mock()
+        mock_client.get_person.return_value = None
+        mock_client.search_person.return_value = [
+            {"Id": 1, "Name": "Smith-1", "FirstName": "Ann", "LastNameCurrent": "Smith"}
+        ]
+        dialog = WikiTreeSearchDialog(client=mock_client)
+        for key in dialog.term_entries:
+            dialog.term_entries[key].get_text.return_value = ""
+        dialog.term_checks["birth_year"].get_active.return_value = True
+        dialog.term_entries["birth_year"].get_text.return_value = "1800"
+        dialog.cb_search()
+        row = dialog.results_store.append.call_args[0][0]
+        self.assertEqual((row[9], row[10]), ("-", 0.0))
+
+    def test_merge_is_a_response_button(self) -> None:
+        """
+        Close and Merge are added as dialog response buttons (so GTK orders
+        them per platform); Merge keeps the window open.
+        """
+        launcher = sys.modules["gramps.gui.gwizard.gwizardwikitreelauncher"]
+        dialog = WikiTreeSearchDialog(client=Mock())
+        merge = launcher.RESPONSE_MERGE
+        self.assertIs(dialog.buttons[merge], dialog.btn_merge)
+        self.assertEqual(dialog.btn_merge.label, "_Merge...")
+        self.assertIn(launcher.Gtk.ResponseType.CLOSE, dialog.buttons)
+        dialog.get_action_area().pack_end.assert_not_called()
+        self.assertIn("response", dialog.handlers)
+
+        with patch.object(WikiTreeSearchDialog, "cb_merge") as cb_merge:
+            dialog.cb_response(dialog, merge)
+            cb_merge.assert_called_once()
+            self.assertEqual(dialog.stopped, ["response"])
+            dialog.cb_response(dialog, launcher.Gtk.ResponseType.CLOSE)
+            cb_merge.assert_called_once()
+            self.assertEqual(dialog.stopped, ["response"])
+
+    def test_match_query_uses_unchecked_boxes(self) -> None:
+        """Verify the match uses the boxes' text whether checked or not."""
+        dialog = WikiTreeSearchDialog(client=Mock())
+        values = {
+            "first_name": "Mary",
+            "middle_name": "Ann",
+            "last_name": "Kreizer",
+            "married_name": "Smith",
+            "gender": "Female",
+            "birth_year": "1841-03-02",
+            "death_year": "19xx",
+        }
+        for key in dialog.term_entries:
+            dialog.term_entries[key].get_text.return_value = values.get(key, "")
+            dialog.term_checks[key].get_active.return_value = False
+        query = dialog._match_query()
+        self.assertEqual(query.surnames, ["Kreizer", "Smith"])
+        self.assertEqual(query.birth_year, 1841)
+        self.assertIsNone(query.death_year)
+        self.assertEqual(
+            (query.given, query.middle, query.gender), ("Mary", "Ann", "Female")
+        )
 
     def test_dialog_search_with_url_in_entry(self) -> None:
         """Verify searching when a full WikiTree URL is entered in the ID field."""
@@ -459,7 +549,9 @@ class TestWikiTreeLauncher(unittest.TestCase):
             "https://www.wikitree.com/wiki/Washington-11"
         )
         dialog.first_name_entry.get_text.return_value = ""
+        dialog.middle_name_entry.get_text.return_value = ""
         dialog.last_name_entry.get_text.return_value = ""
+        dialog.married_name_entry.get_text.return_value = ""
         dialog.birth_year_entry.get_text.return_value = ""
         dialog.death_year_entry.get_text.return_value = ""
         dialog.gender_entry.get_text.return_value = ""
@@ -534,6 +626,351 @@ class TestWikiTreeLauncher(unittest.TestCase):
             mock_merge_instance.run.assert_called_once()
             mock_merge_instance.destroy.assert_called_once()
         source_db.close()
+
+    def _make_term_dialog(self, values: dict[str, str]) -> Any:
+        """
+        Build a search dialog whose term entries return the given text and
+        whose check buttons follow the default term selection.
+        """
+        mock_client = Mock()
+        mock_client.get_person.return_value = None
+        mock_client.search_person.return_value = []
+        dialog = WikiTreeSearchDialog(client=mock_client)
+        for key, entry in dialog.term_entries.items():
+            entry.get_text.return_value = values.get(key, "")
+        for key, check in dialog.term_checks.items():
+            check.get_active.return_value = SEARCH_TERM_DEFAULTS[key]
+        dialog.skip_variants_check.get_active.return_value = False
+        return dialog
+
+    def test_extract_person_search_defaults_splits_middle_name(self) -> None:
+        """Verify the first given name and the middle names are kept apart."""
+        person = Person()
+        pname = Name()
+        pname.set_first_name("Kimberly  Wren Ann")
+        surn = Surname()
+        surn.set_surname("White")
+        pname.add_surname(surn)
+        person.set_primary_name(pname)
+
+        defaults = _extract_person_search_defaults(self.db, person)
+        self.assertEqual(defaults["first_name"], "Kimberly")
+        self.assertEqual(defaults["middle_name"], "Wren Ann")
+        self.assertEqual(defaults["last_name"], "White")
+
+    def test_dialog_default_terms_checked(self) -> None:
+        """Verify first name, last name, birth year and WikiTree ID start checked."""
+        dialog = WikiTreeSearchDialog(client=Mock())
+        self.assertEqual(set(dialog.term_checks), set(SEARCH_TERM_DEFAULTS))
+        for key, check in dialog.term_checks.items():
+            check.set_active.assert_called_with(SEARCH_TERM_DEFAULTS[key])
+        checked = {key for key, on in SEARCH_TERM_DEFAULTS.items() if on}
+        self.assertEqual(checked, {"first_name", "last_name", "birth_year", "wt_id"})
+
+    def test_term_labels_have_unique_mnemonics(self) -> None:
+        """Verify each term's Alt shortcut differs from the others and the buttons."""
+        letters = []
+        for (
+            _key,
+            label,
+            _placeholder,
+            _tooltip,
+            _width,
+        ) in WikiTreeSearchDialog._term_specs():
+            self.assertEqual(label.count("_"), 1, label)
+            letters.append(label[label.index("_") + 1].lower())
+        # Last name matc_h, _Exact spelling, date s_pread, Und_ated, then
+        # Search, Reset, Merge, Close
+        letters.extend(["h", "e", "p", "a", "s", "r", "m", "c"])
+        self.assertEqual(len(letters), len(set(letters)), letters)
+
+    def test_dialog_search_skips_unchecked_terms(self) -> None:
+        """Verify unchecked terms are not sent even though they hold text."""
+        dialog = self._make_term_dialog(
+            {
+                "first_name": "Kimberly",
+                "middle_name": "W",
+                "last_name": "White",
+                "gender": "Female",
+                "birth_year": "1965",
+                "birth_location": "Ohio",
+                "death_year": "2020",
+                "death_location": "Texas",
+            }
+        )
+
+        dialog.cb_search()
+
+        kwargs = dialog.client.search_person.call_args.kwargs
+        self.assertEqual(kwargs["first_name"], "Kimberly")
+        self.assertEqual(kwargs["last_name"], "White")
+        self.assertEqual(kwargs["birth_date"], "1965")
+        self.assertEqual(kwargs["death_date"], "")
+        self.assertEqual(kwargs["Gender"], "")
+        self.assertEqual(kwargs["BirthLocation"], "")
+        self.assertEqual(kwargs["DeathLocation"], "")
+
+    def test_dialog_search_with_middle_and_death_checked(self) -> None:
+        """Verify checking middle name and death year adds them to the search."""
+        dialog = self._make_term_dialog(
+            {
+                "first_name": "Kimberly",
+                "middle_name": "W",
+                "last_name": "White",
+                "birth_year": "1965",
+                "death_year": "2020",
+            }
+        )
+        dialog.term_checks["middle_name"].get_active.return_value = True
+        dialog.term_checks["death_year"].get_active.return_value = True
+        dialog.term_checks["birth_year"].get_active.return_value = False
+
+        dialog.cb_search()
+
+        kwargs = dialog.client.search_person.call_args.kwargs
+        self.assertEqual(kwargs["first_name"], "Kimberly W")
+        self.assertEqual(kwargs["birth_date"], "")
+        self.assertEqual(kwargs["death_date"], "2020")
+
+    def test_dialog_search_all_terms_unchecked(self) -> None:
+        """Verify searching with every term unchecked asks for a term instead."""
+        dialog = self._make_term_dialog({"first_name": "Kimberly"})
+        for check in dialog.term_checks.values():
+            check.get_active.return_value = False
+
+        dialog.cb_search()
+
+        dialog.client.search_person.assert_not_called()
+        dialog.client.get_person.assert_not_called()
+        self.assertIn(
+            "Please check and fill in",
+            dialog.status_label.set_text.call_args[0][0],
+        )
+
+    def test_unchecked_wikitree_id_is_not_looked_up(self) -> None:
+        """Verify an unchecked WikiTree ID is not used for a direct lookup."""
+        dialog = self._make_term_dialog(
+            {"last_name": "Washington", "wt_id": "Washington-11"}
+        )
+        dialog.term_checks["wt_id"].get_active.return_value = False
+
+        dialog.cb_search()
+
+        dialog.client.get_person.assert_not_called()
+        dialog.client.search_person.assert_called_once()
+
+    def test_dialog_search_sends_date_spread_and_limit(self) -> None:
+        """Verify the date spread and the 100-result limit reach search_person."""
+        dialog = self._make_term_dialog(
+            {"first_name": "Kimberly", "last_name": "White", "birth_year": "1965"}
+        )
+        dialog.date_spread_spin.get_value_as_int.return_value = 5
+
+        dialog.cb_search()
+
+        kwargs = dialog.client.search_person.call_args.kwargs
+        self.assertEqual(kwargs["date_spread"], 5)
+        self.assertEqual(kwargs["limit"], 100)
+
+    def test_dialog_search_without_date_spread(self) -> None:
+        """Verify a spread of 0 is passed as 0, so no dateSpread is sent."""
+        dialog = self._make_term_dialog({"last_name": "White"})
+
+        dialog.cb_search()
+
+        self.assertEqual(dialog.client.search_person.call_args.kwargs["date_spread"], 0)
+
+    def test_extract_person_search_defaults_gender_names(self) -> None:
+        """Verify gender is given as WikiTree's Male/Female, not Gramps' code."""
+        for gender, expected in (
+            (Person.MALE, "Male"),
+            (Person.FEMALE, "Female"),
+            (Person.UNKNOWN, ""),
+        ):
+            person = Person()
+            person.set_gender(gender)
+            defaults = _extract_person_search_defaults(self.db, person)
+            self.assertEqual(defaults["gender"], expected)
+
+    def test_dialog_search_leaves_out_default_options(self) -> None:
+        """Verify no lastNameMatch, skipVariants or dateInclude is sent by default."""
+        dialog = self._make_term_dialog({"last_name": "White"})
+
+        dialog.cb_search()
+
+        kwargs = dialog.client.search_person.call_args.kwargs
+        self.assertNotIn("lastNameMatch", kwargs)
+        self.assertNotIn("skipVariants", kwargs)
+        self.assertNotIn("dateInclude", kwargs)
+
+    def test_dialog_search_sends_set_options(self) -> None:
+        """Verify chosen surname and date options are sent to WikiTree."""
+        dialog = self._make_term_dialog({"last_name": "White", "birth_year": "1965"})
+        dialog.last_name_match_combo.get_active_id.return_value = "birth"
+        dialog.skip_variants_check.get_active.return_value = True
+        dialog.date_include_combo.get_active_id.return_value = "neither"
+
+        dialog.cb_search()
+
+        kwargs = dialog.client.search_person.call_args.kwargs
+        self.assertEqual(kwargs["lastNameMatch"], "birth")
+        self.assertEqual(kwargs["skipVariants"], 1)
+        self.assertEqual(kwargs["dateInclude"], "neither")
+
+    def test_search_option_lists_start_with_default(self) -> None:
+        """Verify each option list offers an unsent WikiTree default first."""
+        for options in (
+            WikiTreeSearchDialog._last_name_match_options(),
+            WikiTreeSearchDialog._date_include_options(),
+        ):
+            self.assertEqual(options[0][0], "")
+        self.assertEqual(
+            [value for value, _label in WikiTreeSearchDialog._date_include_options()],
+            ["", "neither", "both"],
+        )
+
+    def _named_person(self, first: str, last: str, gender: int) -> Person:
+        """Return an unsaved Person with the given primary name and gender."""
+        person = Person()
+        pname = Name()
+        pname.set_first_name(first)
+        surn = Surname()
+        surn.set_surname(last)
+        pname.add_surname(surn)
+        person.set_primary_name(pname)
+        person.set_gender(gender)
+        return person
+
+    def _add_marriage(self, wife: Person, husband_surname: str) -> None:
+        """Save a husband and a family linking him to the (saved) wife."""
+        husband = self._named_person("John", husband_surname, Person.MALE)
+        with DbTxn("Add marriage", self.db) as trans:
+            h_handle = self.db.add_person(husband, trans)
+            family = Family()
+            family.set_father_handle(h_handle)
+            family.set_mother_handle(wife.get_handle())
+            f_handle = self.db.add_family(family, trans)
+            wife.add_family_handle(f_handle)
+            self.db.commit_person(wife, trans)
+
+    def test_married_name_from_alternate_name(self) -> None:
+        """Verify a Married Name alternate name fills the married name."""
+        person = self._named_person("Kimberly", "White", Person.FEMALE)
+        alt = Name()
+        alt.set_type(NameType(NameType.MARRIED))
+        surn = Surname()
+        surn.set_surname("Devault")
+        alt.add_surname(surn)
+        person.add_alternate_name(alt)
+        with DbTxn("Add wife", self.db) as trans:
+            self.db.add_person(person, trans)
+        self._add_marriage(person, "Smith")
+
+        defaults = _extract_person_search_defaults(self.db, person)
+        self.assertEqual(defaults["married_name"], "Devault")
+
+    def test_married_name_from_latest_husband(self) -> None:
+        """Verify a woman without a married name gets her last husband's surname."""
+        person = self._named_person("Kimberly", "White", Person.FEMALE)
+        with DbTxn("Add wife", self.db) as trans:
+            self.db.add_person(person, trans)
+        self._add_marriage(person, "Smith")
+        self._add_marriage(person, "Jones")
+
+        defaults = _extract_person_search_defaults(self.db, person)
+        self.assertEqual(defaults["married_name"], "Jones")
+
+    def test_married_name_not_guessed_for_men(self) -> None:
+        """Verify the husband's-surname fallback is used only for women."""
+        person = self._named_person("Kevin", "White", Person.MALE)
+        with DbTxn("Add man", self.db) as trans:
+            self.db.add_person(person, trans)
+
+        defaults = _extract_person_search_defaults(self.db, person)
+        self.assertEqual(defaults["married_name"], "")
+
+    def test_married_name_sent_only_when_checked(self) -> None:
+        """Verify the married name is sent as LastNameCurrent only when checked."""
+        dialog = self._make_term_dialog(
+            {"last_name": "White", "married_name": "Devault"}
+        )
+        dialog.cb_search()
+        self.assertNotIn(
+            "LastNameCurrent", dialog.client.search_person.call_args.kwargs
+        )
+
+        dialog.term_checks["married_name"].get_active.return_value = True
+        dialog.term_checks["last_name"].get_active.return_value = False
+        dialog.cb_search()
+        kwargs = dialog.client.search_person.call_args.kwargs
+        self.assertEqual(kwargs["LastNameCurrent"], "Devault")
+        self.assertEqual(kwargs["last_name"], "")
+
+    def test_term_toggle_sets_entry_sensitivity(self) -> None:
+        """Verify toggling a term enables or disables its entry."""
+        dialog = self._make_term_dialog({})
+        check = dialog.term_checks["death_year"]
+        entry = dialog.term_entries["death_year"]
+
+        check.get_active.return_value = True
+        dialog.cb_term_toggled(check, "death_year")
+        entry.set_sensitive.assert_called_with(True)
+
+        check.get_active.return_value = False
+        dialog.cb_term_toggled(check, "death_year")
+        entry.set_sensitive.assert_called_with(False)
+
+    def test_reset_terms_restores_values_and_defaults(self) -> None:
+        """Verify Reset refills the target's values and the default selection."""
+        person = Person()
+        pname = Name()
+        pname.set_first_name("Kimberly W")
+        surn = Surname()
+        surn.set_surname("White")
+        pname.add_surname(surn)
+        person.set_primary_name(pname)
+        with DbTxn("Add reset target", self.db) as trans:
+            p_h = self.db.add_person(person, trans)
+
+        dbstate = Mock()
+        dbstate.db = self.db
+        dialog = WikiTreeSearchDialog(dbstate=dbstate, target_handle=p_h, client=Mock())
+        for check in dialog.term_checks.values():
+            check.set_active.reset_mock()
+
+        dialog.cb_reset_terms()
+
+        dialog.death_year_entry.set_text.assert_any_call("")
+        dialog.first_name_entry.set_text.assert_called_with("Kimberly")
+        dialog.middle_name_entry.set_text.assert_called_with("W")
+        dialog.last_name_entry.set_text.assert_called_with("White")
+        for key, check in dialog.term_checks.items():
+            check.set_active.assert_called_once_with(SEARCH_TERM_DEFAULTS[key])
+        dialog.date_spread_spin.set_value.assert_called_with(0)
+        dialog.date_include_combo.set_active_id.assert_called_with("")
+        dialog.last_name_match_combo.set_active_id.assert_called_with("")
+        dialog.skip_variants_check.set_active.assert_called_with(False)
+
+    def test_get_query_parameters_uses_checked_terms(self) -> None:
+        """Verify get_query_parameters leaves out unchecked terms."""
+        dialog = self._make_term_dialog(
+            {
+                "first_name": "Kimberly",
+                "middle_name": "W",
+                "last_name": "White",
+                "birth_year": "1965",
+                "death_year": "2020",
+            }
+        )
+
+        params = dialog.get_query_parameters()
+
+        self.assertEqual(params["first_name"], "Kimberly")
+        self.assertEqual(params["last_name"], "White")
+        self.assertEqual(params["birth_date"], "1965")
+        self.assertEqual(params["death_date"], "")
+        self.assertEqual(params["query"], "Kimberly White")
+        self.assertEqual(params["date_spread"], 0)
 
     def test_ask_wikitree_parameters_compatibility(self) -> None:
         """Verify ask_wikitree_parameters compatibility helper."""
