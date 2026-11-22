@@ -358,8 +358,8 @@ def media_handles_of(obj: Any, db: Any) -> list[str]:
             continue
         if event is not None:
             handles.extend(ref.get_reference_handle() for ref in event.get_media_list())
-    seen: set[str] = set()
-    return [h for h in handles if h and not (h in seen or seen.add(h))]
+    # dict.fromkeys drops repeats and keeps the first-seen order.
+    return list(dict.fromkeys(h for h in handles if h))
 
 
 def media_note(media_handles: Iterable[str], source_db: Any, target_db: Any) -> str:
