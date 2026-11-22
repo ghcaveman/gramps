@@ -96,6 +96,7 @@ class CitationTreeModel(CitationBaseModel, TreeBaseModel):
             self.source_src_auth,  # COL_SRC_AUTH   (Source only)
             self.source_src_abbr,  # COL_SRC_ABBR   (Source only)
             self.source_src_pinfo,  # COL_SRC_PINFO  (Source only)
+            self.source_media_count,  # COL_MEDIA_COUNT (both Source & Citation)
             self.source_src_tag_color,
         ]
         self.smap = [
@@ -109,6 +110,7 @@ class CitationTreeModel(CitationBaseModel, TreeBaseModel):
             self.source_src_auth,
             self.source_src_abbr,
             self.source_src_pinfo,
+            self.source_sort_media_count,
             self.source_src_tag_color,
         ]
 
@@ -161,6 +163,7 @@ class CitationTreeModel(CitationBaseModel, TreeBaseModel):
             None,
             None,
             None,
+            self.citation_media_count,
             self.citation_tag_color,
         ]
         self.smap2 = [
@@ -174,6 +177,7 @@ class CitationTreeModel(CitationBaseModel, TreeBaseModel):
             self.dummy_sort_key,
             self.dummy_sort_key,
             self.dummy_sort_key,
+            self.citation_sort_media_count,
             self.citation_tag_color,
         ]
 
@@ -181,7 +185,7 @@ class CitationTreeModel(CitationBaseModel, TreeBaseModel):
         """
         Return the color column.
         """
-        return 10
+        return 11
 
     def get_tree_levels(self):
         """

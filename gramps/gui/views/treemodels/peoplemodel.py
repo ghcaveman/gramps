@@ -74,6 +74,7 @@ from .flatbasemodel import FlatBaseModel
 from .treebasemodel import TreeBaseModel
 from .basemodel import BaseModel
 from gramps.gen.config import config
+from gramps.gen.utils.string import conf_strings
 
 invalid_date_format = config.get("preferences.invalid-date-format")
 no_surname = config.get("preferences.no-surname-text")
@@ -116,6 +117,9 @@ class PeopleBaseModel(BaseModel):
             self.column_private,
             self.column_tags,
             self.column_change,
+            self.column_confidence,
+            self.column_citation_count,
+            self.column_media_count,
             self.column_tag_color,
         ]
         self.smap = [
@@ -134,6 +138,9 @@ class PeopleBaseModel(BaseModel):
             self.column_private,
             self.column_tags,
             self.sort_change,
+            self.sort_confidence,
+            self.sort_citation_count,
+            self.sort_media_count,
             self.column_tag_color,
         ]
 
@@ -152,7 +159,7 @@ class PeopleBaseModel(BaseModel):
         """
         Return the color column.
         """
-        return 15
+        return 18
 
     def on_get_n_columns(self):
         """Return the number of columns in the model"""
@@ -507,6 +514,81 @@ class PeopleBaseModel(BaseModel):
             value = self._get_todo_data(data)
             self.set_cached_value(handle, "SORT_TODO", value)
         return "%06d" % value
+
+    def get_citation_handles(self, data):
+        """
+        Return the distinct citation handles supporting a person: the
+        person's own citations, those on their names, and those on the
+        events they take part in.
+        """
+        cached, value = self.get_cached_value(data.handle, "CITATIONS")
+        if not cached:
+            value = []
+            names = [data["primary_name"]] + list(data["alternate_names"])
+            for source in [data] + names:
+                for handle in source["citation_list"]:
+                    if handle not in value:
+                        value.append(handle)
+            self._add_event_citations(data["event_ref_list"], value)
+            self.set_cached_value(data.handle, "CITATIONS", value)
+        return value
+
+    def _add_event_citations(self, event_ref_list, handles):
+        """
+        Add the citations of the referenced events to handles (a list,
+        kept free of duplicates).
+        """
+        for event_ref in event_ref_list:
+            try:
+                event = self.db.get_raw_event_data(event_ref["ref"])
+            except Exception:
+                event = None
+            if event:
+                for handle in event["citation_list"]:
+                    if handle not in handles:
+                        handles.append(handle)
+
+    def get_confidence(self, data):
+        """
+        Return the highest confidence level among the person's citations
+        (own, names and events), or None if there are none.
+        """
+        best = None
+        for citation_handle in self.get_citation_handles(data):
+            cached, value = self.get_cached_value(citation_handle, "CIT_CONF")
+            if not cached:
+                try:
+                    value = self.db.get_raw_citation_data(citation_handle).confidence
+                except Exception:
+                    value = None
+                self.set_cached_value(citation_handle, "CIT_CONF", value)
+            if value is not None and (best is None or value > best):
+                best = value
+        return best
+
+    def column_confidence(self, data):
+        best = self.get_confidence(data)
+        if best is None:
+            return ""
+        return _(conf_strings[best])
+
+    def sort_confidence(self, data):
+        best = self.get_confidence(data)
+        if best is None:
+            return ""
+        return str(best)
+
+    def column_citation_count(self, data):
+        return str(len(self.get_citation_handles(data)))
+
+    def sort_citation_count(self, data):
+        return "%06d" % len(self.get_citation_handles(data))
+
+    def column_media_count(self, data):
+        return str(len(data.media_list))
+
+    def sort_media_count(self, data):
+        return "%06d" % len(data.media_list)
 
     def get_tag_name(self, tag_handle):
         """

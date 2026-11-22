@@ -75,6 +75,9 @@ class EventView(ListView):
     COL_TAGS = 6
     COL_CHAN = 7
     COL_PARTIC = 8
+    COL_CONFIDENCE = 9
+    COL_CITE_COUNT = 10
+    COL_MEDIA_COUNT = 11
     # column definitions
     COLUMNS = [
         (_("Description"), TEXT, None),
@@ -86,6 +89,9 @@ class EventView(ListView):
         (_("Tags"), TEXT, None),
         (_("Last Changed"), TEXT, None),
         (_("Main Participants"), TEXT, None),
+        (_("Confidence"), TEXT, None),
+        (_("Citation Count"), TEXT, None),
+        (_("Media Count"), TEXT, None),
     ]
     # default setting with visible columns, order of the col, and their size
     CONFIGSETTINGS = (
@@ -102,12 +108,15 @@ class EventView(ListView):
                 COL_PLACE,
                 COL_DESCR,
                 COL_ID,
+                COL_CONFIDENCE,
+                COL_CITE_COUNT,
+                COL_MEDIA_COUNT,
                 COL_PRIV,
                 COL_TAGS,
                 COL_CHAN,
             ],
         ),
-        ("columns.size", [100, 230, 150, 200, 100, 75, 40, 100, 100]),
+        ("columns.size", [100, 230, 150, 200, 100, 75, 100, 75, 75, 40, 100, 100]),
     )
     ADD_MSG = _("Add a new event")
     EDIT_MSG = _("Edit the selected event")

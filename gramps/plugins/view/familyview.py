@@ -76,6 +76,11 @@ class FamilyView(ListView):
     COL_PRIV = 5
     COL_TAGS = 6
     COL_CHAN = 7
+    COL_CHILDREN = 8
+    COL_CITE_COUNT = 9
+    COL_MEDIA_COUNT = 10
+    COL_CONFIDENCE = 11
+    COL_EVENT_COUNT = 12
     # column definitions
     COLUMNS = [
         (_("ID"), TEXT, None),
@@ -86,6 +91,11 @@ class FamilyView(ListView):
         (_("Private"), ICON, "gramps-lock"),
         (_("Tags"), TEXT, None),
         (_("Last Changed"), TEXT, None),
+        (_("Number of Children"), TEXT, "gramps-relation"),
+        (_("Citation Count"), TEXT, None),
+        (_("Media Count"), TEXT, None),
+        (_("Confidence"), TEXT, None),
+        (_("Event Count"), TEXT, None),
     ]
     # default setting with visible columns, order of the col, and their size
     CONFIGSETTINGS = (
@@ -98,12 +108,17 @@ class FamilyView(ListView):
                 COL_MOTHER,
                 COL_REL,
                 COL_MARDATE,
+                COL_CHILDREN,
+                COL_EVENT_COUNT,
+                COL_CITE_COUNT,
+                COL_MEDIA_COUNT,
+                COL_CONFIDENCE,
                 COL_PRIV,
                 COL_TAGS,
                 COL_CHAN,
             ],
         ),
-        ("columns.size", [75, 200, 200, 100, 100, 40, 100, 100]),
+        ("columns.size", [75, 200, 200, 100, 100, 30, 75, 75, 75, 100, 40, 100, 100]),
     )
 
     ADD_MSG = _("Add a new family")

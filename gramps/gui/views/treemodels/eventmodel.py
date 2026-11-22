@@ -46,8 +46,11 @@ from gramps.gen.lib.json_utils import data_to_object
 from gramps.gen.utils.db import get_participant_from_event
 from gramps.gen.display.place import displayer as place_displayer
 from gramps.gen.config import config
+from gramps.gen.utils.string import conf_strings
 from .flatbasemodel import FlatBaseModel
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+
+_ = glocale.translation.gettext
 
 INVALID_DATE_FORMAT = config.get("preferences.invalid-date-format")
 
@@ -81,6 +84,9 @@ class EventModel(FlatBaseModel):
             self.column_tags,
             self.column_change,
             self.column_participant,
+            self.column_confidence,
+            self.column_citation_count,
+            self.column_media_count,
             self.column_tag_color,
         ]
         self.smap = [
@@ -93,6 +99,9 @@ class EventModel(FlatBaseModel):
             self.column_tags,
             self.sort_change,
             self.column_participant,
+            self.sort_confidence,
+            self.sort_citation_count,
+            self.sort_media_count,
             self.column_tag_color,
         ]
         FlatBaseModel.__init__(
@@ -114,7 +123,7 @@ class EventModel(FlatBaseModel):
         """
         Return the color column.
         """
-        return 9
+        return 12
 
     def on_get_n_columns(self):
         return len(self.fmap) + 1
@@ -180,6 +189,48 @@ class EventModel(FlatBaseModel):
         else:
             # There is a problem returning None here.
             return ""
+
+    def get_confidence(self, data):
+        """
+        Return the highest confidence level among the event's citations,
+        or None if the event has no citations.
+        """
+        best = None
+        for citation_handle in data.citation_list:
+            cached, value = self.get_cached_value(citation_handle, "CIT_CONF")
+            if not cached:
+                try:
+                    value = self.db.get_raw_citation_data(citation_handle).confidence
+                except Exception:
+                    value = None
+                self.set_cached_value(citation_handle, "CIT_CONF", value)
+            if value is not None and (best is None or value > best):
+                best = value
+        return best
+
+    def column_confidence(self, data):
+        best = self.get_confidence(data)
+        if best is None:
+            return ""
+        return _(conf_strings[best])
+
+    def sort_confidence(self, data):
+        best = self.get_confidence(data)
+        if best is None:
+            return ""
+        return str(best)
+
+    def column_citation_count(self, data):
+        return str(len(data.citation_list))
+
+    def sort_citation_count(self, data):
+        return "%06d" % len(data.citation_list)
+
+    def column_media_count(self, data):
+        return str(len(data.media_list))
+
+    def sort_media_count(self, data):
+        return "%06d" % len(data.media_list)
 
     def sort_change(self, data):
         return "%012x" % data.change

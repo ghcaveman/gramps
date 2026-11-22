@@ -153,6 +153,66 @@ class ListView(NavigationView):
         self.model = None
         self.build_tree()
 
+    def init_config(self):
+        """
+        Set up the view config, then reconcile the saved column settings
+        with the view's current COLUMNS definition.
+        """
+        super().init_config()
+        self._reconcile_column_config()
+
+    def _reconcile_column_config(self):
+        """
+        Bring the saved columns.rank / columns.size / columns.visible
+        settings in line with COLUMNS.
+
+        A view's ini file saved before a column was added would otherwise
+        hide that column completely, including from Configure View.  New
+        columns are added, not visible, with their default width, just after
+        the column that precedes them in the view's default order (so they
+        land before trailing columns such as Private, Tags and Last
+        Changed); settings for columns that no longer exist are dropped.
+        """
+        ncols = len(self.COLUMNS)
+        if not ncols:
+            return
+        order = list(self._config.get("columns.rank"))
+        size = list(self._config.get("columns.size"))
+        vis = list(self._config.get("columns.visible"))
+        if len(size) < len(order):
+            size.extend([100] * (len(order) - len(size)))
+
+        default_rank = list(self._config.get_default("columns.rank"))
+        defaults = dict(zip(default_rank, self._config.get_default("columns.size")))
+        new_order, new_size = [], []
+        for col, width in zip(order, size):
+            if 0 <= col < ncols and col not in new_order:
+                new_order.append(col)
+                new_size.append(width)
+        missing = [col for col in default_rank if 0 <= col < ncols]
+        missing += [col for col in range(ncols) if col not in missing]
+        for col in missing:
+            if col in new_order:
+                continue
+            pos = len(new_order)
+            if col in default_rank:
+                # place after the nearest preceding column (in default order)
+                # that the saved layout already has
+                for prev in reversed(default_rank[: default_rank.index(col)]):
+                    if prev in new_order:
+                        pos = new_order.index(prev) + 1
+                        break
+                else:
+                    pos = 0
+            new_order.insert(pos, col)
+            new_size.insert(pos, defaults.get(col, 100))
+        new_vis = [col for col in vis if col in new_order]
+
+        if (new_order, new_size, new_vis) != (order, size, vis):
+            self._config.set("columns.rank", new_order)
+            self._config.set("columns.size", new_size)
+            self._config.set("columns.visible", new_vis)
+
     ####################################################################
     # Build interface
     ####################################################################
@@ -329,7 +389,11 @@ class ListView(NavigationView):
         self.uistate.viewmanager.tags.tag_disable()
 
     def build_tree(self, force_sidebar=False, preserve_col=True):
-        if self.list.get_columns()[0].get_width() > 0:
+        if getattr(self, "_discard_column_widths", False):
+            # Column settings were just reset: don't save the old layout's
+            # widths back over the cleared ones.
+            self._discard_column_widths = False
+        elif self.list.get_columns()[0].get_width() > 0:
             self.list.save_column_info(self.list)
         if self.active:
             cput0 = perf_counter()
@@ -549,6 +613,22 @@ class ListView(NavigationView):
             # pass empty
             data = (self.drag_info().drag_type, id(self), [], 0)
             sel_data.set(self.drag_list_info().atom_drag_type, 8, pickle.dumps(data))
+
+    def reset_column_config(self):
+        """
+        Put the column choices, order and widths back to the view's
+        defaults and rebuild the view.
+        """
+        for key in ("columns.rank", "columns.size", "columns.visible"):
+            self._config.reset(key)
+        self._config.save()
+        # PersistentTreeView keeps its own copy of the widths in gramps.ini,
+        # applied by position after every rebuild; forget it so the default
+        # widths are used.
+        if self.list.config_name != "undefined":
+            config.set(self.list.config_name, [])
+        self._discard_column_widths = True
+        self.set_column_order()
 
     def set_column_order(self):
         """
@@ -1463,6 +1543,7 @@ class ListView(NavigationView):
                 self.set_column_order,
                 tree=not flat,
                 resizable=self.list,
+                on_reset=self.reset_column_config,
             )
 
         def csvdialect(configdialog):

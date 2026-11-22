@@ -94,6 +94,7 @@ class CitationListView(ListView):
     COL_SRC_PINFO = 11
     COL_SRC_PRIV = 12
     COL_SRC_CHAN = 13
+    COL_MEDIA_COUNT = 14
     # column definitions
     COLUMNS = [
         (_("Volume/Page"), TEXT, None),
@@ -110,6 +111,7 @@ class CitationListView(ListView):
         (_("Source: Publication Information"), TEXT, None),
         (_("Source: Private"), ICON, "gramps-lock"),
         (_("Source: Last Changed"), TEXT, None),
+        (_("Media Count"), TEXT, None),
     ]
     # default setting with visible columns, order of the col, and their size
     CONFIGSETTINGS = (
@@ -121,9 +123,6 @@ class CitationListView(ListView):
                 COL_ID,
                 COL_DATE,
                 COL_CONFIDENCE,
-                COL_PRIV,
-                COL_TAGS,
-                COL_CHAN,
                 COL_SRC_TITLE,
                 COL_SRC_ID,
                 COL_SRC_AUTH,
@@ -131,11 +130,15 @@ class CitationListView(ListView):
                 COL_SRC_PINFO,
                 COL_SRC_PRIV,
                 COL_SRC_CHAN,
+                COL_MEDIA_COUNT,
+                COL_PRIV,
+                COL_TAGS,
+                COL_CHAN,
             ],
         ),
         (
             "columns.size",
-            [200, 75, 100, 100, 40, 100, 100, 200, 75, 75, 100, 150, 40, 100],
+            [200, 75, 100, 100, 200, 75, 75, 100, 150, 40, 100, 75, 40, 100, 100],
         ),
     )
     ADD_MSG = _("Add a new citation and a new source")
