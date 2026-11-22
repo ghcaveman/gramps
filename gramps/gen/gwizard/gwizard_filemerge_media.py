@@ -52,8 +52,8 @@ from urllib.parse import urlparse
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.utils.file import (
     create_checksum,
+    expand_path,
     media_path,
-    media_path_full,
     relative_path,
 )
 
@@ -102,6 +102,25 @@ def _key(path: str) -> str:
     return os.path.normcase(os.path.normpath(path))
 
 
+def _media_dir(db: Any) -> str:
+    """
+    Return ``media_path(db)`` with the case of the path as it was set.
+
+    On Windows media_path() lower-cases the whole path; a file found under
+    it, and recorded with its full path, would otherwise lose its case.
+    """
+    full = media_path(db)
+    try:
+        raw = expand_path(db.get_mediapath() or "", False)
+    except Exception:  # pylint: disable=broad-except
+        return full
+    if raw and os.path.isabs(raw):
+        cased = os.path.normpath(raw)
+        if _key(cased) == _key(full):
+            return cased
+    return full
+
+
 def mark_incoming(db: Any, incoming_file: str) -> None:
     """Record on ``db`` that it was loaded from ``incoming_file``."""
     try:
@@ -134,7 +153,7 @@ def _candidates(db: Any, path: str) -> Iterator[str]:
     folder = incoming_dir(db)
     if folder is None:
         # The family tree: relative paths are read from its base path.
-        yield native if os.path.isabs(native) else media_path_full(db, native)
+        yield native if os.path.isabs(native) else os.path.join(_media_dir(db), native)
         return
     # The incoming file, looked for the way the GEDCOM importer does: as
     # written, from the incoming file's media path, from its folder (with
@@ -144,12 +163,12 @@ def _candidates(db: Any, path: str) -> Iterator[str]:
     stripped = native[2:] if len(native) > 3 and native[1] == ":" else native
     stripped = stripped.lstrip(os.sep)
     if base_path_configured(db):
-        yield os.path.join(media_path(db), stripped)
+        yield os.path.join(_media_dir(db), stripped)
     yield os.path.join(folder, stripped)
     yield os.path.join(folder, os.path.basename(native))
     if not base_path_configured(db):
         # The importer also tries its own default media path.
-        yield os.path.join(media_path(db), stripped)
+        yield os.path.join(_media_dir(db), stripped)
 
 
 def find_file(db: Any, path: str, fallback_db: Any = None) -> str | None:
