@@ -30,10 +30,11 @@ Unit tests for the GWizard NARA launcher and search dialog.
 from __future__ import annotations
 import json
 import os
+import importlib
 import sys
 import unittest
 from unittest.mock import MagicMock, Mock, patch
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 
 # -------------------------------------------------------------------------
@@ -87,18 +88,17 @@ class DummyDialog:
         pass
 
 
-_gi = sys.modules.get("gi") or MagicMock()
-sys.modules["gi"] = _gi
+# Fresh stand-ins, put in sys.modules only while this module's tests run.
+_STUB_MODULES: dict[str, Any] = {}
+_gi: Any = MagicMock()
 
-_gi_repo: Any = sys.modules.get("gi.repository") or MagicMock()
-sys.modules["gi.repository"] = _gi_repo
+_gi_repo: Any = MagicMock()
 
-_glib: Any = sys.modules.get("gi.repository.GLib") or MagicMock()
+_glib: Any = MagicMock()
 _glib.markup_escape_text = lambda s: str(s)
-sys.modules["gi.repository.GLib"] = _glib
 _gi_repo.GLib = _glib
 
-_gtk: Any = sys.modules.get("gi.repository.Gtk") or MagicMock()
+_gtk: Any = MagicMock()
 _gtk.Dialog = DummyDialog
 _gtk.Entry.side_effect = lambda *a, **k: MagicMock()
 _gtk.Label.side_effect = lambda *a, **k: MagicMock()
@@ -124,16 +124,82 @@ _gtk.SelectionMode.SINGLE = 1
 _gtk.PolicyType.AUTOMATIC = 1
 _gtk.Orientation.HORIZONTAL = 0
 _gtk.events_pending.return_value = False
-sys.modules["gi.repository.Gtk"] = _gtk
 _gi_repo.Gtk = _gtk
 
-_gdk: Any = sys.modules.get("gi.repository.Gdk") or MagicMock()
-sys.modules["gi.repository.Gdk"] = _gdk
+_gdk: Any = MagicMock()
 _gi_repo.Gdk = _gdk
 
-_pango: Any = sys.modules.get("gi.repository.Pango") or MagicMock()
-sys.modules["gi.repository.Pango"] = _pango
+_pango: Any = MagicMock()
 _gi_repo.Pango = _pango
+
+_gi.repository = _gi_repo
+_STUB_MODULES.update(
+    {
+        "gi": _gi,
+        "gi.repository": _gi_repo,
+        "gi.repository.GLib": _glib,
+        "gi.repository.Gtk": _gtk,
+        "gi.repository.Gdk": _gdk,
+        "gi.repository.Pango": _pango,
+    }
+)
+
+
+def _uses_gtk(name: str) -> bool:
+    """
+    True for modules that must be imported again under the stand-ins.
+
+    Test modules stay put: unittest finds a module's tearDownModule through
+    sys.modules, and they do not use GTK themselves.
+    """
+    if ".test." in name or name.endswith(".test"):
+        return False
+    return (
+        name in ("gi", "gramps.gui")
+        or name.startswith("gi.")
+        or name.startswith("gramps.gui.")
+    )
+
+
+_SAVED_MODULES: dict[str, Any] = {}
+
+
+def setUpModule() -> None:  # pylint: disable=invalid-name
+    """
+    Import the window under this module's own GTK stand-ins.
+
+    Never reuse real GTK, or a stub another test module put in sys.modules:
+    changing it there leaks into other tests (a real GLib whose
+    markup_escape_text no longer escapes, for one). Modules that use GTK
+    (gi and gramps.gui.*) are set aside and imported afresh, so neither the
+    stand-ins nor anything imported with them is seen by other test
+    modules; tearDownModule puts the originals back.
+    """
+    _SAVED_MODULES.clear()
+    _SAVED_MODULES.update(sys.modules)
+    for name in [name for name in sys.modules if _uses_gtk(name)]:
+        del sys.modules[name]
+    sys.modules.update(_STUB_MODULES)
+
+    module = importlib.import_module("gramps.gui.gwizard.gwizardnaralauncher")
+    globals().update({name: getattr(module, name) for name in _IMPORTED_NAMES})
+
+
+def tearDownModule() -> None:  # pylint: disable=invalid-name
+    """Put back the modules setUpModule set aside."""
+    sys.modules.clear()
+    sys.modules.update(_SAVED_MODULES)
+    # Importing afresh re-pointed package attributes (gramps.gui, ...) at
+    # the fresh modules; point them back at the originals.
+    for name, module in _SAVED_MODULES.items():
+        parent, _sep, child = name.rpartition(".")
+        if parent and _uses_gtk(name) and parent in _SAVED_MODULES:
+            try:
+                setattr(_SAVED_MODULES[parent], child, module)
+            except (AttributeError, TypeError):
+                pass
+    _SAVED_MODULES.clear()
+
 
 # -------------------------------------------------------------------------
 #
@@ -157,16 +223,31 @@ from gramps.gen.gwizard.gwizardnaramerge import (
     NaraGWizard,
     NaraRecordAttacher,
 )
-from gramps.gui.gwizard.gwizardnaralauncher import (
-    ATTACH_HIDDEN_SECTIONS,
-    SEARCH_TERM_DEFAULTS,
-    _extract_person_search_defaults,
-    build_nara_query,
-    format_size,
-    NaraSearchDialog,
-    ask_nara_parameters,
-    load_nara_gwizard,
-    run_gwizard_nara_flow,
+
+# Imported by setUpModule, under this module's GTK stand-ins.
+if TYPE_CHECKING:
+    from gramps.gui.gwizard.gwizardnaralauncher import (
+        ATTACH_HIDDEN_SECTIONS,
+        SEARCH_TERM_DEFAULTS,
+        _extract_person_search_defaults,
+        build_nara_query,
+        format_size,
+        NaraSearchDialog,
+        ask_nara_parameters,
+        load_nara_gwizard,
+        run_gwizard_nara_flow,
+    )
+
+_IMPORTED_NAMES = (
+    "ATTACH_HIDDEN_SECTIONS",
+    "SEARCH_TERM_DEFAULTS",
+    "_extract_person_search_defaults",
+    "build_nara_query",
+    "format_size",
+    "NaraSearchDialog",
+    "ask_nara_parameters",
+    "load_nara_gwizard",
+    "run_gwizard_nara_flow",
 )
 
 
