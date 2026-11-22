@@ -78,6 +78,62 @@ User-visible features
   fixed in Media Fix first. This replaces the earlier media lock, which
   could never be set, and locking has been removed from both tools.
 
+* **GWizard File Merge tool.** Compare another genealogy file (GEDCOM,
+  Gramps XML or any other supported import format) side by side with the
+  open Family Tree and merge it person by person. Likely matches are
+  suggested, and each differing field can be taken or left with its own
+  arrow button. Names, nickname and call name, events, families, children,
+  alternate names, attributes, addresses, notes, web links, media and
+  sources can all be compared. **Add as New** copies an unmatched person in
+  and links them to relatives already in the tree. Before anything is
+  written, notes, media, citations, sources and repositories the merge
+  would leave dangling are offered for import, and the whole merge is
+  applied as one transaction. A **GWizard File Merge (Alt)** variant puts
+  the match settings at the top and lists only the most similar people in
+  the tree, closest first. See `featuredocs/README_gwizard_filemerge.md`.
+
+* **GWizard WikiTree Merge tool.** Search WikiTree for a person's profile
+  and ancestors and merge the results into the Family Tree through the
+  File Merge compare and merge windows. Merged data is given a shared
+  WikiTree source and a dated citation, and the person keeps their
+  WikiTree ID and profile link. It installs as an addon that depends on
+  GWizard File Merge.
+
+* **GWizard NARA Merge tool.** Search the U.S. National Archives (NARA)
+  Catalog for records about a person, by name, married name, birth and
+  death year and city, keywords or NAID, filtered by material type and
+  online availability. Each result has a match score against the target
+  person. **Merge...** opens the record in the File Merge window, next to
+  what the person already has, to choose which citation and images to
+  copy. Chosen images can be downloaded into a `NARA/<NAID>/` folder under
+  the base media folder, and NARA's machine-read page text is kept as a
+  Transcript note on each image. Needs a NARA API key in the
+  `NARA_API_KEY` environment variable.
+
+* **Multi-Archive Record Scan.** Checks every person in the Family Tree
+  against each installed GWizard record source (WikiTree, NARA, ...),
+  shows a progress meter, and counts likely matches at three match levels
+  (given/middle/surname/birth, given/surname/birth, and given/surname
+  above a score threshold). A merge window can be opened straight from a
+  match. Record sources register themselves, so new archives can be added
+  without changing the scan.
+
+* **Extra columns in the main views.** New columns, which can be turned on
+  in Configure View:
+  * People: Confidence, Citation Count and Media Count.
+  * Families: Number of Children, Event Count, Citation Count, Media Count
+    and Confidence.
+  * Events: Confidence, Citation Count and Media Count.
+  * Sources: Repository.
+  * Citations (list and tree): Media Count.
+
+  Citation counts and Confidence include citations on names and events.
+  Confidence is the highest level found among them. A new column starts
+  hidden, next to the column that precedes it, even when a view's column
+  layout was saved before the column existed. The column tab of Configure
+  View also has a **Reset to Defaults** button, which restores the default
+  columns, order and widths.
+
 * **Platform button order in dialogs.** Glade and managed-window dialogs
   follow the GTK `gtk-alternative-button-order` setting, so buttons such as
   OK and Cancel appear in the order the platform expects. Assistants place
