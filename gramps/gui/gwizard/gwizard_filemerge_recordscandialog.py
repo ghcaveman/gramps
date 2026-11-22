@@ -48,6 +48,7 @@ from typing import Any, Callable
 from gi.repository import Gdk
 from gi.repository import GLib
 from gi.repository import Gtk
+from gi.repository import Pango
 
 # -------------------------------------------------------------------------
 #
@@ -98,6 +99,16 @@ STRONG_SCORE = 95.0
 STRONG_COLOR = "#a5d6a7"
 MATCH_COLOR = "#dcedc8"
 CELL_TEXT_COLOR = "#000000"
+
+# Fixed column widths, so columns keep their width when results arrive and
+# the window can open just wide enough for the columns it has.
+NAME_WIDTH = 130
+YEAR_WIDTH = 60
+ID_WIDTH = 80
+LINKED_WIDTH = 110
+TIER_WIDTH = 90
+# Most of the screen width the window opens at.
+MAX_SCREEN_FRACTION = 0.9
 
 # Scope choices besides the custom person filters.
 SCOPE_ALL = "all"
@@ -215,7 +226,8 @@ class RecordScanDialog(Gtk.Dialog):
             modal=True,
             destroy_with_parent=True,
         )
-        self.set_default_size(1100, 680)
+        # Height only: the width follows the columns (see _build_tree).
+        self.set_default_size(-1, 680)
         self.set_resizable(True)
         self.dbstate = dbstate
         self.uistate = uistate
@@ -371,19 +383,18 @@ class RecordScanDialog(Gtk.Dialog):
         self.tree_view.connect("button-press-event", self.cb_button_press)
         self.tree_view.get_selection().connect("changed", self.cb_selection_changed)
 
-        for title, column, sort_column in (
-            (_("Surname"), COL_SURNAME, COL_SURNAME),
-            (_("Given"), COL_GIVEN, COL_GIVEN),
-            (_("Birth"), COL_BIRTH, COL_BIRTH_SORT),
-            (_("Death"), COL_DEATH, COL_DEATH),
-            (_("ID"), COL_ID, COL_ID),
+        for title, column, sort_column, width in (
+            (_("Surname"), COL_SURNAME, COL_SURNAME, NAME_WIDTH),
+            (_("Given"), COL_GIVEN, COL_GIVEN, NAME_WIDTH),
+            (_("Birth"), COL_BIRTH, COL_BIRTH_SORT, YEAR_WIDTH),
+            (_("Death"), COL_DEATH, COL_DEATH, YEAR_WIDTH),
+            (_("ID"), COL_ID, COL_ID, ID_WIDTH),
         ):
             renderer = Gtk.CellRendererText()
+            renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
             view_column = Gtk.TreeViewColumn(title, renderer, text=column)
             view_column.set_sort_column_id(sort_column)
-            view_column.set_resizable(True)
-            if column in (COL_SURNAME, COL_GIVEN):
-                view_column.set_min_width(120)
+            self._fix_width(view_column, width)
             self.tree_view.append_column(view_column)
 
         for group in self.columns:
@@ -392,7 +403,7 @@ class RecordScanDialog(Gtk.Dialog):
                 view_column = Gtk.TreeViewColumn("", renderer, text=group.linked)
                 view_column.set_widget(self._header(group.source.title, _("Linked")))
                 view_column.set_sort_column_id(group.linked)
-                view_column.set_resizable(True)
+                self._fix_width(view_column, LINKED_WIDTH)
                 self.tree_view.append_column(view_column)
                 self.column_map[view_column] = (group.source, None)
             for tier in RECORD_TIERS:
@@ -404,15 +415,43 @@ class RecordScanDialog(Gtk.Dialog):
                 view_column.set_widget(self._header(group.source.title, tier))
                 view_column.set_sort_column_id(sort_col)
                 view_column.set_alignment(0.5)
+                self._fix_width(view_column, TIER_WIDTH)
                 self.tree_view.append_column(view_column)
                 self.column_map[view_column] = (group.source, tier)
+
+        # An empty last column takes any extra width when the window is made
+        # wider, so the score columns keep their size.
+        filler = Gtk.TreeViewColumn("", Gtk.CellRendererText())
+        filler.set_expand(True)
+        self.tree_view.append_column(filler)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
         scrolled.set_min_content_height(320)
+        # Open as wide as the columns need, up to most of the screen; wider
+        # than that, the list scrolls sideways.
+        scrolled.set_propagate_natural_width(True)
+        scrolled.set_max_content_width(self._max_content_width())
         scrolled.add(self.tree_view)
         return scrolled
+
+    @staticmethod
+    def _fix_width(view_column: Gtk.TreeViewColumn, width: int) -> None:
+        """Give a column a fixed (still user-resizable) width."""
+        view_column.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
+        view_column.set_fixed_width(width)
+        view_column.set_resizable(True)
+
+    def _max_content_width(self) -> int:
+        """Return the widest the list may open at, from the screen size."""
+        try:
+            display = Gdk.Display.get_default()
+            monitor = display.get_primary_monitor() or display.get_monitor(0)
+            width = monitor.get_workarea().width
+        except Exception:
+            width = 1280
+        return max(600, int(width * MAX_SCREEN_FRACTION) - 40)
 
     @staticmethod
     def _header(source_title: str, sub_title: str) -> Gtk.Widget:
