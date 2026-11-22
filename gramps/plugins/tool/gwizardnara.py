@@ -89,7 +89,10 @@ class GWizardNaraMerge(tool.Tool):
         if _addon_dir not in _sys.path:
             _sys.path.insert(0, _addon_dir)
         try:
-            from gwizardnaralauncher import run_gwizard_nara_flow
+            # Found on sys.path only when installed as an addon.
+            from gwizardnaralauncher import (  # type: ignore[import-not-found]
+                run_gwizard_nara_flow,
+            )
         except ImportError:
             from gramps.gui.gwizard.gwizardnaralauncher import (
                 run_gwizard_nara_flow,

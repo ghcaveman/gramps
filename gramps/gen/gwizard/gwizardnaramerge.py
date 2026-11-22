@@ -204,7 +204,7 @@ class NaraCatalogInterface:
         if api_status is not None:
             try:
                 api_status = int(api_status)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 LOG.error("NARA returned an invalid API status during key validation")
                 return _(
                     "NARA returned an invalid response while validating the API key."
@@ -520,7 +520,7 @@ class NaraCatalogInterface:
             if url:
                 try:
                     size = int(digital_object.get("objectFileSize") or 0)
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     size = 0
                 parsed_media.append(
                     {

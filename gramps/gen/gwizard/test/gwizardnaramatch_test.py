@@ -196,6 +196,7 @@ class TestScoring(unittest.TestCase):
             "Widow of John A Smith, Company B"
         }
         result = best_match(query, record)
+        assert result.candidate is not None
         self.assertEqual(result.candidate.display(), "Smith, John A")
         self.assertEqual(match_text(result), "100% (name only)")
         none = best_match(query, {"title": "Tennessee SP DeVault Tavern"})

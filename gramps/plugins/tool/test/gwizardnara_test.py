@@ -35,8 +35,8 @@ import unittest
 # -------------------------------------------------------------------------
 try:
     from gramps.plugins.tool.gwizardnara import (
-        GWizardNaraMergeToolOptions,
-        GWizardNaraMergeTool,
+        GWizardNaraMergeOptions,
+        GWizardNaraMerge,
     )
 
     _HAS_GTK = True
@@ -54,17 +54,17 @@ class GWizardNaraToolTest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_GTK, "GTK (gi) is required for tool classes")
     def test_tool_options_init(self) -> None:
-        """Verify initialization of GWizardNaraMergeToolOptions."""
-        options = GWizardNaraMergeToolOptions("GWizard NARA Merge")
+        """Verify initialization of GWizardNaraMergeOptions."""
+        options = GWizardNaraMergeOptions("GWizard NARA Merge")
         self.assertEqual(options.name, "GWizard NARA Merge")
         self.assertIsInstance(options.options_dict, dict)
         self.assertIsInstance(options.options_help, dict)
 
     @unittest.skipUnless(_HAS_GTK, "GTK (gi) is required for tool classes")
     def test_tool_class_attributes(self) -> None:
-        """Verify GWizardNaraMergeTool class attributes and docstring."""
-        self.assertTrue(issubclass(GWizardNaraMergeTool, object))
-        self.assertIn("GWizard NARA Merge", GWizardNaraMergeTool.__doc__ or "")
+        """Verify GWizardNaraMerge class attributes and docstring."""
+        self.assertTrue(issubclass(GWizardNaraMerge, object))
+        self.assertIn("GWizard NARA Merge", GWizardNaraMerge.__doc__ or "")
 
     def test_tools_gpr_registration(self) -> None:
         """Verify gwizardnara tool registration entry in tools.gpr.py."""

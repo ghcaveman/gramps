@@ -90,15 +90,15 @@ class DummyDialog:
 _gi = sys.modules.get("gi") or MagicMock()
 sys.modules["gi"] = _gi
 
-_gi_repo = sys.modules.get("gi.repository") or MagicMock()
+_gi_repo: Any = sys.modules.get("gi.repository") or MagicMock()
 sys.modules["gi.repository"] = _gi_repo
 
-_glib = sys.modules.get("gi.repository.GLib") or MagicMock()
+_glib: Any = sys.modules.get("gi.repository.GLib") or MagicMock()
 _glib.markup_escape_text = lambda s: str(s)
 sys.modules["gi.repository.GLib"] = _glib
 _gi_repo.GLib = _glib
 
-_gtk = sys.modules.get("gi.repository.Gtk") or MagicMock()
+_gtk: Any = sys.modules.get("gi.repository.Gtk") or MagicMock()
 _gtk.Dialog = DummyDialog
 _gtk.Entry.side_effect = lambda *a, **k: MagicMock()
 _gtk.Label.side_effect = lambda *a, **k: MagicMock()
@@ -127,11 +127,11 @@ _gtk.events_pending.return_value = False
 sys.modules["gi.repository.Gtk"] = _gtk
 _gi_repo.Gtk = _gtk
 
-_gdk = sys.modules.get("gi.repository.Gdk") or MagicMock()
+_gdk: Any = sys.modules.get("gi.repository.Gdk") or MagicMock()
 sys.modules["gi.repository.Gdk"] = _gdk
 _gi_repo.Gdk = _gdk
 
-_pango = sys.modules.get("gi.repository.Pango") or MagicMock()
+_pango: Any = sys.modules.get("gi.repository.Pango") or MagicMock()
 sys.modules["gi.repository.Pango"] = _pango
 _gi_repo.Pango = _pango
 
@@ -817,8 +817,9 @@ class TestNaraLauncher(unittest.TestCase):
                 target = self.db.add_person(person, trans)
         dbstate = Mock()
         dbstate.db = self.db
-        dialog = NaraSearchDialog(dbstate=dbstate, client=Mock())
-        dialog.client.fetch_record_text.return_value = {}
+        client = Mock()
+        client.fetch_record_text.return_value = {}
+        dialog = NaraSearchDialog(dbstate=dbstate, client=client)
         dialog.target_handle = target
         hit = NaraCatalogInterface.extract_hits(_load_sample_response())[0]
         model = Mock()
