@@ -573,27 +573,35 @@ class NaraSearchDialog(Gtk.Dialog):
     def _build_tree_columns(self) -> None:
         """
         Create and append column headers for the search results treeview.
+
+        Columns have fixed starting widths (Title and Creator share what is
+        left), so the headers do not jump when results arrive; text that
+        does not fit is ellipsized, and every column can still be resized.
         """
+        # (title, model column, starting width; 0 = expand to fill)
         cols = [
-            (_("NAID"), 0, False),
-            (_("Title"), 1, True),
-            (_("Match"), 9, False),
-            (_("Person"), 2, False),
-            (_("Creator"), 3, True),
-            (_("Date"), 4, False),
-            (_("Material Type"), 5, False),
-            (_("Digital Media"), 6, False),
+            (_("NAID"), 0, 90),
+            (_("Title"), 1, 0),
+            (_("Match"), 9, 120),
+            (_("Person"), 2, 150),
+            (_("Creator"), 3, 0),
+            (_("Date"), 4, 190),
+            (_("Material Type"), 5, 120),
+            (_("Digital Media"), 6, 110),
         ]
-        for title, col_id, is_expand in cols:
+        for title, col_id, width in cols:
             renderer = Gtk.CellRendererText()
-            if is_expand:
-                renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
+            renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
             col = Gtk.TreeViewColumn(title, renderer, text=col_id)
             # The Match column sorts by its numeric score.
             col.set_sort_column_id(10 if col_id == 9 else col_id)
             col.set_resizable(True)
-            if is_expand:
+            col.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
+            if width:
+                col.set_fixed_width(width)
+            else:
                 col.set_expand(True)
+                col.set_min_width(150)
             self.tree_view.append_column(col)
 
     def _prefill_entries(self, default_query: str = "") -> None:
