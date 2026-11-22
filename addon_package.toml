@@ -39,7 +39,7 @@ keep_unrewritten = [
 # GWizard addons register as GENERAL plugins in category GWizardRecordSource.
 [[extra_registrations]]
 id = "gwizardrecordscan"
-name = "GWizard Multi-Archive Record Scan"
+name = "Multi-Archive Record Scan"
 description = "Check every person in the Family Tree against the installed GWizard record sources (WikiTree, NARA, ...), count the likely matches at three match levels, and open a merge window for a match."
 fname = "gwizard_filemerge_scan.py"
 toolclass = "GWizardRecordScan"
