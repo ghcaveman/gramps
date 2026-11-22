@@ -383,6 +383,7 @@ gramps/gen/gwizard/gwizardgedcom.py
 gramps/gen/gwizard/gwizardwikitree.py
 gramps/gen/gwizard/gwizard_filemerge_media.py
 gramps/gen/gwizard/gwizardnaramerge.py
+gramps/gen/gwizard/gwizardnarapages.py
 gramps/gen/lib/address.py
 gramps/gen/lib/attribute.py
 gramps/gen/lib/attrtype.py
