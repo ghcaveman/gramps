@@ -633,9 +633,7 @@ class NameMismatchFixTest(_DbTestCase):
         dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
         targets = self.name_targets(dlg)
         self.assertEqual(len(targets), 1)
-        self.assertEqual(
-            targets[0]["group"]["new_desc"], "Smith, Anna - 1900Census"
-        )
+        self.assertEqual(targets[0]["group"]["new_desc"], "Smith, Anna - 1900Census")
         self.assertEqual(targets[0]["suggested_action"], 0)
 
         with patch(_DLG):
@@ -798,7 +796,9 @@ class AutoChecksumTest(_DbTestCase):
         # Move only the far record, so the others get their checksum from the
         # automatic pass, not from being moved.
         for row, target in zip(dlg.rows, dlg.row_targets):
-            if h_far in (target["entry"].get("handles") or [target["entry"].get("handle")]):
+            if h_far in (
+                target["entry"].get("handles") or [target["entry"].get("handle")]
+            ):
                 target["path_entry"].set_text(row["suggested_path"])
         with patch(_MF_DLG) as ok_dialog:
             dlg.cb_apply(MagicMock())
@@ -809,9 +809,7 @@ class AutoChecksumTest(_DbTestCase):
         found = self.touch("MediaBase", "scans", "lost.jpg")
         h_lost = self.add_media("old/lost.jpg", "Lost")
         dlg = mf.FindMissingMediaDialog(dbstate=self.dbstate)
-        target = next(
-            t for t in dlg.row_targets if t["entry"].get("handle") == h_lost
-        )
+        target = next(t for t in dlg.row_targets if t["entry"].get("handle") == h_lost)
         target["path_entry"].set_text(found)
         with patch(_MF_DLG) as ok_dialog:
             dlg.cb_apply(MagicMock())

@@ -786,9 +786,9 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                 "name": group["linked"],
             }
         elif group.get("type") == "import_notes":
-            caption = str(_("[%s] has leftover import notes.")) % group["keeper"][
-                "gramps_id"
-            ]
+            caption = (
+                str(_("[%s] has leftover import notes.")) % group["keeper"]["gramps_id"]
+            )
         elif group.get("type") == "unreferenced":
             caption = str(_("[%s] has no references.")) % group["keeper"]["gramps_id"]
         else:
@@ -867,9 +867,10 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                 db = self.dbstate.db
                 media = db.get_media_from_handle(group["keeper"]["handle"])
                 # Skip a record merged away above or edited since the scan.
-                if not media or str(media.get_description() or "") != group[
-                    "keeper"
-                ]["desc"]:
+                if (
+                    not media
+                    or str(media.get_description() or "") != group["keeper"]["desc"]
+                ):
                     continue
                 try:
                     with DbTxn(_("Correct Media Description"), db) as trans:
@@ -893,9 +894,7 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                     )
                 try:
                     # Media deleted or merged away above are skipped inside.
-                    notes_count += remove_import_notes(
-                        self.dbstate.db, group["items"]
-                    )
+                    notes_count += remove_import_notes(self.dbstate.db, group["items"])
                 except Exception as err:
                     LOG.exception("Failed to remove import notes: %s", err)
                     errors.append("[%s] %s" % (group["keeper"]["gramps_id"], err))
@@ -1022,7 +1021,11 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                         )
 
         if not (
-            merged_count or copied_count or deleted_count or renamed_count or notes_count
+            merged_count
+            or copied_count
+            or deleted_count
+            or renamed_count
+            or notes_count
         ):
             if errors:
                 # Every selected action failed: say why,

@@ -939,11 +939,14 @@ def checksums_added_note(added: int) -> str:
     """
     if not added:
         return ""
-    return ngettext(
-        "Stored a checksum for %d media record that had none.",
-        "Stored checksums for %d media records that had none.",
-        added,
-    ) % added
+    return (
+        ngettext(
+            "Stored a checksum for %d media record that had none.",
+            "Stored checksums for %d media records that had none.",
+            added,
+        )
+        % added
+    )
 
 
 def update_changed_checksums(
@@ -4168,7 +4171,6 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                     add_media_fixed_tag(db, media, txn=trans)
                     db.commit_media(media, trans)
                     applied += 1
-
 
         if applied == 0 and not failures:
             OkDialog(
