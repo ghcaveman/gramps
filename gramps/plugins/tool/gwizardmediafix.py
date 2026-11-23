@@ -1066,24 +1066,55 @@ def _persons_of(db: DbReadBase, cname: str, handle: str, _depth: int = 0) -> lis
     return found
 
 
-def _person_matches(person: Any, surname: str, given: str) -> bool:
+def _person_names(person: Any) -> list[Any]:
     """
-    Return True if a person's primary name matches a surname and given name.
+    Return a person's primary name followed by their alternate names.
+
+    An alternate name is how a record such as a census spelled the person
+    ("Duvault" for "Devault"), so it counts as a match too.
+
+    :param person: The person.
+    :returns: Name objects, primary first (empty names left out).
+    """
+    names = [person.get_primary_name()]
+    try:
+        names.extend(person.get_alternate_names() or [])
+    except Exception:
+        pass
+    return [n for n in names if n]
+
+
+def _name_matches(name: Any, surname: str, given: str) -> bool:
+    """
+    Return True if one name object matches a surname and given name.
 
     Given names match when one starts with the other ("Harry" / "Harry Jay").
+
+    :param name: A Gramps Name.
+    :param surname: Surname to match.
+    :param given: Given name to match (may be empty).
+    :returns: Whether the names match.
+    """
+    if _norm_name(name.get_surname()) != _norm_name(surname):
+        return False
+    pg, dg = _norm_name(name.get_first_name()), _norm_name(given)
+    return not dg or pg.startswith(dg) or dg.startswith(pg)
+
+
+def _person_matches(person: Any, surname: str, given: str) -> bool:
+    """
+    Return True if any of a person's names matches a surname and given name.
+
+    The primary name and every alternate name are checked.
 
     :param person: The person.
     :param surname: Surname to match.
     :param given: Given name to match (may be empty).
     :returns: Whether the names match.
     """
-    name = person.get_primary_name()
-    if not name or not surname:
+    if not surname:
         return False
-    if _norm_name(name.get_surname()) != _norm_name(surname):
-        return False
-    pg, dg = _norm_name(name.get_first_name()), _norm_name(given)
-    return not dg or pg.startswith(dg) or dg.startswith(pg)
+    return any(_name_matches(n, surname, given) for n in _person_names(person))
 
 
 def _gid_of(obj: Any) -> str:
@@ -1111,16 +1142,18 @@ def _name_score(person: Any, surname: str, given: str) -> float:
     """
     if _person_matches(person, surname, given):
         return 2.0
-    pname = person.get_primary_name()
-    if not pname or not surname:
+    if not surname:
         return 0.0
-    ratio = difflib.SequenceMatcher(
-        None, _norm_name(surname), _norm_name(pname.get_surname())
-    ).ratio()
-    if ratio < 0.75:
-        return 0.0
-    pg, dg = _norm_name(pname.get_first_name()), _norm_name(given)
-    return ratio if (not dg or pg.startswith(dg) or dg.startswith(pg)) else 0.0
+    best = 0.0
+    dg = _norm_name(given)
+    for pname in _person_names(person):
+        ratio = difflib.SequenceMatcher(
+            None, _norm_name(surname), _norm_name(pname.get_surname())
+        ).ratio()
+        pg = _norm_name(pname.get_first_name())
+        if ratio >= 0.75 and (not dg or pg.startswith(dg) or dg.startswith(pg)):
+            best = max(best, ratio)
+    return best
 
 
 def _best_person(db: DbReadBase, handles: list[PersonHandle], text: str) -> Any:
@@ -1193,15 +1226,46 @@ def _order_backlinks(
     return ordered
 
 
-def find_name_mismatches(
-    db: DbReadBase,
-) -> list[tuple[str, str, str, str, str]]:
+def replace_name_in_text(text: str, surname: str, given: str) -> str:
+    """
+    Replace the leading "Surname, Given" of a description with another name.
+
+    The rest of the text, including its separator ("Duvault, Nettie -
+    1900Census" or "Duvault, Nettie_1900Census"), is kept as it is.
+
+    :param text: The description.
+    :param surname: The new surname.
+    :param given: The new given name.
+    :returns: The new description (unchanged when it names nobody).
+    """
+    m = re.match(
+        r"^\s*((?:[^\W\d_]|[\s'\-])+?)\s*,\s*((?:[^\W\d_]|[\s'\-])+?)\s*[-_:]+\s*(.+)$",
+        text or "",
+    )
+    if not m:
+        return text
+    return (
+        text[: m.start(1)]
+        + surname
+        + text[m.end(1) : m.start(2)]
+        + given
+        + text[m.end(2) :]
+    )
+
+
+def find_name_mismatch_records(db: DbReadBase) -> list[dict[str, Any]]:
     """Media whose description names someone ("Surname, Given - ...") who is not
     among the people it is attached to, e.g. 'Duvault' vs 'Devault'.
 
-    Returns (media_id, description, name_in_description, linked_name, kind).
+    A person's alternate names count: if "Duvault, Nettie" is an alternate name
+    of Nettie Devault, the record is not a mismatch.
+
+    Each result holds ``handle``, ``gramps_id``, ``desc``, ``in_desc`` (the name
+    in the description), ``linked`` (the closest linked person's primary name),
+    ``kind`` ("probable spelling variant" or "different person") and
+    ``new_desc`` (the description with that primary name put in).
     """
-    out: list[tuple[str, str, str, str, str]] = []
+    out: list[dict[str, Any]] = []
     for media in db.iter_media():
         desc = str(media.get_description() or "")
         sur, giv, _rest = parse_name_from_text(desc)
@@ -1216,26 +1280,47 @@ def find_name_mismatches(
             people.extend(_persons_of(db, cname, handle))
         if not people or any(_person_matches(p, sur, giv) for p in people):
             continue
-        best_name, best_ratio = "", 0.0
+        best_person, best_ratio = people[0], 0.0
         for p in people:
-            pn = p.get_primary_name()
-            ratio = difflib.SequenceMatcher(
-                None, _norm_name(sur), _norm_name(pn.get_surname())
-            ).ratio()
-            if ratio >= best_ratio:
-                best_ratio = ratio
-                best_name = "%s, %s" % (pn.get_surname(), pn.get_first_name())
-        kind = "probable spelling variant" if best_ratio >= 0.75 else "different person"
+            for name in _person_names(p):
+                ratio = difflib.SequenceMatcher(
+                    None, _norm_name(sur), _norm_name(name.get_surname())
+                ).ratio()
+                if ratio >= best_ratio:
+                    best_ratio = ratio
+                    best_person = p
+        pn = best_person.get_primary_name()
         out.append(
-            (
-                str(media.get_gramps_id() or ""),
-                desc,
-                "%s, %s" % (sur, giv),
-                best_name,
-                kind,
-            )
+            {
+                "handle": media.get_handle(),
+                "gramps_id": str(media.get_gramps_id() or ""),
+                "desc": desc,
+                "in_desc": "%s, %s" % (sur, giv),
+                "linked": "%s, %s" % (pn.get_surname(), pn.get_first_name()),
+                "kind": (
+                    "probable spelling variant"
+                    if best_ratio >= 0.75
+                    else "different person"
+                ),
+                "new_desc": replace_name_in_text(
+                    desc, pn.get_surname(), pn.get_first_name()
+                ),
+            }
         )
     return out
+
+
+def find_name_mismatches(
+    db: DbReadBase,
+) -> list[tuple[str, str, str, str, str]]:
+    """Name mismatches for the report (see :func:`find_name_mismatch_records`).
+
+    Returns (media_id, description, name_in_description, linked_name, kind).
+    """
+    return [
+        (r["gramps_id"], r["desc"], r["in_desc"], r["linked"], r["kind"])
+        for r in find_name_mismatch_records(db)
+    ]
 
 
 def find_duplicate_media_references(
@@ -3209,7 +3294,11 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
         return filled
 
     def cb_set_mediapath(self, *_args: Any) -> None:
-        """Track the base path to use for copies and save it when changes are applied."""
+        """Track a typed base path; it is saved when changes are applied.
+
+        A folder chosen with the folder button is saved at once instead (see
+        :meth:`save_mediapath`).
+        """
         text = clean_path(self.path_entry.get_text())
         self._mediapath_text = text
         # Saved as None when emptied; resolved exactly as Gramps will.
@@ -3242,11 +3331,38 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
                 else os.path.dirname(current_path)
             )
         status = chooser.run()
-        if status == Gtk.ResponseType.OK:
-            selected_path = chooser.get_filename()
-            if selected_path:
-                self.path_entry.set_text(selected_path)
+        selected_path = chooser.get_filename() if status == Gtk.ResponseType.OK else ""
         chooser.destroy()
+        if selected_path:
+            self.path_entry.set_text(selected_path)
+            # The "changed" signal normally does this; call it so the label
+            # and base folder are current before saving.
+            self.cb_set_mediapath()
+            self.save_mediapath()
+
+    def save_mediapath(self) -> int:
+        """
+        Save the base media path now, without waiting for Apply.
+
+        Records outside this dialog are kept pointing at their files, exactly
+        as Apply does.  Nothing happens when the path did not change.
+
+        :returns: Number of other records repointed.
+        """
+        if not self.dbstate or not self.dbstate.db:
+            return 0
+        if self._mediapath_text == self._orig_mediapath:
+            return 0
+        db = self.dbstate.db
+        snapshot = snapshot_resolved_paths(db)
+        with DbTxn(_("Set Base Media Path"), db) as trans:
+            db.set_mediapath(self._mediapath_text or None)
+            self._orig_mediapath = self._mediapath_text
+            rebased = keep_records_pointing_at_files(db, snapshot, trans, set())
+        extra = base_change_summary(rebased)
+        if extra:
+            OkDialog(str(_("Base media path saved")), extra, parent=self)
+        return rebased
 
     def cb_look_in_folder(self, _button: Gtk.Button) -> None:
         """
@@ -3485,45 +3601,6 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         info.set_halign(Gtk.Align.START)
         content.add(info)
 
-        # Media Base Path selector widget matching Preferences Family Tree tab
-        path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        path_label = HeaderLabel(str(_("Base media path:")))
-        path_box.pack_start(path_label, False, False, 0)
-
-        self.path_entry = Gtk.Entry()
-        curr_mpath = (
-            self.dbstate.db.get_mediapath()
-            if self.dbstate
-            and self.dbstate.db
-            and hasattr(self.dbstate.db, "get_mediapath")
-            else ""
-        )
-        self._orig_mediapath = (curr_mpath or "").strip()
-        self._mediapath_text = self._orig_mediapath
-        if curr_mpath:
-            self.path_entry.set_text(curr_mpath)
-        self.path_entry.connect("changed", self.cb_set_mediapath)
-        self.path_entry.set_hexpand(True)
-        path_box.pack_start(self.path_entry, True, True, 0)
-
-        path_btn = Gtk.Button()
-        path_btn.connect("clicked", self.cb_select_mediapath)
-        image = Gtk.Image()
-        image.set_from_icon_name("document-open", Gtk.IconSize.BUTTON)
-        image.show()
-        path_btn.add(image)
-        self.path_button = path_btn
-        path_box.pack_start(path_btn, False, False, 0)
-
-        content.add(path_box)
-
-        self.base_path_label = SelectableLabel(
-            label="<b>%s</b> %s"
-            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir)),
-            markup=True,
-        )
-        content.add(self.base_path_label)
-
         # Naming Template selection row
         tmpl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         tmpl_label = HeaderLabel(str(_("Naming Template:")))
@@ -3748,59 +3825,6 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         scrolled.add(grid)
         return scrolled
 
-    def cb_set_mediapath(self, *obj: Any) -> None:
-        """Track the base path typed by the user.
-
-        The database is NOT modified here (it used to be, on every keystroke and
-        with no undo); a changed base path is committed when Apply is pressed.
-        """
-        if not self.dbstate or not self.dbstate.db:
-            return
-        text = clean_path(self.path_entry.get_text())
-        self._mediapath_text = text
-        # Saved as None when emptied; resolved exactly as Gramps will.
-        self.base_dir = expand_base_path(text or None, self.dbstate.db)
-        if hasattr(self, "base_path_label"):
-            self.base_path_label.set_markup(
-                "<b>%s</b> %s"
-                % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir))
-            )
-        self._recompute_hints()
-
-    def cb_select_mediapath(self, *obj: Any) -> None:
-        """Show dialog to choose media directory, matching Preferences Family Tree tab."""
-        f = Gtk.FileChooserDialog(
-            title=str(_("Select media directory")),
-            transient_for=self,
-            action=Gtk.FileChooserAction.SELECT_FOLDER,
-            buttons=(
-                str(_("_Cancel")),
-                Gtk.ResponseType.CANCEL,
-                str(_("_Apply")),
-                Gtk.ResponseType.OK,
-            ),
-        )
-        if hasattr(f, "set_default_size"):
-            f.set_default_size(600, 400)
-        mpath = media_path(self.dbstate.db) if self.dbstate and self.dbstate.db else ""
-        if mpath and os.path.exists(mpath):
-            f.set_current_folder(
-                mpath if os.path.isdir(mpath) else os.path.dirname(mpath)
-            )
-        elif self.base_dir and os.path.exists(self.base_dir):
-            f.set_current_folder(
-                self.base_dir
-                if os.path.isdir(self.base_dir)
-                else os.path.dirname(self.base_dir)
-            )
-
-        status = f.run()
-        if status == Gtk.ResponseType.OK:
-            val = f.get_filename()
-            if val:
-                self.path_entry.set_text(val)
-        f.destroy()
-
     def _needs_consolidation(self, raw_path: str, hint_val: str) -> bool:
         """
         Return True when a record is not yet at its consolidated location.
@@ -3962,8 +3986,8 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         Move (or copy) each row's file once and repoint all of its records.
 
         Rows are grouped by source file, so a shared file is handled once for
-        every record that uses it.  If the base media path was changed, other
-        relative records are kept pointing at their files.
+        every record that uses it.  The base media path is set in Step 2
+        (Fix missing media) or in Gramps Preferences, not here.
         """
         # Safety net: rows are grouped by source file, so two rows can only
         # share one if row_targets was built by hand.
@@ -3995,19 +4019,9 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         files_copied = 0
         failures: list[str] = []
         claimed: set[str] = set()
-        repointed: set[MediaHandle] = set()
         is_copy = hasattr(self, "radio_copy") and bool(self.radio_copy.get_active())
         base = self.base_dir
 
-        # Commit a changed base path now (once), not on every keystroke, but
-        # first note where every relative record's file really is.
-        base_changed = self._mediapath_text != self._orig_mediapath
-        snapshot = snapshot_resolved_paths(db) if base_changed else {}
-        if base_changed:
-            db.set_mediapath(self._mediapath_text or None)
-            self._orig_mediapath = self._mediapath_text
-
-        rebased = 0
         move_log = MoveLog(base, "Consolidate")
         with DbTxn(_("Consolidate Media Locations"), db) as trans:
             for target in self.row_targets:
@@ -4075,20 +4089,10 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                     refresh_checksum(media, dest_full, only_if_missing=True)
                     add_media_fixed_tag(db, media, txn=trans)
                     db.commit_media(media, trans)
-                    repointed.add(media.get_handle())
                     applied += 1
 
-            if snapshot:
-                rebased = keep_records_pointing_at_files(db, snapshot, trans, repointed)
 
-        if applied == 0 and not failures and not rebased:
-            if base_changed:
-                OkDialog(
-                    str(_("Base media path saved")),
-                    str(_("The base media path was saved. No records needed changes.")),
-                    parent=self,
-                )
-                return
+        if applied == 0 and not failures:
             OkDialog(
                 str(_("Nothing to apply")),
                 str(_("No paths entered. Press 'Accept hints' or enter paths first.")),
@@ -4101,9 +4105,6 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             summary += " " + str(_("Copied %d files to new locations.") % files_copied)
         elif not is_copy and files_moved > 0:
             summary += " " + str(_("Moved %d files to new locations.") % files_moved)
-        extra = base_change_summary(rebased)
-        if extra:
-            summary += "\n\n" + extra
         summary += move_log_summary(move_log)
 
         if failures:
@@ -4574,6 +4575,16 @@ def generate_media_fix_report(
         heading(
             _("NAME MISMATCHES - description vs linked person (%d items):")
             % len(name_mismatches)
+        )
+        lines.append(
+            "  "
+            + str(
+                _(
+                    "'Fix media references' corrects probable spelling variants. "
+                    "To keep a record's spelling instead, add it to the person as "
+                    "an alternate name."
+                )
+            )
         )
         for gid, desc, in_desc, linked, kind in name_mismatches:
             lines.append(f"  [{gid}] {desc}")

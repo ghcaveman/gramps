@@ -90,10 +90,13 @@ class _Name:
 
 
 class _Person:
-    def __init__(self, h: str, gid: str, sur: str, giv: str) -> None:
+    def __init__(
+        self, h: str, gid: str, sur: str, giv: str, alt: list[Any] | None = None
+    ) -> None:
         self.h = h
         self.gid = gid
         self.n = _Name(sur, giv)
+        self.alt = list(alt or [])
 
     def get_handle(self) -> str:
         return self.h
@@ -103,6 +106,9 @@ class _Person:
 
     def get_primary_name(self) -> _Name:
         return self.n
+
+    def get_alternate_names(self) -> list[_Name]:
+        return self.alt
 
     def get_event_ref_list(self) -> list[Any]:
         return []
@@ -408,6 +414,30 @@ class GWizardMediaFixExTest(unittest.TestCase):
         self.assertEqual(len(mismatches), 1)
         self.assertEqual(mismatches[0][0], "O00003")
         self.assertEqual(mismatches[0][4], "probable spelling variant")
+
+    def test_alternate_name_clears_name_mismatch(self) -> None:
+        """An alternate name with the description's spelling is a match."""
+        m3 = _Media(
+            "m3",
+            "O00003",
+            "Duvault, Nettie - 1900Census",
+            "Duvault, Nettie - 1900Census.jpg",
+        )
+        db: Any = _MockDB(
+            self.temp_dir,
+            [m3],
+            dict(self.base_back),
+            P=self.p_map,
+            E=self.e_map,
+            C=self.c_map,
+        )
+        self.assertEqual(len(m.find_name_mismatches(db)), 1)
+
+        self.p_map["p451"].alt.append(_Name("Duvault", "Nettie"))
+        self.assertEqual(m.find_name_mismatches(db), [])
+        # The matched person is still the one the file is named after.
+        self.assertTrue(m._person_matches(self.p_map["p451"], "Duvault", "Nettie"))
+        self.assertEqual(m._name_score(self.p_map["p451"], "Duvault", "Nettie"), 2.0)
 
     def test_build_accept_all_plan_dry_run(self) -> None:
         """build_accept_all_plan creates a non-mutating preview plan of all automated changes."""
