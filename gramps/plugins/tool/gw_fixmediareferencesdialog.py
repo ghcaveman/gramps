@@ -272,6 +272,63 @@ def find_duplicate_media_groups(
     return groups
 
 
+def find_name_fix_groups(db: DbReadBase | None) -> list[dict[str, Any]]:
+    """Rows for media whose description misspells the linked person's name.
+
+    Only probable spelling variants ("Duvault" for "Devault") are offered: a
+    description naming a different person may mean the media is linked to the
+    wrong person, which needs a human look (it stays in the report).  A name
+    that matches one of the person's alternate names is not a mismatch.
+
+    Kept apart from :func:`find_duplicate_media_groups`, whose groups 'Accept
+    all hints' also uses.
+
+    :param db: The database.
+    :returns: Groups of type ``"name_mismatch"``.
+    """
+    if not db:
+        return []
+    try:
+        from .gwizardmediafix import find_name_mismatch_records
+    except (ImportError, ValueError):
+        from gwizardmediafix import (  # type: ignore[import-not-found,no-redef]
+            find_name_mismatch_records,
+        )
+
+    groups: list[dict[str, Any]] = []
+    for rec in find_name_mismatch_records(db):
+        if rec["kind"] != "probable spelling variant":
+            continue
+        if not rec["new_desc"] or rec["new_desc"] == rec["desc"]:
+            continue
+        try:
+            media = db.get_media_from_handle(rec["handle"])
+        except Exception:
+            media = None
+        raw_path = clean_path(str(media.get_path() or "")) if media else ""
+        record = {
+            "handle": rec["handle"],
+            "gramps_id": rec["gramps_id"],
+            "desc": rec["desc"],
+            "raw_path": raw_path,
+            "full_path": path_key(full_media_path(db, raw_path)) if raw_path else "",
+        }
+        groups.append(
+            {
+                "type": "name_mismatch",
+                "file_key": record["full_path"],
+                "records": [record],
+                "keeper": record,
+                "raw_path": raw_path,
+                "in_desc": rec["in_desc"],
+                "linked": rec["linked"],
+                "new_desc": rec["new_desc"],
+            }
+        )
+    groups.sort(key=lambda g: gramps_id_key(g["keeper"]["gramps_id"]))
+    return groups
+
+
 # ------------------------------------------------------------
 #
 # FixMediaReferencesDialog
@@ -311,6 +368,7 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
 
         if dbstate and dbstate.db:
             self.groups = find_duplicate_media_groups(dbstate.db)
+            self.groups += find_name_fix_groups(dbstate.db)
             self.rows = self.groups
 
         n_hints = len(self.groups)
@@ -334,9 +392,10 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
             label=str(
                 _(
                     "Review duplicate references where a single media file is shared by multiple records, "
-                    "or image tags with no data references in the database. "
+                    "or image tags with no data references in the database, "
+                    "and descriptions that misspell the linked person's name. "
                     "You can merge duplicate media records into a single keeper, create separate file copies, "
-                    "or delete unreferenced records."
+                    "delete unreferenced records, or correct the name in a description."
                 )
             )
         )
@@ -346,7 +405,12 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
 
         if not self.groups:
             done = Gtk.Label(
-                label=str(_("No duplicate or unreferenced media records found."))
+                label=str(
+                    _(
+                        "No duplicate or unreferenced media records, or "
+                        "misspelled names, found."
+                    )
+                )
             )
             done.set_halign(Gtk.Align.START)
             content.add(done)
@@ -354,13 +418,20 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
 
         dup_count = sum(1 for g in self.groups if g.get("type") == "duplicate")
         unref_count = sum(1 for g in self.groups if g.get("type") == "unreferenced")
+        name_count = sum(1 for g in self.groups if g.get("type") == "name_mismatch")
         count_label = Gtk.Label(
             label=str(
                 _(
                     "Total items to fix: %(total)d (duplicate file groups: "
-                    "%(dups)d, unreferenced image tags: %(unref)d)"
+                    "%(dups)d, unreferenced image tags: %(unref)d, "
+                    "misspelled names: %(names)d)"
                 )
-                % {"total": len(self.groups), "dups": dup_count, "unref": unref_count}
+                % {
+                    "total": len(self.groups),
+                    "dups": dup_count,
+                    "unref": unref_count,
+                    "names": name_count,
+                }
             )
         )
         count_label.set_halign(Gtk.Align.START)
@@ -411,7 +482,53 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
             keeper = group["keeper"]
             g_type = group.get("type", "duplicate")
 
-            if g_type == "unreferenced":
+            if g_type == "name_mismatch":
+                # Column 0: File path and the record's description
+                file_label = TableLabel(
+                    "\n".join(
+                        [
+                            group["raw_path"],
+                            f"  • [{keeper['gramps_id']}] {keeper['desc']}",
+                        ]
+                    ),
+                    width_chars=40,
+                    width_request=320,
+                )
+                grid.attach(file_label, 0, row_index, 1, 1)
+
+                # Column 1: The name in the description vs the linked person
+                ref_label = TableLabel(
+                    "\n".join(
+                        [
+                            str(_("Description says: %s")) % group["in_desc"],
+                            str(_("Linked person: %s")) % group["linked"],
+                        ]
+                    ),
+                    width_chars=40,
+                    width_request=300,
+                )
+                grid.attach(ref_label, 1, row_index, 1, 1)
+
+                # Column 2: Action ComboBox
+                action_combo = Gtk.ComboBoxText()
+                action_combo.append_text(str(_("Use the linked person's name")))
+                action_combo.append_text(str(_("Keep description (no change)")))
+                action_combo.set_active(0)
+                action_combo.set_hexpand(True)
+                grid.attach(action_combo, 2, row_index, 1, 1)
+                suggested_action = 0
+
+                # Column 3: Hint label
+                hint_label = TableLabel(
+                    str(_("Probable spelling variant: change description to '%s'"))
+                    % group["new_desc"],
+                    width_chars=36,
+                    width_request=280,
+                )
+                hint_label.set_hexpand(True)
+                grid.attach(hint_label, 3, row_index, 1, 1)
+
+            elif g_type == "unreferenced":
                 # Column 0: File path and records summary
                 desc_lines = [
                     group["raw_path"],
@@ -558,7 +675,12 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
             for region in self.regions_for(rec["handle"], "[%s]" % rec["gramps_id"]):
                 region["record"] = index
                 regions.append(region)
-        if group.get("type") == "unreferenced":
+        if group.get("type") == "name_mismatch":
+            caption = str(_("[%(gid)s] is linked to %(name)s.")) % {
+                "gid": group["keeper"]["gramps_id"],
+                "name": group["linked"],
+            }
+        elif group.get("type") == "unreferenced":
             caption = str(_("[%s] has no references.")) % group["keeper"]["gramps_id"]
         else:
             caption = ngettext(
@@ -614,6 +736,7 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
         merged_count = 0
         copied_count = 0
         deleted_count = 0
+        renamed_count = 0
         errors: list[str] = []
 
         for target in self.row_targets:
@@ -627,6 +750,27 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                     choice = 0
             group = target["group"]
             g_type = group.get("type", "duplicate")
+
+            if g_type == "name_mismatch":
+                if choice != 0:
+                    continue
+                db = self.dbstate.db
+                media = db.get_media_from_handle(group["keeper"]["handle"])
+                # Skip a record merged away above or edited since the scan.
+                if not media or str(media.get_description() or "") != group[
+                    "keeper"
+                ]["desc"]:
+                    continue
+                try:
+                    with DbTxn(_("Correct Media Description"), db) as trans:
+                        media.set_description(group["new_desc"])
+                        add_media_fixed_tag(db, media, txn=trans)
+                        db.commit_media(media, trans)
+                    renamed_count += 1
+                except Exception as err:
+                    LOG.exception("Failed to correct media description: %s", err)
+                    errors.append("[%s] %s" % (group["keeper"]["gramps_id"], err))
+                continue
 
             if g_type == "unreferenced":
                 if choice == 0:
@@ -748,7 +892,7 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                             % log_err
                         )
 
-        if merged_count == 0 and copied_count == 0 and deleted_count == 0:
+        if not (merged_count or copied_count or deleted_count or renamed_count):
             if errors:
                 # Every selected action failed: say why,
                 # instead of claiming nothing was selected.
@@ -762,7 +906,8 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                 str(_("Nothing to apply")),
                 str(
                     _(
-                        "No actions selected. Choose 'Merge', 'Create copies', or 'Delete' for one or more records first."
+                        "No actions selected. Choose 'Merge', 'Create copies', 'Delete' "
+                        "or 'Use the linked person's name' for one or more records first."
                     )
                 ),
                 parent=self,
@@ -777,6 +922,10 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
         if deleted_count > 0:
             summary.append(
                 str(_("Deleted %d unreferenced media records.")) % deleted_count
+            )
+        if renamed_count > 0:
+            summary.append(
+                str(_("Corrected the name in %d media descriptions.")) % renamed_count
             )
 
         msg = " ".join(summary)

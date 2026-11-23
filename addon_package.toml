@@ -9,7 +9,7 @@ package = "MediaFix"
 
 [registration]
 id = "gwizardmediafix"
-name = "Media Fix"
+name = "GWizard Media Fix"
 description = "Fix media references in a Gramps database."
 fname = "gwizardmediafix.py"
 toolclass = "GWizardMediaFix"
