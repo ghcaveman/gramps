@@ -188,7 +188,7 @@ class GWizardMediaFixTest(unittest.TestCase):
         )
 
     def test_find_missing_media_base_path_selector(self) -> None:
-        """FindMissingMediaDialog lets users choose and stage the base media path."""
+        """FindMissingMediaDialog saves a chosen base media path at once."""
         self.db.set_mediapath(None)
         dlg = FindMissingMediaDialog(dbstate=self.dbstate)
         self.assertTrue(hasattr(dlg, "path_entry"))
@@ -207,7 +207,18 @@ class GWizardMediaFixTest(unittest.TestCase):
 
         self.assertEqual(dlg.path_entry.get_text(), chosen_folder)
         self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(chosen_folder)))
-        self.assertEqual(self.db.get_mediapath(), None)
+        # Saved without pressing Apply.
+        self.assertEqual(self.db.get_mediapath(), chosen_folder)
+
+        # Cancelling the chooser changes nothing.
+        mock_chooser.run.return_value = Gtk.ResponseType.CANCEL
+        mock_chooser.get_filename.return_value = os.path.join(USER_HOME, "Other")
+        with patch(
+            "gramps.plugins.tool.gwizardmediafix.Gtk.FileChooserDialog",
+            return_value=mock_chooser,
+        ):
+            dlg.cb_select_mediapath()
+        self.assertEqual(self.db.get_mediapath(), chosen_folder)
 
     def test_consolidate_media_location_apply(self) -> None:
         """ConsolidateMediaLocationDialog detects non-standard/absolute paths and applies."""
@@ -607,7 +618,7 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertEqual(dlg.report_text, "Sample report content")
 
     def test_consolidate_media_location_base_path_display(self) -> None:
-        """ConsolidateMediaLocationDialog displays the media base path near the top and suggests relative paths."""
+        """ConsolidateMediaLocationDialog uses the saved media base path and suggests relative paths."""
         custom_path = os.path.join(USER_HOME, "ConsolidateTestMedia")
         self.db.set_mediapath(custom_path)
 
@@ -620,11 +631,6 @@ class GWizardMediaFixTest(unittest.TestCase):
 
         dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
         self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(custom_path)))
-        self.assertTrue(hasattr(dlg, "base_path_label"))
-        self.assertIn(
-            os.path.normpath(os.path.abspath(custom_path)),
-            dlg.base_path_label.markup or dlg.base_path_label.text,
-        )
         self.assertEqual(len(dlg.rows), 1)
         # Value in Hint should be base media path plus filename with naming standard
         std_fname = f"{m.get_gramps_id()}-Absolute_inside_base.jpg"
@@ -732,43 +738,25 @@ class GWizardMediaFixTest(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_consolidate_media_location_path_selector_widget(self) -> None:
-        """ConsolidateMediaLocationDialog provides a path selector widget that sets database media path."""
+    def test_consolidate_media_location_has_no_path_selector(self) -> None:
+        """The base media path is set in Step 2, not in Consolidate.
+
+        Consolidate only reads the saved setting and never changes it.
+        """
         custom_path = os.path.join(USER_HOME, "SelectorTestMedia")
         self.db.set_mediapath(custom_path)
 
         dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
-        self.assertTrue(hasattr(dlg, "path_entry"))
-        self.assertTrue(hasattr(dlg, "path_button"))
-        self.assertEqual(dlg.path_entry.get_text(), custom_path)
-
-        # Changing path_entry directly stages db mediapath and recomputes base_dir
-        new_path = os.path.join(USER_HOME, "NewMediaFolder")
-        dlg.path_entry.set_text(new_path)
-        dlg.cb_set_mediapath()
-        self.assertEqual(dlg._mediapath_text, new_path)
-        self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(new_path)))
+        # (hasattr() cannot be used: the GTK fakes answer any attribute.)
+        for name in ("path_entry", "path_button", "base_path_label"):
+            self.assertNotIn(name, vars(dlg))
+        for name in ("cb_set_mediapath", "cb_select_mediapath"):
+            self.assertNotIn(name, vars(ConsolidateMediaLocationDialog))
+        self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(custom_path)))
 
         with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
             dlg.cb_apply(MagicMock())
-        self.assertEqual(self.db.get_mediapath(), new_path)
-
-        # Selecting folder from chooser dialog sets path on entry
-        chosen_folder = os.path.join(USER_HOME, "ChosenFolder")
-        mock_chooser = MagicMock()
-        mock_chooser.run.return_value = Gtk.ResponseType.OK
-        mock_chooser.get_filename.return_value = chosen_folder
-
-        with patch(
-            "gramps.plugins.tool.gwizardmediafix.Gtk.FileChooserDialog",
-            return_value=mock_chooser,
-        ):
-            dlg.cb_select_mediapath()
-            self.assertEqual(dlg.path_entry.get_text(), chosen_folder)
-            self.assertEqual(dlg._mediapath_text, chosen_folder)
-            self.assertEqual(
-                dlg.base_dir, os.path.normpath(os.path.abspath(chosen_folder))
-            )
+        self.assertEqual(self.db.get_mediapath(), custom_path)
 
     def test_consolidate_media_location_radio_buttons_move_vs_copy(self) -> None:
         """ConsolidateMediaLocationDialog provides radio buttons for move files vs make a copy."""

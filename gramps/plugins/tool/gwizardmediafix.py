@@ -911,6 +911,74 @@ def store_media_checksums(
     return added, updated, unreadable
 
 
+def fill_missing_checksums(db: DbWriteBase, parent: Any = None) -> int:
+    """
+    Quietly give every readable media file without a checksum one.
+
+    Run at the end of each step's Apply, so no separate step is needed.  A
+    checksum that no longer matches its file is never touched here: that
+    difference is how an edited or replaced file is noticed (the report lists
+    those and offers to update them).
+
+    :param db: The database.
+    :param parent: Parent window for the progress meter (shown while hashing).
+    :returns: Number of records given a checksum.
+    """
+    added, _updated, _unreadable = store_media_checksums(
+        db, only_missing=True, parent=parent
+    )
+    return added
+
+
+def checksums_added_note(added: int) -> str:
+    """
+    One line for a step's result saying checksums were filled in.
+
+    :param added: Result of :func:`fill_missing_checksums`.
+    :returns: The line ("" when there is nothing to say).
+    """
+    if not added:
+        return ""
+    return ngettext(
+        "Stored a checksum for %d media record that had none.",
+        "Stored checksums for %d media records that had none.",
+        added,
+    ) % added
+
+
+def update_changed_checksums(
+    db: DbWriteBase, handles: list[str], parent: Any = None
+) -> int:
+    """
+    Store the current checksum for records whose file content has changed.
+
+    :param db: The database.
+    :param handles: Media handles, as listed by the report's content check.
+    :param parent: Parent window for the progress meter.
+    :returns: Number of checksums updated.
+    """
+    updated = 0
+    prog = _Progress(str(_("Updating media checksums")), len(handles), parent)
+    try:
+        with DbTxn(_("Update changed media checksums"), db) as trans:
+            for handle in handles:
+                prog.step()
+                try:
+                    media = db.get_media_from_handle(handle)
+                except Exception:
+                    media = None
+                if media is None:
+                    continue
+                raw = clean_path(str(media.get_path() or ""))
+                full = full_media_path(db, raw) if raw else ""
+                if full and refresh_checksum(media, full):
+                    db.commit_media(media, trans)
+                    updated += 1
+    finally:
+        prog.close()
+    return updated
+
+
 def scan_unreadable_media(
     db: DbReadBase,
 ) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
@@ -3526,6 +3594,9 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
             }
         if extra:
             msg += "\n\n" + extra
+        note = checksums_added_note(fill_missing_checksums(self.dbstate.db, self))
+        if note:
+            msg += "\n\n" + note
         OkDialog(str(_("Media Paths Updated")), msg, parent=self)
 
     def show_dialog(self) -> None:
@@ -4110,6 +4181,9 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         if failures:
             summary += "\n\n" + str(_("Not changed (%d):")) % len(failures) + "\n"
             summary += "\n".join(failures[:10])
+        note = checksums_added_note(fill_missing_checksums(db, self))
+        if note:
+            summary += "\n\n" + note
         OkDialog(
             str(_("Media Locations Consolidated")),
             summary,
@@ -4269,7 +4343,9 @@ def generate_media_fix_report(
     :param scan_limit: Most media files the search for unreferenced files
         reads (0 = no limit; ``None`` = the saved setting).
     :param scan_stats: Filled with that search's ``scanned``, ``limit`` and
-        ``truncated`` values, so the caller can offer a full scan.
+        ``truncated`` values, so the caller can offer a full scan, and with
+        ``changed_handles``: records whose file content no longer matches
+        their checksum (only when *check_content*).
     :param check_content: Read every file that has a stored checksum and
         list those whose content no longer matches (``None`` = the saved
         setting).
@@ -4290,6 +4366,7 @@ def generate_media_fix_report(
     if check_content is None:
         check_content = bool(config.get(CONFIG_CHECK_CONTENT_KEY))
     changed_list: list[tuple[str, str, str]] = []
+    changed_handles: list[str] = []
 
     missing_list: list[tuple[str, str, str]] = []
     perm_denied_list: list[tuple[str, str, str, str]] = []
@@ -4377,6 +4454,7 @@ def generate_media_fix_report(
                     digest = file_checksum(on_disk)
                     if digest and digest != media_checksum(media):
                         changed_list.append((m_gid, desc, raw_path))
+                        changed_handles.append(str(media.get_handle() or ""))
             else:
                 perm_issue, inaccess_dir = check_path_permission(full_path)
                 if not perm_issue and alt_path:
@@ -4659,7 +4737,8 @@ def generate_media_fix_report(
             + _(
                 "These files no longer match the checksum stored on their record: "
                 "they were edited (e.g. rotated or re-saved) or replaced. If the "
-                "change was intended, 'Store checksums' records the new content."
+                "change was intended, you are offered to store the new checksums "
+                "after closing this report."
             )
         )
         lines.append("")
@@ -4685,6 +4764,7 @@ def generate_media_fix_report(
             lines.append(field(_("Standard:"), std_p, 12))
         lines.append("")
 
+    scan_stats["changed_handles"] = changed_handles
     return "\n".join(lines)
 
 
@@ -4772,8 +4852,6 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             ("find_missing", str(_("Find missing media"))),
             ("fix_references", str(_("Fix media references"))),
             ("consolidate_location", str(_("Consolidate media location"))),
-            ("clean_notes", str(_("Clean import notes"))),
-            ("checksums", str(_("Store checksums"))),
             ("undo_moves", str(_("Undo last file moves"))),
         ]
 
@@ -4834,7 +4912,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             str(
                 _(
                     "Reads every media file that has a checksum and lists the "
-                    "ones that were edited or replaced since."
+                    "ones that were edited or replaced since, then offers to "
+                    "store their new checksums."
                 )
             )
         )
@@ -4877,10 +4956,12 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             if choice == "always":
                 config.set(CONFIG_SCAN_LIMIT_KEY, 0)
             if choice:
+                stats = {}
                 report_text = generate_media_fix_report(
                     self.dbstate.db,
                     self.window,
                     scan_limit=0,
+                    scan_stats=stats,
                     check_content=check_content,
                 )
         try:
@@ -4896,6 +4977,55 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 % {"path": target_path, "err": err},
                 parent=self.window,
             )
+        else:
+            self.offer_checksum_update(stats.get("changed_handles") or [])
+
+    def offer_checksum_update(self, handles: list[str]) -> int:
+        """
+        Offer to store the new checksums of files whose content changed.
+
+        Asked after the report has been read, since it lists those files.
+
+        :param handles: Media handles from the report's content check.
+        :returns: Number of checksums updated.
+        """
+        if not handles:
+            return 0
+        confirm = QuestionDialog2(
+            str(_("Update changed checksums")),
+            ngettext(
+                "%d media file no longer matches its stored checksum (see "
+                "'Content changed since checksum' in the report).",
+                "%d media files no longer match their stored checksums (see "
+                "'Content changed since checksum' in the report).",
+                len(handles),
+            )
+            % len(handles)
+            + "\n\n"
+            + _(
+                "If the files were edited on purpose (e.g. rotated or re-saved), "
+                "store their new checksums. If a file was replaced by mistake, "
+                "keep the old checksum so the original can still be found. This "
+                "can be undone with Edit > Undo."
+            ),
+            str(_("_Update checksums")),
+            str(_("_Keep old checksums")),
+            parent=self.window,
+        )
+        if not confirm.run():
+            return 0
+        updated = update_changed_checksums(self.dbstate.db, handles, self.window)
+        OkDialog(
+            str(_("Checksums updated")),
+            ngettext(
+                "Updated the checksum of %d media record.",
+                "Updated the checksums of %d media records.",
+                updated,
+            )
+            % updated,
+            parent=self.window,
+        )
+        return updated
 
     def cb_view_report(self) -> None:
         """Open generated report in viewer dialog."""
@@ -4953,10 +5083,6 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             dlg.show_dialog()
         elif key == "auto_all":
             self.cb_auto_all()
-        elif key == "clean_notes":
-            self.cb_clean_notes()
-        elif key == "checksums":
-            self.cb_store_checksums()
         elif key == "undo_moves":
             self.cb_undo_moves()
 
@@ -5178,112 +5304,6 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             msg += "\n" + "\n".join(problems[:15])
         OkDialog(str(_("File moves undone")), msg, parent=self.window)
 
-    def cb_store_checksums(self) -> None:
-        """Store or update the checksum of every readable media file."""
-        db = self.dbstate.db
-        total = db.get_number_of_media()
-        without = sum(1 for m in db.iter_media() if not media_checksum(m))
-        confirm = QuestionDialog2(
-            str(_("Store checksums")),
-            _(
-                "Read every media file and store its checksum (MD5) on its "
-                "record?\n\n"
-                "Media records: %(total)d (without a checksum: %(without)d)\n\n"
-                "A checksum lets 'Find missing media' recognize a file after it "
-                "has been renamed or moved. Checksums of files that cannot be "
-                "read now are kept. This can be undone with Edit > Undo."
-            )
-            % {"total": total, "without": without},
-            str(_("_Store checksums")),
-            str(_("_Cancel")),
-            parent=self.window,
-        )
-        if not confirm.run():
-            return
-        added, updated, unreadable = store_media_checksums(
-            db, only_missing=False, parent=self.window
-        )
-        msg = _(
-            "Checksums added: %(added)d\n"
-            "Checksums updated (file content changed): %(updated)d"
-        ) % {"added": added, "updated": updated}
-        if unreadable:
-            msg += (
-                "\n\n"
-                + ngettext(
-                    "%d record's file could not be read; its checksum (if any) was kept.",
-                    "%d records' files could not be read; their checksums (if any) "
-                    "were kept.",
-                    unreadable,
-                )
-                % unreadable
-            )
-        OkDialog(str(_("Checksums stored")), msg, parent=self.window)
-
-    def cb_clean_notes(self) -> None:
-        """Remove 'Records not imported into OBJE' notes whose problem is fixed."""
-        db = self.dbstate.db
-        items = find_stale_import_notes(db)
-        if not items:
-            OkDialog(
-                str(_("No stale import notes")),
-                str(
-                    _(
-                        "No 'Records not imported into OBJE' notes were found on media "
-                        "whose file is now readable."
-                    )
-                ),
-                parent=self.window,
-            )
-            return
-        n_media = len({mh for mh, _g, _n, _ng in items})
-        confirm = QuestionDialog2(
-            str(_("Clean import notes")),
-            ngettext(
-                "Delete %(notes)d leftover import-failure note?",
-                "Delete %(notes)d leftover import-failure notes?",
-                len(items),
-            )
-            % {"notes": len(items)}
-            + " "
-            + _("(media records affected: %(media)d)") % {"media": n_media}
-            + "\n\n"
-            + _(
-                "They describe files the importer could not find, but those files "
-                "are readable now. This can be undone with Edit > Undo."
-            ),
-            str(_("_Delete")),
-            str(_("_Cancel")),
-            parent=self.window,
-        )
-        if not confirm.run():
-            return
-        removed = remove_import_notes(db, items)
-        OkDialog(
-            str(_("Import notes cleaned")),
-            (
-                ngettext(
-                    "Removed %d note from media.",
-                    "Removed %d notes from media.",
-                    removed,
-                )
-                % removed
-                + (
-                    "\n\n"
-                    + ngettext(
-                        "%d note was left alone: its media record no longer exists.",
-                        "%d notes were left alone: their media records no longer "
-                        "exist.",
-                        len(items) - removed,
-                    )
-                    % (len(items) - removed)
-                    if removed < len(items)
-                    else ""
-                )
-            ),
-            parent=self.window,
-        )
-
     def cb_auto_all(self) -> None:
         """Preview, then run, the default fixes across all media fix layers."""
         db = self.dbstate.db
@@ -5455,9 +5475,9 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             lines.append(
                 ngettext(
                     "OPTIONAL CLEANUP: %d stale import note can be removed with "
-                    "'Clean import notes'.",
+                    "'Fix media references'.",
                     "OPTIONAL CLEANUP: %d stale import notes can be removed with "
-                    "'Clean import notes'.",
+                    "'Fix media references'.",
                     len(stale_notes),
                 )
                 % len(stale_notes)
