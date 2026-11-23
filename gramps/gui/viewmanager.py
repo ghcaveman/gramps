@@ -164,6 +164,35 @@ CSS_FONT = """
 
 # -------------------------------------------------------------------------
 #
+# Plugin menu ordering
+#
+# -------------------------------------------------------------------------
+
+# GoatGramps: the GWizard tools are listed together in this order instead of
+# alphabetically; every other tool still sorts by name around the group.
+_GWIZARD_TOOL_ORDER = (
+    "gwizardmediafix",  # GWizard Media Fix
+    "gwizardcitationfix",  # GWizard Citation Fix
+    "gwizardmerge",  # GWizard File Merge
+    "gwizardmergealt",  # GWizard File Merge (Alt)
+    "gwizardwikitree",  # GWizard WikiTree Merge
+    "gwizardnara",  # GWizard NARA Merge
+    "gwizardrecordscan",  # Multi-Archive Record Scan
+)
+
+
+def _plugin_menu_sort_key(pdata):
+    """
+    Sort key for a Tools/Reports menu entry: by name, except that the GWizard
+    tools sort as one group, where "GWizard" falls, in _GWIZARD_TOOL_ORDER.
+    """
+    if pdata.id in _GWIZARD_TOOL_ORDER:
+        return ("GWizard", _GWIZARD_TOOL_ORDER.index(pdata.id))
+    return (pdata.name, -1)
+
+
+# -------------------------------------------------------------------------
+#
 # ViewManager
 #
 # -------------------------------------------------------------------------
@@ -1797,7 +1826,7 @@ class ViewManager(CLIManager):
                 '<submenu>\n<attribute name="label"' ">%s</attribute>\n" % key[1]
             )
             pdatas = hash_data[key]
-            pdatas.sort(key=lambda x: x.name)
+            pdatas.sort(key=_plugin_menu_sort_key)
             for pdata in pdatas:
                 new_key = valid_action_name(pdata.id)
                 name = html.escape(pdata.name.replace("_", "__"))
@@ -1813,7 +1842,7 @@ class ViewManager(CLIManager):
                 ">%s</attribute>\n" % _UNSUPPORTED[1]
             )
             pdatas = hash_data[_UNSUPPORTED]
-            pdatas.sort(key=lambda x: x.name)
+            pdatas.sort(key=_plugin_menu_sort_key)
             for pdata in pdatas:
                 new_key = valid_action_name(pdata.id)
                 name = html.escape(pdata.name.replace("_", "__"))
