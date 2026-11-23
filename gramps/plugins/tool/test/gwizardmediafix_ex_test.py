@@ -305,10 +305,10 @@ class GWizardMediaFixExTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.mkdtemp()
         self.p_map = {
-            "p450": _Person("p450", "I00450", "Fuller", "Harry Jay"),
-            "pE": _Person("pE", "M25S-XWS", "Fuller", "Edward C"),
-            "pL": _Person("pL", "I00054", "Fuller", "Lilly"),
-            "p451": _Person("p451", "I00451", "Devault", "Nettie"),
+            "p450": _Person("p450", "I00450", "Barton", "Walter James"),
+            "pE": _Person("pE", "ZZ9Z-ZZZ", "Barton", "Henry C"),
+            "pL": _Person("pL", "I00054", "Barton", "Clara"),
+            "p451": _Person("p451", "I00451", "Morrow", "Edna"),
         }
         self.e_map = {
             "e1": _Event("e1", "E1", "Census", 1910),
@@ -341,8 +341,8 @@ class GWizardMediaFixExTest(unittest.TestCase):
             med = _Media(
                 "m0",
                 "O00000",
-                "Fuller, Harry Jay - 1910Census",
-                "/x/Fuller, Harry Jay - 1910Census.jpg",
+                "Barton, Walter James - 1910Census",
+                "/x/Barton, Walter James - 1910Census.jpg",
             )
             db: Any = _MockDB(
                 "/b",
@@ -355,7 +355,7 @@ class GWizardMediaFixExTest(unittest.TestCase):
             ctx = m.resolve_media_reference_context(db, med)
             refs.add((ctx["ref_id"], ctx["surname"], ctx["given"]))
 
-        self.assertEqual(refs, {("I00450", "Fuller", "Harry Jay")})
+        self.assertEqual(refs, {("I00450", "Barton", "Walter James")})
 
     def test_stable_ref_id_for_undescribed_media(self) -> None:
         """Undescribed media yields a single stable ref_id across all backlink permutations."""
@@ -384,20 +384,20 @@ class GWizardMediaFixExTest(unittest.TestCase):
         (base / "sub").mkdir(parents=True)
         other = tmp / "old"
         other.mkdir()
-        (other / "Fuller, Harry Jay - 1910Census.jpg").write_text("HARRY CENSUS")
-        (base / "sub" / "Duvault, Nettie - 1900Census.jpg").write_text("NETTIE CENSUS")
+        (other / "Barton, Walter James - 1910Census.jpg").write_text("WALTER CENSUS")
+        (base / "sub" / "Murrow, Edna - 1900Census.jpg").write_text("EDNA CENSUS")
 
         m0 = _Media(
             "m0",
             "O00000",
-            "Fuller, Harry Jay - 1910Census",
-            str(other / "Fuller, Harry Jay - 1910Census.jpg"),
+            "Barton, Walter James - 1910Census",
+            str(other / "Barton, Walter James - 1910Census.jpg"),
         )
         m3 = _Media(
             "m3",
             "O00003",
-            "Duvault, Nettie - 1900Census",
-            "Duvault, Nettie - 1900Census.jpg",
+            "Murrow, Edna - 1900Census",
+            "Murrow, Edna - 1900Census.jpg",
         )
         back = dict(self.base_back)
         back["m0"] = [("Citation", "c3"), ("Citation", "c1"), ("Citation", "c2")]
@@ -417,27 +417,23 @@ class GWizardMediaFixExTest(unittest.TestCase):
 
     def test_alternate_name_clears_name_mismatch(self) -> None:
         """An alternate name with the description's spelling is a match."""
-        m3 = _Media(
-            "m3",
-            "O00003",
-            "Duvault, Nettie - 1900Census",
-            "Duvault, Nettie - 1900Census.jpg",
-        )
+        person = _Person("pS", "I00042", "Smith", "Anna")
+        media = _Media("m9", "O00009", "Smyth, Anna - 1900Census", "a.jpg")
         db: Any = _MockDB(
             self.temp_dir,
-            [m3],
-            dict(self.base_back),
-            P=self.p_map,
-            E=self.e_map,
-            C=self.c_map,
+            [media],
+            {"m9": [("Person", "pS")]},
+            P={"pS": person},
+            E={},
+            C={},
         )
         self.assertEqual(len(m.find_name_mismatches(db)), 1)
 
-        self.p_map["p451"].alt.append(_Name("Duvault", "Nettie"))
+        person.alt.append(_Name("Smyth", "Anna"))
         self.assertEqual(m.find_name_mismatches(db), [])
         # The matched person is still the one the file is named after.
-        self.assertTrue(m._person_matches(self.p_map["p451"], "Duvault", "Nettie"))
-        self.assertEqual(m._name_score(self.p_map["p451"], "Duvault", "Nettie"), 2.0)
+        self.assertTrue(m._person_matches(person, "Smyth", "Anna"))
+        self.assertEqual(m._name_score(person, "Smyth", "Anna"), 2.0)
 
     def test_build_accept_all_plan_dry_run(self) -> None:
         """build_accept_all_plan creates a non-mutating preview plan of all automated changes."""
@@ -446,22 +442,22 @@ class GWizardMediaFixExTest(unittest.TestCase):
         (base / "sub").mkdir(parents=True)
         other = tmp / "old"
         other.mkdir()
-        (other / "Fuller, Harry Jay - 1910Census.jpg").write_text("HARRY CENSUS")
-        (base / "sub" / "Duvault, Nettie - 1900Census.jpg").write_text("NETTIE CENSUS")
+        (other / "Barton, Walter James - 1910Census.jpg").write_text("WALTER CENSUS")
+        (base / "sub" / "Murrow, Edna - 1900Census.jpg").write_text("EDNA CENSUS")
         (other / "orphan.jpg").write_text("o")
         (other / "kept.jpg").write_text("k")
 
         m0 = _Media(
             "m0",
             "O00000",
-            "Fuller, Harry Jay - 1910Census",
-            str(other / "Fuller, Harry Jay - 1910Census.jpg"),
+            "Barton, Walter James - 1910Census",
+            str(other / "Barton, Walter James - 1910Census.jpg"),
         )
         m3 = _Media(
             "m3",
             "O00003",
-            "Duvault, Nettie - 1900Census",
-            "Duvault, Nettie - 1900Census.jpg",
+            "Murrow, Edna - 1900Census",
+            "Murrow, Edna - 1900Census.jpg",
         )
         m4 = _Media("m4", "O00004", "Orphan - 1900Census", str(other / "orphan.jpg"))
         m5 = _Media(
@@ -505,7 +501,7 @@ class GWizardMediaFixExTest(unittest.TestCase):
         self.assertEqual([f[0] for f in plan["find"]], ["O00003"])
         self.assertEqual(
             plan["find"][0][2].replace("\\", "/"),
-            "sub/Duvault, Nettie - 1900Census.jpg",
+            "sub/Murrow, Edna - 1900Census.jpg",
         )
         self.assertEqual([d[0] for d in plan["delete"]], ["O00004"])
         self.assertEqual([k[0] for k in plan["keep_unref"]], ["O00005"])

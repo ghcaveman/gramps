@@ -275,7 +275,7 @@ def find_duplicate_media_groups(
 def find_name_fix_groups(db: DbReadBase | None) -> list[dict[str, Any]]:
     """Rows for media whose description misspells the linked person's name.
 
-    Only probable spelling variants ("Duvault" for "Devault") are offered: a
+    Only probable spelling variants ("Smyth" for "Smith") are offered: a
     description naming a different person may mean the media is linked to the
     wrong person, which needs a human look (it stays in the report).  A name
     that matches one of the person's alternate names is not a mismatch.

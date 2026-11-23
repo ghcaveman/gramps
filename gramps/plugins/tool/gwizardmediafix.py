@@ -1139,7 +1139,7 @@ def _person_names(person: Any) -> list[Any]:
     Return a person's primary name followed by their alternate names.
 
     An alternate name is how a record such as a census spelled the person
-    ("Duvault" for "Devault"), so it counts as a match too.
+    ("Smyth" for "Smith"), so it counts as a match too.
 
     :param person: The person.
     :returns: Name objects, primary first (empty names left out).
@@ -1156,7 +1156,7 @@ def _name_matches(name: Any, surname: str, given: str) -> bool:
     """
     Return True if one name object matches a surname and given name.
 
-    Given names match when one starts with the other ("Harry" / "Harry Jay").
+    Given names match when one starts with the other ("Walter" / "Walter James").
 
     :param name: A Gramps Name.
     :param surname: Surname to match.
@@ -1200,7 +1200,7 @@ def _name_score(person: Any, surname: str, given: str) -> float:
     Score how well a person matches the name written in a description.
 
     An exact (normalised) match scores 2.0; a close surname spelling variant
-    ("Duvault" for "Devault") with a compatible given name scores the surname
+    ("Murrow" for "Morrow") with a compatible given name scores the surname
     similarity (0.75 - 1.0); anything else scores 0.0.
 
     :param person: The candidate person.
@@ -1298,8 +1298,8 @@ def replace_name_in_text(text: str, surname: str, given: str) -> str:
     """
     Replace the leading "Surname, Given" of a description with another name.
 
-    The rest of the text, including its separator ("Duvault, Nettie -
-    1900Census" or "Duvault, Nettie_1900Census"), is kept as it is.
+    The rest of the text, including its separator ("Smyth, Anna -
+    1900Census" or "Smyth, Anna_1900Census"), is kept as it is.
 
     :param text: The description.
     :param surname: The new surname.
@@ -1323,10 +1323,10 @@ def replace_name_in_text(text: str, surname: str, given: str) -> str:
 
 def find_name_mismatch_records(db: DbReadBase) -> list[dict[str, Any]]:
     """Media whose description names someone ("Surname, Given - ...") who is not
-    among the people it is attached to, e.g. 'Duvault' vs 'Devault'.
+    among the people it is attached to, e.g. 'Murrow' vs 'Morrow'.
 
-    A person's alternate names count: if "Duvault, Nettie" is an alternate name
-    of Nettie Devault, the record is not a mismatch.
+    A person's alternate names count: if "Smyth, Anna" is an alternate name
+    of Anna Smith, the record is not a mismatch.
 
     Each result holds ``handle``, ``gramps_id``, ``desc``, ``in_desc`` (the name
     in the description), ``linked`` (the closest linked person's primary name),
@@ -3032,7 +3032,7 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
 
         self.base_path_label = SelectableLabel(
             label="<b>%s</b> %s"
-            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir)),
+            % (escape_markup(_("Base media path:")), escape_markup(self.base_dir)),
             markup=True,
         )
         content.add(self.base_path_label)
@@ -3303,14 +3303,21 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
 
     def fill_same_name(self, source: dict[str, Any], picked: str) -> int:
         """
-        Fill every other empty row whose missing file has the same
-        name as the chosen file.
+        Fill every other empty row missing a file of the same name.
+
+        "The same name" is the name the source row was missing or the name of
+        the chosen file: the file may have been renamed since (e.g. by
+        Consolidate), and the other records still miss it under the old name.
 
         :param source: The row the file was chosen for.
         :param picked: Full path of the chosen file.
         :returns: How many rows were filled.
         """
-        wanted = os.path.normcase(os.path.basename(picked))
+        wanted = {
+            os.path.normcase(os.path.basename(picked)),
+            os.path.normcase(missing_file_name(source["entry"].get("raw_path", ""))),
+        }
+        wanted.discard("")
         source_dir = missing_file_dir(source["entry"].get("raw_path", ""))
         source_id = source["entry"].get("gramps_id") or picked
         picked_sum: str | None = None  # read only if a row has a checksum
@@ -3321,7 +3328,7 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
             if target["path_entry"].get_text().strip():
                 continue  # never overwrite a path already entered
             raw = target["entry"].get("raw_path", "")
-            if os.path.normcase(missing_file_name(raw)) != wanted:
+            if os.path.normcase(missing_file_name(raw)) not in wanted:
                 continue
             stored = target["entry"].get("checksum", "")
             if stored:
@@ -3373,7 +3380,7 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
         self.base_dir = expand_base_path(text or None, self.dbstate.db)
         self.base_path_label.set_markup(
             "<b>%s</b> %s"
-            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir))
+            % (escape_markup(_("Base media path:")), escape_markup(self.base_dir))
         )
 
     def cb_select_mediapath(self, *_args: Any) -> None:
@@ -4245,7 +4252,7 @@ class MediaFixReportDialog(Gtk.Dialog):
         )
         self.base_path_label = SelectableLabel(
             label="<b>%s</b> %s"
-            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir)),
+            % (escape_markup(_("Base media path:")), escape_markup(self.base_dir)),
             markup=True,
         )
         content.pack_start(self.base_path_label, False, False, 0)
@@ -4595,7 +4602,7 @@ def generate_media_fix_report(
             % {"with": missing_with_checksum, "missing": missing},
         ),
         metric(_("Naming template:"), curr_tmpl),
-        metric(_("Media Base Path:"), base_dir),
+        metric(_("Base media path:"), base_dir),
         "",
     ]
 

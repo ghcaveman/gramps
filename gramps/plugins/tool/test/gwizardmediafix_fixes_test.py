@@ -436,9 +436,9 @@ class SharedCensusNamingTest(_DbTestCase):
     """The resolver picks the described person from a household event."""
 
     HOUSEHOLD = [
-        ("I0003", "Fuller", "Harry Jay"),
-        ("I0001", "Fuller", "Anna"),
-        ("I0002", "Fuller", "Lilly"),
+        ("I0003", "Barton", "Walter James"),
+        ("I0001", "Barton", "Anna"),
+        ("I0002", "Barton", "Clara"),
     ]
 
     def build(
@@ -490,14 +490,14 @@ class SharedCensusNamingTest(_DbTestCase):
     def test_citation_chain_picks_described_person(self) -> None:
         """Citation -> shared Event -> the person named in the description."""
         ctx = mf.resolve_media_reference_context(
-            self.db, self.build("Fuller, Lilly - 1910Census")
+            self.db, self.build("Barton, Clara - 1910Census")
         )
-        self.assertEqual((ctx["ref_id"], ctx["given"]), ("I0002", "Lilly"))
+        self.assertEqual((ctx["ref_id"], ctx["given"]), ("I0002", "Clara"))
 
     def test_spelling_variant_still_matches(self) -> None:
-        """A close misspelling ('Fuler') still picks Lilly, not the first person."""
+        """A close misspelling ('Barten') still picks Clara, not the first person."""
         ctx = mf.resolve_media_reference_context(
-            self.db, self.build("Fuler, Lilly - 1910Census")
+            self.db, self.build("Barten, Clara - 1910Census")
         )
         self.assertEqual(ctx["ref_id"], "I0002")
 
@@ -505,7 +505,7 @@ class SharedCensusNamingTest(_DbTestCase):
         """Media on the shared event itself also uses the description."""
         ctx = mf.resolve_media_reference_context(
             self.db,
-            self.build("Fuller, Anna - 1910Census", via_citation=False),
+            self.build("Barton, Anna - 1910Census", via_citation=False),
         )
         # Anna is neither the first participant added nor the last
         self.assertEqual((ctx["ref_id"], ctx["given"]), ("I0001", "Anna"))
@@ -626,15 +626,15 @@ class NameMismatchFixTest(_DbTestCase):
         return [t for t in dlg.row_targets if t["group"]["type"] == "name_mismatch"]
 
     def test_spelling_variant_is_corrected(self) -> None:
-        """Duvault -> Devault, keeping the rest of the description."""
-        h = self.add_media("nettie.jpg", "Duvault, Nettie - 1900Census")
-        self.add_person("Devault", "Nettie", h)
+        """Smyth -> Smith, keeping the rest of the description."""
+        h = self.add_media("anna.jpg", "Smyth, Anna - 1900Census")
+        self.add_person("Smith", "Anna", h)
 
         dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
         targets = self.name_targets(dlg)
         self.assertEqual(len(targets), 1)
         self.assertEqual(
-            targets[0]["group"]["new_desc"], "Devault, Nettie - 1900Census"
+            targets[0]["group"]["new_desc"], "Smith, Anna - 1900Census"
         )
         self.assertEqual(targets[0]["suggested_action"], 0)
 
@@ -643,34 +643,34 @@ class NameMismatchFixTest(_DbTestCase):
             dlg.cb_apply(MagicMock())
 
         media = self.db.get_media_from_handle(h)
-        self.assertEqual(media.get_description(), "Devault, Nettie - 1900Census")
+        self.assertEqual(media.get_description(), "Smith, Anna - 1900Census")
         self.assertEqual(mf.find_name_mismatches(self.db), [])
 
     def test_keep_leaves_description(self) -> None:
         """'Keep description' changes nothing."""
-        h = self.add_media("nettie.jpg", "Duvault, Nettie - 1900Census")
-        self.add_person("Devault", "Nettie", h)
+        h = self.add_media("anna.jpg", "Smyth, Anna - 1900Census")
+        self.add_person("Smith", "Anna", h)
         dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
         self.name_targets(dlg)[0]["action_combo"].set_active(1)
         with patch(_DLG):
             dlg.cb_apply(MagicMock())
         self.assertEqual(
             self.db.get_media_from_handle(h).get_description(),
-            "Duvault, Nettie - 1900Census",
+            "Smyth, Anna - 1900Census",
         )
 
     def test_alternate_name_is_not_a_mismatch(self) -> None:
         """An alternate name with the description's spelling counts as a match."""
-        h = self.add_media("nettie.jpg", "Duvault, Nettie - 1900Census")
-        self.add_person("Devault", "Nettie", h, alt="Duvault")
+        h = self.add_media("anna.jpg", "Smyth, Anna - 1900Census")
+        self.add_person("Smith", "Anna", h, alt="Smyth")
         dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
         self.assertEqual(self.name_targets(dlg), [])
         self.assertEqual(mf.find_name_mismatches(self.db), [])
 
     def test_different_person_is_not_offered(self) -> None:
         """A description naming someone else stays in the report only."""
-        h = self.add_media("smith.jpg", "Smith, John - 1900Census")
-        self.add_person("Devault", "Nettie", h)
+        h = self.add_media("jones.jpg", "Jones, John - 1900Census")
+        self.add_person("Smith", "Anna", h)
         dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
         self.assertEqual(self.name_targets(dlg), [])
         self.assertEqual(len(mf.find_name_mismatches(self.db)), 1)
@@ -678,10 +678,10 @@ class NameMismatchFixTest(_DbTestCase):
     def test_replace_name_keeps_separator(self) -> None:
         """Only the name changes, not the separator or the rest."""
         self.assertEqual(
-            mf.replace_name_in_text("Duvault, Nettie_1900Census", "Devault", "Nettie"),
-            "Devault, Nettie_1900Census",
+            mf.replace_name_in_text("Smyth, Anna_1900Census", "Smith", "Anna"),
+            "Smith, Anna_1900Census",
         )
-        self.assertEqual(mf.replace_name_in_text("scan", "Devault", "Nettie"), "scan")
+        self.assertEqual(mf.replace_name_in_text("scan", "Smith", "Anna"), "scan")
 
 
 # ------------------------------------------------------------
