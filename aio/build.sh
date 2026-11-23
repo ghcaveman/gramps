@@ -181,7 +181,7 @@ cd ../../../..
 cp /ucrt64/share/icons/hicolor/scalable/places/*.svg /ucrt64/share/icons/gnome/scalable/places
 
 # build gramps
-rm -rf dist gramps.egg-info aio/dist aio/GrampsAIO64.egg-info aio/$MSYSTEM
+rm -rf dist gramps.egg-info aio/dist aio/GrampsAIO64.egg-info aio/GoatGramps.egg-info aio/$MSYSTEM
 python -m build --wheel
 if `grep -q '^DEV_VERSION\s*=\s*True' gramps/version.py`; then
     # <branch_name>-<short_commit_id>
@@ -192,6 +192,9 @@ else
     appbuild="$(sed -nr "s/^VERSION_QUALIFIER = \"-(.+)\"/\1/p" gramps/version.py)-$2"
 fi
 appversion=$(grep "^VERSION_TUPLE" gramps/version.py | sed 's/.*(//;s/, */\./g;s/).*//')
+# GoatGramps release number, the 4th part of the Windows file version
+ggrelease=$(sed -nr 's/^GOATGRAMPS_RELEASE = ([0-9]+).*/\1/p' gramps/version.py)
+ggrelease=${ggrelease:-0}
 unzip -q -d aio/dist dist/*.whl
 cd aio
 
@@ -199,7 +202,7 @@ cd aio
 escapedappversion=$(echo $appversion | sed 's/\\/\\\\/g; s/[\/&]/\\&/g')
 escapedappbuild=$(echo $appbuild | sed 's/\\/\\\\/g; s/[\/&]/\\&/g')
 # create nsis script
-cat grampsaio64.nsi.template | sed "s/yourVersion/$escapedappversion/;s/yourBuild/$escapedappbuild/" >grampsaio64.nsi
+cat grampsaio64.nsi.template | sed "s/yourVersion/$escapedappversion/;s/yourBuild/$escapedappbuild/;s/yourGgRelease/$ggrelease/" >grampsaio64.nsi
 # build cx_freeze executables
 python setup.py build_exe
 

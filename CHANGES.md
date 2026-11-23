@@ -149,6 +149,18 @@ Build and packaging
   Recent NSIS releases stopped installing them to the old path, which caused
   the build to abort. This matches the fix on the upstream `aio-test` branch.
 
+* **Windows installer and programs are branded GoatGramps.** For SignPath
+  code signing, the installer and the `.exe` files report GoatGramps as the
+  product name and publisher, with a four-part version of
+  `6.1.0.<GOATGRAMPS_RELEASE>`, and the About box shows `AIO64-6.1.0+gg.N`.
+  The install folder, registry keys and uninstall entry deliberately stay
+  the same as Gramps, because the two cannot be installed side by side.
+  Files: `aio/grampsaio64.nsi.template`, `aio/setup.py`, `aio/build.sh`.
+
+* **SignPath code signing policy.** `CODE_SIGNING_POLICY.md`, a GoatGramps
+  section at the top of `README.md`, and release notes from
+  `deploy-releases.yml` that describe GoatGramps and link to the policy.
+
 * **Check and Repair bugfix** if an image has an MD5 hash, it is kept rather than set to an empty string.
 
 * **`create_env.bash`** at the repository root sets up a development

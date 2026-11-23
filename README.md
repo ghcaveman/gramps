@@ -1,3 +1,29 @@
+GoatGramps
+==========
+
+GoatGramps is a free, open-source genealogy program for Windows, macOS and
+Linux. It is a fork of [Gramps](https://gramps-project.org): it includes
+everything Gramps does, and adds tools for cleaning up and extending a
+Family Tree. These include media and citation repair wizards, side-by-side
+file merging, record searches in WikiTree and the U.S. National Archives,
+and extra columns in the main views. All Family Tree data stays on your
+computer.
+
+* **What's different from Gramps:** [CHANGES.md](CHANGES.md)
+* **Download:** [Releases](https://github.com/ghcaveman/gramps/releases)
+  (Windows installer, macOS `.dmg`, Linux `.deb`)
+* **Code signing policy:** [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md)
+* **Privacy:** GoatGramps collects no user data. See the
+  [privacy policy](CODE_SIGNING_POLICY.md#privacy-policy).
+* **Building from source:** see [INSTALL](INSTALL). Releases are built by
+  GitHub Actions from the `goatgramps/core` branch.
+* **Bugs in GoatGramps features:** [Issues](https://github.com/ghcaveman/gramps/issues)
+
+GoatGramps is licensed under the GNU General Public License, version 2 or
+later. See [COPYING](COPYING).
+
+The rest of this file is the upstream Gramps README.
+
 [The Gramps Project](https://gramps-project.org)
 ===================
 [![GitHub CI](https://github.com/gramps-project/gramps/actions/workflows/gramps-ci.yml/badge.svg?event=push&branch=maintenance/gramps60)](https://github.com/gramps-project/gramps/actions/workflows/gramps-ci.yml?query=branch%3Amaintenance/gramps60)

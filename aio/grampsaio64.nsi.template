@@ -18,12 +18,20 @@
 ;Copyright (C) 2013-2021      Josip (pisoj), Paul Culley
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+; APPNAME is the internal install key: it names the install folder, the
+; registry keys and the uninstall entry. GoatGramps deliberately keeps the
+; same key as Gramps, because the two cannot run side by side; you install
+; one or the other. PRODUCTNAME is what Windows shows and what the file
+; version information reports (SignPath requires it to match the project).
 !define APPNAME "GrampsAIO64"
+!define PRODUCTNAME "GoatGramps"
 !define APPVERSION "yourVersion"
 !define APPBUILD "yourBuild"
+!define GGRELEASE "yourGgRelease"
+!define PRODUCTVERSION "${APPVERSION}.${GGRELEASE}"
 !define APPNAMEANDVERSION "${APPNAME} ${APPVERSION}"
-!define APP_PUBLISHER "The Gramps project"
-!define APP_WEB_SITE "https://gramps-project.org"
+!define APP_PUBLISHER "GoatGramps"
+!define APP_WEB_SITE "https://github.com/ghcaveman/gramps"
 ; created a sanitized OutFile by replacing any characters which are not valid in a filename with "_"
 !define OUTFILE "GrampsAIO-${APPVERSION}-${APPBUILD}_win64.exe"
 !searchreplace OUTFILE ${OutFile} "<" "_"
@@ -38,7 +46,7 @@
 BrandingText "Version ${APPVERSION}-${APPBUILD}"
 
 ; Main Install settings
-Name "${APPNAME}-${APPVERSION}-${APPBUILD}"
+Name "${PRODUCTNAME}-${APPVERSION}-${APPBUILD}"
 OutFile ${OUTFILE}
 
 CRCCheck on
@@ -134,6 +142,16 @@ XPStyle on
 !insertmacro MUI_LANGUAGE Ukrainian
 !insertmacro MUI_LANGUAGE Vietnamese
 
+; Installer version information (file Properties > Details)
+VIProductVersion "${PRODUCTVERSION}"
+VIFileVersion "${PRODUCTVERSION}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductName" "${PRODUCTNAME}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductVersion" "${PRODUCTVERSION}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "FileVersion" "${PRODUCTVERSION}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "FileDescription" "${PRODUCTNAME} installer"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "CompanyName" "${APP_PUBLISHER}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "LegalCopyright" "GNU General Public License, version 2 or later"
+
 ;--------- Reserve Files ------------------------------------------------------
 !insertmacro MUI_RESERVEFILE_LANGDLL
 ;ReserveFile "${NSISDIR}\Plugins\x86-ansi\*.dll"
@@ -188,7 +206,8 @@ Section "Gramps" Section1
 	FileOpen $4 "$INSTDIR\gramps\version.py" a
 	FileSeek $4 0 END
 	FileWrite $4 "$\r$\n" ; we write a new line
-	FileWrite $4 "VERSION = 'AIO64-${APPVERSION}-${APPBUILD}'"
+	; Keep the GoatGramps version (6.1.0+gg.N) in the About box
+	FileWrite $4 "VERSION = 'AIO64-${APPVERSION}+gg.${GGRELEASE}'"
 	FileWrite $4 "$\r$\n" ; we write an extra line
 	FileClose $4 ; and close the file
 
@@ -685,8 +704,8 @@ Section -FinishSection
 	nsExec::ExecToLog '"$INSTDIR\lib\fc-cache.exe" -fv'
     System::Call 'Kernel32::SetEnvironmentVariable(t, n)i ("FC_DEBUG", "").r0'
 
-	WriteRegStr SHCTX "${UNINST_KEY}" "DisplayName" "${APPNAME}"
-	WriteRegStr SHCTX "${UNINST_KEY}" "DisplayVersion" "${APPVERSION}"
+	WriteRegStr SHCTX "${UNINST_KEY}" "DisplayName" "${PRODUCTNAME}"
+	WriteRegStr SHCTX "${UNINST_KEY}" "DisplayVersion" "${PRODUCTVERSION}"
 	WriteRegStr SHCTX "${UNINST_KEY}" "Publisher" "${APP_PUBLISHER}"
 	WriteRegStr SHCTX "${UNINST_KEY}" "URLInfoAbout" "${APP_WEB_SITE}"
 	WriteRegStr SHCTX "${UNINST_KEY}" "UninstallString" \

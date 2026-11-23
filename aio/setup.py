@@ -46,8 +46,20 @@ def normalize(version):
 FULL_VERSION = ".".join(map(str, VERSION_TUPLE)) + VERSION_QUALIFIER
 NORMALIZED_VERSION = normalize(FULL_VERSION)
 
-VERSION = ".".join(map(str, VERSION_TUPLE)) + "." + str(VQ.get(VERSION_QUALIFIER, 99))
-COPYRIGHT = "Copyright 2026, Gramps developers.  GNU General Public License"
+try:
+    from gramps.version import GOATGRAMPS_RELEASE
+except ImportError:
+    GOATGRAMPS_RELEASE = None
+
+# Windows file version: 6.1.0.<GoatGramps release>, the same four-part
+# version the installer reports, so every signed file in a build matches.
+if GOATGRAMPS_RELEASE is not None:
+    VERSION = ".".join(map(str, VERSION_TUPLE)) + "." + str(GOATGRAMPS_RELEASE)
+else:
+    VERSION = (
+        ".".join(map(str, VERSION_TUPLE)) + "." + str(VQ.get(VERSION_QUALIFIER, 99))
+    )
+COPYRIGHT = "Copyright 2026, Gramps developers and GoatGramps contributors.  GNU General Public License"
 BASE_DIR = os.path.split(sys.base_prefix)[1]
 SETUP_DIR = os.path.dirname(os.path.realpath(__file__))
 SETUP_FILES = [
@@ -257,10 +269,11 @@ BDIST_MSI_OPTIONS = {  # uuid.uuid5(uuid.NAMESPACE_DNS, 'GrampsAIO64-5-trunk')
     # (company_name, product_name),
 }
 cx_Freeze.setup(
-    name="GrampsAIO32" if "32" in BASE_DIR else "GrampsAIO64",
+    # cx_Freeze reports name as the ProductName of the .exe files
+    name="GoatGramps",
     options={"build_exe": BUILD_EXE_OPTIONS, "bdist_msi": BDIST_MSI_OPTIONS},
     version=VERSION,
-    description="Gramps Genealogy software",
+    description="GoatGramps genealogy software, based on Gramps",
     long_description=VERSION_QUALIFIER,
     executables=EXECUTABLES,
 )

@@ -74,8 +74,18 @@ jobs:
     - name: Publish Official Multi-Platform Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REPO_URL: ${{ github.server_url }}/${{ github.repository }}
       run: |
+        # SignPath Foundation requires every download page to describe the
+        # software and link to the "Code signing policy". --notes is
+        # prepended to the generated notes.
+        NOTES="GoatGramps is a free, open-source genealogy program based on Gramps, with added tools for cleaning up and extending a Family Tree. See [what's different from Gramps](${REPO_URL}/blob/goatgramps/core/CHANGES.md).
+
+        Downloads: Windows installer (\`.exe\`), macOS (\`.dmg\`) and Linux (\`.deb\`).
+
+        **[Code signing policy](${REPO_URL}/blob/goatgramps/core/CODE_SIGNING_POLICY.md)** · [Privacy policy](${REPO_URL}/blob/goatgramps/core/CODE_SIGNING_POLICY.md#privacy-policy)"
         gh release create "${{ github.ref_name }}" \
           ./artifacts/* \
-          --title "Gramps Release ${{ github.ref_name }}" \
+          --title "GoatGramps ${{ github.ref_name }}" \
+          --notes "$NOTES" \
           --generate-notes
