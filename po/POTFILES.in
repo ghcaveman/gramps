@@ -379,6 +379,8 @@ gramps/gen/fs/tags.py
 gramps/gen/fs/utils/attributes.py
 gramps/gen/fs/utils/linking.py
 gramps/gen/gwizard/gwizard_base.py
+gramps/gen/gwizard/gwizardfamilysearch.py
+gramps/gen/gwizard/gwizardfsprovenance.py
 gramps/gen/gwizard/gwizardgedcom.py
 gramps/gen/gwizard/gwizard_filemerge_media.py
 gramps/gen/lib/address.py
@@ -655,6 +657,8 @@ gramps/gui/glade/updateaddons.glade
 gramps/gui/grampsgui.py
 gramps/gui/gwizard/gwizardaltcompare.py
 gramps/gui/gwizard/gwizardcompare.py
+gramps/gui/gwizard/gwizardfslauncher.py
+gramps/gui/gwizard/gwizardfsmergedialog.py
 gramps/gui/gwizard/gwizardlauncher.py
 gramps/gui/gwizard/gwizardmergedialog.py
 gramps/gui/gwizard/gwizard_filemerge_recordscandialog.py
@@ -889,6 +893,8 @@ gramps/plugins/tool/finddupes.glade
 gramps/plugins/tool/finddupes.py
 gramps/plugins/tool/findloop.py
 gramps/plugins/tool/gwizardaddonutil.py
+gramps/plugins/tool/gwizardfsmerge.py
+gramps/plugins/tool/gwizardfssource.py
 gramps/plugins/tool/gwizardmerge.py
 gramps/plugins/tool/gwizard_filemerge_scan.py
 gramps/plugins/tool/mediamanager.py

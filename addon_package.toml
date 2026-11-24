@@ -1,37 +1,38 @@
-# GWizard File Merge addon -- built by package_addon.py (from gramps_devutil).
+# GWizard FamilySearch Merge addon -- built by package_addon.py (from gramps_devutil).
 # See addon_package.example.toml in gramps_devutil for every option.
+#
+# Depends on the GWizard File Merge addon, which is built from the
+# gwizard_filemerge branch (its own addon_package.toml). This branch takes
+# the shared gwizard modules from gwizard_filemerge unchanged; merge that
+# branch into this one before a release so the two stay in step.
 
-package = "GWizardFileMerge"
+package = "GWizardFamilySearchMerge"
 
 [registration]
-id = "gwizardmerge"
-name = "GWizard File Merge"
-description = "Family Tree Processing Tool to compare another genealogy file (GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree and merge selected differences person by person."
-fname = "gwizardmerge.py"
-toolclass = "GWizardFileMerge"
-optionclass = "GWizardFileMergeOptions"
+id = "gwizardfsmerge"
+name = "GWizard FamilySearch Merge"
+description = "Family Tree Processing Tool to search FamilySearch profiles and relatives and compare/merge data side-by-side with the open Family Tree."
+fname = "gwizardfsmerge.py"
+toolclass = "GWizardFamilySearchMerge"
+optionclass = "GWizardFamilySearchMergeOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
-help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFamilySearchMerge_Tool"
 gramps_versions = ["5.2.0", "6.2.0"]
 
 [files]
 modules = [
-    "gramps/gen/gwizard/*.py",
-    "gramps/gui/gwizard/*.py",
-    "gramps/plugins/tool/gwizardmerge.py",
-    "gramps/plugins/tool/gwizard_filemerge_scan.py",
+    "gramps/gen/gwizard/gwizardfamilysearch.py",
+    "gramps/gen/gwizard/gwizardfsprovenance.py",
+    "gramps/gui/gwizard/gwizardfslauncher.py",
+    "gramps/gui/gwizard/gwizardfsmergedialog.py",
+    "gramps/plugins/tool/gwizardfsmerge.py",
+    "gramps/plugins/tool/gwizardfssource.py",
 ]
 tests = [
-    "gramps/gen/gwizard/test/*_test.py",
-    "gramps/gui/gwizard/test/*_test.py",
-    "gramps/plugins/tool/test/gwizardmerge*_test.py",
-    "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
-]
-# gwizardmerge.py imports the launcher flat, and falls back to the core
-# location when run from the source tree; keep that fallback as written.
-keep_unrewritten = [
-    '^\s*from\s+gramps\.gui\.gwizard\.gwizardlauncher\s+import\s*\(\s*$',
+    "gramps/gen/gwizard/test/gwizardfamilysearch_test.py",
+    "gramps/gui/gwizard/test/gwizardfslauncher_test.py",
+    "gramps/plugins/tool/test/gwizardfssource_test.py",
 ]
 
 # The GWizard Multi-Archive Record Scan: a second Tools menu entry in the same addon. It
@@ -46,22 +47,45 @@ toolclass = "GWizardRecordScan"
 optionclass = "GWizardRecordScanOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
-help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
+category = "GWizardRecordSource"
+load_on_reg = true
 gramps_versions = ["5.2.0", "6.2.0"]
 
-[files.test_data]
-source = "gramps/gen/gwizard/test/data"
-target = "data"
-required = ["gwizard_mergefrom_sources.ged"]
+# The shared gwizard modules ship in GWizardFileMerge.
+[[dependencies]]
+id = "gwizardmerge"
+package = "GWizardFileMerge"
+modules = [
+    "gramps/gen/gwizard/gwizard_base.py",
+    "gramps/gen/gwizard/gwizard_filemerge_recordscan.py",
+    "gramps/gen/gwizard/gwizardaltmatch.py",
+    "gramps/gen/gwizard/gwizardgedcom.py",
+    "gramps/gui/gwizard/gwizardaltcompare.py",
+    "gramps/gui/gwizard/gwizardcompare.py",
+    "gramps/gui/gwizard/gwizardlauncher.py",
+    "gramps/gui/gwizard/gwizardmergedialog.py",
+    "gramps/plugins/tool/gwizardmerge.py",
+]
 
 [check]
-# The branch this feature branch was started from (local name first, then
-# the remote one, whichever exists).
 base = ["functionality_base", "origin/functionality_base"]
 ignore = [
     "featuredocs/**",
-    "gwizard_filemerge_*.txt",
-    "package_gwizard_filemerge.py",
+    "*.md",
+    "*.txt",
+    "gramps/gen/gwizard/__init__.py",
+    "gramps/gui/gwizard/__init__.py",
+    "gramps/gen/gwizard/test/__init__.py",
+    "gramps/gui/gwizard/test/__init__.py",
+    "gramps/gen/gwizard/test/gwizard_test.py",
+    "gramps/gen/gwizard/test/gwizard_*_test.py",
+    "gramps/gen/gwizard/test/data/**",
+    "gramps/gui/gwizard/test/gwizard_*_test.py",
+    "gramps/plugins/tool/test/gwizardmerge*_test.py",
+    "gramps/gen/gwizard/gwizard_filemerge_*.py",
+    "gramps/gui/gwizard/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",
