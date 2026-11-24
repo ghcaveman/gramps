@@ -334,6 +334,24 @@ class GWizardCommonTest(unittest.TestCase):
 # Test discovery imports every test module before running any, so take the
 # fakes off Gtk again now that the GWizard modules are imported; other Gramps
 # tests need the real widgets.  setUpModule puts them back for this module.
+
+
+class SharedLabelsTest(unittest.TestCase):
+    """Media Fix dialog text uses the shared labels, so it can be copied."""
+
+    def test_no_plain_gtk_labels(self) -> None:
+        """SelectableLabel, TableLabel and HeaderLabel make text selectable."""
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for name in (
+            "gwizardmediafix.py",
+            "gw_fixmediareferencesdialog.py",
+            "gw_mediapreview.py",
+        ):
+            with self.subTest(module=name):
+                with open(os.path.join(here, name), encoding="utf-8") as handle:
+                    self.assertNotIn("Gtk.Label(", handle.read())
+
+
 fakes.uninstall()
 
 

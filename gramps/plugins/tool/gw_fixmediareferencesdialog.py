@@ -51,6 +51,7 @@ from gramps.gui.dialog import OkDialog
 
 try:
     from .gwizard_mediafix_common import (
+        SelectableLabel,
         TableLabel,
         HeaderLabel,
         create_table_grid,
@@ -69,6 +70,7 @@ try:
     )
 except (ImportError, ValueError):
     from gwizard_mediafix_common import (  # type: ignore[import-not-found,no-redef]
+        SelectableLabel,
         TableLabel,
         HeaderLabel,
         create_table_grid,
@@ -529,7 +531,7 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
         content.set_border_width(12)
         content.set_spacing(6)
 
-        info = Gtk.Label(
+        info = SelectableLabel(
             label=str(
                 _(
                     "Review duplicate references where a single media file is shared by multiple records, "
@@ -542,20 +544,18 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                 )
             )
         )
-        info.set_line_wrap(True)
-        info.set_halign(Gtk.Align.START)
         content.add(info)
 
         if not self.groups:
-            done = Gtk.Label(
+            done = SelectableLabel(
                 label=str(
                     _(
                         "No duplicate or unreferenced media records, misspelled "
                         "names or leftover import notes found."
                     )
-                )
+                ),
+                wrap=False,
             )
-            done.set_halign(Gtk.Align.START)
             content.add(done)
             return
 
@@ -563,7 +563,7 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
         unref_count = sum(1 for g in self.groups if g.get("type") == "unreferenced")
         name_count = sum(1 for g in self.groups if g.get("type") == "name_mismatch")
         note_count = sum(1 for g in self.groups if g.get("type") == "import_notes")
-        count_label = Gtk.Label(
+        count_label = SelectableLabel(
             label=str(
                 _(
                     "Total items to fix: %(total)d (duplicate file groups: "
@@ -577,9 +577,9 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                     "names": name_count,
                     "notes": note_count,
                 }
-            )
+            ),
+            wrap=False,
         )
-        count_label.set_halign(Gtk.Align.START)
         content.add(count_label)
 
         header_grid = create_table_grid(col_spacing=6, row_spacing=0)
