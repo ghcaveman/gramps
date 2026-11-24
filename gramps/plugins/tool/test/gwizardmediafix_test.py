@@ -1358,7 +1358,8 @@ class GWizardMediaFixTest(unittest.TestCase):
                 self.assertIn("Find missing media: 1 missing path found", report_body)
                 self.assertIn(
                     "Fix media references: duplicate records merged: 1; "
-                    "unreferenced image tags deleted: 1.",
+                    "unreferenced image tags deleted: 1; names corrected: 0; "
+                    "leftover import notes deleted: 0.",
                     report_body,
                 )
                 self.assertIn("CHANGES REQUIRING HUMAN INTERVENTION:", report_body)

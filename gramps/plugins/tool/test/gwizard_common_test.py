@@ -58,6 +58,8 @@ from gramps.plugins.tool.gwizard_common import (
     path_key,
     to_db_path,
     unique_destination,
+    consolidation_destination,
+    same_content,
     relocate_file,
     build_basename_index,
     TAG_MEDIA_FIXED,
@@ -160,6 +162,39 @@ class GWizardCommonTest(unittest.TestCase):
         self.assertEqual(to_db_path(outside, base), outside)
         self.assertEqual(to_db_path("", base), "")
         self.assertEqual(to_db_path(inside, ""), inside)
+
+    def test_consolidation_destination_reuses_identical_file(self) -> None:
+        """An identical file at the destination is reused; a different one is not."""
+        with tempfile.TemporaryDirectory() as tmp:
+
+            def write(name: str, text: str) -> str:
+                path = os.path.join(tmp, name)
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(text)
+                return path
+
+            src = write("src.jpg", "photo")
+            same = write("same.jpg", "photo")
+            other = write("other.jpg", "another photo")
+            self.assertTrue(same_content(src, same))
+            self.assertFalse(same_content(src, other))
+            self.assertFalse(same_content(src, os.path.join(tmp, "none.jpg")))
+
+            claimed: set[str] = set()
+            self.assertEqual(
+                consolidation_destination(same, claimed, src), (same, "reuse")
+            )
+            # Once claimed in this batch it is not handed out again.
+            dest, how = consolidation_destination(same, claimed, src)
+            self.assertEqual(how, "renamed")
+            self.assertNotEqual(dest, same)
+
+            dest, how = consolidation_destination(other, set(), src)
+            self.assertEqual(how, "renamed")
+            self.assertTrue(dest.endswith("other_2.jpg"))
+
+            free = os.path.join(tmp, "free.jpg")
+            self.assertEqual(consolidation_destination(free, set(), src), (free, ""))
 
     def test_unique_destination(self) -> None:
         """unique_destination appends numerical suffixes to avoid collisions on disk and in batch."""

@@ -44,6 +44,7 @@ from gi.repository import Gtk
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
+from gramps.gen.errors import HandleError
 from gramps.gen.merge.mergemediaquery import MergeMediaQuery
 from gramps.gen.utils.file import media_path_full
 from gramps.gui.dialog import OkDialog
@@ -327,6 +328,92 @@ def find_name_fix_groups(db: DbReadBase | None) -> list[dict[str, Any]]:
         )
     groups.sort(key=lambda g: gramps_id_key(g["keeper"]["gramps_id"]))
     return groups
+
+
+# ------------------------------------------------------------
+#
+# The fixes themselves, shared by this dialog and 'Accept all hints' so the
+# two always do exactly the same thing.
+#
+# ------------------------------------------------------------
+def merge_into_keeper(dbstate: Any, group: dict[str, Any]) -> tuple[int, list[str]]:
+    """
+    Merge every other record of a duplicate group into its keeper.
+
+    :param dbstate: The Gramps database state (Gramps' merge needs it).
+    :param group: A ``"duplicate"`` group from :func:`find_duplicate_media_groups`.
+    :returns: ``(records merged, errors)``.
+    """
+    db = dbstate.db
+    try:
+        keeper_media = db.get_media_from_handle(group["keeper"]["handle"])
+    except HandleError:
+        return 0, []
+    if not keeper_media:
+        return 0, []
+    merged = 0
+    errors: list[str] = []
+    for other in group["records"]:
+        if other["handle"] == group["keeper"]["handle"]:
+            continue
+        try:
+            other_media = db.get_media_from_handle(other["handle"])
+        except HandleError:
+            continue  # already merged or deleted
+        if not other_media:
+            continue
+        try:
+            MergeMediaQuery(dbstate, keeper_media, other_media).execute()
+            fill_merged_checksum(db, keeper_media, other_media)
+            add_media_fixed_tag(db, keeper_media, commit=True)
+            merged += 1
+        except Exception as err:
+            LOG.exception("Failed to merge media record: %s", err)
+            errors.append("[%s] %s" % (other.get("gramps_id", ""), err))
+    return merged, errors
+
+
+def delete_unreferenced(db: DbWriteBase, handle: str) -> bool:
+    """
+    Delete an unreferenced media record and the import notes only it used.
+
+    :param db: The database.
+    :param handle: The record's handle.
+    :returns: Whether it was deleted (``False`` if it was already gone).
+    """
+    try:
+        if db.get_media_from_handle(handle) is None:
+            return False
+    except HandleError:
+        return False
+    with DbTxn(_("Remove Unreferenced Media"), db) as trans:
+        remove_media_with_import_notes(db, handle, trans)
+    return True
+
+
+def apply_name_fix(db: DbWriteBase, group: dict[str, Any]) -> bool:
+    """
+    Put the linked person's name into one media description.
+
+    Shared by the Fix media references dialog and 'Accept all hints', so the
+    two always do the same thing.  A record merged away or deleted earlier in
+    the same run, or whose description was edited since the scan, is skipped.
+
+    :param db: The database.
+    :param group: A group from :func:`find_name_fix_groups`.
+    :returns: Whether the description was changed.
+    """
+    try:
+        media = db.get_media_from_handle(group["keeper"]["handle"])
+    except HandleError:
+        return False
+    if media is None or str(media.get_description() or "") != group["keeper"]["desc"]:
+        return False
+    with DbTxn(_("Correct Media Description"), db) as trans:
+        media.set_description(group["new_desc"])
+        add_media_fixed_tag(db, media, txn=trans)
+        db.commit_media(media, trans)
+    return True
 
 
 def find_import_note_groups(db: DbReadBase | None) -> list[dict[str, Any]]:
@@ -864,20 +951,9 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
             if g_type == "name_mismatch":
                 if choice != 0:
                     continue
-                db = self.dbstate.db
-                media = db.get_media_from_handle(group["keeper"]["handle"])
-                # Skip a record merged away above or edited since the scan.
-                if (
-                    not media
-                    or str(media.get_description() or "") != group["keeper"]["desc"]
-                ):
-                    continue
                 try:
-                    with DbTxn(_("Correct Media Description"), db) as trans:
-                        media.set_description(group["new_desc"])
-                        add_media_fixed_tag(db, media, txn=trans)
-                        db.commit_media(media, trans)
-                    renamed_count += 1
+                    if apply_name_fix(self.dbstate.db, group):
+                        renamed_count += 1
                 except Exception as err:
                     LOG.exception("Failed to correct media description: %s", err)
                     errors.append("[%s] %s" % (group["keeper"]["gramps_id"], err))
@@ -902,22 +978,14 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
 
             if g_type == "unreferenced":
                 if choice == 0:
-                    handle = group["keeper"]["handle"]
-                    cand = self.dbstate.db.get_media_from_handle(handle)
-                    if cand:
-                        try:
-                            with DbTxn(
-                                _("Remove Unreferenced Media"), self.dbstate.db
-                            ) as trans:
-                                remove_media_with_import_notes(
-                                    self.dbstate.db, handle, trans
-                                )
-                                deleted_count += 1
-                        except Exception as err:
-                            LOG.exception(
-                                "Failed to remove unreferenced media: %s", err
-                            )
-                            errors.append(str(err))
+                    try:
+                        if delete_unreferenced(
+                            self.dbstate.db, group["keeper"]["handle"]
+                        ):
+                            deleted_count += 1
+                    except Exception as err:
+                        LOG.exception("Failed to remove unreferenced media: %s", err)
+                        errors.append(str(err))
                 continue
 
             if choice == 2:  # Keep shared (no change)
@@ -928,31 +996,9 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
 
             if choice == 0:
                 # Merge duplicate records into keeper
-                keeper_media = self.dbstate.db.get_media_from_handle(keeper["handle"])
-                if not keeper_media:
-                    continue
-                for other in records:
-                    if other["handle"] == keeper["handle"]:
-                        continue
-                    try:
-                        other_media = self.dbstate.db.get_media_from_handle(
-                            other["handle"]
-                        )
-                        if other_media:
-                            query = MergeMediaQuery(
-                                self.dbstate, keeper_media, other_media
-                            )
-                            query.execute()
-                            fill_merged_checksum(
-                                self.dbstate.db, keeper_media, other_media
-                            )
-                            add_media_fixed_tag(
-                                self.dbstate.db, keeper_media, commit=True
-                            )
-                            merged_count += 1
-                    except Exception as err:
-                        LOG.exception("Failed to merge media record: %s", err)
-                        errors.append(str(err))
+                merged, merge_errors = merge_into_keeper(self.dbstate, group)
+                merged_count += merged
+                errors.extend(merge_errors)
 
             elif choice == 1:
                 # Create separate file copies for each duplicate record

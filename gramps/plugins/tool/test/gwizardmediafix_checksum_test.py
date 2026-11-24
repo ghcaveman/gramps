@@ -460,7 +460,7 @@ class ChecksumMaintenanceTest(_ChecksumDbTest):
         plan = mf.build_accept_all_plan(self.db, self.base, True)
         self.assertEqual(plan["checksums"], [(self.media(h_a).gramps_id, "a.jpg")])
         self.assertTrue(mf.plan_has_changes(plan))
-        self.assertIn("Store checksums: 1 record has none yet", mf.format_plan(plan))
+        self.assertIn("Checksums: 1 record has none yet", mf.format_plan(plan))
         self.assertEqual(self.tool()._auto_store_checksums(self.db), 1)
 
     def test_split_copies_get_checksum(self) -> None:
