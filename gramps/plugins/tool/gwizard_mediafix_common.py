@@ -441,6 +441,60 @@ def unique_destination(dest: str, claimed: set[str], src: str | None = None) -> 
     return cand
 
 
+def same_content(first: str, second: str) -> bool:
+    """
+    Return True if two readable files have exactly the same content.
+
+    Compared by size first, then by checksum (MD5, as Gramps stores it).
+
+    :param first: A file's full path.
+    :param second: Another file's full path.
+    :returns: Whether both can be read and their contents are identical.
+    """
+    try:
+        if os.path.getsize(first) != os.path.getsize(second):
+            return False
+    except OSError:
+        return False
+    digest = file_checksum(first)
+    return bool(digest) and digest == file_checksum(second)
+
+
+def consolidation_destination(
+    dest: str, claimed: set[str], src: str | None = None
+) -> tuple[str, str]:
+    """
+    Choose where a file goes when consolidating.
+
+    When *dest* already holds a file with exactly the same content as *src*
+    (e.g. left by an earlier run, or a copy made by hand), that file is
+    reused instead of adding ``_2``, ``_3`` ... to the name.  Otherwise this
+    is :func:`unique_destination`.  The result is claimed.
+
+    :param dest: The standard destination.
+    :param claimed: Destinations already used in this batch.
+    :param src: The file being consolidated.
+    :returns: ``(path, how)``: *how* is ``"reuse"`` when an identical file
+        is already there, ``"renamed"`` when the name was taken by a
+        different file, otherwise ``""``.
+    """
+    if (
+        src
+        and path_key(dest) not in claimed
+        and os.path.isfile(dest)
+        and os.path.exists(src)
+    ):
+        try:
+            same_file = os.path.samefile(src, dest)
+        except OSError:
+            same_file = False
+        if not same_file and same_content(src, dest):
+            claimed.add(path_key(dest))
+            return dest, "reuse"
+    final = unique_destination(dest, claimed, src)
+    return final, ("renamed" if path_key(final) != path_key(dest) else "")
+
+
 def relocate_file(src: str, dest: str, copy: bool = False) -> tuple[bool, str]:
     """Move or copy src to dest WITHOUT ever overwriting an existing file.
 

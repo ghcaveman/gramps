@@ -50,6 +50,7 @@ from gramps.gen.config import config
 from gramps.gen.mime import get_type, is_valid_type
 from gramps.gen.const import GRAMPS_LOCALE as glocale, USER_HOME, USER_PICTURES
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
+from gramps.gen.errors import HandleError
 from gramps.gen.types import EventHandle, MediaHandle, PersonHandle
 from gramps.gen.utils.db import get_birth_or_fallback, get_death_or_fallback
 from gramps.gen.utils.file import expand_path, media_path, media_path_full
@@ -63,7 +64,7 @@ from gramps.gui.plug import tool
 #
 # -------------------------------------------------------------------------
 try:
-    from .gwizard_common import (
+    from .gwizard_mediafix_common import (
         SelectableLabel,
         TableLabel,
         HeaderLabel,
@@ -73,6 +74,8 @@ try:
         path_key,
         to_db_path,
         unique_destination,
+        consolidation_destination,
+        same_content,
         relocate_file,
         build_basename_index,
         MoveLog,
@@ -97,7 +100,7 @@ try:
         remove_media_with_import_notes,
     )
 except (ImportError, ValueError):
-    from gwizard_common import (  # type: ignore[import-not-found,no-redef]
+    from gwizard_mediafix_common import (  # type: ignore[import-not-found,no-redef]
         SelectableLabel,
         TableLabel,
         HeaderLabel,
@@ -107,6 +110,8 @@ except (ImportError, ValueError):
         path_key,
         to_db_path,
         unique_destination,
+        consolidation_destination,
+        same_content,
         relocate_file,
         build_basename_index,
         MoveLog,
@@ -142,13 +147,21 @@ except (ImportError, ValueError):
 try:
     from .gw_fixmediareferencesdialog import (
         FixMediaReferencesDialog,
+        apply_name_fix,
+        delete_unreferenced,
+        merge_into_keeper,
         find_duplicate_media_groups,
+        find_name_fix_groups,
         fill_merged_checksum,
     )
 except (ImportError, ValueError):
     from gw_fixmediareferencesdialog import (  # type: ignore[import-not-found,no-redef]
         FixMediaReferencesDialog,
+        apply_name_fix,
+        delete_unreferenced,
+        merge_into_keeper,
         find_duplicate_media_groups,
+        find_name_fix_groups,
         fill_merged_checksum,
     )
 
@@ -911,6 +924,183 @@ def store_media_checksums(
     return added, updated, unreadable
 
 
+def repoint_media(db: DbWriteBase, media: Any, new_path: str, trans: Any) -> bool:
+    """
+    Point a media record at a found file (Find missing media's fix).
+
+    Shared by the Find missing media dialog and 'Accept all hints'.  A record
+    is never pointed at a file that does not exist; a relative path is
+    checked against the base media path only.  The record may now point at
+    another file, so its checksum is stored again.
+
+    :param db: The database.
+    :param media: The record.
+    :param new_path: The path to store (relative to the base path, or absolute).
+    :param trans: The open transaction.
+    :returns: Whether the record was repointed.
+    """
+    new_full = full_media_path(db, new_path)
+    if not os.path.exists(new_full):
+        return False
+    media.set_path(new_path)
+    refresh_checksum(media, new_full)
+    add_media_fixed_tag(db, media, txn=trans)
+    db.commit_media(media, trans)
+    return True
+
+
+def relocate_media_records(
+    db: DbWriteBase,
+    records: list[Any],
+    src_full: str,
+    dest_full: str,
+    base_dir: str,
+    move_log: MoveLog,
+    trans: Any,
+    copy: bool = False,
+) -> tuple[bool, str]:
+    """
+    Move (or copy) one file and repoint every record that uses it.
+
+    Consolidate's fix, shared by its dialog and 'Accept all hints'.  The
+    records are repointed only once the file is safely in place, and every
+    change is logged so 'Undo last file moves' can reverse it.
+
+    :param db: The database.
+    :param records: The media records that use the file.
+    :param src_full: The file's current full path.
+    :param dest_full: Where it goes (already made unique by the caller).
+    :param base_dir: The base media directory (paths are stored relative to it).
+    :param move_log: The run's move log.
+    :param trans: The open transaction.
+    :param copy: Copy the file instead of moving it.
+    :returns: ``(ok, error)``; nothing is changed when *ok* is ``False``.
+        When *dest_full* already holds a file with the same content, that
+        file is used and nothing is moved or copied.
+    """
+    reuse = path_key(src_full) != path_key(dest_full) and (
+        os.path.isfile(dest_full) and same_content(src_full, dest_full)
+    )
+    if not reuse:
+        ok, err = relocate_file(src_full, dest_full, copy=copy)
+        if not ok:
+            LOG.warning("Failed to relocate '%s': %s", src_full, err)
+            return False, err
+    new_rel = to_db_path(dest_full, base_dir)
+    if reuse or path_key(src_full) == path_key(dest_full):
+        # An identical file is already there: use it and leave the original
+        # where it is (Undo then only repoints the records back to it).
+        action = "repoint"
+    else:
+        action = "copy" if copy else "move"
+    for media in records:
+        move_log.record(
+            action,
+            media,
+            clean_path(str(media.get_path() or "")),
+            new_rel,
+            src_full,
+            dest_full,
+        )
+        media.set_path(new_rel)
+        # Moving or copying cannot change the content, so only a missing
+        # checksum is filled in.
+        refresh_checksum(media, dest_full, only_if_missing=True)
+        add_media_fixed_tag(db, media, txn=trans)
+        db.commit_media(media, trans)
+    return True, ""
+
+
+def set_base_media_path(db: DbWriteBase, path: str) -> int:
+    """
+    Save a new base media path, keeping other records pointing at their files.
+
+    Shared by Find missing media's folder button and the prompt in 'Accept
+    all hints'.  A relative path is resolved against the base media path, so
+    changing it would silently re-root every relative record; those whose
+    file exists now are repointed so they still find it.
+
+    :param db: The database.
+    :param path: The new setting ("" clears it).
+    :returns: Number of records repointed.
+    """
+    snapshot = snapshot_resolved_paths(db)
+    with DbTxn(_("Set Base Media Path"), db) as trans:
+        db.set_mediapath(path or None)
+        return keep_records_pointing_at_files(db, snapshot, trans, set())
+
+
+def fill_missing_checksums(db: DbWriteBase, parent: Any = None) -> int:
+    """
+    Quietly give every readable media file without a checksum one.
+
+    Run at the end of each step's Apply, so no separate step is needed.  A
+    checksum that no longer matches its file is never touched here: that
+    difference is how an edited or replaced file is noticed (the report lists
+    those and offers to update them).
+
+    :param db: The database.
+    :param parent: Parent window for the progress meter (shown while hashing).
+    :returns: Number of records given a checksum.
+    """
+    added, _updated, _unreadable = store_media_checksums(
+        db, only_missing=True, parent=parent
+    )
+    return added
+
+
+def checksums_added_note(added: int) -> str:
+    """
+    One line for a step's result saying checksums were filled in.
+
+    :param added: Result of :func:`fill_missing_checksums`.
+    :returns: The line ("" when there is nothing to say).
+    """
+    if not added:
+        return ""
+    return (
+        ngettext(
+            "Stored a checksum for %d media record that had none.",
+            "Stored checksums for %d media records that had none.",
+            added,
+        )
+        % added
+    )
+
+
+def update_changed_checksums(
+    db: DbWriteBase, handles: list[str], parent: Any = None
+) -> int:
+    """
+    Store the current checksum for records whose file content has changed.
+
+    :param db: The database.
+    :param handles: Media handles, as listed by the report's content check.
+    :param parent: Parent window for the progress meter.
+    :returns: Number of checksums updated.
+    """
+    updated = 0
+    prog = _Progress(str(_("Updating media checksums")), len(handles), parent)
+    try:
+        with DbTxn(_("Update changed media checksums"), db) as trans:
+            for handle in handles:
+                prog.step()
+                try:
+                    media = db.get_media_from_handle(handle)
+                except Exception:
+                    media = None
+                if media is None:
+                    continue
+                raw = clean_path(str(media.get_path() or ""))
+                full = full_media_path(db, raw) if raw else ""
+                if full and refresh_checksum(media, full):
+                    db.commit_media(media, trans)
+                    updated += 1
+    finally:
+        prog.close()
+    return updated
+
+
 def scan_unreadable_media(
     db: DbReadBase,
 ) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
@@ -1066,24 +1256,55 @@ def _persons_of(db: DbReadBase, cname: str, handle: str, _depth: int = 0) -> lis
     return found
 
 
+def _person_names(person: Any) -> list[Any]:
+    """
+    Return a person's primary name followed by their alternate names.
+
+    An alternate name is how a record such as a census spelled the person
+    ("Smyth" for "Smith"), so it counts as a match too.
+
+    :param person: The person.
+    :returns: Name objects, primary first (empty names left out).
+    """
+    names = [person.get_primary_name()]
+    try:
+        names.extend(person.get_alternate_names() or [])
+    except Exception:
+        pass
+    return [n for n in names if n]
+
+
+def _name_matches(name: Any, surname: str, given: str) -> bool:
+    """
+    Return True if one name object matches a surname and given name.
+
+    Given names match when one starts with the other ("Walter" / "Walter James").
+
+    :param name: A Gramps Name.
+    :param surname: Surname to match.
+    :param given: Given name to match (may be empty).
+    :returns: Whether the names match.
+    """
+    if _norm_name(name.get_surname()) != _norm_name(surname):
+        return False
+    pg, dg = _norm_name(name.get_first_name()), _norm_name(given)
+    return not dg or pg.startswith(dg) or dg.startswith(pg)
+
+
 def _person_matches(person: Any, surname: str, given: str) -> bool:
     """
-    Return True if a person's primary name matches a surname and given name.
+    Return True if any of a person's names matches a surname and given name.
 
-    Given names match when one starts with the other ("Harry" / "Harry Jay").
+    The primary name and every alternate name are checked.
 
     :param person: The person.
     :param surname: Surname to match.
     :param given: Given name to match (may be empty).
     :returns: Whether the names match.
     """
-    name = person.get_primary_name()
-    if not name or not surname:
+    if not surname:
         return False
-    if _norm_name(name.get_surname()) != _norm_name(surname):
-        return False
-    pg, dg = _norm_name(name.get_first_name()), _norm_name(given)
-    return not dg or pg.startswith(dg) or dg.startswith(pg)
+    return any(_name_matches(n, surname, given) for n in _person_names(person))
 
 
 def _gid_of(obj: Any) -> str:
@@ -1101,7 +1322,7 @@ def _name_score(person: Any, surname: str, given: str) -> float:
     Score how well a person matches the name written in a description.
 
     An exact (normalised) match scores 2.0; a close surname spelling variant
-    ("Duvault" for "Devault") with a compatible given name scores the surname
+    ("Murrow" for "Morrow") with a compatible given name scores the surname
     similarity (0.75 - 1.0); anything else scores 0.0.
 
     :param person: The candidate person.
@@ -1111,16 +1332,18 @@ def _name_score(person: Any, surname: str, given: str) -> float:
     """
     if _person_matches(person, surname, given):
         return 2.0
-    pname = person.get_primary_name()
-    if not pname or not surname:
+    if not surname:
         return 0.0
-    ratio = difflib.SequenceMatcher(
-        None, _norm_name(surname), _norm_name(pname.get_surname())
-    ).ratio()
-    if ratio < 0.75:
-        return 0.0
-    pg, dg = _norm_name(pname.get_first_name()), _norm_name(given)
-    return ratio if (not dg or pg.startswith(dg) or dg.startswith(pg)) else 0.0
+    best = 0.0
+    dg = _norm_name(given)
+    for pname in _person_names(person):
+        ratio = difflib.SequenceMatcher(
+            None, _norm_name(surname), _norm_name(pname.get_surname())
+        ).ratio()
+        pg = _norm_name(pname.get_first_name())
+        if ratio >= 0.75 and (not dg or pg.startswith(dg) or dg.startswith(pg)):
+            best = max(best, ratio)
+    return best
 
 
 def _best_person(db: DbReadBase, handles: list[PersonHandle], text: str) -> Any:
@@ -1193,15 +1416,46 @@ def _order_backlinks(
     return ordered
 
 
-def find_name_mismatches(
-    db: DbReadBase,
-) -> list[tuple[str, str, str, str, str]]:
-    """Media whose description names someone ("Surname, Given - ...") who is not
-    among the people it is attached to, e.g. 'Duvault' vs 'Devault'.
-
-    Returns (media_id, description, name_in_description, linked_name, kind).
+def replace_name_in_text(text: str, surname: str, given: str) -> str:
     """
-    out: list[tuple[str, str, str, str, str]] = []
+    Replace the leading "Surname, Given" of a description with another name.
+
+    The rest of the text, including its separator ("Smyth, Anna -
+    1900Census" or "Smyth, Anna_1900Census"), is kept as it is.
+
+    :param text: The description.
+    :param surname: The new surname.
+    :param given: The new given name.
+    :returns: The new description (unchanged when it names nobody).
+    """
+    m = re.match(
+        r"^\s*((?:[^\W\d_]|[\s'\-])+?)\s*,\s*((?:[^\W\d_]|[\s'\-])+?)\s*[-_:]+\s*(.+)$",
+        text or "",
+    )
+    if not m:
+        return text
+    return (
+        text[: m.start(1)]
+        + surname
+        + text[m.end(1) : m.start(2)]
+        + given
+        + text[m.end(2) :]
+    )
+
+
+def find_name_mismatch_records(db: DbReadBase) -> list[dict[str, Any]]:
+    """Media whose description names someone ("Surname, Given - ...") who is not
+    among the people it is attached to, e.g. 'Murrow' vs 'Morrow'.
+
+    A person's alternate names count: if "Smyth, Anna" is an alternate name
+    of Anna Smith, the record is not a mismatch.
+
+    Each result holds ``handle``, ``gramps_id``, ``desc``, ``in_desc`` (the name
+    in the description), ``linked`` (the closest linked person's primary name),
+    ``kind`` ("probable spelling variant" or "different person") and
+    ``new_desc`` (the description with that primary name put in).
+    """
+    out: list[dict[str, Any]] = []
     for media in db.iter_media():
         desc = str(media.get_description() or "")
         sur, giv, _rest = parse_name_from_text(desc)
@@ -1216,26 +1470,47 @@ def find_name_mismatches(
             people.extend(_persons_of(db, cname, handle))
         if not people or any(_person_matches(p, sur, giv) for p in people):
             continue
-        best_name, best_ratio = "", 0.0
+        best_person, best_ratio = people[0], 0.0
         for p in people:
-            pn = p.get_primary_name()
-            ratio = difflib.SequenceMatcher(
-                None, _norm_name(sur), _norm_name(pn.get_surname())
-            ).ratio()
-            if ratio >= best_ratio:
-                best_ratio = ratio
-                best_name = "%s, %s" % (pn.get_surname(), pn.get_first_name())
-        kind = "probable spelling variant" if best_ratio >= 0.75 else "different person"
+            for name in _person_names(p):
+                ratio = difflib.SequenceMatcher(
+                    None, _norm_name(sur), _norm_name(name.get_surname())
+                ).ratio()
+                if ratio >= best_ratio:
+                    best_ratio = ratio
+                    best_person = p
+        pn = best_person.get_primary_name()
         out.append(
-            (
-                str(media.get_gramps_id() or ""),
-                desc,
-                "%s, %s" % (sur, giv),
-                best_name,
-                kind,
-            )
+            {
+                "handle": media.get_handle(),
+                "gramps_id": str(media.get_gramps_id() or ""),
+                "desc": desc,
+                "in_desc": "%s, %s" % (sur, giv),
+                "linked": "%s, %s" % (pn.get_surname(), pn.get_first_name()),
+                "kind": (
+                    "probable spelling variant"
+                    if best_ratio >= 0.75
+                    else "different person"
+                ),
+                "new_desc": replace_name_in_text(
+                    desc, pn.get_surname(), pn.get_first_name()
+                ),
+            }
         )
     return out
+
+
+def find_name_mismatches(
+    db: DbReadBase,
+) -> list[tuple[str, str, str, str, str]]:
+    """Name mismatches for the report (see :func:`find_name_mismatch_records`).
+
+    Returns (media_id, description, name_in_description, linked_name, kind).
+    """
+    return [
+        (r["gramps_id"], r["desc"], r["in_desc"], r["linked"], r["kind"])
+        for r in find_name_mismatch_records(db)
+    ]
 
 
 def find_duplicate_media_references(
@@ -1777,7 +2052,7 @@ class _Progress:
 # Stale "Records not imported into OBJE" notes left by the Legacy import
 #
 # ------------------------------------------------------------
-# IMPORT_NOTE_PREFIX now lives in gwizard_common (shared with is_bare_media).
+# IMPORT_NOTE_PREFIX now lives in gwizard_mediafix_common (shared with is_bare_media).
 
 
 def find_stale_import_notes(
@@ -1822,23 +2097,58 @@ def remove_import_notes(db: DbWriteBase, items: list[tuple[str, str, str, str]])
     """
     Detach the notes from their media and delete notes nothing else uses.
 
+    The media record may be gone by now (Fix media references can merge or
+    delete it in the same Apply).  A merged-away record's notes moved to the
+    record it was merged into, so the note is removed from there; a deleted
+    record took its import notes with it, so there is nothing left to do.
+
     :param db: The database.
     :param items: Result of :func:`find_stale_import_notes`.
     :returns: Number of notes removed from media.
         A note still used elsewhere is detached but not deleted; it is
         counted, since the user asked for it to be removed from the media.
     """
+
+    def get(getter: Any, handle: str) -> Any:
+        """Look an object up; ``None`` when it no longer exists."""
+        try:
+            return getter(handle)
+        except HandleError:
+            return None
+
     removed = 0
+    done: set[tuple[str, str]] = set()
     with DbTxn(_("Remove stale import notes"), db) as trans:
         for mh, _mgid, nh, _ngid in items:
-            media = db.get_media_from_handle(mh)
-            if media is None:
-                continue
-            media.remove_note(nh)
-            db.commit_media(media, trans)
-            removed += 1
+            if get(db.get_note_from_handle, nh) is None:
+                continue  # already deleted (with its media, or earlier here)
+            media = get(db.get_media_from_handle, mh)
+            if media is not None:
+                holders = [media]
+            else:  # merged away: the note is on the surviving record now
+                holders = [
+                    m
+                    for cname, h in db.find_backlink_handles(nh)
+                    if cname == "Media"
+                    for m in [get(db.get_media_from_handle, h)]
+                    if m is not None
+                ]
+            detached: set[str] = set()
+            for holder in holders:
+                key = (holder.get_handle(), nh)
+                if key in done or nh not in holder.get_note_list():
+                    continue
+                done.add(key)
+                holder.remove_note(nh)
+                db.commit_media(holder, trans)
+                detached.add(holder.get_handle())
+                removed += 1
+            # Delete the note when nothing else uses it.  (The links just
+            # removed are excluded by hand, in case the reference map lags.)
             others = [
-                b for b in db.find_backlink_handles(nh) if tuple(b) != ("Media", mh)
+                b
+                for b in db.find_backlink_handles(nh)
+                if not (b[0] == "Media" and b[1] in detached)
             ]
             if not others:
                 db.remove_note(nh, trans)
@@ -2025,7 +2335,9 @@ def plan_consolidation_moves(
         ``base_dir`` because it was found there.
     :param cache: Reference-context cache shared with other planning steps.
     :returns: The moves.  Each is a dict with ``media`` (list), ``gids``,
-        ``raw``, ``src_full``, ``dest_full`` and ``renamed``.
+        ``raw``, ``src_full``, ``dest_full``, ``renamed`` (the standard name was
+        taken by a different file), ``reuse`` (an identical file is already
+        at the standard name) and ``standard_full``.
     """
     effective = effective or {}
     gone = gone or set()
@@ -2066,7 +2378,7 @@ def plan_consolidation_moves(
             # Missing or unreadable: reported once, with the right reason,
             # by scan_unreadable_media().
             continue
-        final = unique_destination(dest_full, claimed, src_full)
+        final, how = consolidation_destination(dest_full, claimed, src_full)
         moves.append(
             {
                 "media": [m for m, _r, _s in members],
@@ -2074,7 +2386,9 @@ def plan_consolidation_moves(
                 "raw": namer_raw,
                 "src_full": src_full,
                 "dest_full": final,
-                "renamed": path_key(final) != path_key(dest_full),
+                "renamed": how == "renamed",
+                "reuse": how == "reuse",
+                "standard_full": dest_full,
             }
         )
     return moves
@@ -2087,9 +2401,9 @@ def plan_consolidation_moves(
 # ------------------------------------------------------------
 NO_BASE_PATH_REASON = _(
     "No base media path is set for this family tree, so there is no folder to "
-    "move files into. Set one in 'Consolidate media location' or in Edit > "
-    "Preferences > Family Tree > Base media path, then run 'Accept all hints' "
-    "again. The other fixes listed here are not affected."
+    "move files into. Set one with the folder button in 'Find missing media' "
+    "or in Edit > Preferences > Family Tree > Base media path, then run "
+    "'Accept all hints' again. The other fixes listed here are not affected."
 )
 
 
@@ -2115,6 +2429,8 @@ def build_accept_all_plan(
         "merges": [],
         "delete": [],
         "keep_unref": [],
+        "names": [],
+        "notes": [],
         "moves": [],
         "halted": "",
         "missing": [],
@@ -2169,6 +2485,40 @@ def build_accept_all_plan(
             else:
                 plan["keep_unref"].append((keeper["gramps_id"], group["raw_path"]))
 
+    # Step 2b: misspelled names (as Fix media references corrects them)
+    for group in find_name_fix_groups(db):
+        if group["keeper"]["handle"] not in gone:
+            plan["names"].append(
+                (
+                    group["keeper"]["gramps_id"],
+                    group["keeper"]["desc"],
+                    group["new_desc"],
+                )
+            )
+
+    # Step 2c: leftover import notes on files that are (or will be) readable.
+    # A merged-away record's notes move to its keeper; a deleted record takes
+    # its notes with it.
+    keeper_of = {o: k for k, others, _p in plan["merges"] for o in others}
+    deleted = {g for g, _p in plan["delete"]}
+    readable: dict[str, bool] = {}
+    note_counts: dict[str, int] = {}
+    for mh, gid, _nh, _ngid in find_stale_import_notes(db, only_resolved=False):
+        if gid in deleted:
+            continue
+        if mh not in readable:
+            raw = effective.get(mh, "")
+            full = (
+                os.path.join(base_dir, raw)
+                if mh in found_handles
+                else (full_media_path(db, raw) if raw else "")
+            )
+            readable[mh] = bool(full) and os.path.isfile(full)
+        if readable[mh]:
+            owner = keeper_of.get(gid, gid)
+            note_counts[owner] = note_counts.get(owner, 0) + 1
+    plan["notes"] = sorted(note_counts.items(), key=lambda kv: gramps_id_key(kv[0]))
+
     # Step 3: consolidate
     if not base_set:
         plan["halted"] = NO_BASE_PATH_REASON
@@ -2181,7 +2531,7 @@ def build_accept_all_plan(
                 mv["gids"],
                 mv["raw"],
                 to_db_path(mv["dest_full"], base_dir),
-                mv["renamed"],
+                "renamed" if mv["renamed"] else ("reuse" if mv["reuse"] else ""),
             )
             for mv in moves
         ]
@@ -2220,7 +2570,10 @@ def plan_has_changes(plan: dict[str, Any]) -> bool:
     :param plan: Result of :func:`build_accept_all_plan`.
     :returns: Whether there is anything to apply.
     """
-    return any(plan.get(k) for k in ("find", "merges", "delete", "moves", "checksums"))
+    return any(
+        plan.get(k)
+        for k in ("find", "merges", "delete", "names", "notes", "moves", "checksums")
+    )
 
 
 def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
@@ -2299,6 +2652,22 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
             % len(plan["keep_unref"]),
             ["[%s] %s" % r for r in plan["keep_unref"]],
         )
+    if plan.get("names"):
+        section(
+            str(_("Fix media references: use the linked person's name (%d):"))
+            % len(plan["names"]),
+            ["[%s] %s  ->  %s" % r for r in plan["names"]],
+        )
+    if plan.get("notes"):
+        section(
+            str(_("Fix media references: delete leftover import notes (%d records):"))
+            % len(plan["notes"]),
+            [
+                ngettext("[%(gid)s] %(count)d note", "[%(gid)s] %(count)d notes", n)
+                % {"gid": g, "count": n}
+                for g, n in plan["notes"]
+            ],
+        )
     if plan["halted"]:
         lines += [
             str(_("Consolidate media location: SKIPPED.")),
@@ -2313,15 +2682,24 @@ def format_plan(plan: dict[str, Any], limit: int = 6) -> str:
             % {"folder": plan["base_dir"], "count": len(plan["moves"])},
             [
                 "[%s] %s  ->  %s%s"
-                % (g, o, n, "  (renamed: name already taken)" if c else "")
+                % (
+                    g,
+                    o,
+                    n,
+                    {
+                        "renamed": "  "
+                        + str(_("(renamed: name taken by another file)")),
+                        "reuse": "  " + str(_("(already there with the same content)")),
+                    }.get(c, ""),
+                )
                 for g, o, n, c in plan["moves"]
             ],
         )
     if plan.get("checksums"):
         section(
             ngettext(
-                "Store checksums: %d record has none yet:",
-                "Store checksums: %d records have none yet:",
+                "Checksums: %d record has none yet:",
+                "Checksums: %d records have none yet:",
                 len(plan["checksums"]),
             )
             % len(plan["checksums"]),
@@ -2879,7 +3257,7 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
 
         self.base_path_label = SelectableLabel(
             label="<b>%s</b> %s"
-            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir)),
+            % (escape_markup(_("Base media path:")), escape_markup(self.base_dir)),
             markup=True,
         )
         content.add(self.base_path_label)
@@ -3150,14 +3528,21 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
 
     def fill_same_name(self, source: dict[str, Any], picked: str) -> int:
         """
-        Fill every other empty row whose missing file has the same
-        name as the chosen file.
+        Fill every other empty row missing a file of the same name.
+
+        "The same name" is the name the source row was missing or the name of
+        the chosen file: the file may have been renamed since (e.g. by
+        Consolidate), and the other records still miss it under the old name.
 
         :param source: The row the file was chosen for.
         :param picked: Full path of the chosen file.
         :returns: How many rows were filled.
         """
-        wanted = os.path.normcase(os.path.basename(picked))
+        wanted = {
+            os.path.normcase(os.path.basename(picked)),
+            os.path.normcase(missing_file_name(source["entry"].get("raw_path", ""))),
+        }
+        wanted.discard("")
         source_dir = missing_file_dir(source["entry"].get("raw_path", ""))
         source_id = source["entry"].get("gramps_id") or picked
         picked_sum: str | None = None  # read only if a row has a checksum
@@ -3168,7 +3553,7 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
             if target["path_entry"].get_text().strip():
                 continue  # never overwrite a path already entered
             raw = target["entry"].get("raw_path", "")
-            if os.path.normcase(missing_file_name(raw)) != wanted:
+            if os.path.normcase(missing_file_name(raw)) not in wanted:
                 continue
             stored = target["entry"].get("checksum", "")
             if stored:
@@ -3209,14 +3594,18 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
         return filled
 
     def cb_set_mediapath(self, *_args: Any) -> None:
-        """Track the base path to use for copies and save it when changes are applied."""
+        """Track a typed base path; it is saved when changes are applied.
+
+        A folder chosen with the folder button is saved at once instead (see
+        :meth:`save_mediapath`).
+        """
         text = clean_path(self.path_entry.get_text())
         self._mediapath_text = text
         # Saved as None when emptied; resolved exactly as Gramps will.
         self.base_dir = expand_base_path(text or None, self.dbstate.db)
         self.base_path_label.set_markup(
             "<b>%s</b> %s"
-            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir))
+            % (escape_markup(_("Base media path:")), escape_markup(self.base_dir))
         )
 
     def cb_select_mediapath(self, *_args: Any) -> None:
@@ -3242,11 +3631,34 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
                 else os.path.dirname(current_path)
             )
         status = chooser.run()
-        if status == Gtk.ResponseType.OK:
-            selected_path = chooser.get_filename()
-            if selected_path:
-                self.path_entry.set_text(selected_path)
+        selected_path = chooser.get_filename() if status == Gtk.ResponseType.OK else ""
         chooser.destroy()
+        if selected_path:
+            self.path_entry.set_text(selected_path)
+            # The "changed" signal normally does this; call it so the label
+            # and base folder are current before saving.
+            self.cb_set_mediapath()
+            self.save_mediapath()
+
+    def save_mediapath(self) -> int:
+        """
+        Save the base media path now, without waiting for Apply.
+
+        Records outside this dialog are kept pointing at their files, exactly
+        as Apply does.  Nothing happens when the path did not change.
+
+        :returns: Number of other records repointed.
+        """
+        if not self.dbstate or not self.dbstate.db:
+            return 0
+        if self._mediapath_text == self._orig_mediapath:
+            return 0
+        rebased = set_base_media_path(self.dbstate.db, self._mediapath_text)
+        self._orig_mediapath = self._mediapath_text
+        extra = base_change_summary(rebased)
+        if extra:
+            OkDialog(str(_("Base media path saved")), extra, parent=self)
+        return rebased
 
     def cb_look_in_folder(self, _button: Gtk.Button) -> None:
         """
@@ -3373,18 +3785,9 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
                     media = None
                 if media is None:
                     continue
-                new_full = full_media_path(self.dbstate.db, new_path)
-                # A relative path is checked against the base media path only
-                # (it used to fall back to the working directory, so a path
-                # Gramps cannot open could be stored).
-                if not os.path.exists(new_full):  # never point at a missing file
-                    skipped.append(new_path)
+                if not repoint_media(self.dbstate.db, media, new_path, trans):
+                    skipped.append(new_path)  # never point at a missing file
                     continue
-                media.set_path(new_path)
-                # The record may now point at another file: store its checksum.
-                refresh_checksum(media, new_full)
-                add_media_fixed_tag(self.dbstate.db, media, txn=trans)
-                self.dbstate.db.commit_media(media, trans)
                 repointed.add(media.get_handle())
                 applied += 1
 
@@ -3410,6 +3813,9 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
             }
         if extra:
             msg += "\n\n" + extra
+        note = checksums_added_note(fill_missing_checksums(self.dbstate.db, self))
+        if note:
+            msg += "\n\n" + note
         OkDialog(str(_("Media Paths Updated")), msg, parent=self)
 
     def show_dialog(self) -> None:
@@ -3484,45 +3890,6 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         info.set_line_wrap(True)
         info.set_halign(Gtk.Align.START)
         content.add(info)
-
-        # Media Base Path selector widget matching Preferences Family Tree tab
-        path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        path_label = HeaderLabel(str(_("Base media path:")))
-        path_box.pack_start(path_label, False, False, 0)
-
-        self.path_entry = Gtk.Entry()
-        curr_mpath = (
-            self.dbstate.db.get_mediapath()
-            if self.dbstate
-            and self.dbstate.db
-            and hasattr(self.dbstate.db, "get_mediapath")
-            else ""
-        )
-        self._orig_mediapath = (curr_mpath or "").strip()
-        self._mediapath_text = self._orig_mediapath
-        if curr_mpath:
-            self.path_entry.set_text(curr_mpath)
-        self.path_entry.connect("changed", self.cb_set_mediapath)
-        self.path_entry.set_hexpand(True)
-        path_box.pack_start(self.path_entry, True, True, 0)
-
-        path_btn = Gtk.Button()
-        path_btn.connect("clicked", self.cb_select_mediapath)
-        image = Gtk.Image()
-        image.set_from_icon_name("document-open", Gtk.IconSize.BUTTON)
-        image.show()
-        path_btn.add(image)
-        self.path_button = path_btn
-        path_box.pack_start(path_btn, False, False, 0)
-
-        content.add(path_box)
-
-        self.base_path_label = SelectableLabel(
-            label="<b>%s</b> %s"
-            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir)),
-            markup=True,
-        )
-        content.add(self.base_path_label)
 
         # Naming Template selection row
         tmpl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -3748,59 +4115,6 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         scrolled.add(grid)
         return scrolled
 
-    def cb_set_mediapath(self, *obj: Any) -> None:
-        """Track the base path typed by the user.
-
-        The database is NOT modified here (it used to be, on every keystroke and
-        with no undo); a changed base path is committed when Apply is pressed.
-        """
-        if not self.dbstate or not self.dbstate.db:
-            return
-        text = clean_path(self.path_entry.get_text())
-        self._mediapath_text = text
-        # Saved as None when emptied; resolved exactly as Gramps will.
-        self.base_dir = expand_base_path(text or None, self.dbstate.db)
-        if hasattr(self, "base_path_label"):
-            self.base_path_label.set_markup(
-                "<b>%s</b> %s"
-                % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir))
-            )
-        self._recompute_hints()
-
-    def cb_select_mediapath(self, *obj: Any) -> None:
-        """Show dialog to choose media directory, matching Preferences Family Tree tab."""
-        f = Gtk.FileChooserDialog(
-            title=str(_("Select media directory")),
-            transient_for=self,
-            action=Gtk.FileChooserAction.SELECT_FOLDER,
-            buttons=(
-                str(_("_Cancel")),
-                Gtk.ResponseType.CANCEL,
-                str(_("_Apply")),
-                Gtk.ResponseType.OK,
-            ),
-        )
-        if hasattr(f, "set_default_size"):
-            f.set_default_size(600, 400)
-        mpath = media_path(self.dbstate.db) if self.dbstate and self.dbstate.db else ""
-        if mpath and os.path.exists(mpath):
-            f.set_current_folder(
-                mpath if os.path.isdir(mpath) else os.path.dirname(mpath)
-            )
-        elif self.base_dir and os.path.exists(self.base_dir):
-            f.set_current_folder(
-                self.base_dir
-                if os.path.isdir(self.base_dir)
-                else os.path.dirname(self.base_dir)
-            )
-
-        status = f.run()
-        if status == Gtk.ResponseType.OK:
-            val = f.get_filename()
-            if val:
-                self.path_entry.set_text(val)
-        f.destroy()
-
     def _needs_consolidation(self, raw_path: str, hint_val: str) -> bool:
         """
         Return True when a record is not yet at its consolidated location.
@@ -3962,8 +4276,8 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         Move (or copy) each row's file once and repoint all of its records.
 
         Rows are grouped by source file, so a shared file is handled once for
-        every record that uses it.  If the base media path was changed, other
-        relative records are kept pointing at their files.
+        every record that uses it.  The base media path is set in Step 2
+        (Fix missing media) or in Gramps Preferences, not here.
         """
         # Safety net: rows are grouped by source file, so two rows can only
         # share one if row_targets was built by hand.
@@ -3993,21 +4307,13 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         applied = 0
         files_moved = 0
         files_copied = 0
+        files_reused = 0
+        renamed: list[str] = []
         failures: list[str] = []
         claimed: set[str] = set()
-        repointed: set[MediaHandle] = set()
         is_copy = hasattr(self, "radio_copy") and bool(self.radio_copy.get_active())
         base = self.base_dir
 
-        # Commit a changed base path now (once), not on every keystroke, but
-        # first note where every relative record's file really is.
-        base_changed = self._mediapath_text != self._orig_mediapath
-        snapshot = snapshot_resolved_paths(db) if base_changed else {}
-        if base_changed:
-            db.set_mediapath(self._mediapath_text or None)
-            self._orig_mediapath = self._mediapath_text
-
-        rebased = 0
         move_log = MoveLog(base, "Consolidate")
         with DbTxn(_("Consolidate Media Locations"), db) as trans:
             for target in self.row_targets:
@@ -4040,55 +4346,35 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                     )
                     continue
 
-                dest_full = unique_destination(dest_full, claimed, src_full)
-                ok, err = relocate_file(src_full, dest_full, copy=is_copy)
+                standard_full = dest_full
+                dest_full, how = consolidation_destination(dest_full, claimed, src_full)
+                ok, err = relocate_media_records(
+                    db, records, src_full, dest_full, base, move_log, trans, is_copy
+                )
                 if not ok:
-                    LOG.warning("Failed to relocate '%s': %s", src_full, err)
                     failures.append(
                         "[%s] %s: %s" % (gid, entry.get("raw_path", ""), err)
                     )
                     continue
-                if path_key(src_full) != path_key(dest_full):
+                if how == "reuse":
+                    files_reused += 1
+                elif path_key(src_full) != path_key(dest_full):
                     if is_copy:
                         files_copied += 1
                     else:
                         files_moved += 1
-
-                # Only now, with the file safely in place, repoint the records.
-                new_rel = to_db_path(dest_full, base)
-                if path_key(src_full) == path_key(dest_full):
-                    action = "repoint"
-                else:
-                    action = "copy" if is_copy else "move"
-                for media in records:
-                    move_log.record(
-                        action,
-                        media,
-                        clean_path(str(media.get_path() or "")),
-                        new_rel,
-                        src_full,
-                        dest_full,
+                if how == "renamed":
+                    renamed.append(
+                        "[%s] %s -> %s"
+                        % (
+                            gid,
+                            os.path.basename(standard_full),
+                            os.path.basename(dest_full),
+                        )
                     )
-                    media.set_path(new_rel)
-                    # Moving or copying cannot change the content, so only a
-                    # missing checksum is filled in.
-                    refresh_checksum(media, dest_full, only_if_missing=True)
-                    add_media_fixed_tag(db, media, txn=trans)
-                    db.commit_media(media, trans)
-                    repointed.add(media.get_handle())
-                    applied += 1
+                applied += len(records)
 
-            if snapshot:
-                rebased = keep_records_pointing_at_files(db, snapshot, trans, repointed)
-
-        if applied == 0 and not failures and not rebased:
-            if base_changed:
-                OkDialog(
-                    str(_("Base media path saved")),
-                    str(_("The base media path was saved. No records needed changes.")),
-                    parent=self,
-                )
-                return
+        if applied == 0 and not failures:
             OkDialog(
                 str(_("Nothing to apply")),
                 str(_("No paths entered. Press 'Accept hints' or enter paths first.")),
@@ -4101,14 +4387,40 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
             summary += " " + str(_("Copied %d files to new locations.") % files_copied)
         elif not is_copy and files_moved > 0:
             summary += " " + str(_("Moved %d files to new locations.") % files_moved)
-        extra = base_change_summary(rebased)
-        if extra:
-            summary += "\n\n" + extra
+        if files_reused:
+            summary += (
+                "\n\n"
+                + ngettext(
+                    "%d file was already in the media folder with the same content: "
+                    "its records now use that file, and the original was left in place.",
+                    "%d files were already in the media folder with the same content: "
+                    "their records now use those files, and the originals were left "
+                    "in place.",
+                    files_reused,
+                )
+                % files_reused
+            )
+        if renamed:
+            summary += (
+                "\n\n"
+                + str(
+                    _(
+                        "Renamed because a different file already has the standard "
+                        "name (%d) - check whether the other file is still needed:"
+                    )
+                )
+                % len(renamed)
+                + "\n"
+                + "\n".join(renamed[:10])
+            )
         summary += move_log_summary(move_log)
 
         if failures:
             summary += "\n\n" + str(_("Not changed (%d):")) % len(failures) + "\n"
             summary += "\n".join(failures[:10])
+        note = checksums_added_note(fill_missing_checksums(db, self))
+        if note:
+            summary += "\n\n" + note
         OkDialog(
             str(_("Media Locations Consolidated")),
             summary,
@@ -4170,7 +4482,7 @@ class MediaFixReportDialog(Gtk.Dialog):
         )
         self.base_path_label = SelectableLabel(
             label="<b>%s</b> %s"
-            % (escape_markup(_("Media Base Path:")), escape_markup(self.base_dir)),
+            % (escape_markup(_("Base media path:")), escape_markup(self.base_dir)),
             markup=True,
         )
         content.pack_start(self.base_path_label, False, False, 0)
@@ -4268,7 +4580,9 @@ def generate_media_fix_report(
     :param scan_limit: Most media files the search for unreferenced files
         reads (0 = no limit; ``None`` = the saved setting).
     :param scan_stats: Filled with that search's ``scanned``, ``limit`` and
-        ``truncated`` values, so the caller can offer a full scan.
+        ``truncated`` values, so the caller can offer a full scan, and with
+        ``changed_handles``: records whose file content no longer matches
+        their checksum (only when *check_content*).
     :param check_content: Read every file that has a stored checksum and
         list those whose content no longer matches (``None`` = the saved
         setting).
@@ -4289,6 +4603,7 @@ def generate_media_fix_report(
     if check_content is None:
         check_content = bool(config.get(CONFIG_CHECK_CONTENT_KEY))
     changed_list: list[tuple[str, str, str]] = []
+    changed_handles: list[str] = []
 
     missing_list: list[tuple[str, str, str]] = []
     perm_denied_list: list[tuple[str, str, str, str]] = []
@@ -4376,6 +4691,7 @@ def generate_media_fix_report(
                     digest = file_checksum(on_disk)
                     if digest and digest != media_checksum(media):
                         changed_list.append((m_gid, desc, raw_path))
+                        changed_handles.append(str(media.get_handle() or ""))
             else:
                 perm_issue, inaccess_dir = check_path_permission(full_path)
                 if not perm_issue and alt_path:
@@ -4516,7 +4832,7 @@ def generate_media_fix_report(
             % {"with": missing_with_checksum, "missing": missing},
         ),
         metric(_("Naming template:"), curr_tmpl),
-        metric(_("Media Base Path:"), base_dir),
+        metric(_("Base media path:"), base_dir),
         "",
     ]
 
@@ -4574,6 +4890,16 @@ def generate_media_fix_report(
         heading(
             _("NAME MISMATCHES - description vs linked person (%d items):")
             % len(name_mismatches)
+        )
+        lines.append(
+            "  "
+            + str(
+                _(
+                    "'Fix media references' corrects probable spelling variants. "
+                    "To keep a record's spelling instead, add it to the person as "
+                    "an alternate name."
+                )
+            )
         )
         for gid, desc, in_desc, linked, kind in name_mismatches:
             lines.append(f"  [{gid}] {desc}")
@@ -4648,7 +4974,8 @@ def generate_media_fix_report(
             + _(
                 "These files no longer match the checksum stored on their record: "
                 "they were edited (e.g. rotated or re-saved) or replaced. If the "
-                "change was intended, 'Store checksums' records the new content."
+                "change was intended, you are offered to store the new checksums "
+                "after closing this report."
             )
         )
         lines.append("")
@@ -4674,6 +5001,7 @@ def generate_media_fix_report(
             lines.append(field(_("Standard:"), std_p, 12))
         lines.append("")
 
+    scan_stats["changed_handles"] = changed_handles
     return "\n".join(lines)
 
 
@@ -4761,8 +5089,6 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             ("find_missing", str(_("Find missing media"))),
             ("fix_references", str(_("Fix media references"))),
             ("consolidate_location", str(_("Consolidate media location"))),
-            ("clean_notes", str(_("Clean import notes"))),
-            ("checksums", str(_("Store checksums"))),
             ("undo_moves", str(_("Undo last file moves"))),
         ]
 
@@ -4823,7 +5149,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             str(
                 _(
                     "Reads every media file that has a checksum and lists the "
-                    "ones that were edited or replaced since."
+                    "ones that were edited or replaced since, then offers to "
+                    "store their new checksums."
                 )
             )
         )
@@ -4866,10 +5193,12 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             if choice == "always":
                 config.set(CONFIG_SCAN_LIMIT_KEY, 0)
             if choice:
+                stats = {}
                 report_text = generate_media_fix_report(
                     self.dbstate.db,
                     self.window,
                     scan_limit=0,
+                    scan_stats=stats,
                     check_content=check_content,
                 )
         try:
@@ -4885,6 +5214,55 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 % {"path": target_path, "err": err},
                 parent=self.window,
             )
+        else:
+            self.offer_checksum_update(stats.get("changed_handles") or [])
+
+    def offer_checksum_update(self, handles: list[str]) -> int:
+        """
+        Offer to store the new checksums of files whose content changed.
+
+        Asked after the report has been read, since it lists those files.
+
+        :param handles: Media handles from the report's content check.
+        :returns: Number of checksums updated.
+        """
+        if not handles:
+            return 0
+        confirm = QuestionDialog2(
+            str(_("Update changed checksums")),
+            ngettext(
+                "%d media file no longer matches its stored checksum (see "
+                "'Content changed since checksum' in the report).",
+                "%d media files no longer match their stored checksums (see "
+                "'Content changed since checksum' in the report).",
+                len(handles),
+            )
+            % len(handles)
+            + "\n\n"
+            + _(
+                "If the files were edited on purpose (e.g. rotated or re-saved), "
+                "store their new checksums. If a file was replaced by mistake, "
+                "keep the old checksum so the original can still be found. This "
+                "can be undone with Edit > Undo."
+            ),
+            str(_("_Update checksums")),
+            str(_("_Keep old checksums")),
+            parent=self.window,
+        )
+        if not confirm.run():
+            return 0
+        updated = update_changed_checksums(self.dbstate.db, handles, self.window)
+        OkDialog(
+            str(_("Checksums updated")),
+            ngettext(
+                "Updated the checksum of %d media record.",
+                "Updated the checksums of %d media records.",
+                updated,
+            )
+            % updated,
+            parent=self.window,
+        )
+        return updated
 
     def cb_view_report(self) -> None:
         """Open generated report in viewer dialog."""
@@ -4942,10 +5320,6 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             dlg.show_dialog()
         elif key == "auto_all":
             self.cb_auto_all()
-        elif key == "clean_notes":
-            self.cb_clean_notes()
-        elif key == "checksums":
-            self.cb_store_checksums()
         elif key == "undo_moves":
             self.cb_undo_moves()
 
@@ -4989,11 +5363,10 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         # Pass 2: repoint the matches and store each file's checksum.
         with DbTxn(_("Auto Find Missing Media"), db) as trans:
             for media, m_gid, desc, raw_path, found_rel in matches:
-                media.set_path(found_rel)
-                refresh_checksum(media, full_media_path(db, found_rel))
-                add_media_fixed_tag(db, media, txn=trans)
-                db.commit_media(media, trans)
-                resolved_count += 1
+                if repoint_media(db, media, found_rel, trans):
+                    resolved_count += 1
+                else:
+                    unresolved.append((m_gid, desc, raw_path))
 
         return resolved_count, unresolved, perm_denied
 
@@ -5003,62 +5376,39 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
 
         :returns: Number of records given a checksum.
         """
-        return store_media_checksums(
-            db, only_missing=True, parent=getattr(self, "window", None)
-        )[0]
+        # The same pass the steps run after their Apply.
+        return fill_missing_checksums(db, getattr(self, "window", None))
 
     def _auto_fix_references(self, db: DbWriteBase) -> tuple[int, int, list[str]]:
-        """Auto resolve duplicate media references and purge unreferenced image tags.
+        """Merge duplicate records and delete empty unreferenced ones.
+
+        Uses the same functions as Fix media references, with its suggested
+        actions: merge every duplicate group, delete an unreferenced record
+        only when it carries nothing worth keeping.
 
         :returns: (merged_count, deleted_count, errors)
         """
-        groups = find_duplicate_media_groups(db)
         merged_count = 0
         deleted_count = 0
         errors: list[str] = []
-
-        from gramps.gen.merge.mergemediaquery import MergeMediaQuery
-
-        for group in groups:
-            g_type = group.get("type", "duplicate")
-            if g_type == "unreferenced":
-                h = group["keeper"]["handle"]
+        for group in find_duplicate_media_groups(db):
+            if group.get("type", "duplicate") == "unreferenced":
+                keeper = group["keeper"]
+                if not is_bare_media(keeper["media"], db):
+                    errors.append(
+                        "[%s] unreferenced, but has notes/attributes/tags/date - "
+                        "kept; review manually" % keeper.get("gramps_id", "")
+                    )
+                    continue
                 try:
-                    cand = db.get_media_from_handle(h)
-                    if cand is None or not is_bare_media(cand, db):
-                        errors.append(
-                            "[%s] unreferenced, but has notes/attributes/tags/date - kept; review manually"
-                            % group["keeper"].get("gramps_id", "")
-                        )
-                        continue
-                    with DbTxn(_("Remove Unreferenced Media"), db) as trans:
-                        remove_media_with_import_notes(db, h, trans)
-                        deleted_count += 1
+                    deleted_count += int(delete_unreferenced(db, keeper["handle"]))
                 except Exception as err:
                     LOG.exception("Auto remove unreferenced media failed: %s", err)
                     errors.append(str(err))
-            elif g_type == "duplicate":
-                keeper = group["keeper"]
-                keeper_media = db.get_media_from_handle(keeper["handle"])
-                if not keeper_media:
-                    continue
-                for other in group["records"]:
-                    if other["handle"] == keeper["handle"]:
-                        continue
-                    try:
-                        other_media = db.get_media_from_handle(other["handle"])
-                        if other_media:
-                            query = MergeMediaQuery(
-                                self.dbstate, keeper_media, other_media
-                            )
-                            query.execute()
-                            fill_merged_checksum(db, keeper_media, other_media)
-                            add_media_fixed_tag(db, keeper_media, commit=True)
-                            merged_count += 1
-                    except Exception as err:
-                        LOG.exception("Auto merge media record failed: %s", err)
-                        errors.append(str(err))
-
+            else:
+                merged, merge_errors = merge_into_keeper(self.dbstate, group)
+                merged_count += merged
+                errors.extend(merge_errors)
         return merged_count, deleted_count, errors
 
     def _auto_consolidate_location(
@@ -5092,34 +5442,34 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         move_log = MoveLog(base_dir, "Accept all hints")
         with DbTxn(_("Auto Consolidate Media Locations"), db) as trans:
             for move in moves:
-                ok, err = relocate_file(move["src_full"], move["dest_full"])
+                ok, err = relocate_media_records(
+                    db,
+                    move["media"],
+                    move["src_full"],
+                    move["dest_full"],
+                    base_dir,
+                    move_log,
+                    trans,
+                )
                 if not ok:
                     unconsolidated.append(
                         (move["gids"], "", "%s (%s)" % (move["raw"], err))
                     )
                     continue
-                new_rel = to_db_path(move["dest_full"], base_dir)
-                action = (
-                    "repoint"
-                    if path_key(move["src_full"]) == path_key(move["dest_full"])
-                    else "move"
-                )
-                for media in move["media"]:
-                    move_log.record(
-                        action,
-                        media,
-                        clean_path(str(media.get_path() or "")),
-                        new_rel,
-                        move["src_full"],
-                        move["dest_full"],
-                    )
-                    media.set_path(new_rel)
-                    refresh_checksum(media, move["dest_full"], only_if_missing=True)
-                    add_media_fixed_tag(db, media, txn=trans)
-                    db.commit_media(media, trans)
                 consolidated_count += 1
 
         self.last_move_log_note = move_log_summary(move_log)
+        self.last_consolidate_reused = sum(1 for m in moves if m["reuse"])
+        self.last_consolidate_renamed = [
+            "[%s] %s -> %s"
+            % (
+                m["gids"],
+                os.path.basename(m["standard_full"]),
+                os.path.basename(m["dest_full"]),
+            )
+            for m in moves
+            if m["renamed"]
+        ]
         return consolidated_count, unconsolidated
 
     def cb_undo_moves(self) -> None:
@@ -5167,115 +5517,65 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             msg += "\n" + "\n".join(problems[:15])
         OkDialog(str(_("File moves undone")), msg, parent=self.window)
 
-    def cb_store_checksums(self) -> None:
-        """Store or update the checksum of every readable media file."""
-        db = self.dbstate.db
-        total = db.get_number_of_media()
-        without = sum(1 for m in db.iter_media() if not media_checksum(m))
-        confirm = QuestionDialog2(
-            str(_("Store checksums")),
-            _(
-                "Read every media file and store its checksum (MD5) on its "
-                "record?\n\n"
-                "Media records: %(total)d (without a checksum: %(without)d)\n\n"
-                "A checksum lets 'Find missing media' recognize a file after it "
-                "has been renamed or moved. Checksums of files that cannot be "
-                "read now are kept. This can be undone with Edit > Undo."
-            )
-            % {"total": total, "without": without},
-            str(_("_Store checksums")),
-            str(_("_Cancel")),
-            parent=self.window,
-        )
-        if not confirm.run():
-            return
-        added, updated, unreadable = store_media_checksums(
-            db, only_missing=False, parent=self.window
-        )
-        msg = _(
-            "Checksums added: %(added)d\n"
-            "Checksums updated (file content changed): %(updated)d"
-        ) % {"added": added, "updated": updated}
-        if unreadable:
-            msg += (
-                "\n\n"
-                + ngettext(
-                    "%d record's file could not be read; its checksum (if any) was kept.",
-                    "%d records' files could not be read; their checksums (if any) "
-                    "were kept.",
-                    unreadable,
-                )
-                % unreadable
-            )
-        OkDialog(str(_("Checksums stored")), msg, parent=self.window)
+    def ask_for_base_path(self, db: DbWriteBase) -> bool:
+        """
+        Offer to set the base media path when none is set.
 
-    def cb_clean_notes(self) -> None:
-        """Remove 'Records not imported into OBJE' notes whose problem is fixed."""
-        db = self.dbstate.db
-        items = find_stale_import_notes(db)
-        if not items:
-            OkDialog(
-                str(_("No stale import notes")),
-                str(
-                    _(
-                        "No 'Records not imported into OBJE' notes were found on media "
-                        "whose file is now readable."
-                    )
-                ),
-                parent=self.window,
-            )
-            return
-        n_media = len({mh for mh, _g, _n, _ng in items})
-        confirm = QuestionDialog2(
-            str(_("Clean import notes")),
-            ngettext(
-                "Delete %(notes)d leftover import-failure note?",
-                "Delete %(notes)d leftover import-failure notes?",
-                len(items),
-            )
-            % {"notes": len(items)}
-            + " "
-            + _("(media records affected: %(media)d)") % {"media": n_media}
-            + "\n\n"
-            + _(
-                "They describe files the importer could not find, but those files "
-                "are readable now. This can be undone with Edit > Undo."
-            ),
-            str(_("_Delete")),
-            str(_("_Cancel")),
-            parent=self.window,
-        )
-        if not confirm.run():
-            return
-        removed = remove_import_notes(db, items)
-        OkDialog(
-            str(_("Import notes cleaned")),
-            (
-                ngettext(
-                    "Removed %d note from media.",
-                    "Removed %d notes from media.",
-                    removed,
-                )
-                % removed
-                + (
-                    "\n\n"
-                    + ngettext(
-                        "%d note was left alone: its media record no longer exists.",
-                        "%d notes were left alone: their media records no longer "
-                        "exist.",
-                        len(items) - removed,
-                    )
-                    % (len(items) - removed)
-                    if removed < len(items)
-                    else ""
+        Without one, Consolidate has no folder to move files into (a fresh
+        import starts with none).  Choosing a folder saves it to the tree
+        exactly as Find missing media's folder button does.
+
+        :param db: The database.
+        :returns: Whether a base media path was set.
+        """
+        question = QuestionDialog2(
+            str(_("No base media path")),
+            str(
+                _(
+                    "No base media path is set for this family tree, so "
+                    "'Consolidate media location' has no folder to move and "
+                    "rename the files into.\n\n"
+                    "Choose the folder now? It is saved to this family tree (the "
+                    "same setting as Edit > Preferences > Family Tree > Base media "
+                    "path). If you continue without one, every other fix still "
+                    "runs and consolidation is skipped."
                 )
             ),
+            str(_("_Choose folder...")),
+            str(_("_Continue without")),
             parent=self.window,
         )
+        if not question.run():
+            return False
+        chooser = Gtk.FileChooserDialog(
+            title=str(_("Select the base media folder")),
+            transient_for=self.window,
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+            buttons=(
+                str(_("_Cancel")),
+                Gtk.ResponseType.CANCEL,
+                str(_("_Select")),
+                Gtk.ResponseType.OK,
+            ),
+        )
+        start = get_media_base_path(db)
+        if start and os.path.isdir(start):
+            chooser.set_current_folder(start)
+        folder = chooser.get_filename() if chooser.run() == Gtk.ResponseType.OK else ""
+        chooser.destroy()
+        if not folder:
+            return False
+        rebased = set_base_media_path(db, clean_path(folder))
+        extra = base_change_summary(rebased)
+        if extra:
+            OkDialog(str(_("Base media path saved")), extra, parent=self.window)
+        return True
 
     def cb_auto_all(self) -> None:
         """Preview, then run, the default fixes across all media fix layers."""
         db = self.dbstate.db
+        if not (db.get_mediapath() or "").strip() and db.get_number_of_media():
+            self.ask_for_base_path(db)
         base_dir = get_media_base_path(db) if db else ""
         base_set = bool((db.get_mediapath() or "").strip())
 
@@ -5295,7 +5595,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         if not confirm_plan(self.window, format_plan(plan)):
             return
 
-        prog = _Progress(str(_("Applying fixes")), 4, self.window)
+        prog = _Progress(str(_("Applying fixes")), 6, self.window)
 
         # Step 1: Find missing media
         missing_count, _unused_missing, _unused_denied = self._auto_find_missing(db)
@@ -5305,13 +5605,35 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         merged_count, deleted_count, ref_errors = self._auto_fix_references(db)
         prog.step()
 
+        # Step 2b: misspelled names, before consolidation names the files.
+        # Uses the same code as Fix media references.
+        renamed_count = 0
+        for group in find_name_fix_groups(db):
+            try:
+                renamed_count += int(apply_name_fix(db, group))
+            except Exception as err:
+                LOG.exception("Auto name fix failed: %s", err)
+                ref_errors.append("[%s] %s" % (group["keeper"]["gramps_id"], err))
+        prog.step()
+
         # Step 3: Consolidate media locations
         self.last_move_log_note = ""
+        self.last_consolidate_reused = 0
+        self.last_consolidate_renamed = []
         consolidated_count, unconsolidated = self._auto_consolidate_location(db)
         prog.step()
 
-        # Step 4: Store checksums, so files renamed later can still be found
+        # Step 4: checksums, so files renamed later can still be found
         checksum_count = self._auto_store_checksums(db)
+        prog.step()
+
+        # Step 5: leftover import notes, now that files are found and moved
+        notes_count = 0
+        try:
+            notes_count = remove_import_notes(db, find_stale_import_notes(db))
+        except Exception as err:
+            LOG.exception("Auto import-note cleanup failed: %s", err)
+            ref_errors.append(str(err))
         prog.step()
         prog.close()
 
@@ -5319,13 +5641,28 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         unresolved_missing, perm_denied = scan_unreadable_media(db)
 
         if base_set:
+            # Files that were already there count separately: nothing moved.
+            moved = consolidated_count - self.last_consolidate_reused
             consolidate_line = ngettext(
                 "  • Consolidate media location: %(count)d file moved or renamed "
                 "in '%(folder)s'.",
                 "  • Consolidate media location: %(count)d files moved or renamed "
                 "in '%(folder)s'.",
-                consolidated_count,
-            ) % {"count": consolidated_count, "folder": base_dir}
+                moved,
+            ) % {"count": moved, "folder": base_dir}
+            if self.last_consolidate_reused:
+                consolidate_line += (
+                    " "
+                    + ngettext(
+                        "%d more was already there with the same content, so its "
+                        "records now use that file; the original was left in place.",
+                        "%d more were already there with the same content, so their "
+                        "records now use those files; the originals were left in "
+                        "place.",
+                        self.last_consolidate_reused,
+                    )
+                    % self.last_consolidate_reused
+                )
         else:
             consolidate_line = (
                 str(_("  • Consolidate media location: skipped."))
@@ -5345,13 +5682,19 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             % missing_count,
             _(
                 "  • Fix media references: duplicate records merged: %(merged)d; "
-                "unreferenced image tags deleted: %(deleted)d."
+                "unreferenced image tags deleted: %(deleted)d; names corrected: "
+                "%(names)d; leftover import notes deleted: %(notes)d."
             )
-            % {"merged": merged_count, "deleted": deleted_count},
+            % {
+                "merged": merged_count,
+                "deleted": deleted_count,
+                "names": renamed_count,
+                "notes": notes_count,
+            },
             consolidate_line,
             ngettext(
-                "  • Store checksums: %d record given a checksum.",
-                "  • Store checksums: %d records given a checksum.",
+                "  • Checksums: %d record given a checksum.",
+                "  • Checksums: %d records given a checksum.",
                 checksum_count,
             )
             % checksum_count,
@@ -5426,6 +5769,33 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                     % (len(unconsolidated) - 5)
                 )
 
+        if self.last_consolidate_renamed:
+            manual_items.append(
+                str(
+                    _(
+                        "  • Renamed because a different file already has the "
+                        "standard name (%d) - check whether the other file is still "
+                        "needed:"
+                    )
+                )
+                % len(self.last_consolidate_renamed)
+            )
+            for line in self.last_consolidate_renamed[:5]:
+                manual_items.append("      - " + line)
+
+        if not base_set and db.get_number_of_media():
+            # Nothing was moved or renamed, so the media are not "fully
+            # resolved" even when every other fix succeeded.
+            manual_items.append(
+                str(
+                    _(
+                        "  • Consolidate media location was skipped: set a base "
+                        "media path (see above), then run 'Accept all hints' again "
+                        "to move and rename the files."
+                    )
+                )
+            )
+
         if manual_items:
             lines.append(str(_("CHANGES REQUIRING HUMAN INTERVENTION:")))
             lines.extend(manual_items)
@@ -5444,9 +5814,9 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             lines.append(
                 ngettext(
                     "OPTIONAL CLEANUP: %d stale import note can be removed with "
-                    "'Clean import notes'.",
+                    "'Fix media references'.",
                     "OPTIONAL CLEANUP: %d stale import notes can be removed with "
-                    "'Clean import notes'.",
+                    "'Fix media references'.",
                     len(stale_notes),
                 )
                 % len(stale_notes)
