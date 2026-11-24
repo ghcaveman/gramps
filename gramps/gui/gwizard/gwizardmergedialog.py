@@ -82,6 +82,8 @@ from gramps.gen.gwizard.gwizard_base import (
     surname_prefix_text,
     surname_text,
     SourceMatcher,
+    compare_date_specificity,
+    compare_place_specificity,
 )
 from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
 
@@ -819,18 +821,58 @@ class GWizardMergeDialog(Gtk.Dialog):
                     right_sources
                 )
 
+            supports_alt = (
+                key in ("birth_event", "death_event")
+                and left_obj is not None
+                and right_obj is not None
+            )
+            if supports_alt:
+                try:
+                    date_cmp = compare_date_specificity(
+                        left_obj.get_date_object(), right_obj.get_date_object()
+                    )
+                except Exception:
+                    date_cmp = 0
+                try:
+                    s_pl = safe_get_place(sd, left_obj.get_place_handle())
+                    t_pl = safe_get_place(td, right_obj.get_place_handle())
+                    place_cmp = compare_place_specificity(s_pl, t_pl, sd, td)
+                except Exception:
+                    place_cmp = 0
+
+                if date_cmp < 0 or place_cmp < 0:
+                    right_text += (
+                        "\n<small><b>%s</b></small>"
+                        % GLib.markup_escape_text(_("◀ tree has more detail"))
+                    )
+                elif date_cmp > 0 or place_cmp > 0:
+                    left_text += "\n<small><b>%s</b></small>" % GLib.markup_escape_text(
+                        _("incoming has more detail ▶")
+                    )
+
             left_cell = create_diff_cell(left_text, not same, 0.0)
             right_cell = create_diff_cell(right_text, not same, 0.0)
             self._value_column_size_group.add_widget(left_cell)
             self._value_column_size_group.add_widget(right_cell)
             btn = None
             if key is not None:
+
+                def _create_btn() -> Gtk.Button:
+                    if supports_alt:
+                        try:
+                            return self._make_arrow(
+                                key, label or _("Child"), supports_alternate=True
+                            )
+                        except TypeError:
+                            return self._make_arrow(key, label or _("Child"))
+                    return self._make_arrow(key, label or _("Child"))
+
                 if is_nullable_identity:
                     if ls and not rs:
-                        btn = self._make_arrow(key, label or _("Child"))
+                        btn = _create_btn()
                         self._mergeable_count += 1
                 elif not same and ls:
-                    btn = self._make_arrow(key, label or _("Child"))
+                    btn = _create_btn()
                     self._mergeable_count += 1
             gap = btn if btn is not None else Gtk.Label(label="")
             grid.attach(left_cell, 0, self._row_index, 1, 1)
@@ -1360,7 +1402,7 @@ class GWizardMergeDialog(Gtk.Dialog):
         """
         Return (date_object, place_name) for the person's birth/death event.
 
-        ``kind`` is 'birth' or 'death'.  Returns (None, '') when there is no
+        ``kind`` is 'birth' or 'death'. Returns (None, '') when there is no
         such event or no date on it.
         """
         if kind == "birth":
@@ -1386,32 +1428,26 @@ class GWizardMergeDialog(Gtk.Dialog):
         """
         Return True when the source date is less precise than (or missing
         compared to) the target date.
-
-        A Gramps Date stores year/month/day with 0 meaning unknown.  Precision
-        tiers: year-only < year+month < full date.  Replacing a more precise
-        target date with a less precise source date loses information.
         """
         if target_date is None:
             return False
         if source_date is None:
-            return False  # No source event: apply() keeps the target's ref.
+            return False
 
         t_year = target_date.get_year()
         s_year = source_date.get_year()
         if not t_year:
-            return False  # Target has no year; nothing to lose.
+            return False
         if not s_year:
-            return True  # Target has a year; source has none → complete loss.
+            return True
 
         t_month = target_date.get_month()
         t_day = target_date.get_day()
         s_month = source_date.get_month()
         s_day = source_date.get_day()
 
-        # Target has day precision but source does not.
         if t_day > 0 and s_day == 0:
             return True
-        # Target has month precision but source does not.
         if t_month > 0 and s_month == 0:
             return True
         return False
@@ -1420,9 +1456,10 @@ class GWizardMergeDialog(Gtk.Dialog):
         """
         Scan accepted resolutions for fields where taking the source value
         would degrade data already in the target family tree.
-
-        Returns a list of human-readable warning strings (empty when safe).
         """
+        if self.target_person is None:
+            return []
+
         warnings: list[str] = []
 
         for key, res in self._resolutions.items():
@@ -1441,17 +1478,18 @@ class GWizardMergeDialog(Gtk.Dialog):
                 if self._date_loses_precision(t_date, s_date):
                     warnings.append(
                         _(
-                            "{} date would lose precision "
+                            "%(kind)s date would lose precision "
                             "(from a specific date to a less precise one)."
                         )
-                        % kind.capitalize()
+                        % {"kind": kind.capitalize()}
                     )
                 if t_place and not s_place:
                     warnings.append(
-                        _("{} place would be removed.").format(kind.capitalize())
+                        _("%(kind)s place would be removed.")
+                        % {"kind": kind.capitalize()}
                     )
 
-            # ---- Other events: key is "event:<source event handle>" ----
+            # ---- Other events: key is 'event:<source event handle>' ----
             elif key.startswith("event:"):
                 s_evt_h = key.split(":", 1)[1]
                 s_event = safe_get_event(self.source_db, s_evt_h)
@@ -1465,7 +1503,6 @@ class GWizardMergeDialog(Gtk.Dialog):
                     s_place_obj = safe_get_place(self.source_db, s_ph)
                     if s_place_obj:
                         s_place = s_place_obj.get_name().get_value() or ""
-                # Match by event type against the target's events.
                 target_groups = person_events_by_type(
                     self.target_db, self.target_person
                 )
@@ -1482,11 +1519,13 @@ class GWizardMergeDialog(Gtk.Dialog):
                             t_place = t_place_obj.get_name().get_value() or ""
                     if self._date_loses_precision(t_date, s_date):
                         warnings.append(
-                            _("{} event date would lose precision").format(etype)
+                            _("%(etype)s event date would lose precision")
+                            % {"etype": etype}
                         )
                     if t_place and not s_place:
                         warnings.append(
-                            _("{} event place would be removed").format(etype)
+                            _("%(etype)s event place would be removed")
+                            % {"etype": etype}
                         )
                     break
 
@@ -1508,29 +1547,57 @@ class GWizardMergeDialog(Gtk.Dialog):
                     s_val = left_name.get_call_name() or ""
                 if t_val and not s_val:
                     warnings.append(
-                        _("{} would be cleared.").format(key.replace("_", " ").title())
+                        _("%(field)s would be cleared.")
+                        % {"field": key.replace("_", " ").title()}
                     )
 
         return warnings
 
-    def _make_arrow(self, key: str, label: str) -> Gtk.Button:
+    # ------------------------------------------------------------------
+    # Callbacks
+    # ------------------------------------------------------------------
+    def _make_arrow(
+        self, key: str, label: str, supports_alternate: bool = False
+    ) -> Gtk.Button:
         """
-        Build a right-pointing arrow button that moves the source value
-        (left) for this field into the current family tree (right) when
-        clicked.
+        Build an action button that transfers or merges the source value
+        into the current family tree when clicked.
         """
         btn = Gtk.Button(label=_("=>"))
-        btn.set_tooltip_text(_("Move %s to current family tree") % label)
-        btn.connect("clicked", self.cb_field_clicked, key)
+        if supports_alternate:
+            btn.set_tooltip_text(
+                _(
+                    "Click to merge (upgrades lower-detail fields and adds citations);\n"
+                    "click again to add as Alternate event (+ALT);\n"
+                    "click again to keep tree value."
+                )
+            )
+        else:
+            btn.set_tooltip_text(_("Move %s to current family tree") % label)
+        btn.connect("clicked", self.cb_field_clicked, key, supports_alternate)
         return btn
 
-    def cb_field_clicked(self, button: Gtk.Button, key: str) -> None:
+    def cb_field_clicked(
+        self, button: Gtk.Button, key: str, supports_alternate: bool = False
+    ) -> None:
         """
-        Record the user's choice to take the source value for this field.
+        Record the user's choice to merge or add the source value.
         """
-        button.set_label(_("\u2713"))
-        button.set_sensitive(False)
-        self._resolutions[key] = "source"
+        if supports_alternate:
+            current = self._resolutions.get(key)
+            if current is None:
+                button.set_label(_("\u2713"))
+                self._resolutions[key] = "source"
+            elif current == "source":
+                button.set_label(_("+ALT"))
+                self._resolutions[key] = "alternate"
+            else:
+                button.set_label(_("=>"))
+                self._resolutions.pop(key, None)
+        else:
+            button.set_label(_("\u2713"))
+            button.set_sensitive(False)
+            self._resolutions[key] = "source"
 
     def _find_dangling_references(self) -> dict[str, list[str]]:
         """
@@ -1780,8 +1847,6 @@ class GWizardMergeDialog(Gtk.Dialog):
         """
         Run the apply step for the collected resolutions and close.
         """
-        # Warn when accepting changes would lose information already in
-        # the tree (less precise dates, removed places, cleared fields).
         warnings = self._check_data_loss()
         if warnings:
             msg = _(
