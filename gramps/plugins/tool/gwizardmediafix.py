@@ -1011,6 +1011,25 @@ def relocate_media_records(
     return True, ""
 
 
+def set_base_media_path(db: DbWriteBase, path: str) -> int:
+    """
+    Save a new base media path, keeping other records pointing at their files.
+
+    Shared by Find missing media's folder button and the prompt in 'Accept
+    all hints'.  A relative path is resolved against the base media path, so
+    changing it would silently re-root every relative record; those whose
+    file exists now are repointed so they still find it.
+
+    :param db: The database.
+    :param path: The new setting ("" clears it).
+    :returns: Number of records repointed.
+    """
+    snapshot = snapshot_resolved_paths(db)
+    with DbTxn(_("Set Base Media Path"), db) as trans:
+        db.set_mediapath(path or None)
+        return keep_records_pointing_at_files(db, snapshot, trans, set())
+
+
 def fill_missing_checksums(db: DbWriteBase, parent: Any = None) -> int:
     """
     Quietly give every readable media file without a checksum one.
@@ -3634,12 +3653,8 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
             return 0
         if self._mediapath_text == self._orig_mediapath:
             return 0
-        db = self.dbstate.db
-        snapshot = snapshot_resolved_paths(db)
-        with DbTxn(_("Set Base Media Path"), db) as trans:
-            db.set_mediapath(self._mediapath_text or None)
-            self._orig_mediapath = self._mediapath_text
-            rebased = keep_records_pointing_at_files(db, snapshot, trans, set())
+        rebased = set_base_media_path(self.dbstate.db, self._mediapath_text)
+        self._orig_mediapath = self._mediapath_text
         extra = base_change_summary(rebased)
         if extra:
             OkDialog(str(_("Base media path saved")), extra, parent=self)
@@ -5502,9 +5517,65 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             msg += "\n" + "\n".join(problems[:15])
         OkDialog(str(_("File moves undone")), msg, parent=self.window)
 
+    def ask_for_base_path(self, db: DbWriteBase) -> bool:
+        """
+        Offer to set the base media path when none is set.
+
+        Without one, Consolidate has no folder to move files into (a fresh
+        import starts with none).  Choosing a folder saves it to the tree
+        exactly as Find missing media's folder button does.
+
+        :param db: The database.
+        :returns: Whether a base media path was set.
+        """
+        question = QuestionDialog2(
+            str(_("No base media path")),
+            str(
+                _(
+                    "No base media path is set for this family tree, so "
+                    "'Consolidate media location' has no folder to move and "
+                    "rename the files into.\n\n"
+                    "Choose the folder now? It is saved to this family tree (the "
+                    "same setting as Edit > Preferences > Family Tree > Base media "
+                    "path). If you continue without one, every other fix still "
+                    "runs and consolidation is skipped."
+                )
+            ),
+            str(_("_Choose folder...")),
+            str(_("_Continue without")),
+            parent=self.window,
+        )
+        if not question.run():
+            return False
+        chooser = Gtk.FileChooserDialog(
+            title=str(_("Select the base media folder")),
+            transient_for=self.window,
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+            buttons=(
+                str(_("_Cancel")),
+                Gtk.ResponseType.CANCEL,
+                str(_("_Select")),
+                Gtk.ResponseType.OK,
+            ),
+        )
+        start = get_media_base_path(db)
+        if start and os.path.isdir(start):
+            chooser.set_current_folder(start)
+        folder = chooser.get_filename() if chooser.run() == Gtk.ResponseType.OK else ""
+        chooser.destroy()
+        if not folder:
+            return False
+        rebased = set_base_media_path(db, clean_path(folder))
+        extra = base_change_summary(rebased)
+        if extra:
+            OkDialog(str(_("Base media path saved")), extra, parent=self.window)
+        return True
+
     def cb_auto_all(self) -> None:
         """Preview, then run, the default fixes across all media fix layers."""
         db = self.dbstate.db
+        if not (db.get_mediapath() or "").strip() and db.get_number_of_media():
+            self.ask_for_base_path(db)
         base_dir = get_media_base_path(db) if db else ""
         base_set = bool((db.get_mediapath() or "").strip())
 

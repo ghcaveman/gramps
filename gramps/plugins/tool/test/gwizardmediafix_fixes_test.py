@@ -802,16 +802,31 @@ class AcceptAllMatchesStepThreeTest(_DbTestCase):
             person.add_media_reference(ref)
             self.db.add_person(person, trans)
 
-    def run_accept_all(self) -> str:
-        """Run Accept all hints, confirming the preview; return the summary."""
+    def run_accept_all(self, choose: bool = False, folder: str = "") -> str:
+        """Run Accept all hints, confirming the preview; return the summary.
+
+        :param choose: The answer to the no-base-path prompt.
+        :param folder: The folder picked in its chooser ("" = Cancel).
+        """
         tool = mf.GWizardMediaFix.__new__(mf.GWizardMediaFix)
         tool.dbstate = self.dbstate
         tool.window = MagicMock()
+        question = MagicMock()
+        question.return_value.run.return_value = choose
+        chooser = MagicMock()
+        chooser.run.return_value = (
+            mf.Gtk.ResponseType.OK if folder else mf.Gtk.ResponseType.CANCEL
+        )
+        chooser.get_filename.return_value = folder or None
         with (
             patch.object(mf, "confirm_plan", return_value=True) as confirm,
             patch.object(mf, "AcceptAllHintsReportDialog") as report,
+            patch.object(mf, "QuestionDialog2", question),
+            patch.object(mf.Gtk, "FileChooserDialog", return_value=chooser),
+            patch.object(mf, "OkDialog"),
         ):
             tool.cb_auto_all()
+        self.asked = question.called
         self.preview = confirm.call_args[0][1]
         return report.call_args[1]["report_text"]
 
@@ -888,6 +903,49 @@ class AcceptAllMatchesStepThreeTest(_DbTestCase):
         self.assertIn("Consolidate media location was skipped", summary)
         self.assertIn("CHANGES REQUIRING HUMAN INTERVENTION", summary)
         self.assertNotIn("fully resolved", summary)
+
+    def far_record(self) -> str:
+        """A referenced record whose file is outside the media folder."""
+        handle = self.add_media(self.touch("Elsewhere", "far.jpg"), "Far")
+        self.link(handle, "Jones", "Mary")
+        return handle
+
+    def test_prompt_sets_base_path_and_consolidates(self) -> None:
+        """No base path: choosing a folder saves it and consolidation runs."""
+        self.db.set_mediapath(None)
+        handle = self.far_record()
+        summary = self.run_accept_all(choose=True, folder=self.base)
+        self.assertTrue(self.asked)
+        self.assertEqual(self.db.get_mediapath(), self.base)
+        path = self.db.get_media_from_handle(handle).get_path()
+        self.assertFalse(os.path.isabs(path))
+        self.assertTrue(os.path.exists(os.path.join(self.base, path)))
+        self.assertNotIn("Consolidate media location was skipped", summary)
+
+    def test_prompt_declined_skips_consolidation(self) -> None:
+        """Continuing without a base path runs the rest and skips consolidation."""
+        self.db.set_mediapath(None)
+        handle = self.far_record()
+        summary = self.run_accept_all(choose=False)
+        self.assertTrue(self.asked)
+        self.assertFalse((self.db.get_mediapath() or "").strip())
+        self.assertTrue(os.path.isabs(self.db.get_media_from_handle(handle).get_path()))
+        self.assertIn("Consolidate media location was skipped", summary)
+
+    def test_chooser_cancelled_skips_consolidation(self) -> None:
+        """Cancelling the folder chooser is the same as continuing without."""
+        self.db.set_mediapath(None)
+        self.far_record()
+        summary = self.run_accept_all(choose=True, folder="")
+        self.assertFalse((self.db.get_mediapath() or "").strip())
+        self.assertIn("Consolidate media location was skipped", summary)
+
+    def test_no_prompt_when_base_path_set(self) -> None:
+        """With a base path already set nothing is asked."""
+        self.db.set_mediapath(self.base)
+        self.far_record()
+        self.run_accept_all()
+        self.assertFalse(self.asked)
 
     def test_unreadable_file_notes_kept(self) -> None:
         """A file that still cannot be found keeps its import note."""
