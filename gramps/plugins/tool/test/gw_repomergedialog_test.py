@@ -62,7 +62,13 @@ from gramps.gen.db.base import DbWriteBase
 from gramps.gen.db.txn import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Repository, Source, RepoRef
-from gramps.plugins.tool.gw_repomergedialog import RepoMergeDialog
+from gramps.plugins.tool.gw_repomergedialog import (
+    RepoMergeDialog,
+    apply_repo_merges,
+    auto_fix_repositories,
+    build_repo_fix_rows,
+)
+from gramps.plugins.tool import gwizardcitationfix as fix
 
 _ = glocale.translation.sgettext
 
@@ -139,11 +145,9 @@ class RepoMergeApplyTest(unittest.TestCase):
                     repo = Repository()
                     repo.set_name(name)
                     db.add_repository(repo, trans)
-            dialog = RepoMergeDialog.__new__(RepoMergeDialog)
-            dialog.dbstate = FakeDbState(db)
             plan = {"FamilySearch": ["Family Search"], "Ancestry.com": ["Ancestry"]}
             with DbTxn("Fix Repositories", db) as trans:
-                merged, renamed, errors = dialog.apply_merges(plan, trans)
+                merged, renamed, errors = apply_repo_merges(db, plan, trans)
             self.assertEqual((merged, renamed, errors), (1, 1, []))
             names = sorted(r.get_name() for r in db.iter_repositories())
             self.assertEqual(names, ["Ancestry.com", "FamilySearch"])
@@ -152,6 +156,87 @@ class RepoMergeApplyTest(unittest.TestCase):
             self.assertEqual(names, ["Ancestry", "Family Search", "FamilySearch"])
         finally:
             db.close()
+
+
+class RepoFixSharedRowsTest(unittest.TestCase):
+    """The dialog and Accept all hints use the same rows and hints."""
+
+    def setUp(self) -> None:
+        self.db: DbWriteBase = make_database("sqlite")
+        self.db.load(tempfile.mkdtemp(), None)
+
+    def tearDown(self) -> None:
+        self.db.close()
+
+    def _repo(self, name: str, trans: DbTxn) -> str:
+        repo = Repository()
+        repo.set_name(name)
+        return self.db.add_repository(repo, trans)
+
+    def _source(self, title: str, repo_handle: str, trans: DbTxn) -> str:
+        source = Source()
+        source.set_title(title)
+        if repo_handle:
+            ref = RepoRef()
+            ref.set_reference_handle(repo_handle)
+            source.add_repo_reference(ref)
+        return self.db.add_source(source, trans)
+
+    def test_sources_on_golden_repositories_are_left_alone(self) -> None:
+        """A source already on a gold-standard repository is not moved.
+
+        The dialog never lists it, so Accept all hints must not move it
+        either, even when same-title sources sit on another repository.
+        """
+        with DbTxn("Setup", self.db) as trans:
+            fs_h = self._repo("FamilySearch", trans)
+            anc_h = self._repo("Ancestry.com", trans)
+            lone_h = self._source("Iowa, Marriages, 1809-1992", fs_h, trans)
+            for _number in range(2):
+                self._source("Iowa, Marriages, 1809-1992", anc_h, trans)
+
+        rows = build_repo_fix_rows(self.db)
+        self.assertEqual(rows, [])
+        result = auto_fix_repositories(self.db)
+        self.assertEqual(result["reassigned"], 0)
+        refs = self.db.get_source_from_handle(lone_h).get_reporef_list()
+        self.assertEqual([ref.get_reference_handle() for ref in refs], [fs_h])
+
+    def test_auto_applies_exactly_the_dialog_hints(self) -> None:
+        """Accept all hints changes the rows the dialog hints, and only those."""
+        with DbTxn("Setup", self.db) as trans:
+            misnamed_h = self._repo("familysearch.org", trans)
+            self._source("1900 US Census", misnamed_h, trans)
+            self._source("Smith family letters", "", trans)
+            self._repo("ancestry", trans)  # no sources; plainly Ancestry.com
+
+        rows = build_repo_fix_rows(self.db)
+        hinted = sorted(
+            (row["repo_name"], row["hint_target"]) for row in rows if row["hint_target"]
+        )
+        self.assertEqual(
+            hinted, [("ancestry", "Ancestry.com"), ("familysearch.org", "FamilySearch")]
+        )
+        result = auto_fix_repositories(self.db)
+        self.assertEqual(result["errors"], [])
+        names = sorted(r.get_name() for r in self.db.iter_repositories())
+        self.assertEqual(names, ["Ancestry.com", "FamilySearch"])
+        # A second run finds nothing more to do.
+        self.assertEqual(
+            [row for row in build_repo_fix_rows(self.db) if row["hint_target"]], []
+        )
+        # The wizard's step runs the same function.
+        self.assertIn(
+            "Changed the repository of 0 sources",
+            fix.run_auto_layer("repositories", self.db),
+        )
+
+    def test_empty_repository_with_similar_name_is_not_hinted(self) -> None:
+        """A source-less repository is only hinted when it plainly is golden."""
+        with DbTxn("Setup", self.db) as trans:
+            self._repo("Local Government and Municipal Registries (Genoa, IT)", trans)
+        rows = build_repo_fix_rows(self.db)
+        self.assertEqual([row["hint_target"] for row in rows], [""])
 
 
 # Test discovery imports every test module before running any, so take the

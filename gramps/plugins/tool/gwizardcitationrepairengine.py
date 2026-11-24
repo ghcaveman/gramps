@@ -604,8 +604,8 @@ class GWizardCitationRepairEngine:
     def clean_and_rate_citations(self, db: DbWriteBase) -> int:
         """Downrate user-tree citations and tidy the Volume/Page text.
 
-        Scripting helper. The GUI steps use ``auto_fix_citations`` in
-        gw_citationsfixdialog instead.
+        Scripting helper. In the GUI, user-tree confidence is lowered by
+        Citation Attributes (``auto_citation_attributes``) instead.
         """
         tree_handles = {
             str(src.get_handle())
@@ -618,8 +618,7 @@ class GWizardCitationRepairEngine:
                 modified = False
                 if str(citation.get_reference_handle() or "") in tree_handles:
                     # Gramps confidence: 0 Very Low ... 4 Very High. User trees
-                    # are lowered to Low (1), the same as the Fix Citations
-                    # dialog.
+                    # are lowered to Low (1), as Citation Attributes does.
                     if int(citation.get_confidence_level()) >= 3:
                         citation.set_confidence_level(1)
                         modified = True

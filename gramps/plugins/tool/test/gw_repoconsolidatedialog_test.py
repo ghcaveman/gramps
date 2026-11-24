@@ -217,6 +217,26 @@ class RepoConsolidateDialogTest(unittest.TestCase):
         self.assertIsNotNone(updated_s)
         self.assertEqual(updated_s.get_reporef_list()[0].get_reference_handle(), r1_h)
 
+    def test_apply_tidies_address_only_repository(self) -> None:
+        """Apply cleans an address-only repository, as Accept all hints does."""
+        with DbTxn("Create repo", self.db) as trans:
+            repo = Repository()
+            repo.set_name("Smithville County Courthouse")
+            addr = Address()
+            addr.set_street("Smithville County Courthouse")  # Only repeats the name
+            repo.set_address_list([addr])
+            r_h = self.db.add_repository(repo, trans)
+
+        dlg = RepoConsolidateDialog(self.dbstate)
+        self.assertIn(r_h, [row["handle"] for row, _combo in dlg.row_combos])
+        with patch("gramps.plugins.tool.gw_repoconsolidatedialog.OkDialog") as ok:
+            dlg.cb_apply(MagicMock())
+        self.assertNotEqual(ok.call_args.args[0], "Nothing to consolidate")
+        repo = self.db.get_repository_from_handle(r_h)
+        self.assertEqual(
+            [a.get_street() for a in repo.get_address_list() if a.get_street()], []
+        )
+
 
 class RepoConsolidateSafetyTest(unittest.TestCase):
     """Only sure duplicates are merged without asking; failures change nothing."""
@@ -247,7 +267,7 @@ class RepoConsolidateSafetyTest(unittest.TestCase):
             "Iowa County Courthouse",
             "St Marys Church",
             "St Marks Church",
-            "Pennsylvania State Archives",
+            "Smithville County Courthouse",
             "Archives",
             "National Archives of Ireland",
         )

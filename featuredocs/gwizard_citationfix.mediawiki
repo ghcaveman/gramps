@@ -43,10 +43,9 @@ Main-window buttons, in screen order:
 * '''Fix Repositories''' — review suggestions to create missing repositories and link sources to repositories.
 * '''Fix Sources''' — review suggestions to merge near-duplicate sources and quarantine non-sources.
 * '''Unpack Conflated Citation''' — review suggestions to extract dates and URLs from citation fields or notes.
-* '''Fix Citations''' — review suggested citation page, date, and confidence cleanup.
-* '''Citation Attributes''' — review suggested GPS quality attributes and confidence ratings.
+* '''Citation Attributes''' — review suggested GPS quality attributes and confidence ratings, including lowering the confidence of online family-tree citations.
 * '''Link Citation Media''' — review suggestions for linking media to citations.
-* '''Fix Notes''' — review suggested cleanup of citation notes.
+* '''Fix Notes''' — review suggested removal of import debris and empty notes, and whitespace trimming.
 * '''Accept all hints''' — confirm and run the cleanup steps without reviewing each step's hints.
 
 === Generate report ===
@@ -93,25 +92,18 @@ Main-window buttons, in screen order:
 # Review the suggestions for extracting dates and URLs from volume/page fields or notes.
 # Click '''Apply''' to apply the changes, or '''Close''' to leave the dialog.
 
-=== Fix Citations ===
-
-# Click '''Fix Citations'''. The '''Fix Citations''' dialog opens.
-   [[File:gwizard_citationfix-fix-citations.png|thumb|The Fix Citations dialog showing page, date, and confidence suggestions]]
-# Review the suggested cleanup for citation page, date, and confidence values.
-# Click '''Apply''' to apply the changes, or '''Close''' to leave the dialog.
-
 === Citation Attributes ===
 
 # Click '''Citation Attributes'''. The '''Citation Attributes''' dialog opens.
    [[File:gwizard_citationfix-citation-attributes.png|thumb|The Citation Attributes dialog showing suggested citation attributes]]
-# Review the suggested Genealogical Proof Standard (GPS) attributes—Source Type, Information Type, and Evidence Type—and confidence ratings.
+# Review the suggested Genealogical Proof Standard (GPS) attributes—Source Type, Information Type, and Evidence Type—and confidence ratings. Confidence is only ever lowered, never raised; citations of online family trees are lowered to Low.
 # Click '''Apply''' to apply the changes, or '''Close''' to leave the dialog.
 
 === Link Citation Media ===
 
 # Click '''Link Citation Media'''. The '''Link Citation Media''' dialog opens.
    [[File:gwizard_citationfix-link-citation-media.png|thumb|The Link Citation Media dialog showing media-to-citation link suggestions]]
-# Review the proposed media links. Select a row and click '''Inspect''' to examine that link in the inspector.
+# Review the proposed media links. Only Safe matches are set to link; Review and Conflict rows start on Skip. Select a row and click '''Inspect''' to examine that link in the inspector.
 # Click '''Apply''' to apply the selected links, or '''Close''' to leave the dialog.
 
 === Fix Notes ===
@@ -125,7 +117,7 @@ Main-window buttons, in screen order:
 
 # Click '''Accept all hints'''. The '''Accept all hints''' confirmation dialog explains that the steps will run without individual review.
    [[File:gwizard_citationfix-accept-all-hints.png|thumb|The Accept all hints confirmation dialog]]
-# Click '''Accept all''' to proceed, or '''Cancel''' to return to the main window.
+# Click '''Accept all''' to proceed, or '''Cancel''' to return to the main window. Each step accepts the same hints its own dialog's '''Accept hints''' button fills in, then applies them.
 # After the run, the '''Accept All Hints Complete''' window shows the results and any changes requiring human intervention.
    [[File:gwizard_citationfix-accept-all-hints-complete.png|thumb|The Accept All Hints Complete window showing the run results]]
 # Click '''Close''' to return to the main window.

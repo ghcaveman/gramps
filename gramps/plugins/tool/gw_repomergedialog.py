@@ -45,7 +45,7 @@ from gi.repository import Pango
 # Gramps modules
 #
 # -------------------------------------------------------------------------
-from gramps.gen.db import DbTxn
+from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import ErrorDialog, OkDialog
 from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
@@ -53,6 +53,7 @@ from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationshared import (
     build_family_titles,
     build_title_repo_index,
+    golden_repository_for,
     suggest_repository,
 )
 from gramps.plugins.tool.gwizardcitationrepairengine import (
@@ -61,6 +62,7 @@ from gramps.plugins.tool.gwizardcitationrepairengine import (
 from gramps.plugins.tool.gwizardcitationfix import (
     repository_change_summary,
     UNATTACHED_REPO_KEY,
+    _safe_iter,
     build_repo_merge_rows,
     collect_sources_by_repo,
     get_fix_description,
@@ -71,6 +73,305 @@ from gramps.plugins.tool.gwizardcitationfix import (
 _ = glocale.translation.sgettext
 ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------
+#
+# Rows, hints and apply (no GUI): shared by the dialog and Accept all hints
+#
+# ------------------------------------------------------------
+def collect_repo_names(db: DbReadBase) -> list[str]:
+    """Return sorted repository names from the database."""
+    names: list[str] = []
+    for repo in _safe_iter(db, "iter_repositories"):
+        try:
+            name = str(repo.get_name() or "")
+        except Exception:  # pylint: disable=broad-except
+            name = ""
+        names.append(name or str(_("Unnamed repository")))
+    return sorted(names)
+
+
+def collect_source_rows(db: DbReadBase) -> list[dict[str, str]]:
+    """Return one row per source/repository pair, keeping the handles.
+
+    Each row holds ``source_handle``, ``title``, ``repo_handle`` (empty
+    when the source has no usable repository) and ``repo_name`` (the
+    repository name, or ``UNATTACHED_REPO_KEY``). A source linked to
+    several repositories appears once for each.
+    """
+    handle_to_name: dict[str, str] = {}
+    for repo in _safe_iter(db, "iter_repositories"):
+        try:
+            name = str(repo.get_name() or "")
+            if name:
+                handle_to_name[str(repo.get_handle() or "")] = name
+        except Exception:  # pylint: disable=broad-except
+            LOG.exception("Failed to read repository")
+    rows: list[dict[str, str]] = []
+    for source in _safe_iter(db, "iter_sources"):
+        try:
+            title = str(source.get_title() or "")
+            source_handle = str(source.get_handle() or "")
+            refs = [
+                str(ref.get_reference_handle() or "")
+                for ref in source.get_reporef_list()
+            ]
+            for ref_handle in refs or [""]:
+                name = handle_to_name.get(ref_handle, "")
+                rows.append(
+                    {
+                        "source_handle": source_handle,
+                        "title": title,
+                        "repo_handle": ref_handle if name else "",
+                        "repo_name": name or UNATTACHED_REPO_KEY,
+                    }
+                )
+        except Exception:  # pylint: disable=broad-except
+            LOG.exception("Failed to read source")
+    return rows
+
+
+def build_repo_fix_rows(db: DbReadBase) -> list[dict[str, Any]]:
+    """Return the Fix Repositories grid rows, each with its hint.
+
+    This is the one place the rows and hints are worked out: the dialog
+    shows them, and Accept all hints applies every ``hint_target``, so both
+    see exactly the same suggestions. Repositories whose name already
+    matches a gold-standard name are left out, with their sources, as the
+    dialog has always done. Repositories with sources come first, then
+    those with none (one row each, ``info["source_handle"]`` empty), then
+    sources with no repository. A repository with no sources is hinted only
+    when its name plainly is a gold-standard name.
+
+    Each row holds ``repo_name``, ``source_title``, ``info`` (the source
+    row from :func:`collect_source_rows`), ``options`` (the bypass entry
+    first, then gold-standard names), ``best_guess``, ``hint_target`` and
+    ``hint_reason``.
+    """
+    source_rows = collect_source_rows(db)
+    hint_index = build_title_repo_index(
+        [row for row in source_rows if row["repo_handle"]]
+    )
+    # Titles of every source, linked or not, grouped by collection so a
+    # title without "U.S." can follow its "U.S." twin.
+    family_titles = build_family_titles([row["title"] for row in source_rows])
+    golden_names = GoldStandardRepositories.get_names()
+
+    visible = [
+        row for row in build_repo_merge_rows(collect_repo_names(db)) if not row["skip"]
+    ]
+    rows_by_repo: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for info in source_rows:
+        rows_by_repo[info["repo_name"]].append(info)
+    for infos in rows_by_repo.values():
+        infos.sort(key=lambda item: item["title"].lower())
+
+    with_sources = [r for r in visible if rows_by_repo.get(r["name"])]
+    without_sources = [r for r in visible if not rows_by_repo.get(r["name"])]
+
+    flat: list[tuple[dict[str, Any], str, dict[str, str]]] = []
+    for repo_row in with_sources:
+        for info in rows_by_repo[repo_row["name"]]:
+            flat.append((repo_row, info["title"], info))
+    for repo_row in without_sources:
+        flat.append(
+            (
+                repo_row,
+                "(no sources)",
+                {"source_handle": "", "repo_handle": "", "repo_name": repo_row["name"]},
+            )
+        )
+    unattached = {
+        "name": UNATTACHED_REPO_KEY,
+        "options": [UNATTACHED_REPO_KEY] + golden_names,
+        "best_guess": UNATTACHED_REPO_KEY,
+    }
+    for info in rows_by_repo.get(UNATTACHED_REPO_KEY, []):
+        flat.append((unattached, info["title"], info))
+
+    rows: list[dict[str, Any]] = []
+    for repo_row, source_title, info in flat:
+        repo_name = repo_row["name"]
+        offered = set(repo_row["options"])
+        golden = [name for name in golden_names if name in offered]
+        current = "" if repo_name == UNATTACHED_REPO_KEY else repo_name
+        found = suggest_repository(
+            info.get("title", ""),
+            info.get("source_handle", ""),
+            current,
+            hint_index,
+            golden,
+            family_titles,
+        )
+        # A repository with no sources is merged or renamed outright, so it
+        # is only hinted when its name plainly is the gold-standard one;
+        # a merely similar name is left for the user to pick by hand.
+        if (
+            found
+            and not info.get("source_handle")
+            and golden_repository_for(repo_name) != found[0]
+        ):
+            found = None
+        rows.append(
+            {
+                "repo_name": repo_name,
+                "source_title": source_title,
+                "info": info,
+                "options": list(repo_row["options"]),
+                "best_guess": repo_row["best_guess"],
+                "hint_target": found[0] if found else "",
+                "hint_reason": found[1] if found else "",
+            }
+        )
+    return rows
+
+
+def collect_repo_fix_changes(
+    choices: list[tuple[dict[str, str], str]],
+) -> tuple[list[dict[str, str]], dict[str, str]]:
+    """Turn ``(row info, chosen target)`` pairs into changes to apply.
+
+    Returns ``(source_changes, repo_changes)``. ``source_changes`` lists
+    the sources whose repository changes; ``repo_changes`` maps a
+    repository that has no sources to its chosen golden target. A target
+    equal to the row's own repository (the bypass entry) is skipped.
+    """
+    source_changes: list[dict[str, str]] = []
+    repo_changes: dict[str, str] = {}
+    for info, target in choices:
+        original = info["repo_name"]
+        if not target or target == original:
+            continue
+        if info.get("source_handle"):
+            source_changes.append(
+                {
+                    "source_handle": info["source_handle"],
+                    "old_repo_handle": info.get("repo_handle", ""),
+                    "target_name": target,
+                }
+            )
+        else:
+            repo_changes[original] = target
+    return source_changes, repo_changes
+
+
+def _find_repository_by_name(db: DbReadBase, name: str) -> Any | None:
+    """Return the first repository matching a name, or None."""
+    for repo in db.iter_repositories():
+        if str(repo.get_name() or "") == name:
+            return repo
+    return None
+
+
+def apply_repo_merges(
+    db: DbWriteBase, plan: dict[str, list[str]], trans: Any
+) -> tuple[int, int, list[str]]:
+    """Merge or rename source-less repositories from a target->originals plan.
+
+    Runs inside ``trans``. A repository that cannot be found is reported;
+    any other error is raised so the whole transaction is rolled back.
+
+    :returns: ``(merged_count, renamed_count, error_messages)``.
+    """
+    merged = 0
+    renamed = 0
+    errors: list[str] = []
+    engine = GWizardCitationRepairEngine()
+    for target_name, originals in plan.items():
+        for original in originals:
+            target = _find_repository_by_name(db, target_name)
+            source = _find_repository_by_name(db, original)
+            if source is None:
+                errors.append(
+                    _("Repository '%(original)s' not found in database.")
+                    % {"original": original}
+                )
+                continue
+            if target is None:
+                source.set_name(target_name)
+                db.commit_repository(source, trans)
+                renamed += 1
+            elif source.get_handle() != target.get_handle():
+                if engine.merge_repositories(
+                    db, target.get_handle(), source.get_handle(), trans
+                ):
+                    merged += 1
+    return (merged, renamed, errors)
+
+
+def apply_repo_fixes(
+    db: DbWriteBase,
+    source_changes: list[dict[str, str]],
+    repo_changes: dict[str, str],
+) -> dict[str, Any]:
+    """Apply Fix Repositories changes in one transaction (one Edit > Undo).
+
+    The one implementation used by the dialog's Apply button and by Accept
+    all hints. Returns a dict with ``reassigned``, ``created``, ``folded``,
+    ``merged`` and ``renamed`` counts and an ``errors`` list.
+    """
+    result: dict[str, Any] = {
+        "reassigned": 0,
+        "created": 0,
+        "folded": 0,
+        "merged": 0,
+        "renamed": 0,
+        "errors": [],
+    }
+    if not source_changes and not repo_changes:
+        return result
+    with DbTxn(_("Fix Repositories"), db) as trans:
+        engine = GWizardCitationRepairEngine()
+        result["reassigned"], result["created"] = engine.reassign_source_repositories(
+            db, source_changes, trans
+        )
+        result["folded"] = getattr(engine, "last_repositories_folded", 0)
+        if repo_changes:
+            result["merged"], result["renamed"], result["errors"] = apply_repo_merges(
+                db, plan_repo_merges(repo_changes), trans
+            )
+    return result
+
+
+def repo_fix_summary(result: dict[str, Any]) -> str:
+    """Return the result text for an :func:`apply_repo_fixes` result."""
+    summary = repository_change_summary(result["reassigned"], result["created"])
+    if result["folded"]:
+        summary += " " + ngettext(
+            "Merged {number_of} emptied repository into its "
+            "gold-standard repository.",
+            "Merged {number_of} emptied repositories into their "
+            "gold-standard repositories.",
+            result["folded"],
+        ).format(number_of=result["folded"])
+    if result["merged"]:
+        summary += " " + ngettext(
+            "Merged {number_of} empty repository.",
+            "Merged {number_of} empty repositories.",
+            result["merged"],
+        ).format(number_of=result["merged"])
+    if result["renamed"]:
+        summary += " " + ngettext(
+            "Renamed {number_of} repository to its gold-standard name.",
+            "Renamed {number_of} repositories to their gold-standard names.",
+            result["renamed"],
+        ).format(number_of=result["renamed"])
+    return summary
+
+
+def auto_fix_repositories(db: DbWriteBase) -> dict[str, Any]:
+    """Accept every Fix Repositories hint and apply it, as the dialog does.
+
+    Uses the same rows and hints as the dialog (:func:`build_repo_fix_rows`)
+    and the same apply (:func:`apply_repo_fixes`). Returns the
+    ``apply_repo_fixes`` result.
+    """
+    rows = build_repo_fix_rows(db)
+    source_changes, repo_changes = collect_repo_fix_changes(
+        [(row["info"], row["hint_target"]) for row in rows]
+    )
+    return apply_repo_fixes(db, source_changes, repo_changes)
 
 
 # ------------------------------------------------------------
@@ -107,21 +408,16 @@ class RepoMergeDialog(Gtk.Dialog):
         content.set_border_width(12)
         content.set_spacing(6)
 
-        # Collect repository rows and associated sources.
+        # Collect repository rows (with their hints) and associated sources.
         self.sources_by_repo = self.collect_sources_by_repo()
-        self.source_rows = self.collect_source_rows()
-        linked_rows = [row for row in self.source_rows if row["repo_handle"]]
-        self.hint_index = build_title_repo_index(linked_rows)
-        # Titles of every source, linked or not, grouped by collection so a
-        # title without "U.S." can follow its "U.S." twin.
-        self.family_titles = build_family_titles(
-            [row["title"] for row in self.source_rows]
+        self.fix_rows = build_repo_fix_rows(dbstate.db)
+        n_repos = len(
+            {
+                row["repo_name"]
+                for row in self.fix_rows
+                if row["repo_name"] != UNATTACHED_REPO_KEY
+            }
         )
-        rows = build_repo_merge_rows(self.collect_repo_names())
-        visible = [row for row in rows if not row["skip"]]
-
-        # Count header in the content area.
-        n_repos = len(visible)
         n_sources = sum(len(titles) for titles in self.sources_by_repo.values())
         count_label = Gtk.Label()
         count_label.set_markup(
@@ -136,7 +432,7 @@ class RepoMergeDialog(Gtk.Dialog):
         count_label.set_hexpand(True)
         content.add(count_label)
 
-        if not visible and not self.sources_by_repo.get(UNATTACHED_REPO_KEY):
+        if not self.fix_rows:
             done = Gtk.Label(
                 label=str(_("All repositories already match golden names."))
             )
@@ -166,9 +462,7 @@ class RepoMergeDialog(Gtk.Dialog):
         self.build_header(header_grid)
         content.add(header_grid)
 
-        content.pack_start(
-            self.build_rows(visible, self.sources_by_repo), True, True, 0
-        )
+        content.pack_start(self.build_rows(self.fix_rows), True, True, 0)
         desc_text = (
             description
             if description is not None
@@ -197,8 +491,7 @@ class RepoMergeDialog(Gtk.Dialog):
         self.add_action_widget(self.accept_button, Gtk.ResponseType.NONE)
 
         self.apply_button = Gtk.Button(label=str(_("Apply")))
-        has_items = bool(visible or self.sources_by_repo.get(UNATTACHED_REPO_KEY))
-        self.apply_button.set_sensitive(has_items)
+        self.apply_button.set_sensitive(True)
         self.apply_button.connect("clicked", self.cb_apply)
         self.add_action_widget(self.apply_button, Gtk.ResponseType.NONE)
 
@@ -207,48 +500,6 @@ class RepoMergeDialog(Gtk.Dialog):
     def collect_sources_by_repo(self) -> dict[str, list[str]]:
         """Return repository name mapped to sorted source titles it references."""
         return collect_sources_by_repo(self.dbstate.db)
-
-    def collect_source_rows(self) -> list[dict[str, str]]:
-        """Return one row per source/repository pair, keeping the handles.
-
-        Each row holds ``source_handle``, ``title``, ``repo_handle`` (empty
-        when the source has no usable repository) and ``repo_name`` (the
-        repository name, or ``UNATTACHED_REPO_KEY``). A source linked to
-        several repositories appears once for each.
-        """
-        db = self.dbstate.db
-        handle_to_name: dict[str, str] = {}
-        for repo in db.iter_repositories():
-            try:
-                name = str(repo.get_name() or "")
-                if name:
-                    handle_to_name[str(repo.get_handle() or "")] = name
-            except Exception:  # pylint: disable=broad-except
-                LOG.exception("Failed to read repository")
-        rows: list[dict[str, str]] = []
-        for source in db.iter_sources():
-            try:
-                title = str(source.get_title() or "")
-                source_handle = str(source.get_handle() or "")
-                refs = [
-                    str(ref.get_reference_handle() or "")
-                    for ref in source.get_reporef_list()
-                ]
-                if not refs:
-                    refs = [""]
-                for ref_handle in refs:
-                    name = handle_to_name.get(ref_handle, "")
-                    rows.append(
-                        {
-                            "source_handle": source_handle,
-                            "title": title,
-                            "repo_handle": ref_handle if name else "",
-                            "repo_name": name or UNATTACHED_REPO_KEY,
-                        }
-                    )
-            except Exception:  # pylint: disable=broad-except
-                LOG.exception("Failed to read source")
-        return rows
 
     def build_header(self, grid: Gtk.Grid) -> None:
         """Add the header row to the repository/source grid.
@@ -359,45 +610,13 @@ class RepoMergeDialog(Gtk.Dialog):
         else:
             combo._user_target = ""
 
-    def compute_hint(
-        self, repo_name: str, info: dict[str, str], combo: Gtk.ComboBox
-    ) -> tuple[str, str] | None:
-        """Return ``(golden repository, reason)`` suggested for a grid row."""
-        offered = {str(row[1]) for row in combo.get_model()}
-        golden = [
-            name for name in GoldStandardRepositories.get_names() if name in offered
-        ]
-        current = "" if repo_name == UNATTACHED_REPO_KEY else repo_name
-        return suggest_repository(
-            info.get("title", ""),
-            info.get("source_handle", ""),
-            current,
-            self.hint_index,
-            golden,
-            self.family_titles,
-        )
-
-    def attach_hint(
-        self, info: dict[str, str], repo_name: str, combo: Gtk.ComboBox
-    ) -> str:
-        """Record the hint on the row info and return the text to display."""
-        found = self.compute_hint(repo_name, info, combo)
-        if found is None:
-            info["hint_target"] = ""
-            return ""
-        info["hint_target"], info["hint_reason"] = found
-        return "%s\n(%s)" % found
-
-    def build_rows(
-        self,
-        visible: list[dict[str, Any]],
-        sources_by_repo: dict[str, list[str]],
-    ) -> Gtk.ScrolledWindow:
-        """Build a grid: header row plus repositories (left) with merge
-        dropdowns (middle) and associated sources (right), grouped by
-        repository with empty rows last. The header shares the same grid
-        columns as the cells below so they align vertically, and cell
-        text wraps so long values stay inside their columns."""
+    def build_rows(self, fix_rows: list[dict[str, Any]]) -> Gtk.ScrolledWindow:
+        """Build a grid: header row plus one row per source (sources left,
+        then repository, merge dropdown and hint), grouped by repository
+        with empty repositories and then unattached sources last. The
+        header shares the same grid columns as the cells below so they
+        align vertically, and cell text wraps so long values stay inside
+        their columns."""
         self._install_grid_css()
         grid = Gtk.Grid()
         grid.set_column_spacing(0)
@@ -407,68 +626,22 @@ class RepoMergeDialog(Gtk.Dialog):
         grid.set_vexpand(True)
         grid.get_style_context().add_class("merge-grid")
 
-        # Sort: repositories with sources first (alphabetical), then those
-        # without sources (alphabetical) so empty rows appear last.
-        with_sources = [r for r in visible if sources_by_repo.get(r["name"], [])]
-        without_sources = [r for r in visible if not sources_by_repo.get(r["name"], [])]
-        sorted_rows = with_sources + without_sources
-
-        # Build a flat list of (repo_name, source_title) pairs, one row per source.
-        # Each repo with sources gets one row per source; repos without sources
-        # get a single row with the "(no sources)" placeholder.
-        rows_by_repo: dict[str, list[dict[str, str]]] = defaultdict(list)
-        for info in getattr(self, "source_rows", None) or self.collect_source_rows():
-            rows_by_repo[info["repo_name"]].append(info)
-        for infos in rows_by_repo.values():
-            infos.sort(key=lambda item: item["title"].lower())
-
-        # (repo_name, source_title, row info); info is None for a repository
-        # that has no sources.
-        flat_rows: list[tuple[str, str, dict[str, str] | None]] = []
-        for repo_name in [r["name"] for r in sorted_rows]:
-            infos = rows_by_repo.get(repo_name, [])
-            if infos:
-                for info in infos:
-                    flat_rows.append((repo_name, info["title"], info))
-            else:
-                # Repo with no sources: one row showing the placeholder.
-                flat_rows.append((repo_name, "(no sources)", None))
-
-        # Append unattached sources (no repository reference) as final rows.
-        for info in rows_by_repo.get(UNATTACHED_REPO_KEY, []):
-            flat_rows.append((UNATTACHED_REPO_KEY, info["title"], info))
-
-        # Row 0 is the header; data rows start below it. Each source entry
-        # gets its own row with its own merge-target dropdown (Option 2).
-        # Column 0: source title for this row (moved from column 2).
-        # Column 1: repository name label (moved from column 0).
-        # Column 2: one combo per source row, with the original name first
-        #   as the bypass option, then golden repo names.
-        # Column 3: hint for this row (kept at column 3).
+        # Row 0 is the header; data rows start below it.
         row_index = 1
-        for repo_name, source_title, info in flat_rows:
-            # Column 0: the source title for this row.
+        for row in fix_rows:
+            repo_name = row["repo_name"]
+            source_title = row["source_title"]
+            info = row["info"]
             if source_title == "(no sources)":
-                placeholder = Gtk.Label(label=str(_("(no sources)")))
-                placeholder.set_halign(Gtk.Align.START)
-                placeholder.set_line_wrap(True)
-                placeholder.set_max_width_chars(60)
-                placeholder.get_style_context().add_class("merge-cell")
-                grid.attach(placeholder, 0, row_index, 1, 1)
-            elif source_title == "(no repository)":
-                placeholder = Gtk.Label(label=str(_("(no repository)")))
-                placeholder.set_halign(Gtk.Align.START)
-                placeholder.set_line_wrap(True)
-                placeholder.set_max_width_chars(60)
-                placeholder.get_style_context().add_class("merge-cell")
-                grid.attach(placeholder, 0, row_index, 1, 1)
-            else:
-                src_label = Gtk.Label(label=source_title)
-                src_label.set_halign(Gtk.Align.START)
-                src_label.set_line_wrap(True)
-                src_label.set_max_width_chars(60)
-                src_label.get_style_context().add_class("merge-cell")
-                grid.attach(src_label, 0, row_index, 1, 1)
+                source_title = str(_("(no sources)"))
+
+            # Column 0: the source title for this row.
+            src_label = Gtk.Label(label=source_title)
+            src_label.set_halign(Gtk.Align.START)
+            src_label.set_line_wrap(True)
+            src_label.set_max_width_chars(60)
+            src_label.get_style_context().add_class("merge-cell")
+            grid.attach(src_label, 0, row_index, 1, 1)
 
             # Column 1: repository name label for this row.
             repo_label = Gtk.Label(label=repo_name)
@@ -478,30 +651,25 @@ class RepoMergeDialog(Gtk.Dialog):
             repo_label.get_style_context().add_class("merge-cell")
             grid.attach(repo_label, 1, row_index, 1, 1)
 
-            # Column 2: a separate merge-target combobox for this source row.
-            # Find the row dict for this repo to build the combo.
-            if repo_name == UNATTACHED_REPO_KEY:
-                # Unattached sources have no repo; show golden repo names
-                # so the user can assign a repository to the source.
-                golden = GoldStandardRepositories.get_names()
-                row_dict = {
-                    "name": UNATTACHED_REPO_KEY,
-                    "options": [UNATTACHED_REPO_KEY] + golden,
-                    "best_guess": UNATTACHED_REPO_KEY,
+            # Column 2: a merge-target combobox for this row.
+            combo = self._make_combo(
+                {
+                    "name": repo_name,
+                    "options": row["options"],
+                    "best_guess": row["best_guess"],
                 }
-            else:
-                row_dict = next(r for r in sorted_rows if r["name"] == repo_name)
-            combo = self._make_combo(row_dict)
+            )
             combo.get_style_context().add_class("merge-cell")
             grid.attach(combo, 2, row_index, 1, 1)
 
             # Column 3: hint for this row (suggested repository and why).
-            row_info = (
-                info
-                if info is not None
-                else {"source_handle": "", "repo_handle": "", "repo_name": repo_name}
+            info["hint_target"] = row["hint_target"]
+            hint_text = (
+                "%s\n(%s)" % (row["hint_target"], row["hint_reason"])
+                if row["hint_target"]
+                else ""
             )
-            hint_label = Gtk.Label(label=self.attach_hint(row_info, repo_name, combo))
+            hint_label = Gtk.Label(label=hint_text)
             hint_label.set_halign(Gtk.Align.START)
             hint_label.set_line_wrap(True)
             hint_label.set_max_width_chars(40)
@@ -509,8 +677,8 @@ class RepoMergeDialog(Gtk.Dialog):
             grid.attach(hint_label, 3, row_index, 1, 1)
 
             # Track the combo per grid row for later retrieval of choices.
-            self.combos.append((repo_name, combo, str(row_dict["best_guess"])))
-            self.row_targets.append((row_info, combo))
+            self.combos.append((repo_name, combo, str(row["best_guess"])))
+            self.row_targets.append((info, combo))
             row_index += 1
 
         scrolled = Gtk.ScrolledWindow()
@@ -521,27 +689,6 @@ class RepoMergeDialog(Gtk.Dialog):
         scrolled.set_vexpand(True)
         scrolled.add(grid)
         return scrolled
-
-    def collect_repo_names(self) -> list[str]:
-        """Return sorted repository names from the database."""
-        names: list[str] = []
-        try:
-            for repo in self.dbstate.db.iter_repositories():
-                try:
-                    name = str(repo.get_name() or "")
-                except Exception:  # pylint: disable=broad-except
-                    name = ""
-                names.append(name or str(_("Unnamed repository")))
-        except Exception:  # pylint: disable=broad-except
-            LOG.exception("Failed to collect repositories")
-        return sorted(names)
-
-    def find_repository_by_name(self, name: str) -> Any | None:
-        """Return the first repository matching a name, or None."""
-        for repo in self.dbstate.db.iter_repositories():
-            if str(repo.get_name() or "") == name:
-                return repo
-        return None
 
     def get_choice(self, combo: Gtk.ComboBox, fallback: str) -> str:
         """Return the golden repository name behind a dropdown row."""
@@ -562,43 +709,6 @@ class RepoMergeDialog(Gtk.Dialog):
         return {
             name: self.get_choice(combo, name) for name, combo, _best in self.combos
         }
-
-    def apply_merges(
-        self, plan: dict[str, list[str]], trans: Any
-    ) -> tuple[int, int, list[str]]:
-        """Apply repository merges/renames from a target->originals plan.
-
-        Runs inside ``trans`` so it is part of the dialog's single undo
-        step. A repository that cannot be found is reported; any other
-        error is raised so the whole transaction is rolled back.
-
-        :returns: ``(merged_count, renamed_count, error_messages)``.
-        """
-        merged = 0
-        renamed = 0
-        errors: list[str] = []
-        db = self.dbstate.db
-        engine = GWizardCitationRepairEngine()
-        for target_name, originals in plan.items():
-            for original in originals:
-                target = self.find_repository_by_name(target_name)
-                source = self.find_repository_by_name(original)
-                if source is None:
-                    errors.append(
-                        _("Repository '%(original)s' not found in database.")
-                        % {"original": original}
-                    )
-                    continue
-                if target is None:
-                    source.set_name(target_name)
-                    db.commit_repository(source, trans)
-                    renamed += 1
-                elif source.get_handle() != target.get_handle():
-                    if engine.merge_repositories(
-                        db, target.get_handle(), source.get_handle(), trans
-                    ):
-                        merged += 1
-        return (merged, renamed, errors)
 
     def show_dialog(self) -> None:
         """Show the dialog modally and destroy it afterwards.
@@ -654,30 +764,13 @@ class RepoMergeDialog(Gtk.Dialog):
     def collect_changes(
         self,
     ) -> tuple[list[dict[str, str]], dict[str, str]]:
-        """Compare every drop-down with its first entry.
-
-        Returns ``(source_changes, repo_changes)``. ``source_changes`` lists
-        the sources whose row was changed; ``repo_changes`` maps a
-        repository that has no sources to its chosen golden target.
-        """
-        source_changes: list[dict[str, str]] = []
-        repo_changes: dict[str, str] = {}
-        for info, combo in self.row_targets:
-            original = info["repo_name"]
-            target = self.get_choice(combo, original)
-            if not target or target == original:
-                continue
-            if info.get("source_handle"):
-                source_changes.append(
-                    {
-                        "source_handle": info["source_handle"],
-                        "old_repo_handle": info.get("repo_handle", ""),
-                        "target_name": target,
-                    }
-                )
-            else:
-                repo_changes[original] = target
-        return source_changes, repo_changes
+        """Return ``(source_changes, repo_changes)`` for the drop-downs."""
+        return collect_repo_fix_changes(
+            [
+                (info, self.get_choice(combo, info["repo_name"]))
+                for info, combo in self.row_targets
+            ]
+        )
 
     @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
@@ -696,46 +789,12 @@ class RepoMergeDialog(Gtk.Dialog):
             )
             return
 
-        reassigned = created = merged = renamed = 0
-        errors: list[str] = []
-        # One transaction for the whole Apply, so it is one Edit > Undo and
-        # a failure part way through changes nothing.
-        with DbTxn(_("Fix Repositories"), self.dbstate.db) as trans:
-            engine = GWizardCitationRepairEngine()
-            reassigned, created = engine.reassign_source_repositories(
-                self.dbstate.db, source_changes, trans
-            )
-            if repo_changes:
-                merged, renamed, errors = self.apply_merges(
-                    plan_repo_merges(repo_changes), trans
-                )
-
-        summary = repository_change_summary(reassigned, created)
-        folded = getattr(engine, "last_repositories_folded", 0)
-        if folded:
-            summary += " " + ngettext(
-                "Merged {number_of} emptied repository into its "
-                "gold-standard repository.",
-                "Merged {number_of} emptied repositories into their "
-                "gold-standard repositories.",
-                folded,
-            ).format(number_of=folded)
-        if merged:
-            summary += " " + ngettext(
-                "Merged {number_of} empty repository.",
-                "Merged {number_of} empty repositories.",
-                merged,
-            ).format(number_of=merged)
-        if renamed:
-            summary += " " + ngettext(
-                "Renamed {number_of} repository to its gold-standard name.",
-                "Renamed {number_of} repositories to their gold-standard names.",
-                renamed,
-            ).format(number_of=renamed)
-        if errors:
+        result = apply_repo_fixes(self.dbstate.db, source_changes, repo_changes)
+        summary = repo_fix_summary(result)
+        if result["errors"]:
             ErrorDialog(
                 str(_("Repository changes had problems")),
-                summary + "\n\n" + "\n".join(errors),
+                summary + "\n\n" + "\n".join(result["errors"]),
                 parent=self,
             )
             return

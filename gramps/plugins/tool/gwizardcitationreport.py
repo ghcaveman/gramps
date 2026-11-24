@@ -1161,8 +1161,10 @@ class GWizardCitationReport:
                 "Run 'Unpack Conflated Citation' to separate access dates, URLs "
                 "and Volume/Page text."
             ),
-            _("Run 'Fix Citations' to lower the confidence of online tree citations."),
-            _("Run 'Citation Attributes' to add GPS quality attributes."),
+            _(
+                "Run 'Citation Attributes' to add GPS quality attributes and "
+                "lower the confidence of online tree citations."
+            ),
             _(
                 "Run 'Link Citation Media' to link document scans that pass "
                 "Media Fix to citations."

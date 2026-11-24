@@ -47,7 +47,6 @@ from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.plugins.tool.gwizardcitationshared import (
-    is_bare_url_text,
     is_debris_text,
     note_text,
 )
@@ -57,24 +56,8 @@ ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
-def _url_already_in_every_citation_page(
-    db: DbReadBase, note_handle: str, url: str
-) -> bool:
-    """True when every user of the note is a citation whose page holds ``url``."""
-    users = list(db.find_backlink_handles(note_handle))
-    if not users:
-        return False
-    for class_name, handle in users:
-        if class_name != "Citation":
-            return False
-        citation = db.get_citation_from_handle(handle)
-        if citation is None or url not in str(citation.get_page() or ""):
-            return False
-    return True
-
-
 def build_note_fix_rows(db: DbReadBase) -> list[dict[str, Any]]:
-    """Find notes with problems: import debris, empty, padded, or a repeated URL."""
+    """Find notes with problems: import debris, empty, or padded with spaces."""
     rows: list[dict[str, Any]] = []
     for note in db.iter_notes():
         n_handle = str(note.get_handle() or "")
@@ -100,15 +83,6 @@ def build_note_fix_rows(db: DbReadBase) -> list[dict[str, Any]]:
             suggested_text = _("[Purge note]")
             hint_text = _("Import debris / migration log (suggest Purge)")
             problem = "debris"
-        elif is_bare_url_text(stripped) and _url_already_in_every_citation_page(
-            db, n_handle, stripped
-        ):
-            # The same web address is already in the Volume/Page field of
-            # every citation that uses this note, so the note repeats it.
-            suggested_action = _("Purge")
-            suggested_text = _("[Purge note]")
-            hint_text = _("Web address already in the citation page (suggest Purge)")
-            problem = "duplicate_url"
         elif raw_text != stripped:
             # Leading or trailing whitespace
             suggested_action = _("Trim")
@@ -255,7 +229,7 @@ class NotesFixDialog(Gtk.Dialog):
         desc_text = (
             description
             if description is not None
-            else str(_("Remove import debris and convert bare-URL notes."))
+            else str(_("Remove import debris and empty notes, and trim whitespace."))
         )
         hint_footer = Gtk.Label(
             label=f"{desc_text} "
@@ -443,21 +417,27 @@ def apply_note_fix(
 ) -> bool:
     """Purge, trim or rewrite one note; the one implementation for all callers.
 
-    ``action`` is ``purge`` or ``trim`` (any case). A purge detaches the note
-    from every object that uses it, then deletes it. Returns True if the
-    note was changed or removed.
+    ``action`` is ``purge`` or ``trim``, or the translated Purge/Trim text
+    the dialog shows (any case). A purge detaches the note from every
+    object that uses it, then deletes it. Returns True if the note was
+    changed or removed.
     """
     act = (action or "").strip().lower()
+    if act == str(_("Purge")).lower():
+        act = "purge"
+    elif act == str(_("Trim")).lower():
+        act = "trim"
     new_text = (new_text or "").strip()
     if not act and not new_text:
         return False
+    purge_texts = {"[purge note]", str(_("[Purge note]")).lower()}
     try:
         note = db.get_note_from_handle(note_handle)
     except HandleError:
         note = None
     if note is None:
         return False
-    if act == "purge" or new_text.lower() == "[purge note]":
+    if act == "purge" or new_text.lower() in purge_texts:
         for class_name, parent_handle in list(db.find_backlink_handles(note_handle)):
             getter = getattr(db, "get_%s_from_handle" % class_name.lower(), None)
             commit = getattr(db, "commit_%s" % class_name.lower(), None)

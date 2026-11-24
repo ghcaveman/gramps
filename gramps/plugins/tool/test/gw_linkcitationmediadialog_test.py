@@ -31,6 +31,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 # -------------------------------------------------------------------------
@@ -378,6 +379,56 @@ class GWLinkCitationMediaDialogTest(unittest.TestCase):
 
         c_obj = self.db.get_citation_from_handle(c_h)
         self.assertEqual(len(c_obj.get_media_list()), 1)
+
+    def test_review_rows_start_on_skip(self) -> None:
+        """A Review (ambiguous) match is not linked unless the user picks it.
+
+        The dialog's default, its Accept hints and Accept all hints agree.
+        """
+        import dataclasses
+
+        from gramps.plugins.tool import gw_linkcitationmediadialog as linkmod
+
+        with DbTxn("Setup review candidate", self.db) as trans:
+            src = Source()
+            src.set_title("1920 Federal Census")
+            s_h = self.db.add_source(src, trans)
+            cit = Citation()
+            cit.set_reference_handle(s_h)
+            cit.set_page("Sheet 02A")
+            c_h = self.db.add_citation(cit, trans)
+            person = Person()
+            name = Name()
+            sname = Surname()
+            sname.set_surname("Clark")
+            name.add_surname(sname)
+            person.set_primary_name(name)
+            person.add_citation(c_h)
+            m_h = self.db.add_media(
+                self._media("Clark_1920_Census_Sheet_02A.jpg"), trans
+            )
+            ref = MediaRef()
+            ref.set_reference_handle(m_h)
+            person.add_media_reference(ref)
+            self.db.add_person(person, trans)
+
+        real_find = linkmod.find_promotable_gallery_media
+
+        def as_review(db: Any) -> list[dict[str, Any]]:
+            items = real_find(db)
+            for item in items:
+                item["compatibility"] = dataclasses.replace(
+                    item["compatibility"], status="ambiguous"
+                )
+            return items
+
+        with patch.object(linkmod, "find_promotable_gallery_media", as_review):
+            rows = build_link_citation_media_rows(self.db)
+            self.assertEqual([r["status"] for r in rows], ["ambiguous"])
+            self.assertEqual(rows[0]["hint_target"], "skip")
+            self.assertEqual(rows[0]["chosen_action"], "skip")
+            self.assertEqual(auto_link_citation_media(self.db), 0)
+        self.assertEqual(self.db.get_citation_from_handle(c_h).get_media_list(), [])
 
     def test_dialog_initialization_and_accept_hints(self) -> None:
         """GWLinkCitationMediaDialog initializes widgets and accept hints selects safe options."""

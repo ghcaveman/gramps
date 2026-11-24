@@ -54,7 +54,6 @@ from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.plugins.tool.gwizardcitationshared import (
     add_note_once,
-    delete_note_if_unused,
     parse_citation_date,
     ACCESS_DATE_REGEX as _ACCESS_DATE_REGEX,
     extract_access_date as _extract_access_date,
@@ -117,7 +116,6 @@ def plan_unpack_conflated_citations(db: DbReadBase) -> list[dict[str, Any]]:
 
         # Extract notes text
         notes_list = []
-        note_entries: list[tuple[str, str]] = []
         for nh in cit.get_note_list() or []:
             try:
                 note = db.get_note_from_handle(nh)
@@ -125,11 +123,9 @@ def plan_unpack_conflated_citations(db: DbReadBase) -> list[dict[str, Any]]:
                     ntxt = str(note.get() or "").strip()
                     if ntxt:
                         notes_list.append(ntxt)
-                        note_entries.append((str(nh), ntxt))
             except Exception:
                 pass
         notes_text = "\n".join(notes_list)
-        drop_note_handles: list[str] = []
 
         # Look for conflated elements in raw_page, notes, or source pub info
         extracted_date = ""
@@ -206,8 +202,6 @@ def plan_unpack_conflated_citations(db: DbReadBase) -> list[dict[str, Any]]:
             hint_parts.append(
                 _("Move URL '{url}' to notes").format(url=suggested_notes)
             )
-        if drop_note_handles:
-            hint_parts.append(_("Remove the note that only repeats the URL"))
 
         hint_text = (
             "\n".join(hint_parts) if hint_parts else _("Unpack citation elements")
@@ -240,7 +234,6 @@ def plan_unpack_conflated_citations(db: DbReadBase) -> list[dict[str, Any]]:
                 "clear_page": clear_page,
                 "suggested_date": suggested_date,
                 "suggested_notes": suggested_notes,
-                "drop_note_handles": drop_note_handles,
                 "hint_text": hint_text,
             }
         )
@@ -525,13 +518,6 @@ class UnpackCitationsDialog(Gtk.Dialog):
                 ):
                     continue
 
-                # The URL-only note is dropped only when its URL really
-                # became the page; if the user typed something else it stays.
-                drop = (
-                    item.get("drop_note_handles", [])
-                    if new_page == item.get("suggested_page")
-                    else []
-                )
                 if apply_unpack_citation(
                     self.dbstate.db,
                     trans,
@@ -539,7 +525,6 @@ class UnpackCitationsDialog(Gtk.Dialog):
                     page=new_page,
                     date=new_date,
                     notes=new_notes,
-                    drop_note_handles=drop,
                     clear_page=bool(item.get("clear_page") and not new_page),
                 ):
                     applied_count += 1
@@ -593,17 +578,14 @@ def apply_unpack_citation(
     page: str = "",
     date: str = "",
     notes: str = "",
-    drop_note_handles: list[str] | tuple[str, ...] = (),
     clear_page: bool = False,
 ) -> bool:
     """Write unpacked page, date and note values into one citation.
 
     The one implementation used by the dialog's Apply button and by the
     no-review path. A URL note is only added if the citation has no note
-    containing it, an identical note elsewhere is linked instead of copied,
-    and notes listed in ``drop_note_handles`` (a note that merely repeats a
-    URL now held in the page) are detached and deleted once unused.
-    Returns True if the citation changed.
+    containing it, and an identical note elsewhere is linked instead of
+    copied. Returns True if the citation changed.
     """
     try:
         cit = db.get_citation_from_handle(citation_handle)
@@ -627,16 +609,8 @@ def apply_unpack_citation(
         LOG.warning("Ignoring unparseable date '%s'", date)
     if add_note_once(db, trans, cit, notes, skip_if_contained=True):
         modified = True
-    dropped = []
-    for note_handle in drop_note_handles:
-        if note_handle in cit.get_note_list():
-            cit.remove_note(note_handle)
-            dropped.append(note_handle)
-            modified = True
     if modified:
         db.commit_citation(cit, trans)
-        for note_handle in dropped:
-            delete_note_if_unused(db, trans, note_handle)
     return modified
 
 
@@ -657,7 +631,6 @@ def auto_unpack_citations(db: DbWriteBase) -> int:
                 page=item["suggested_page"],
                 date=item["suggested_date"],
                 notes=item["suggested_notes"],
-                drop_note_handles=item["drop_note_handles"],
                 clear_page=bool(item.get("clear_page")),
             ):
                 changed += 1

@@ -322,17 +322,37 @@ def auto_consolidate_repositories(
     but no merge target. Returns the dict from ``apply_repo_consolidations``.
     """
     rows = build_repo_consolidate_rows(db)
-    changes = [
-        (row["handle"], row["hint_target"])
-        for row in rows
-        if row["hint_target"] and row["confident"]
-    ]
-    tidy = [
-        row["handle"]
-        for row in rows
-        if not row["hint_target"] and row["problem"] == "address"
-    ]
+    changes, tidy = plan_repo_consolidations(
+        rows,
+        {
+            row["handle"]: row["hint_target"]
+            for row in rows
+            if row["hint_target"] and row["confident"]
+        },
+    )
     return apply_repo_consolidations(db, changes, engine, tidy_handles=tidy)
+
+
+def plan_repo_consolidations(
+    rows: list[dict[str, Any]], choices: dict[str, str]
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Turn rows and chosen targets into ``(changes, tidy_handles)``.
+
+    ``choices`` maps a row's repository handle to the target picked for it
+    (a missing entry, or the row's own handle, means "leave it"). A row that
+    is left alone and only has an address problem gets its address tidied.
+    The dialog's Apply and Accept all hints both plan through here.
+    """
+    changes: list[tuple[str, str]] = []
+    tidy: list[str] = []
+    for row in rows:
+        handle = row["handle"]
+        chosen = choices.get(handle, "")
+        if chosen and chosen != handle:
+            changes.append((handle, chosen))
+        elif row["problem"] == "address":
+            tidy.append(handle)
+    return changes, tidy
 
 
 def build_repo_consolidate_rows(db: DbReadBase) -> list[dict[str, Any]]:
@@ -908,13 +928,15 @@ class RepoConsolidateDialog(Gtk.Dialog):
     @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Apply chosen repository consolidations."""
-        changes: list[tuple[str, str]] = []
-        for row, combo in self.row_combos:
-            chosen = self.get_choice(combo, row["handle"])
-            if chosen and chosen != row["handle"]:
-                changes.append((row["handle"], chosen))
+        changes, tidy = plan_repo_consolidations(
+            [row for row, _combo in self.row_combos],
+            {
+                row["handle"]: self.get_choice(combo, row["handle"])
+                for row, combo in self.row_combos
+            },
+        )
 
-        if not changes:
+        if not changes and not tidy:
             OkDialog(
                 str(_("Nothing to consolidate")),
                 str(
@@ -927,7 +949,9 @@ class RepoConsolidateDialog(Gtk.Dialog):
             )
             return
 
-        result = apply_repo_consolidations(self.dbstate.db, changes, self.engine)
+        result = apply_repo_consolidations(
+            self.dbstate.db, changes, self.engine, tidy_handles=tidy
+        )
         self._show_result(result, str(_("Repositories Consolidated")))
 
     def _show_result(self, result: dict[str, Any], ok_title: str) -> None:

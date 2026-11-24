@@ -60,6 +60,7 @@ from gramps.gen.db import DbTxn
 from gramps.gen.lib import Source, Citation
 from gramps.plugins.tool.gw_citationattributesdialog import (
     CitationAttributesDialog,
+    auto_citation_attributes,
     suggest_citation_attributes,
     build_citation_attribute_rows,
 )
@@ -143,6 +144,37 @@ class CitationAttributesDialogTest(unittest.TestCase):
         self.assertEqual(row["suggested_info_type"], "Secondary")
         self.assertEqual(row["suggested_ev_type"], "Direct")
         self.assertEqual(row["suggested_quay"], "2(-)")
+
+    def test_auto_lowers_tree_confidence_only(self) -> None:
+        """Online-tree citations drop to Low (1); others are never raised.
+
+        This used to be the job of the Fix Citations step.
+        """
+        with DbTxn("Create sources and citations", self.db) as trans:
+            handles = {}
+            for title, conf in (
+                ("FamilySearch Family Tree", 3),
+                ("Geni.com", 2),
+                ("Birth Certificate", 2),
+            ):
+                src = Source()
+                src.set_title(title)
+                cit = Citation()
+                cit.set_reference_handle(self.db.add_source(src, trans))
+                cit.set_confidence_level(conf)
+                handles[title] = self.db.add_citation(cit, trans)
+
+        auto_citation_attributes(self.db)
+
+        def conf(title: str) -> int:
+            return self.db.get_citation_from_handle(
+                handles[title]
+            ).get_confidence_level()
+
+        self.assertEqual(conf("FamilySearch Family Tree"), 1)
+        self.assertEqual(conf("Geni.com"), 1)
+        # A certificate suggests Very High, but confidence is never raised.
+        self.assertEqual(conf("Birth Certificate"), 2)
 
     def test_build_rows_and_accept_hints(self) -> None:
         """Target textboxes start empty by default, and accept_hints populates them."""

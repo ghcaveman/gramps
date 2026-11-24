@@ -79,7 +79,6 @@ from gramps.plugins.tool.gw_repoconsolidatedialog import apply_repo_consolidatio
 
 CITATION_FIX_MODULES = (
     "gw_citationattributesdialog",
-    "gw_citationsfixdialog",
     "gw_goldstandardrepos",
     "gw_linkcitationmediadialog",
     "gw_notesfixdialog",

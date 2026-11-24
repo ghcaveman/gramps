@@ -240,8 +240,9 @@ def build_link_citation_media_rows(
             action_label = action
             default_action = "link"
 
-        # If conflict, default action should be skip
-        if compat.status == "conflict":
+        # Only safe matches are linked by default (and by Accept hints);
+        # Review and Conflict rows start on Skip until the user picks.
+        if compat.status != "safe":
             default_action = "skip"
 
         # Status icon & text
@@ -426,8 +427,9 @@ def auto_link_citation_media(
 ) -> int:
     """Headless auto-linker for 'Accept all hints'.
 
-    Applies only safe (🟢) candidates with zero conflicts in one transaction.
-    Only media that follows the Media Fix rules is used; see
+    Applies every row whose hint is "link" (the safe 🟢 candidates), the
+    same rows the dialog's Accept hints selects, in one transaction. Only
+    media that follows the Media Fix rules is used; see
     :func:`build_link_citation_media_rows` for ``stats``.
     """
     if not db:
@@ -436,18 +438,9 @@ def auto_link_citation_media(
         return 0
 
     rows = build_link_citation_media_rows(db, stats)
-    safe_plan = [
-        r
-        for r in rows
-        if r.get("status") == "safe"
-        and r.get("compatibility")
-        and not r["compatibility"].conflicts
-    ]
-    if not safe_plan:
+    safe_plan = [dict(r, chosen_action=r["hint_target"]) for r in rows]
+    if not any(r["chosen_action"] != "skip" for r in safe_plan):
         return 0
-
-    for r in safe_plan:
-        r["chosen_action"] = "link"
 
     class _FakeDbState:
         def __init__(self, database: Any) -> None:
@@ -789,9 +782,9 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
         row["chosen_action"] = val
 
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
-        """Select safe default choices for all rows."""
+        """Set every row whose hint is to link (the safe rows) to Link."""
         for row, combo in self.row_combos:
-            if row["status"] == "safe":
+            if row["hint_target"] == "link":
                 combo.set_active_id("link")
                 row["chosen_action"] = "link"
 

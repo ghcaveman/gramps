@@ -114,7 +114,7 @@ class GWizardCitationFixTest(unittest.TestCase):
         self.assertIn("fix_repositories", tool_instance.buttons)
         self.assertIn("fix_sources", tool_instance.buttons)
         self.assertIn("unpack_citations", tool_instance.buttons)
-        self.assertIn("fix_citations", tool_instance.buttons)
+        self.assertNotIn("fix_citations", tool_instance.buttons)
         self.assertIn("citation_attributes", tool_instance.buttons)
         self.assertIn("link_citation_media", tool_instance.buttons)
         self.assertIn("fix_notes", tool_instance.buttons)
@@ -135,11 +135,11 @@ class GWizardCitationFixTest(unittest.TestCase):
                 "gramps.plugins.tool.gwizardcitationfix.Gtk.FileChooserDialog",
                 return_value=mock_chooser,
             ),
-            patch("gramps.plugins.tool.gwizardcitationfix.OkDialog") as mock_ok,
+            patch("gramps.plugins.tool.gwizardcitationfix.ErrorDialog") as mock_err,
             patch.object(tool_instance, "cb_view_report") as mock_view,
         ):
             tool_instance.cb_generate_report()
-            mock_ok.assert_not_called()
+            mock_err.assert_not_called()
             mock_view.assert_not_called()
             self.assertIsNone(tool_instance.report_path)
 
@@ -241,7 +241,7 @@ class GWizardCitationFixTest(unittest.TestCase):
             self.assertIn("unpack source titles", msg)
             self.assertIn("merge duplicate repositories into gold-standard ones", msg)
             self.assertIn("extract dates and URLs from volume/page fields", msg)
-            self.assertIn("lower the confidence of user-tree citations", msg)
+            self.assertIn("lowering online-tree citations to Low", msg)
             self.assertIn("assign Genealogical Proof Standard attributes", msg)
             self.assertIn("delete import debris and empty notes", msg)
             self.assertIn("1. Unpack Conflated Source", msg)
@@ -249,10 +249,11 @@ class GWizardCitationFixTest(unittest.TestCase):
             self.assertIn("3. Fix Repositories", msg)
             self.assertIn("4. Fix Sources", msg)
             self.assertIn("5. Unpack Conflated Citation", msg)
-            self.assertIn("6. Fix Citations", msg)
-            self.assertIn("7. Citation Attributes", msg)
-            self.assertIn("8. Link Citation Media", msg)
-            self.assertIn("9. Fix Notes", msg)
+            self.assertNotIn("Fix Citations", msg)
+            self.assertIn("6. Citation Attributes", msg)
+            self.assertIn("7. Link Citation Media", msg)
+            self.assertIn("8. Fix Notes", msg)
+            self.assertIn("up to 8 undos", msg)
             self.assertEqual(btn_ok, "_Accept all")
 
     def test_cb_auto_all_execution_and_human_intervention_report(self) -> None:
@@ -296,10 +297,10 @@ class GWizardCitationFixTest(unittest.TestCase):
             self.assertIn("3. Fix Repositories:", report)
             self.assertIn("4. Fix Sources:", report)
             self.assertIn("5. Unpack Conflated Citation:", report)
-            self.assertIn("6. Fix Citations:", report)
-            self.assertIn("7. Citation Attributes:", report)
-            self.assertIn("8. Link Citation Media:", report)
-            self.assertIn("9. Fix Notes:", report)
+            self.assertNotIn("Fix Citations", report)
+            self.assertIn("6. Citation Attributes:", report)
+            self.assertIn("7. Link Citation Media:", report)
+            self.assertIn("8. Fix Notes:", report)
             # Without unresolved items in an empty DB, reports no human intervention needed
             self.assertIn("No human intervention required", report)
 

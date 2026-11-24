@@ -252,7 +252,7 @@ class NotesFixDialogTest(unittest.TestCase):
                 call.kwargs.get("label", "") for call in mock_label_cls.call_args_list
             ]
             footer_found = any(
-                "Remove import debris and convert bare-URL notes." in text
+                "Remove import debris and empty notes, and trim whitespace." in text
                 for text in labels_created
             )
             self.assertTrue(footer_found)
