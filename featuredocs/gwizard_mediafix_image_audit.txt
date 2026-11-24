@@ -1,27 +1,27 @@
 
-Image Audit for: C:\gramps_dev\gramps_gwizard_mediafix_plugin\gramps_gwizard_mediafix\featuredocs\gwizard_mediafix.mediawiki
-Checking folder: C:\gramps_dev\gramps_gwizard_mediafix_plugin\gramps_gwizard_mediafix\featuredocs\images
+Image Audit for: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_mediafix/featuredocs/gwizard_mediafix.mediawiki
+Checking folder: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_mediafix/featuredocs/images
 --------------------------------------------------------------------
   [EXISTS]  gwizard_mediafix-main.png
              Capture: GWizard Media Fix main interface
   [EXISTS]  gwizard_mediafix-report-save.png
-             Capture: Save Media Fix Report: choose the folder and filename for the report
+             Capture: Save the generated media fix report
   [EXISTS]  gwizard_mediafix-report.png
-             Capture: GWizard Media Fix Report: review the generated plain-text report listing all media issues
+             Capture: Media Fix Report viewer showing the scan results
   [EXISTS]  gwizard_mediafix-find-missing.png
-             Capture: Find Missing Media: review each missing record and its suggested replacement path
+             Capture: Find Missing Media dialog listing records with missing files
   [EXISTS]  gwizard_mediafix-fix-references.png
-             Capture: Fix Media References: pick Merge, Create copies, or Delete for each duplicate or unreferenced record
-  [EXISTS]  gwizard_mediafix-consolidate.png
-             Capture: Consolidate Media Location: set the base media path, naming template, and file operation
+             Capture: Fix Media References dialog showing duplicate and unreferenced media
   [EXISTS]  gwizard_mediafix-clean-import-notes.png
-             Capture: Clean import notes: confirm deletion of leftover import-failure notes
+             Capture: Fix Media References dialog with import notes cleanup
+  [EXISTS]  gwizard_mediafix-consolidate.png
+             Capture: Consolidate Media Location dialog showing files to move or rename
   [EXISTS]  gwizard_mediafix-undo-last-file-moves.png
-             Capture: Undo last file moves: confirm reversal of the last logged file-move run
+             Capture: Undo last file moves confirmation dialog
   [EXISTS]  gwizard_mediafix-accept-all-hints.png
-             Capture: Accept all hints - preview: review the planned automatic changes before accepting
+             Capture: Accept all hints preview showing every planned change
   [EXISTS]  gwizard_mediafix-accept-all-hints-complete.png
-             Capture: Accept All Hints Complete: summary of automated changes and items needing human intervention
+             Capture: Accept All Hints Complete report summarizing all fixes applied
 --------------------------------------------------------------------
 Summary: 10/10 present, 0 missing.
 

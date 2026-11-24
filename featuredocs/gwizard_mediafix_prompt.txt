@@ -33,12 +33,16 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 ### Feature Files (from changed_files.txt):
 - WikiTree_ImprovementList.md
 - addon_package.toml
-- featuredocs/.gitignore
 - featuredocs/README_gwizard_mediafix.md
 - featuredocs/ToolComparison.md
 - featuredocs/create_gwizard_mediafix_wiki.bash
 - featuredocs/devnotes/environment/install.md
+- featuredocs/devnotes/mediafix/ImageAndCitationInteraction.md
+- featuredocs/devnotes/mediafix/MediaAddons_ToolComparison.md
+- featuredocs/devnotes/mediafix/MediaAndCitationReferences_Devin.md
 - featuredocs/devnotes/mediafix/MediaArrangementInAGedcomFile.md
+- featuredocs/devnotes/mediafix/MediaFix_OpportunitiesForImprovement.md
+- featuredocs/devnotes/mediafix/MediaManager_ToolComparison.md
 - featuredocs/gwizard_mediafix.mediawiki
 - featuredocs/gwizard_mediafix_image_audit.txt
 - featuredocs/gwizard_mediafix_prompt.txt
@@ -52,18 +56,27 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 - featuredocs/images/gwizard_mediafix-report-save.png
 - featuredocs/images/gwizard_mediafix-report.png
 - featuredocs/images/gwizard_mediafix-undo-last-file-moves.png
+- gramps/gui/viewmanager.py
 - gramps/plugins/tool/gw_fixmediareferencesdialog.py
-- gramps/plugins/tool/gwizard_common.py
+- gramps/plugins/tool/gw_mediapreview.py
+- gramps/plugins/tool/gwizard_mediafix_common.py
 - gramps/plugins/tool/gwizardmediafix.py
 - gramps/plugins/tool/test/__init__.py
-- gramps/plugins/tool/test/gwizard_common_test.py
 - gramps/plugins/tool/test/gwizard_gtk_fakes.py
+- gramps/plugins/tool/test/gwizard_mediafix_common_test.py
+- gramps/plugins/tool/test/gwizardmediafix_checksum_test.py
+- gramps/plugins/tool/test/gwizardmediafix_contentcheck_test.py
 - gramps/plugins/tool/test/gwizardmediafix_ex_test.py
 - gramps/plugins/tool/test/gwizardmediafix_fixes_test.py
+- gramps/plugins/tool/test/gwizardmediafix_folder_test.py
+- gramps/plugins/tool/test/gwizardmediafix_idsort_test.py
 - gramps/plugins/tool/test/gwizardmediafix_pickfile_test.py
+- gramps/plugins/tool/test/gwizardmediafix_preview_test.py
+- gramps/plugins/tool/test/gwizardmediafix_scanlimit_test.py
 - gramps/plugins/tool/test/gwizardmediafix_test.py
+- gramps/plugins/tool/test/gwizardmediafix_translation_test.py
 - gramps/plugins/tool/tools.gpr.py
-- package_gwizard_mediafix.py
+- gramps/test/test/gitattributes_test.py
 - po/POTFILES.in
 - po/POTFILES.skip
 
@@ -657,105 +670,155 @@ register(
 
 
 ### UI Inventory (window titles and buttons extracted from the code, grouped by the function that creates them):
+--- gramps/gui/viewmanager.py ---
+(module):
+  line 152: list item (button or choice): Unsupported
+ViewManager.__build_main_window:
+  line 429: window title: %s - Gramps
+ViewManager._on_fs_status_clicked:
+  line 449: message title: FamilySearch
+  line 449: dialog button: Sign in
+  line 449: dialog button: Cancel
+ViewManager.login:
+  line 662: message title: FamilySearch
+  line 675: message title: FamilySearch
+  line 683: message title: FamilySearch
+ViewManager.abort:
+  line 937: message title: Abort changes?
+  line 937: dialog button: Abort changes
+  line 937: dialog button: Cancel
+  line 954: message title: Cannot abandon session's changes
+ViewManager._post_load_newdb_gui:
+  line 1403: message title: Gramps had a problem the last time it was run.
+  line 1403: dialog button: Yes
+  line 1403: dialog button: No
+ViewManager.post_close_db:
+  line 1442: window title: %s - Gramps
+ViewManager.get_available_views:
+  line 1880: message title: Failed Loading View
+run_plugin:
+  line 1991: message title: Failed Loading Plugin
+QuickBackup.__init__:
+  line 2092: dialog button: Close
+  line 2093: dialog button: OK
+  line 2157: button: %s (%s %s)
+  line 2160: button: Exclude
+  line 2178: message title: Backup file already exists! Overwrite?
+  line 2178: dialog button: Proceed and overwrite
+  line 2178: dialog button: Cancel the backup
+QuickBackup.select_backup_path:
+  line 2232: window title: Select backup directory
+  line 2237: dialog button: Cancel
+  line 2237: dialog button: Apply
+
 --- gramps/plugins/tool/gw_fixmediareferencesdialog.py ---
 FixMediaReferencesDialog.__init__:
-  line 269: button: Accept hints (%d)
-  line 274: button: Apply
-  line 279: dialog button: Close
+  line 518: button: Accept hints (%d)
+  line 523: button: Apply
+  line 528: dialog button: Close
 FixMediaReferencesDialog.cb_accept_hints:
-  line 505: message title: Hints accepted
+  line 911: message title: Hints accepted
 FixMediaReferencesDialog.cb_apply:
-  line 658: message title: Nothing was changed
-  line 664: message title: Nothing to apply
-  line 688: message title: Media References Resolved
+  line 1079: message title: Nothing was changed
+  line 1085: message title: Nothing to apply
+  line 1128: message title: Media References Resolved
 
 --- gramps/plugins/tool/gwizardmediafix.py ---
 (module):
-  line 132: list item (button or choice): Reference ID + Community Standard ({ref_id}_{surname}_{given}-{doc_type}-{year})
-  line 138: list item (button or choice): Community Standard ({surname}_{given}-{doc_type}-{year})
-  line 142: list item (button or choice): Reference ID + Document Type ({ref_id}_{doc_type}-{year})
-  line 146: list item (button or choice): Media ID + Document Type ({id}_{doc_type}-{year})
-  line 150: list item (button or choice): Media ID + Original Name ({id}_{orig})
-  line 154: list item (button or choice): Sanitized Original Name ({orig})
-  line 158: list item (button or choice): Community Standard + content hash (never clashes for different files)
-confirm_plan:
-  line 1947: window title: Accept all hints - preview
-  line 1954: dialog button: Cancel
-  line 1955: dialog button: Accept all
+  line 195: list item (button or choice): Reference ID + Community Standard ({ref_id}_{surname}_{given}-{doc_type}-{year})
+  line 201: list item (button or choice): Community Standard ({surname}_{given}-{doc_type}-{year})
+  line 205: list item (button or choice): Reference ID + Document Type ({ref_id}_{doc_type}-{year})
+  line 209: list item (button or choice): Media ID + Document Type ({id}_{doc_type}-{year})
+  line 213: list item (button or choice): Media ID + Original Name ({id}_{orig})
+  line 217: list item (button or choice): Sanitized Original Name ({orig})
+  line 221: list item (button or choice): Community Standard + content hash (never clashes for different files)
+ask_full_scan:
+  line 2772: dialog button: Keep this report
+  line 2773: dialog button: Scan all files this time
+  line 2774: dialog button: Always scan all files
+confirm_text:
+  line 2805: dialog button: Cancel
+format_folder_search:
+  line 3022: list item (button or choice): Found by content (renamed or moved files): %d
+  line 3023: list item (button or choice): Found by file name: %d
 FindMissingMediaDialog.__init__:
-  line 2106: button: Accept hints (%d)
-  line 2111: button: Copy from folder...
-  line 2116: button: Apply
-  line 2121: dialog button: Close
+  line 3192: button: Accept hints (%d)
+  line 3197: button: Look in folder...
+  line 3211: button: Apply
+  line 3216: dialog button: Close
 FindMissingMediaDialog.cb_accept_hints:
-  line 2295: message title: Hints accepted
+  line 3448: message title: Hints accepted
 FindMissingMediaDialog.cb_pick_file:
-  line 2314: window title: Select the file for %s
+  line 3467: window title: Select the file for %s
 FindMissingMediaDialog.cb_select_mediapath:
-  line 2421: window title: Select media directory
-FindMissingMediaDialog.cb_copy_from_folder:
-  line 2452: message title: Set a base media path first
-  line 2463: window title: Select folder containing the missing files
-  line 2482: message title: Folder not readable
-  line 2502: message title: Copies queued
+  line 3612: window title: Select media directory
+FindMissingMediaDialog.save_mediapath:
+  line 3659: message title: Base media path saved
+FindMissingMediaDialog.cb_look_in_folder:
+  line 3673: message title: Nothing to look for
+  line 3679: window title: Select the folder to search for the missing files
+  line 3700: message title: Folder not readable
+  line 3733: message title: No missing files found
 FindMissingMediaDialog.cb_apply:
-  line 2602: message title: Nothing to apply
-  line 2627: message title: Media Paths Updated
+  line 3800: message title: Nothing to apply
+  line 3818: message title: Media Paths Updated
 ConsolidateMediaLocationDialog.__init__:
-  line 2766: button: Use naming standard
-  line 2769: button: Keep original filename
-  line 2783: button: Move files
-  line 2786: button: Make a copy
-  line 2857: button: Accept hints (%d)
-  line 2862: button: Apply
-  line 2867: dialog button: Close
-ConsolidateMediaLocationDialog.cb_select_mediapath:
-  line 2992: window title: Select media directory
+  line 3916: button: Use naming standard
+  line 3919: button: Keep original filename
+  line 3933: button: Move files
+  line 3936: button: Make a copy
+  line 4003: button: Accept hints (%d)
+  line 4008: button: Apply
+  line 4013: dialog button: Close
 ConsolidateMediaLocationDialog.cb_accept_hints:
-  line 3173: message title: Hints accepted
+  line 4261: message title: Hints accepted
 ConsolidateMediaLocationDialog.cb_apply:
-  line 3201: message title: Duplicate Source Files Detected
-  line 3310: message title: Base media path saved
-  line 3316: message title: Nothing to apply
-  line 3336: message title: Media Locations Consolidated
+  line 4289: message title: Duplicate Source Files Detected
+  line 4376: message title: Nothing to apply
+  line 4422: message title: Media Locations Consolidated
 MediaFixReportDialog.__init__:
-  line 3382: dialog button: Close
+  line 4468: dialog button: Close
 AcceptAllHintsReportDialog.__init__:
-  line 3446: dialog button: Close
+  line 4532: dialog button: Close
 GWizardMediaFix._build_window:
-  line 3878: window title: GWizard Media Fix
-  line 3904: list item (button or choice): Generate report
-  line 3905: list item (button or choice): Find missing media
-  line 3906: list item (button or choice): Fix media references
-  line 3907: list item (button or choice): Consolidate media location
-  line 3908: list item (button or choice): Clean import notes
-  line 3909: list item (button or choice): Undo last file moves
-  line 3921: button: Accept all hints
-  line 3926: dialog button: Close
+  line 5060: window title: GWizard Media Fix
+  line 5084: list item (button or choice): Generate report
+  line 5085: list item (button or choice): Find missing media
+  line 5086: list item (button or choice): Fix media references
+  line 5087: list item (button or choice): Consolidate media location
+  line 5088: list item (button or choice): Undo last file moves
+  line 5100: button: Accept all hints
+  line 5105: dialog button: Close
 GWizardMediaFix.cb_generate_report:
-  line 3944: window title: Save Media Fix Report
-  line 3950: dialog button: Cancel
-  line 3950: dialog button: Save
-  line 3982: message title: Report Not Written
+  line 5127: window title: Save Media Fix Report
+  line 5133: dialog button: Cancel
+  line 5133: dialog button: Save
+  line 5141: button: Check file contents against stored checksums (slower)
+  line 5207: message title: Report Not Written
+GWizardMediaFix.offer_checksum_update:
+  line 5227: message title: Update changed checksums
+  line 5227: dialog button: Update checksums
+  line 5227: dialog button: Keep old checksums
+  line 5251: message title: Checksums updated
 GWizardMediaFix.cb_button:
-  line 4019: window title: Find Missing Media
-  line 4026: window title: Fix Media References
-  line 4035: window title: Consolidate Media Location
+  line 5293: window title: Find Missing Media
+  line 5301: window title: Fix Media References
+  line 5311: window title: Consolidate Media Location
 GWizardMediaFix.cb_undo_moves:
-  line 4245: message title: No file moves to undo
-  line 4254: message title: Undo last file moves
-  line 4254: dialog button: Undo moves
-  line 4254: dialog button: Cancel
-  line 4277: message title: File moves undone
-GWizardMediaFix.cb_clean_notes:
-  line 4284: message title: No stale import notes
-  line 4296: message title: Clean import notes
-  line 4296: dialog button: Delete
-  line 4296: dialog button: Cancel
-  line 4318: message title: Import notes cleaned
+  line 5482: message title: No file moves to undo
+  line 5491: message title: Undo last file moves
+  line 5491: dialog button: Undo moves
+  line 5491: dialog button: Cancel
+  line 5514: message title: File moves undone
+GWizardMediaFix.ask_for_base_path:
+  line 5527: message title: No base media path
+  line 5527: dialog button: Choose folder...
+  line 5527: dialog button: Continue without
+  line 5546: window title: Select the base media folder
+  line 5567: message title: Base media path saved
 GWizardMediaFix.cb_auto_all:
-  line 4355: message title: Nothing to change automatically
-  line 4509: window title: Accept All Hints Complete
+  line 5585: message title: Nothing to change automatically
+  line 5821: window title: Accept All Hints Complete
 
 ### Existing Screenshots (already captured in featuredocs/images/; the header's gwizard_mediafix-main.png is not listed):
 - images/gwizard_mediafix-accept-all-hints-complete.png

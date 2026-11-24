@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ---------------------------------------------------------------------------
-# build_gwizard_mediafix_wiki.bash
+# create_gwizard_mediafix_wiki.bash
 # ---------------------------------------------------------------------------
 # Helper script that runs the full documentation pipeline for the
 # "gwizard_mediafix" feature.
@@ -17,20 +17,27 @@
 # the patched build_feature_docs.py.
 #
 # Usage:
-#   ./featuredocs/build_gwizard_mediafix_wiki.bash
+#   ./featuredocs/create_gwizard_mediafix_wiki.bash
 #
 # You can adjust the parent branch if you need a different diff base.
 # ---------------------------------------------------------------------------
 
 set -euo pipefail
 
-# Feature slug – must match the name used throughout the docs.
+# ---- Edit these three values for your feature ----------------------------
+# Feature slug. It names every generated file (README_gwizard_mediafix.md,
+# gwizard_mediafix_prompt.txt, gwizard_mediafix.mediawiki, gwizard_mediafix_image_audit.txt) and the
+# screenshots (images/gwizard_mediafix-<short-name>.png), so use the same slug
+# everywhere: lower case with underscores, e.g. "my_feature".
 FEATURE="gwizard_mediafix"
+
+# Name shown in the wiki page's infobox and intro, e.g. "My Feature".
 PLUGIN_DISPLAY_NAME="GWizard Media Fix"
 
 # Parent branch for the isolated git diff.  Adjust if you work off a different
 # base (e.g. a release branch).
 PARENT_BRANCH="functionality_base"
+# ---------------------------------------------------------------------------
 
 # Resolve the repository root (the directory that contains the top‑level
 # "gramps" folder).  This script lives in "featuredocs/", so the repo root is
@@ -39,7 +46,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ---- changed_files.txt lifecycle (mirrors check_banner.bash) --------------
 # Allow the list file location to be overridden via the environment, e.g.
-#   CHANGED_FILE=/tmp/my_changed_files.txt ./build_gwizard_mediafix_wiki.bash
+#   CHANGED_FILE=/tmp/my_changed_files.txt ./featuredocs/create_gwizard_mediafix_wiki.bash
 CHANGED_FILE="${CHANGED_FILE:-changed_files.txt}"
 
 # Remember whether the list file existed before we started so we can clean up
