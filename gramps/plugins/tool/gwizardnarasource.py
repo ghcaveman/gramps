@@ -81,10 +81,7 @@ for _path in (
     if os.path.isdir(_path) and _path not in sys.path:
         sys.path.insert(0, _path)
 
-from gramps.gen.gwizard.gwizardnaraquerybuilder import (
-    build_nara_query,
-    is_valid_nara_hit,
-)
+from gwizardnaraquerybuilder import build_nara_query, is_valid_nara_hit
 
 
 def _record_query_to_ind(query: RecordQuery) -> dict[str, Any]:

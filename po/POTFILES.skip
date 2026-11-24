@@ -705,6 +705,7 @@ gramps/plugins/tool/gwizard_common.py
 gramps/plugins/tool/test/gwizard_common_test.py
 gramps/plugins/tool/test/gwizardmediafix_test.py
 gramps/plugins/tool/test/gwizardmediafix_ex_test.py
+gramps/plugins/tool/gwizardnaraquerybuilder.py
 #
 # plugins/view directory
 #
