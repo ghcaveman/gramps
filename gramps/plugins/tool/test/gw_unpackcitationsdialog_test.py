@@ -276,7 +276,7 @@ class UnpackCitationsDialogTest(unittest.TestCase):
             patch.object(UnpackCitationsDialog, "add_action_widget") as mock_action,
             patch.object(UnpackCitationsDialog, "add_button") as mock_add_button,
             patch(
-                "gramps.plugins.tool.gw_unpackcitationsdialog.Gtk.Label"
+                "gramps.plugins.tool.gw_unpackcitationsdialog.SelectableLabel"
             ) as mock_label_cls,
         ):
             dlg = UnpackCitationsDialog(dbstate=self.dbstate)

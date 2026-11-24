@@ -188,7 +188,7 @@ class UnpackSourcesDialogTest(unittest.TestCase):
             patch.object(UnpackSourcesDialog, "add_button"),
             patch.object(UnpackSourcesDialog, "get_content_area") as mock_content,
             patch(
-                "gramps.plugins.tool.gw_unpacksourcesdialog.Gtk.Label"
+                "gramps.plugins.tool.gw_unpacksourcesdialog.SelectableLabel"
             ) as mock_label_cls,
         ):
             mock_area = MagicMock()
