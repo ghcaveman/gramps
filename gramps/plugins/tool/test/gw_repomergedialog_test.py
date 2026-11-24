@@ -106,7 +106,9 @@ class RepoMergeDialogTest(unittest.TestCase):
         with (
             patch.object(RepoMergeDialog, "add_action_widget") as mock_action,
             patch.object(RepoMergeDialog, "add_button") as mock_add_button,
-            patch("gramps.plugins.tool.gw_repomergedialog.Gtk.Label") as mock_label_cls,
+            patch(
+                "gramps.plugins.tool.gw_repomergedialog.SelectableLabel"
+            ) as mock_label_cls,
         ):
             dlg = RepoMergeDialog("Fix Repositories", self.dbstate)
 

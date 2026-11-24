@@ -48,7 +48,12 @@ from gi.repository import Pango
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import ErrorDialog, OkDialog
-from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import (
+    HeaderLabel,
+    SelectableLabel,
+    TableLabel,
+    reports_apply_errors,
+)
 from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationshared import (
     build_family_titles,
@@ -419,7 +424,7 @@ class RepoMergeDialog(Gtk.Dialog):
             }
         )
         n_sources = sum(len(titles) for titles in self.sources_by_repo.values())
-        count_label = Gtk.Label()
+        count_label = SelectableLabel(wrap=False)
         count_label.set_markup(
             "<b>%s</b>"
             % str(
@@ -433,10 +438,10 @@ class RepoMergeDialog(Gtk.Dialog):
         content.add(count_label)
 
         if not self.fix_rows:
-            done = Gtk.Label(
-                label=str(_("All repositories already match golden names."))
+            done = SelectableLabel(
+                label=str(_("All repositories already match golden names.")),
+                wrap=False,
             )
-            done.set_halign(Gtk.Align.START)
             content.add(done)
             self.accept_button = Gtk.Button(
                 label=_("Accept hints ({number_of})").format(number_of=0)
@@ -468,7 +473,7 @@ class RepoMergeDialog(Gtk.Dialog):
             if description is not None
             else get_fix_description("repositories")
         )
-        hint_footer = Gtk.Label(
+        hint_footer = SelectableLabel(
             label=f"{desc_text} "
             + str(
                 _(
@@ -477,8 +482,6 @@ class RepoMergeDialog(Gtk.Dialog):
                 )
             )
         )
-        hint_footer.set_line_wrap(True)
-        hint_footer.set_halign(Gtk.Align.START)
         hint_footer.set_size_request(-1, 45)
         content.pack_start(hint_footer, False, False, 0)
 
@@ -509,23 +512,19 @@ class RepoMergeDialog(Gtk.Dialog):
         containers.  The "Sources" column is now the first column.
         """
         # Column 0: Sources (moved from position 2)
-        sources_head = Gtk.Label()
-        sources_head.set_markup("<b>%s</b>" % str(_("Sources")))
+        sources_head = HeaderLabel(str(_("Sources")))
         sources_head.set_halign(Gtk.Align.START)
         sources_head.set_hexpand(True)
         # Column 1: Repository (moved from position 0)
-        left_head = Gtk.Label()
-        left_head.set_markup("<b>%s</b>" % str(_("Repository")))
+        left_head = HeaderLabel(str(_("Repository")))
         left_head.set_halign(Gtk.Align.START)
         left_head.set_hexpand(True)
         # Column 2: Merge into (golden) (moved from position 1)
-        mid_head = Gtk.Label()
-        mid_head.set_markup("<b>%s</b>" % str(_("Merge into (golden)")))
+        mid_head = HeaderLabel(str(_("Merge into (golden)")))
         mid_head.set_halign(Gtk.Align.START)
         mid_head.set_hexpand(True)
         # Column 3: Hint (kept at position 3)
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head = HeaderLabel(str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
         for head in (sources_head, left_head, mid_head, hint_head):
@@ -636,17 +635,13 @@ class RepoMergeDialog(Gtk.Dialog):
                 source_title = str(_("(no sources)"))
 
             # Column 0: the source title for this row.
-            src_label = Gtk.Label(label=source_title)
-            src_label.set_halign(Gtk.Align.START)
-            src_label.set_line_wrap(True)
+            src_label = TableLabel(label=source_title)
             src_label.set_max_width_chars(60)
             src_label.get_style_context().add_class("merge-cell")
             grid.attach(src_label, 0, row_index, 1, 1)
 
             # Column 1: repository name label for this row.
-            repo_label = Gtk.Label(label=repo_name)
-            repo_label.set_halign(Gtk.Align.START)
-            repo_label.set_line_wrap(True)
+            repo_label = TableLabel(label=repo_name)
             repo_label.set_max_width_chars(60)
             repo_label.get_style_context().add_class("merge-cell")
             grid.attach(repo_label, 1, row_index, 1, 1)
@@ -669,9 +664,7 @@ class RepoMergeDialog(Gtk.Dialog):
                 if row["hint_target"]
                 else ""
             )
-            hint_label = Gtk.Label(label=hint_text)
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_line_wrap(True)
+            hint_label = TableLabel(label=hint_text)
             hint_label.set_max_width_chars(40)
             hint_label.get_style_context().add_class("merge-cell")
             grid.attach(hint_label, 3, row_index, 1, 1)
