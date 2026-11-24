@@ -62,6 +62,22 @@ User-visible features
   them, and **Accept all hints** runs every step in one pass. See
   `featuredocs/ToolComparison.md` for how it compares with the built-in
   Media Manager.
+  * An image preview beside each row shows the file the row would use, with
+    the region of each person or event attached to it outlined, so a match
+    or merge can be checked before it is accepted.
+  * MD5 checksums are filled in automatically after each step, as Media
+    Verify does. Find missing media uses them to recognise a file that has
+    been renamed or moved, and the report lists files whose content has
+    changed and offers to update their checksums.
+  * Media whose description names someone who is not attached to it (for
+    example "Murrow" against "Morrow") are listed, marked as a probable
+    spelling variant or a different person, and the description can be
+    corrected to the attached person's name. Alternate names count as a
+    match.
+  * The base media path can be set from Find missing media with a folder
+    button. Records whose files already resolve keep pointing at them when
+    the path changes, and **Accept all hints** explains what it skipped if
+    no base media path is set.
 
 * **GWizard Citation Fix tool.** A set of review steps for cleaning up
   repositories, sources, citations and citation notes: unpacking source and
@@ -69,7 +85,11 @@ User-visible features
   linking repositories, merging near-duplicate sources, tidying citation
   pages, dates and confidence, adding citation quality attributes, and
   linking media to citations. It can also write a citation analysis report,
-  and **Accept all hints** runs every step without stopping to review. See
+  and **Accept all hints** runs every step without stopping to review.
+  Sources with no repository or no citations are flagged for review by
+  linking them to a Quarantine repository, and a repository that becomes a
+  duplicate of a gold-standard one (such as "The National Archives and
+  Records Administration (NARA)") is merged into it. See
   `featuredocs/README_gwizard_citationfix.md`.
 
 * **Link Citation Media checks the Media Fix rules.** Citation Fix relies on
@@ -90,7 +110,11 @@ User-visible features
   would leave dangling are offered for import, and the whole merge is
   applied as one transaction. A **GWizard File Merge (Alt)** variant puts
   the match settings at the top and lists only the most similar people in
-  the tree, closest first. See `featuredocs/README_gwizard_filemerge.md`.
+  the tree, closest first. Media paths in the incoming file are read
+  relative to where that file came from and recorded relative to the
+  family tree's base media path, and a picture already in the tree under
+  another path or name is recognised by its MD5 checksum, so it is not
+  added twice. See `featuredocs/README_gwizard_filemerge.md`.
 
 * **GWizard WikiTree Merge tool.** Search WikiTree for a person's profile
   and ancestors and merge the results into the Family Tree through the
@@ -117,6 +141,12 @@ User-visible features
   above a score threshold). A merge window can be opened straight from a
   match. Record sources register themselves, so new archives can be added
   without changing the scan.
+
+* **GWizard tools in a fixed menu order.** Under Tools > Family Tree
+  Processing the GWizard tools are listed together, in the order they are
+  meant to be used: GWizard Media Fix, GWizard Citation Fix, GWizard File
+  Merge, GWizard File Merge (Alt), GWizard WikiTree Merge, GWizard NARA
+  Merge, then Multi-Archive Record Scan.
 
 * **Extra columns in the main views.** New columns, which can be turned on
   in Configure View:
