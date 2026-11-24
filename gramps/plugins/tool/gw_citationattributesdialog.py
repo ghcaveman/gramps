@@ -35,7 +35,7 @@ from typing import Any
 # GTK modules
 #
 # -------------------------------------------------------------------------
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
 #
@@ -44,7 +44,12 @@ from gi.repository import Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
-from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import (
+    HeaderLabel,
+    SelectableLabel,
+    TableLabel,
+    reports_apply_errors,
+)
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.gen.lib import SrcAttribute
@@ -359,19 +364,20 @@ class CitationAttributesDialog(Gtk.Dialog):
         content.set_spacing(6)
 
         if not self.rows:
-            done = Gtk.Label(label=str(_("No citations found in database.")))
-            done.set_halign(Gtk.Align.START)
+            done = SelectableLabel(
+                label=str(_("No citations found in database.")), wrap=False
+            )
             content.add(done)
             return
 
-        count_label = Gtk.Label(
+        count_label = SelectableLabel(
             label=str(
                 _("Citations: {citations} | Needing GPS attributes: {needing}").format(
                     citations=len(self.rows), needing=n_hints
                 )
-            )
+            ),
+            wrap=False,
         )
-        count_label.set_halign(Gtk.Align.START)
         content.add(count_label)
 
         # Header row above scrolled grid
@@ -381,53 +387,43 @@ class CitationAttributesDialog(Gtk.Dialog):
         header_grid.set_hexpand(True)
         header_grid.set_vexpand(False)
 
-        src_head = Gtk.Label()
-        src_head.set_markup("<b>%s</b>" % str(_("Citation")))
+        src_head = HeaderLabel(str(_("Citation")))
         src_head.set_halign(Gtk.Align.START)
         src_head.set_hexpand(False)
 
-        curr_st_head = Gtk.Label()
-        curr_st_head.set_markup("<b>%s</b>" % str(_("Source")))
+        curr_st_head = HeaderLabel(str(_("Source")))
         curr_st_head.set_halign(Gtk.Align.START)
         curr_st_head.set_hexpand(False)
 
-        curr_it_head = Gtk.Label()
-        curr_it_head.set_markup("<b>%s</b>" % str(_("Information")))
+        curr_it_head = HeaderLabel(str(_("Information")))
         curr_it_head.set_halign(Gtk.Align.START)
         curr_it_head.set_hexpand(False)
 
-        curr_et_head = Gtk.Label()
-        curr_et_head.set_markup("<b>%s</b>" % str(_("Evidence")))
+        curr_et_head = HeaderLabel(str(_("Evidence")))
         curr_et_head.set_halign(Gtk.Align.START)
         curr_et_head.set_hexpand(False)
 
-        curr_conf_head = Gtk.Label()
-        curr_conf_head.set_markup("<b>%s</b>" % str(_("Conf(Q)")))
+        curr_conf_head = HeaderLabel(str(_("Conf(Q)")))
         curr_conf_head.set_halign(Gtk.Align.START)
         curr_conf_head.set_hexpand(False)
 
-        st_head = Gtk.Label()
-        st_head.set_markup("<b>%s</b>" % str(_("Source Type")))
+        st_head = HeaderLabel(str(_("Source Type")))
         st_head.set_halign(Gtk.Align.START)
         st_head.set_hexpand(False)
 
-        it_head = Gtk.Label()
-        it_head.set_markup("<b>%s</b>" % str(_("Information Type")))
+        it_head = HeaderLabel(str(_("Information Type")))
         it_head.set_halign(Gtk.Align.START)
         it_head.set_hexpand(False)
 
-        et_head = Gtk.Label()
-        et_head.set_markup("<b>%s</b>" % str(_("Evidence Type")))
+        et_head = HeaderLabel(str(_("Evidence Type")))
         et_head.set_halign(Gtk.Align.START)
         et_head.set_hexpand(False)
 
-        quay_head = Gtk.Label()
-        quay_head.set_markup("<b>%s</b>" % str(_("Conf(Q)")))
+        quay_head = HeaderLabel(str(_("Conf(Q)")))
         quay_head.set_halign(Gtk.Align.START)
         quay_head.set_hexpand(False)
 
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head = HeaderLabel(str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
 
@@ -460,7 +456,7 @@ class CitationAttributesDialog(Gtk.Dialog):
 
         content.pack_start(self.build_rows(self.rows), True, True, 0)
 
-        hint_footer = Gtk.Label(
+        hint_footer = SelectableLabel(
             label=str(
                 _(
                     "Press 'Accept hints' to populate suggested Genealogical Proof "
@@ -470,8 +466,6 @@ class CitationAttributesDialog(Gtk.Dialog):
                 )
             )
         )
-        hint_footer.set_line_wrap(True)
-        hint_footer.set_halign(Gtk.Align.START)
         hint_footer.set_size_request(-1, 45)
         content.pack_start(hint_footer, False, False, 0)
 
@@ -489,17 +483,11 @@ class CitationAttributesDialog(Gtk.Dialog):
             src_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             src_box.set_size_request(220, -1)
             lines = entry.get("display_text", "").splitlines()
-            l1 = Gtk.Label(label=lines[0] if len(lines) > 0 else "")
-            l1.set_xalign(0.0)
-            l1.set_line_wrap(True)
-            l1.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            l1 = TableLabel(label=lines[0] if len(lines) > 0 else "")
             l1.set_max_width_chars(30)
             src_box.pack_start(l1, False, False, 0)
 
-            l2 = Gtk.Label(label=lines[1] if len(lines) > 1 else "")
-            l2.set_xalign(0.0)
-            l2.set_line_wrap(True)
-            l2.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            l2 = TableLabel(label=lines[1] if len(lines) > 1 else "")
             l2.set_max_width_chars(30)
             src_box.pack_start(l2, False, False, 0)
 
@@ -507,27 +495,21 @@ class CitationAttributesDialog(Gtk.Dialog):
 
             # Column 1: Existing Source Type
             curr_st = entry.get("curr_attrs", {}).get("Source Type", "") or "—"
-            curr_st_label = Gtk.Label(label=curr_st)
-            curr_st_label.set_halign(Gtk.Align.START)
-            curr_st_label.set_xalign(0.0)
+            curr_st_label = TableLabel(label=curr_st, wrap=False)
             curr_st_label.set_max_width_chars(12)
             curr_st_label.set_size_request(85, -1)
             grid.attach(curr_st_label, 1, row_index, 1, 1)
 
             # Column 2: Existing Information Type
             curr_it = entry.get("curr_attrs", {}).get("Information Type", "") or "—"
-            curr_it_label = Gtk.Label(label=curr_it)
-            curr_it_label.set_halign(Gtk.Align.START)
-            curr_it_label.set_xalign(0.0)
+            curr_it_label = TableLabel(label=curr_it, wrap=False)
             curr_it_label.set_max_width_chars(12)
             curr_it_label.set_size_request(85, -1)
             grid.attach(curr_it_label, 2, row_index, 1, 1)
 
             # Column 3: Existing Evidence Type
             curr_et = entry.get("curr_attrs", {}).get("Evidence Type", "") or "—"
-            curr_et_label = Gtk.Label(label=curr_et)
-            curr_et_label.set_halign(Gtk.Align.START)
-            curr_et_label.set_xalign(0.0)
+            curr_et_label = TableLabel(label=curr_et, wrap=False)
             curr_et_label.set_max_width_chars(12)
             curr_et_label.set_size_request(85, -1)
             grid.attach(curr_et_label, 3, row_index, 1, 1)
@@ -541,9 +523,7 @@ class CitationAttributesDialog(Gtk.Dialog):
                 )
             else:
                 curr_conf_text = _CONF_TO_QUAY.get(conf_val, f"{conf_val}(-)")
-            curr_conf_label = Gtk.Label(label=curr_conf_text)
-            curr_conf_label.set_halign(Gtk.Align.START)
-            curr_conf_label.set_xalign(0.0)
+            curr_conf_label = TableLabel(label=curr_conf_text, wrap=False)
             curr_conf_label.set_max_width_chars(8)
             curr_conf_label.set_size_request(60, -1)
             grid.attach(curr_conf_label, 4, row_index, 1, 1)
@@ -573,11 +553,7 @@ class CitationAttributesDialog(Gtk.Dialog):
             grid.attach(quay_entry, 8, row_index, 1, 1)
 
             # Column 9: Hint - Label
-            hint_label = Gtk.Label(label=entry.get("hint_text", ""))
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_xalign(0.0)
-            hint_label.set_line_wrap(True)
-            hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            hint_label = TableLabel(label=entry.get("hint_text", ""))
             hint_label.set_size_request(220, -1)
             hint_label.set_max_width_chars(30)
             grid.attach(hint_label, 9, row_index, 1, 1)

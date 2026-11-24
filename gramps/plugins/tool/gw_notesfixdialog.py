@@ -34,7 +34,7 @@ from typing import Any
 # GTK modules
 #
 # -------------------------------------------------------------------------
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
 #
@@ -43,7 +43,12 @@ from gi.repository import Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
-from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import (
+    HeaderLabel,
+    SelectableLabel,
+    TableLabel,
+    reports_apply_errors,
+)
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.plugins.tool.gwizardcitationshared import (
@@ -169,17 +174,16 @@ class NotesFixDialog(Gtk.Dialog):
         content.set_spacing(6)
 
         if not self.rows:
-            done = Gtk.Label(label=str(_("No note problems found.")))
-            done.set_halign(Gtk.Align.START)
+            done = SelectableLabel(label=str(_("No note problems found.")), wrap=False)
             content.add(done)
             return
 
-        count_label = Gtk.Label(
+        count_label = SelectableLabel(
             label=str(
                 _("Problem notes found: {number_of}").format(number_of=len(self.rows))
-            )
+            ),
+            wrap=False,
         )
-        count_label.set_halign(Gtk.Align.START)
         content.add(count_label)
 
         # Header row above the scrolled grid
@@ -189,23 +193,19 @@ class NotesFixDialog(Gtk.Dialog):
         header_grid.set_hexpand(True)
         header_grid.set_vexpand(False)
 
-        from_head = Gtk.Label()
-        from_head.set_markup("<b>%s</b>" % str(_("Note")))
+        from_head = HeaderLabel(str(_("Note")))
         from_head.set_halign(Gtk.Align.START)
         from_head.set_hexpand(False)
 
-        action_head = Gtk.Label()
-        action_head.set_markup("<b>%s</b>" % str(_("Action")))
+        action_head = HeaderLabel(str(_("Action")))
         action_head.set_halign(Gtk.Align.START)
         action_head.set_hexpand(False)
 
-        to_head = Gtk.Label()
-        to_head.set_markup("<b>%s</b>" % str(_("Note")))
+        to_head = HeaderLabel(str(_("Note")))
         to_head.set_halign(Gtk.Align.START)
         to_head.set_hexpand(False)
 
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head = HeaderLabel(str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
 
@@ -231,7 +231,7 @@ class NotesFixDialog(Gtk.Dialog):
             if description is not None
             else str(_("Remove import debris and empty notes, and trim whitespace."))
         )
-        hint_footer = Gtk.Label(
+        hint_footer = SelectableLabel(
             label=f"{desc_text} "
             + str(
                 _(
@@ -240,8 +240,6 @@ class NotesFixDialog(Gtk.Dialog):
                 )
             )
         )
-        hint_footer.set_line_wrap(True)
-        hint_footer.set_halign(Gtk.Align.START)
         hint_footer.set_size_request(-1, 45)
         content.pack_start(hint_footer, False, False, 0)
 
@@ -259,17 +257,11 @@ class NotesFixDialog(Gtk.Dialog):
             from_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             from_box.set_size_request(320, -1)
             lines = entry.get("display_text", "").splitlines()
-            l1 = Gtk.Label(label=lines[0] if len(lines) > 0 else "")
-            l1.set_xalign(0.0)
-            l1.set_line_wrap(True)
-            l1.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            l1 = TableLabel(label=lines[0] if len(lines) > 0 else "")
             l1.set_max_width_chars(42)
             from_box.pack_start(l1, False, False, 0)
 
-            l2 = Gtk.Label(label=lines[1] if len(lines) > 1 else "")
-            l2.set_xalign(0.0)
-            l2.set_line_wrap(True)
-            l2.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            l2 = TableLabel(label=lines[1] if len(lines) > 1 else "")
             l2.set_max_width_chars(42)
             from_box.pack_start(l2, False, False, 0)
 
@@ -288,11 +280,7 @@ class NotesFixDialog(Gtk.Dialog):
             grid.attach(text_entry, 2, row_index, 1, 1)
 
             # Column 3: Hint - Label
-            hint_label = Gtk.Label(label=entry.get("hint_text", ""))
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_xalign(0.0)
-            hint_label.set_line_wrap(True)
-            hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            hint_label = TableLabel(label=entry.get("hint_text", ""))
             hint_label.set_size_request(240, -1)
             hint_label.set_max_width_chars(32)
             grid.attach(hint_label, 3, row_index, 1, 1)

@@ -45,7 +45,12 @@ from gi.repository import Gdk, Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
-from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import (
+    HeaderLabel,
+    SelectableLabel,
+    TableLabel,
+    reports_apply_errors,
+)
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.lib import Repository, RepoRef
 from gramps.plugins.tool.gwizardcitationreport import (
@@ -100,7 +105,7 @@ class SourceFixDialog(Gtk.Dialog):
         rows = build_source_fix_rows(stats, self.dbstate.db)
 
         n_sources = len(rows)
-        count_label = Gtk.Label()
+        count_label = SelectableLabel(wrap=False)
         count_label.set_markup(
             "<b>%s</b>"
             % str(_("Problem sources ({number_of} total)").format(number_of=n_sources))
@@ -110,8 +115,9 @@ class SourceFixDialog(Gtk.Dialog):
         content.add(count_label)
 
         if not rows:
-            done = Gtk.Label(label=str(_("No source-record problems found.")))
-            done.set_halign(Gtk.Align.START)
+            done = SelectableLabel(
+                label=str(_("No source-record problems found.")), wrap=False
+            )
             content.add(done)
             self.accept_button = Gtk.Button(
                 label=_("Accept hints ({number_of})").format(number_of=0)
@@ -138,26 +144,22 @@ class SourceFixDialog(Gtk.Dialog):
             header_grid.get_style_context().add_class("merge-grid")
 
         # Column 0: Repository
-        repo_head = Gtk.Label()
-        repo_head.set_markup("<b>%s</b>" % str(_("Repository")))
+        repo_head = HeaderLabel(str(_("Repository")))
         repo_head.set_halign(Gtk.Align.START)
         repo_head.set_hexpand(True)
 
         # Column 1: Source
-        source_head = Gtk.Label()
-        source_head.set_markup("<b>%s</b>" % str(_("Source")))
+        source_head = HeaderLabel(str(_("Source")))
         source_head.set_halign(Gtk.Align.START)
         source_head.set_hexpand(True)
 
         # Column 2: Fix into (target)
-        mid_head = Gtk.Label()
-        mid_head.set_markup("<b>%s</b>" % str(_("Fix into (target)")))
+        mid_head = HeaderLabel(str(_("Fix into (target)")))
         mid_head.set_halign(Gtk.Align.START)
         mid_head.set_hexpand(True)
 
         # Column 3: Hint
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head = HeaderLabel(str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
 
@@ -176,7 +178,7 @@ class SourceFixDialog(Gtk.Dialog):
             if description is not None
             else str(_("Merge near-duplicates and quarantine non-sources."))
         )
-        hint_footer = Gtk.Label(
+        hint_footer = SelectableLabel(
             label=f"{desc_text} "
             + str(
                 _(
@@ -186,8 +188,6 @@ class SourceFixDialog(Gtk.Dialog):
                 )
             )
         )
-        hint_footer.set_line_wrap(True)
-        hint_footer.set_halign(Gtk.Align.START)
         hint_footer.set_size_request(-1, 45)
         content.pack_start(hint_footer, False, False, 0)
 
@@ -282,17 +282,13 @@ class SourceFixDialog(Gtk.Dialog):
         row_index = 0
         for row in rows:
             # Column 0: Repository name
-            repo_label = Gtk.Label(label=row.get("repo_name", _("(no repository)")))
-            repo_label.set_halign(Gtk.Align.START)
-            repo_label.set_line_wrap(True)
+            repo_label = TableLabel(label=row.get("repo_name", _("(no repository)")))
             repo_label.set_max_width_chars(35)
             repo_label.get_style_context().add_class("merge-cell")
             grid.attach(repo_label, 0, row_index, 1, 1)
 
             # Column 1: Source display (title, gramps_id)
-            src_label = Gtk.Label(label=row["display"])
-            src_label.set_halign(Gtk.Align.START)
-            src_label.set_line_wrap(True)
+            src_label = TableLabel(label=row["display"])
             src_label.set_max_width_chars(50)
             src_label.get_style_context().add_class("merge-cell")
             grid.attach(src_label, 1, row_index, 1, 1)
@@ -304,9 +300,7 @@ class SourceFixDialog(Gtk.Dialog):
 
             # Column 3: Hint (blank if no hint)
             hint_text = row.get("hint_display", "")
-            hint_label = Gtk.Label(label=hint_text)
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_line_wrap(True)
+            hint_label = TableLabel(label=hint_text)
             hint_label.set_max_width_chars(40)
             hint_label.get_style_context().add_class("merge-cell")
             grid.attach(hint_label, 3, row_index, 1, 1)

@@ -47,7 +47,12 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.lib import Note, NoteType
 from gramps.gui.dialog import ErrorDialog, OkDialog
-from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import (
+    HeaderLabel,
+    SelectableLabel,
+    TableLabel,
+    reports_apply_errors,
+)
 from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
@@ -665,7 +670,7 @@ class RepoConsolidateDialog(Gtk.Dialog):
         rows = build_repo_consolidate_rows(self.dbstate.db)
         n_repos = len(rows)
 
-        count_label = Gtk.Label()
+        count_label = SelectableLabel(wrap=False)
         count_label.set_markup(
             "<b>%s</b>"
             % str(
@@ -676,7 +681,7 @@ class RepoConsolidateDialog(Gtk.Dialog):
         count_label.set_hexpand(True)
         content.add(count_label)
 
-        info = Gtk.Label(
+        info = SelectableLabel(
             label=(
                 description
                 if description is not None
@@ -687,15 +692,13 @@ class RepoConsolidateDialog(Gtk.Dialog):
                 )
             ),
         )
-        info.set_line_wrap(True)
-        info.set_halign(Gtk.Align.START)
         content.add(info)
 
         if not rows:
-            done = Gtk.Label(
-                label=str(_("No repository consolidation problems found."))
+            done = SelectableLabel(
+                label=str(_("No repository consolidation problems found.")),
+                wrap=False,
             )
-            done.set_halign(Gtk.Align.START)
             content.add(done)
             self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
             return
@@ -708,23 +711,19 @@ class RepoConsolidateDialog(Gtk.Dialog):
         header_grid.set_vexpand(False)
         header_grid.get_style_context().add_class("merge-grid")
 
-        repo_head = Gtk.Label()
-        repo_head.set_markup("<b>%s</b>" % str(_("Repository")))
+        repo_head = HeaderLabel(str(_("Repository")))
         repo_head.set_halign(Gtk.Align.START)
         repo_head.set_hexpand(True)
 
-        source_head = Gtk.Label()
-        source_head.set_markup("<b>%s</b>" % str(_("Sources")))
+        source_head = HeaderLabel(str(_("Sources")))
         source_head.set_halign(Gtk.Align.START)
         source_head.set_hexpand(True)
 
-        mid_head = Gtk.Label()
-        mid_head.set_markup("<b>%s</b>" % str(_("Consolidate into (target)")))
+        mid_head = HeaderLabel(str(_("Consolidate into (target)")))
         mid_head.set_halign(Gtk.Align.START)
         mid_head.set_hexpand(True)
 
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head = HeaderLabel(str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
 
@@ -738,7 +737,7 @@ class RepoConsolidateDialog(Gtk.Dialog):
 
         content.pack_start(self.build_rows(rows), True, True, 0)
 
-        hint = Gtk.Label(
+        hint = SelectableLabel(
             label=str(
                 _(
                     "Merging combines duplicate repositories into one and updates "
@@ -747,8 +746,6 @@ class RepoConsolidateDialog(Gtk.Dialog):
                 )
             )
         )
-        hint.set_line_wrap(True)
-        hint.set_halign(Gtk.Align.START)
         content.add(hint)
 
         n_hints = sum(
@@ -839,16 +836,12 @@ class RepoConsolidateDialog(Gtk.Dialog):
 
         row_index = 0
         for row in rows:
-            repo_label = Gtk.Label(label=row["display"])
-            repo_label.set_halign(Gtk.Align.START)
-            repo_label.set_line_wrap(True)
+            repo_label = TableLabel(label=row["display"])
             repo_label.set_max_width_chars(35)
             repo_label.get_style_context().add_class("merge-cell")
             grid.attach(repo_label, 0, row_index, 1, 1)
 
-            src_label = Gtk.Label(label=row.get("sources_summary", ""))
-            src_label.set_halign(Gtk.Align.START)
-            src_label.set_line_wrap(True)
+            src_label = TableLabel(label=row.get("sources_summary", ""))
             src_label.set_max_width_chars(50)
             src_label.get_style_context().add_class("merge-cell")
             grid.attach(src_label, 1, row_index, 1, 1)
@@ -858,9 +851,7 @@ class RepoConsolidateDialog(Gtk.Dialog):
             grid.attach(combo, 2, row_index, 1, 1)
 
             hint_text = row.get("hint_display", "")
-            hint_label = Gtk.Label(label=hint_text)
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_line_wrap(True)
+            hint_label = TableLabel(label=hint_text)
             hint_label.set_max_width_chars(40)
             hint_label.get_style_context().add_class("merge-cell")
             grid.attach(hint_label, 3, row_index, 1, 1)

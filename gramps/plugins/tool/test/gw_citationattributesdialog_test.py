@@ -295,7 +295,7 @@ class CitationAttributesDialogTest(unittest.TestCase):
             patch.object(CitationAttributesDialog, "add_button"),
             patch.object(CitationAttributesDialog, "get_content_area") as mock_content,
             patch(
-                "gramps.plugins.tool.gw_citationattributesdialog.Gtk.Label"
+                "gramps.plugins.tool.gw_citationattributesdialog.SelectableLabel"
             ) as mock_label_cls,
         ):
             mock_area = MagicMock()
