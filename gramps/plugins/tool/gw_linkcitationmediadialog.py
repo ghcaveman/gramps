@@ -49,7 +49,7 @@ from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.utils.file import media_path_full
 from gramps.gen.utils.thumbnails import get_thumbnail_image
 from gramps.gui.dialog import OkDialog
-from gramps.plugins.tool.gwizard_common import (
+from gramps.plugins.tool.gwizard_mediafix_common import (
     clean_path,
     escape_markup,
     full_media_path,

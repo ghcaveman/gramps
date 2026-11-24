@@ -59,7 +59,7 @@ from gramps.gui.managedwindow import ManagedWindow
 from gramps.gui.plug import tool
 from gramps.gui.utils import ProgressMeter
 from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
-from gramps.plugins.tool.gwizard_common import SelectableLabel
+from gramps.plugins.tool.gwizard_mediafix_common import SelectableLabel
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
@@ -1069,8 +1069,9 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                     "3. Fix Repositories: link sources to best-guess repositories and "
                     "create missing repository entries.\n"
                     "4. Fix Sources: merge near-duplicates (differing author or "
-                    "publication text is kept in a note), trim whitespace, and "
-                    "quarantine non-sources such as image file names.\n"
+                    "publication text is kept in a note), trim whitespace, "
+                    "quarantine sources with no repository or no citations, and "
+                    "flag titles that are image file names for review.\n"
                     "5. Unpack Conflated Citation: extract dates and URLs from "
                     "volume/page fields, without duplicating notes.\n"
                     "6. Fix Citations: lower the confidence of user-tree citations "

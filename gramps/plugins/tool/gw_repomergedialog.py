@@ -48,7 +48,7 @@ from gi.repository import Pango
 from gramps.gen.db import DbTxn
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import ErrorDialog, OkDialog
-from gramps.plugins.tool.gwizard_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
 from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationshared import (
     build_family_titles,
@@ -508,19 +508,6 @@ class RepoMergeDialog(Gtk.Dialog):
             hint_label.get_style_context().add_class("merge-cell")
             grid.attach(hint_label, 3, row_index, 1, 1)
 
-            # Column 3: hint for this row (suggested repository and why).
-            row_info = (
-                info
-                if info is not None
-                else {"source_handle": "", "repo_handle": "", "repo_name": repo_name}
-            )
-            hint_label = Gtk.Label(label=self.attach_hint(row_info, repo_name, combo))
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_line_wrap(True)
-            hint_label.set_max_width_chars(40)
-            hint_label.get_style_context().add_class("merge-cell")
-            grid.attach(hint_label, 3, row_index, 1, 1)
-
             # Track the combo per grid row for later retrieval of choices.
             self.combos.append((repo_name, combo, str(row_dict["best_guess"])))
             self.row_targets.append((row_info, combo))
@@ -724,6 +711,15 @@ class RepoMergeDialog(Gtk.Dialog):
                 )
 
         summary = repository_change_summary(reassigned, created)
+        folded = getattr(engine, "last_repositories_folded", 0)
+        if folded:
+            summary += " " + ngettext(
+                "Merged {number_of} emptied repository into its "
+                "gold-standard repository.",
+                "Merged {number_of} emptied repositories into their "
+                "gold-standard repositories.",
+                folded,
+            ).format(number_of=folded)
         if merged:
             summary += " " + ngettext(
                 "Merged {number_of} empty repository.",

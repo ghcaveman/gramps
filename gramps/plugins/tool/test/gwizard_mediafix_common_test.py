@@ -350,7 +350,9 @@ class ReportsApplyErrorsTest(unittest.TestCase):
 
         dialog = _Dialog()
         with patch("gramps.gui.dialog.ErrorDialog") as error_dialog:
-            with self.assertLogs("gramps.plugins.tool.gwizard_common", "ERROR"):
+            with self.assertLogs(
+                "gramps.plugins.tool.gwizard_mediafix_common", "ERROR"
+            ):
                 self.assertIsNone(dialog.cb_apply(None))
             self.assertEqual(dialog.cb_ok(None), "done")
         error_dialog.assert_called_once()
