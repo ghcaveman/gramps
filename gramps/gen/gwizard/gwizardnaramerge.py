@@ -277,14 +277,19 @@ class NaraCatalogInterface:
         available_online: bool = False,
         start_year: str = "",
         end_year: str = "",
+        level_of_description: str = "",
     ) -> dict[str, Any] | None:
-        """
-        Search the NARA catalog and return its decoded response.
-
-        :param start_year: Only records dated in or after this year (YYYY).
-        :param end_year: Only records dated in or before this year (YYYY).
-        """
         params: dict[str, str | int] = {"q": query, "limit": rows}
+        if material_type:
+            params["generalRecordsTypes"] = material_type
+        if available_online:
+            params["availableOnline"] = "true"
+        if level_of_description:
+            params["levelOfDescription"] = level_of_description
+        if start_year or end_year:
+            params["dateRange"] = f"{start_year or '*'} TO {end_year or '*'}"
+        # ... rest of search_records unchanged ...
+
         request_options: dict[str, Any] = {
             "params": params,
             "headers": self.headers,
@@ -438,8 +443,6 @@ class NaraCatalogInterface:
         if "/" in object_type:
             return object_type
         name = str(
-
-\n    @staticmethod\n    def _format_nara_date(year_str: str) -> str | None:\n        """Format a year string for the NARA API.\n\n        The NARA Catalog API v2 accepts dates in these formats for startDate,\
             digital_object.get("objectFilename")
             or digital_object.get("objectUrl")
             or ""
