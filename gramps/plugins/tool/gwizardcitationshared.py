@@ -249,6 +249,14 @@ def clean_source_title(title: str) -> tuple[str, str, str, str]:
             reasons.append("stray quotes")
             text = stripped
     repo_name = ""
+    if moved:
+        # Citation-style titles ('"Title," database, FamilySearch') name the
+        # website that holds the collection after the quotes; use it as the
+        # repository when a part is plainly a gold-standard repository.
+        for part in moved.split(","):
+            repo_name = golden_repository_for(part)
+            if repo_name:
+                break
     domain = _BARE_DOMAIN_RE.match(text)
     if domain:
         site = _KNOWN_SITES.get(domain.group(1).casefold())

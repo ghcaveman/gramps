@@ -48,7 +48,7 @@ from gi.repository import Pango
 from gramps.gen.db import DbTxn
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import ErrorDialog, OkDialog
-from gramps.plugins.tool.gwizard_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
 from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationshared import (
     build_family_titles,

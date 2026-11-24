@@ -44,7 +44,7 @@ from gi.repository import Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
-from gramps.plugins.tool.gwizard_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.gen.lib import SrcAttribute

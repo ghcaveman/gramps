@@ -45,7 +45,7 @@ from gi.repository import Gdk, Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
-from gramps.plugins.tool.gwizard_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.lib import Repository, RepoRef
 from gramps.plugins.tool.gwizardcitationreport import (
@@ -843,9 +843,20 @@ def build_source_fix_rows(
             (s_disp, handle),
             (str(_("Quarantine (new repository)")), "quarantine"),
         ]
-        hint_target = "quarantine"
         hint_reason = reason_str
-        hint_display = "%s\n(%s)" % (str(_("Quarantine")), hint_reason)
+        if reasons == [str(_("title is a file name"))]:
+            # The source already has a repository and citations, so it has a
+            # home; quarantining it would only add a second, misleading
+            # repository link. Keep it and leave the file-name title as a
+            # note for review (it may belong in Media instead).
+            hint_target = handle
+            hint_display = "%s\n(%s)" % (
+                str(_("Keep (review title)")),
+                hint_reason,
+            )
+        else:
+            hint_target = "quarantine"
+            hint_display = "%s\n(%s)" % (str(_("Quarantine")), hint_reason)
 
         repo_name = repo_name_by_handle.get(handle) or str(_("(no repository)"))
 

@@ -47,7 +47,7 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.lib import Note, NoteType
 from gramps.gui.dialog import ErrorDialog, OkDialog
-from gramps.plugins.tool.gwizard_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
 from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,

@@ -35,7 +35,7 @@ from typing import Any
 # GTK modules
 #
 # -------------------------------------------------------------------------
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
 #
@@ -44,7 +44,12 @@ from gi.repository import Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
-from gramps.plugins.tool.gwizard_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import (
+    HeaderLabel,
+    SelectableLabel,
+    TableLabel,
+    reports_apply_errors,
+)
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.plugins.tool.gwizardcitationshared import (
@@ -293,12 +298,12 @@ class UnpackCitationsDialog(Gtk.Dialog):
         content.set_spacing(6)
 
         if not self.plan:
-            done = Gtk.Label(label=str(_("No conflated citations found.")))
+            done = SelectableLabel(label=str(_("No conflated citations found.")))
             done.set_halign(Gtk.Align.START)
             content.add(done)
             return
 
-        count_label = Gtk.Label(
+        count_label = SelectableLabel(
             label=str(
                 _("Conflated citations found: {number_of}").format(
                     number_of=len(self.plan)
@@ -315,33 +320,27 @@ class UnpackCitationsDialog(Gtk.Dialog):
         header_grid.set_hexpand(True)
         header_grid.set_vexpand(False)
 
-        src_head = Gtk.Label()
-        src_head.set_markup("<b>%s</b>" % str(_("Source")))
+        src_head = HeaderLabel(str(_("Source")))
         src_head.set_halign(Gtk.Align.START)
         src_head.set_hexpand(False)
 
-        cit_head = Gtk.Label()
-        cit_head.set_markup("<b>%s</b>" % str(_("Citation")))
+        cit_head = HeaderLabel(str(_("Citation")))
         cit_head.set_halign(Gtk.Align.START)
         cit_head.set_hexpand(False)
 
-        page_head = Gtk.Label()
-        page_head.set_markup("<b>%s</b>" % str(_("Volume/Page/URL")))
+        page_head = HeaderLabel(str(_("Volume/Page/URL")))
         page_head.set_halign(Gtk.Align.START)
         page_head.set_hexpand(False)
 
-        date_head = Gtk.Label()
-        date_head.set_markup("<b>%s</b>" % str(_("Date")))
+        date_head = HeaderLabel(str(_("Date")))
         date_head.set_halign(Gtk.Align.START)
         date_head.set_hexpand(False)
 
-        notes_head = Gtk.Label()
-        notes_head.set_markup("<b>%s</b>" % str(_("Notes")))
+        notes_head = HeaderLabel(str(_("Notes")))
         notes_head.set_halign(Gtk.Align.START)
         notes_head.set_hexpand(False)
 
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head = HeaderLabel(str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
 
@@ -376,7 +375,7 @@ class UnpackCitationsDialog(Gtk.Dialog):
                 )
             )
         )
-        hint_footer = Gtk.Label(
+        hint_footer = SelectableLabel(
             label=f"{desc_text} "
             + str(
                 _(
@@ -402,24 +401,20 @@ class UnpackCitationsDialog(Gtk.Dialog):
         for entry in entries:
             # Column 0: Source details (Label)
             src_text = entry.get("source_display", "")
-            src_label = Gtk.Label(label=src_text)
-            src_label.set_halign(Gtk.Align.START)
-            src_label.set_xalign(0.0)
-            src_label.set_line_wrap(True)
-            src_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            src_label.set_size_request(200, -1)
-            src_label.set_max_width_chars(28)
+            src_label = TableLabel(
+                label=src_text,
+                width_chars=28,
+                width_request=200,
+            )
             grid.attach(src_label, 0, row_index, 1, 1)
 
             # Column 1: Citation details (Label)
             cit_text = entry.get("citation_display", "")
-            cit_label = Gtk.Label(label=cit_text)
-            cit_label.set_halign(Gtk.Align.START)
-            cit_label.set_xalign(0.0)
-            cit_label.set_line_wrap(True)
-            cit_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            cit_label.set_size_request(240, -1)
-            cit_label.set_max_width_chars(32)
+            cit_label = TableLabel(
+                label=cit_text,
+                width_chars=32,
+                width_request=240,
+            )
             grid.attach(cit_label, 1, row_index, 1, 1)
 
             # Column 2: Volume/Page/URL entry (empty by default)
@@ -441,13 +436,11 @@ class UnpackCitationsDialog(Gtk.Dialog):
             grid.attach(notes_entry, 4, row_index, 1, 1)
 
             # Column 5: Hint label
-            hint_label = Gtk.Label(label=entry.get("hint_text", ""))
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_xalign(0.0)
-            hint_label.set_line_wrap(True)
-            hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            hint_label.set_size_request(240, -1)
-            hint_label.set_max_width_chars(32)
+            hint_label = TableLabel(
+                label=entry.get("hint_text", ""),
+                width_chars=32,
+                width_request=240,
+            )
             grid.attach(hint_label, 5, row_index, 1, 1)
 
             if row_index == 0 and hasattr(self, "column_sizegroups"):

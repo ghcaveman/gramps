@@ -37,7 +37,7 @@ from typing import Any
 # GTK modules
 #
 # -------------------------------------------------------------------------
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
 #
@@ -47,7 +47,12 @@ from gi.repository import Gtk, Pango
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbReadBase
 from gramps.gui.dialog import OkDialog
-from gramps.plugins.tool.gwizard_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import (
+    HeaderLabel,
+    SelectableLabel,
+    TableLabel,
+    reports_apply_errors,
+)
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
@@ -174,12 +179,12 @@ class UnpackSourcesDialog(Gtk.Dialog):
         content.set_spacing(6)
 
         if not self.plan:
-            done = Gtk.Label(label=str(_("No conflated source titles found.")))
+            done = SelectableLabel(label=str(_("No conflated source titles found.")))
             done.set_halign(Gtk.Align.START)
             content.add(done)
             return
 
-        count_label = Gtk.Label(
+        count_label = SelectableLabel(
             label=str(
                 _("Conflated sources found: {number_of}").format(
                     number_of=len(self.plan)
@@ -196,28 +201,23 @@ class UnpackSourcesDialog(Gtk.Dialog):
         header_grid.set_hexpand(True)
         header_grid.set_vexpand(False)
 
-        src_head = Gtk.Label()
-        src_head.set_markup("<b>%s</b>" % str(_("Source")))
+        src_head = HeaderLabel(str(_("Source")))
         src_head.set_halign(Gtk.Align.START)
         src_head.set_hexpand(False)
 
-        repo_head = Gtk.Label()
-        repo_head.set_markup("<b>%s</b>" % str(_("Repository")))
+        repo_head = HeaderLabel(str(_("Repository")))
         repo_head.set_halign(Gtk.Align.START)
         repo_head.set_hexpand(False)
 
-        title_head = Gtk.Label()
-        title_head.set_markup("<b>%s</b>" % str(_("Source Title")))
+        title_head = HeaderLabel(str(_("Source Title")))
         title_head.set_halign(Gtk.Align.START)
         title_head.set_hexpand(False)
 
-        pub_head = Gtk.Label()
-        pub_head.set_markup("<b>%s</b>" % str(_("Publication Info")))
+        pub_head = HeaderLabel(str(_("Publication Info")))
         pub_head.set_halign(Gtk.Align.START)
         pub_head.set_hexpand(False)
 
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head = HeaderLabel(str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
 
@@ -240,7 +240,7 @@ class UnpackSourcesDialog(Gtk.Dialog):
 
         content.pack_start(self.build_rows(self.plan), True, True, 0)
 
-        hint_footer = Gtk.Label(
+        hint_footer = SelectableLabel(
             label=str(
                 _(
                     "Parse mixed text headers, extract repository entries, and "
@@ -270,13 +270,11 @@ class UnpackSourcesDialog(Gtk.Dialog):
                 entry.get("old_title", ""),
                 entry.get("gramps_id", ""),
             )
-            src_label = Gtk.Label(label=display_title)
-            src_label.set_halign(Gtk.Align.START)
-            src_label.set_xalign(0.0)
-            src_label.set_line_wrap(True)
-            src_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            src_label.set_size_request(240, -1)
-            src_label.set_max_width_chars(32)
+            src_label = TableLabel(
+                label=display_title,
+                width_chars=32,
+                width_request=240,
+            )
             grid.attach(src_label, 0, row_index, 1, 1)
 
             # Column 1: Target Repository entry (empty by default)
@@ -300,13 +298,11 @@ class UnpackSourcesDialog(Gtk.Dialog):
             grid.attach(moved_entry, 3, row_index, 1, 1)
 
             # Column 4: Hint label
-            hint_label = Gtk.Label(label=entry.get("hint_text", ""))
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_xalign(0.0)
-            hint_label.set_line_wrap(True)
-            hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            hint_label.set_size_request(432, -1)
-            hint_label.set_max_width_chars(58)
+            hint_label = TableLabel(
+                label=entry.get("hint_text", ""),
+                width_chars=58,
+                width_request=432,
+            )
             hint_label.set_hexpand(True)
             grid.attach(hint_label, 4, row_index, 1, 1)
 
