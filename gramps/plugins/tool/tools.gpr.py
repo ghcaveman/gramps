@@ -588,55 +588,6 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard FamilySearch Merge
-#
-# ------------------------------------------------------------------------
-
-register(
-    TOOL,
-    id="gwizardfsmerge",
-    name=_("GWizard FamilySearch Merge"),
-    description=_(
-        "Family Tree Processing Tool to search FamilySearch profiles and relatives "
-        "and compare/merge data side-by-side with the open Family Tree."
-    ),
-    version="0.0.1",
-    gramps_target_version=MODULE_VERSION,
-    status=EXPERIMENTAL,
-    audience=EXPERT,
-    fname="gwizardfsmerge.py",
-    authors=["Kevin White"],
-    authors_email=["gocaveman@gmail.com"],
-    category=TOOL_DBPROC,
-    toolclass="GWizardFamilySearchMerge",
-    optionclass="GWizardFamilySearchMergeOptions",
-    tool_modes=[TOOL_MODE_GUI],
-    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFamilySearchMerge_Tool",
-)
-
-# ------------------------------------------------------------------------
-#
-# GWizard FamilySearch record source (for the GWizard Multi-Archive Record Scan)
-#
-# ------------------------------------------------------------------------
-
-register(
-    GENERAL,
-    id="gwizardfssource",
-    name=_("GWizard FamilySearch record source"),
-    description=_("Lets the GWizard Multi-Archive Record Scan search FamilySearch."),
-    version="0.0.1",
-    gramps_target_version=MODULE_VERSION,
-    status=EXPERIMENTAL,
-    fname="gwizardfssource.py",
-    authors=["Kevin White"],
-    authors_email=["gocaveman@gmail.com"],
-    category="GWizardRecordSource",
-    load_on_reg=True,
-)
-
-# ------------------------------------------------------------------------
-#
 # Find database Loop
 #
 # ------------------------------------------------------------------------
