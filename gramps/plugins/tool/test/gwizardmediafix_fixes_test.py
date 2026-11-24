@@ -101,7 +101,7 @@ from gramps.gen.lib import (
     Surname,
 )
 from gramps.gen.types import MediaHandle
-from gramps.plugins.tool import gwizard_common as gc
+from gramps.plugins.tool import gwizard_mediafix_common as gc
 from gramps.plugins.tool import gwizardmediafix as mf
 from gramps.plugins.tool.gw_fixmediareferencesdialog import (
     FixMediaReferencesDialog,
@@ -364,7 +364,7 @@ class DuplicateScanRobustnessTest(_DbTestCase):
         self.add_media("shared/a.jpg", "One")
         self.add_media("shared/a.jpg", "Two")
         with patch(
-            "gramps.plugins.tool.gwizard_common.media_path_full",
+            "gramps.plugins.tool.gwizard_mediafix_common.media_path_full",
             side_effect=ValueError("bad media path"),
         ):
             groups = find_duplicate_media_groups(self.db)
@@ -990,6 +990,7 @@ class IdenticalDestinationTest(_DbTestCase):
         self.assertIn("(already there with the same content)", self.preview)
         self.assertEqual(self.path(), self.standard)
         self.assertIn("already there with the same content", summary)
+        self.assertIn("0 files moved or renamed", summary)
         self.assertIn("fully resolved", summary)
 
     def test_accept_all_reports_real_clash(self) -> None:

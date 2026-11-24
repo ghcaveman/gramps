@@ -85,7 +85,7 @@ from gramps.plugins.tool.gwizardmediafix import (
     check_path_permission,
     build_accept_all_plan,
 )
-from gramps.plugins.tool.gwizard_common import (
+from gramps.plugins.tool.gwizard_mediafix_common import (
     has_media_fixed_tag,
     add_media_fixed_tag,
 )
@@ -567,7 +567,7 @@ class GWizardMediaFixTest(unittest.TestCase):
         """get_media_base_path resolves the base path exactly as Gramps does."""
         from gramps.gen.const import USER_PICTURES
         from gramps.gen.utils.file import media_path
-        from gramps.plugins.tool.gwizard_common import path_key
+        from gramps.plugins.tool.gwizard_mediafix_common import path_key
 
         # Unset: Gramps (and so the tool) uses the Pictures folder
         self.db.set_mediapath(None)
@@ -728,7 +728,7 @@ class GWizardMediaFixTest(unittest.TestCase):
 
             # File should be moved to destination and updated in DB without quotes
             updated_cons = self.db.get_media_from_handle(m_h)
-            from gramps.plugins.tool.gwizard_common import to_db_path
+            from gramps.plugins.tool.gwizard_mediafix_common import to_db_path
 
             self.assertEqual(
                 os.path.normpath(updated_cons.get_path()),
@@ -1379,7 +1379,7 @@ class GWizardMediaFixTest(unittest.TestCase):
 
     def test_accept_all_hints_report_dialog_selectable_label(self) -> None:
         """AcceptAllHintsReportDialog uses SelectableLabel so text can be highlighted and copied."""
-        from gramps.plugins.tool.gwizard_common import SelectableLabel
+        from gramps.plugins.tool.gwizard_mediafix_common import SelectableLabel
 
         sample_report = (
             "AUTOMATED CHANGES PERFORMED:\n  • Find missing media: 1 path updated."

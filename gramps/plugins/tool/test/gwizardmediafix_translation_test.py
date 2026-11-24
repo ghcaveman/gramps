@@ -54,7 +54,7 @@ fakes.install()
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.plugins.tool import gw_fixmediareferencesdialog as refs
 from gramps.plugins.tool import gw_mediapreview as preview
-from gramps.plugins.tool import gwizard_common as common
+from gramps.plugins.tool import gwizard_mediafix_common as common
 from gramps.plugins.tool import gwizardmediafix as mediafix
 
 MODULES = (mediafix, refs, common, preview)
@@ -89,7 +89,7 @@ class AddonTranslatorTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.mkdtemp()
         # An addon package folder with a copy of the shared module in it.
-        self.copy = os.path.join(self.tmp, "MediaFix", "gwizard_common.py")
+        self.copy = os.path.join(self.tmp, "MediaFix", "gwizard_mediafix_common.py")
         os.makedirs(os.path.dirname(self.copy))
         shutil.copy(common.__file__, self.copy)
 
@@ -112,7 +112,7 @@ class AddonTranslatorTest(unittest.TestCase):
         with patch.object(
             glocale, "get_addon_translator", return_value=translator
         ) as get_translator:
-            module = load_copy(self.copy, "gwizard_common_addon_copy")
+            module = load_copy(self.copy, "gwizard_mediafix_common_addon_copy")
         get_translator.assert_called_once_with(self.copy)
         self.assertIs(module._trans, translator)
         self.assertEqual(module._("Hello"), "[fr] Hello")
@@ -120,7 +120,7 @@ class AddonTranslatorTest(unittest.TestCase):
     def test_falls_back_to_gramps_translation(self) -> None:
         """When the addon has no usable translation, Gramps' own is used."""
         with patch.object(glocale, "get_addon_translator", side_effect=ValueError):
-            module = load_copy(self.copy, "gwizard_common_no_locale")
+            module = load_copy(self.copy, "gwizard_mediafix_common_no_locale")
         self.assertIs(module._trans, glocale.translation)
 
     def test_no_module_uses_gramps_translation_directly(self) -> None:

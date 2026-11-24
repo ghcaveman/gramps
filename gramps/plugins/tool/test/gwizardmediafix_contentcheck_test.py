@@ -52,7 +52,7 @@ from gramps.gen.config import config
 from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Media
-from gramps.plugins.tool import gwizard_common as gc
+from gramps.plugins.tool import gwizard_mediafix_common as gc
 from gramps.plugins.tool import gwizardmediafix as mf
 
 _CHOOSER = "gramps.plugins.tool.gwizardmediafix.Gtk.FileChooserDialog"

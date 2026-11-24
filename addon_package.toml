@@ -21,17 +21,17 @@ gramps_versions = ["5.2.0", "6.2.0"]
 
 [files]
 # Listed explicitly: in the citation-fix tree gw_*.py also matches the
-# citation-fix dialogs. gwizard_common.py is owned by this addon; CitationFix
+# citation-fix dialogs. gwizard_mediafix_common.py is owned by this addon; CitationFix
 # uses this copy through its dependency.
 modules = [
     "gramps/plugins/tool/gwizardmediafix.py",
-    "gramps/plugins/tool/gwizard_common.py",
+    "gramps/plugins/tool/gwizard_mediafix_common.py",
     "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
     "gramps/plugins/tool/gw_mediapreview.py",
 ]
 tests = [
     "gramps/plugins/tool/test/gwizardmediafix*_test.py",
-    "gramps/plugins/tool/test/gwizard_common_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
 ]
 test_helpers = [
     "gramps/plugins/tool/test/gwizard_gtk_fakes.py",

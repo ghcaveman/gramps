@@ -54,7 +54,7 @@ Gtk = fakes.install()
 from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Media, MediaRef, Person
-from gramps.plugins.tool import gwizard_common as gc
+from gramps.plugins.tool import gwizard_mediafix_common as gc
 from gramps.plugins.tool import gwizardmediafix as mf
 from gramps.plugins.tool.gw_fixmediareferencesdialog import (
     FixMediaReferencesDialog,
@@ -170,7 +170,7 @@ class _ChecksumDbTest(unittest.TestCase):
 #
 # ------------------------------------------------------------
 class ChecksumHelperTest(_ChecksumDbTest):
-    """The pure checksum helpers in gwizard_common."""
+    """The pure checksum helpers in gwizard_mediafix_common."""
 
     def test_file_checksum_is_gramps_md5(self) -> None:
         """file_checksum gives the same MD5 Gramps stores, "" when unreadable."""

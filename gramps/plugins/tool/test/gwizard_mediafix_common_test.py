@@ -48,7 +48,7 @@ Gtk = fakes.install()
 from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Media, Tag
-from gramps.plugins.tool.gwizard_common import (
+from gramps.plugins.tool.gwizard_mediafix_common import (
     SelectableLabel,
     TableLabel,
     HeaderLabel,

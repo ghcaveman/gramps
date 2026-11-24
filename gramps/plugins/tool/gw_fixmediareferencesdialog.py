@@ -50,7 +50,7 @@ from gramps.gen.utils.file import media_path_full
 from gramps.gui.dialog import OkDialog
 
 try:
-    from .gwizard_common import (
+    from .gwizard_mediafix_common import (
         TableLabel,
         HeaderLabel,
         create_table_grid,
@@ -68,7 +68,7 @@ try:
         remove_media_with_import_notes,
     )
 except (ImportError, ValueError):
-    from gwizard_common import (  # type: ignore[import-not-found,no-redef]
+    from gwizard_mediafix_common import (  # type: ignore[import-not-found,no-redef]
         TableLabel,
         HeaderLabel,
         create_table_grid,

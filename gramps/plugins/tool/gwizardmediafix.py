@@ -64,7 +64,7 @@ from gramps.gui.plug import tool
 #
 # -------------------------------------------------------------------------
 try:
-    from .gwizard_common import (
+    from .gwizard_mediafix_common import (
         SelectableLabel,
         TableLabel,
         HeaderLabel,
@@ -100,7 +100,7 @@ try:
         remove_media_with_import_notes,
     )
 except (ImportError, ValueError):
-    from gwizard_common import (  # type: ignore[import-not-found,no-redef]
+    from gwizard_mediafix_common import (  # type: ignore[import-not-found,no-redef]
         SelectableLabel,
         TableLabel,
         HeaderLabel,
@@ -2033,7 +2033,7 @@ class _Progress:
 # Stale "Records not imported into OBJE" notes left by the Legacy import
 #
 # ------------------------------------------------------------
-# IMPORT_NOTE_PREFIX now lives in gwizard_common (shared with is_bare_media).
+# IMPORT_NOTE_PREFIX now lives in gwizard_mediafix_common (shared with is_bare_media).
 
 
 def find_stale_import_notes(
@@ -5570,21 +5570,24 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         unresolved_missing, perm_denied = scan_unreadable_media(db)
 
         if base_set:
+            # Files that were already there count separately: nothing moved.
+            moved = consolidated_count - self.last_consolidate_reused
             consolidate_line = ngettext(
                 "  • Consolidate media location: %(count)d file moved or renamed "
                 "in '%(folder)s'.",
                 "  • Consolidate media location: %(count)d files moved or renamed "
                 "in '%(folder)s'.",
-                consolidated_count,
-            ) % {"count": consolidated_count, "folder": base_dir}
+                moved,
+            ) % {"count": moved, "folder": base_dir}
             if self.last_consolidate_reused:
                 consolidate_line += (
                     " "
                     + ngettext(
-                        "(%d was already there with the same content; the original "
-                        "was left in place.)",
-                        "(%d were already there with the same content; the originals "
-                        "were left in place.)",
+                        "%d more was already there with the same content, so its "
+                        "records now use that file; the original was left in place.",
+                        "%d more were already there with the same content, so their "
+                        "records now use those files; the originals were left in "
+                        "place.",
                         self.last_consolidate_reused,
                     )
                     % self.last_consolidate_reused
