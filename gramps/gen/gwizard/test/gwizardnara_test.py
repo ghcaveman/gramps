@@ -210,6 +210,7 @@ class TestNaraCatalogInterface(unittest.TestCase):
             rows=5,
             material_type="textual records",
             available_online=True,
+            level_of_description="item,fileUnit",
         )
 
         self.assertIsNotNone(result)
@@ -218,12 +219,13 @@ class TestNaraCatalogInterface(unittest.TestCase):
         self.assertEqual(args[0], "https://catalog.archives.gov/api/v2/records/search")
         self.assertEqual(kwargs["params"]["q"], "Civil War")
         self.assertEqual(kwargs["params"]["limit"], 5)
-        self.assertEqual(kwargs["params"]["typeOfMaterials"], "textual records")
+        self.assertEqual(kwargs["params"]["generalRecordsTypes"], "textual records")
         self.assertEqual(kwargs["params"]["availableOnline"], "true")
+        self.assertEqual(kwargs["params"]["levelOfDescription"], "item,fileUnit")
 
     @patch("requests.get")
     def test_search_records_record_years(self, mock_get: Mock) -> None:
-        """Verify record years are sent as startDate/endDate only when set."""
+        """Verify record years are sent as a NARA date range only when set."""
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"body": {"hits": {"hits": []}}}
@@ -232,13 +234,19 @@ class TestNaraCatalogInterface(unittest.TestCase):
 
         client.search_records(query="Smith", start_year="1840", end_year="1935")
         params = mock_get.call_args.kwargs["params"]
-        self.assertEqual(params["startDate"], "1840")
-        self.assertEqual(params["endDate"], "1935")
+        self.assertEqual(params["dateRange"], "1840 TO 1935")
+
+        client.search_records(query="Smith", start_year="1840")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["dateRange"], "1840 TO *")
+
+        client.search_records(query="Smith", end_year="1935")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["dateRange"], "* TO 1935")
 
         client.search_records(query="Smith")
         params = mock_get.call_args.kwargs["params"]
-        self.assertNotIn("startDate", params)
-        self.assertNotIn("endDate", params)
+        self.assertNotIn("dateRange", params)
 
     @patch("requests.get")
     def test_search_records_error_handling(self, mock_get: Mock) -> None:
