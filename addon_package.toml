@@ -30,9 +30,11 @@ tests = [
 test_helpers = [
     "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
 ]
-# Media-fix dialog: ships in MediaFix (listed under the dependency below).
+# Media-fix modules matched by gw_*.py: they ship in MediaFix (listed under
+# the dependency below).
 exclude = [
     "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/plugins/tool/gw_mediapreview.py",
 ]
 
 [[dependencies]]
