@@ -1,0 +1,149 @@
+{{Third-party plugin}}
+{{Languages|Addon:gwizard_citationfix}}
+
+{| class="wikitable" style="float:right; margin-left: 1em; width: 280px;"
+! colspan="2" style="background:#e8eef5; text-align:center;" | GWizard Citation Fix
+|-
+
+| '''Addon ID''' || <code><plugin_id></code>
+|-
+
+| '''Type''' || <Gramplet / Report / Tool / View>
+|-
+
+| '''Status''' || {{Stable_branch}}
+|-
+
+| '''Target Version''' || Gramps 6.1
+|-
+
+| '''Source Code''' || {{github_url|<PluginDirectory>}}
+|}
+
+'''GWizard Citation Fix''' is a third-party [[Addons|addon]] that <one-sentence summary of the genealogical problem it solves>.
+
+[[File:gwizard_citationfix-main.png|thumb|right|350px|GWizard Citation Fix main interface]]
+
+== Overview ==
+
+'''GWizard Citation Fix''' provides review steps for cleaning citation-related data in the active Family Tree. You can inspect suggested changes for sources, repositories, citations, citation attributes, citation media, and notes before applying them. The tool can also create a citation analysis report or run all cleanup steps without reviewing each set of hints.
+
+== Usage ==
+
+# In Gramps, open '''Tools > Family Tree Processing > GWizard Citation Fix'''. '''[VERIFY MENU PATH]'''
+# In the '''GWizard Citation Fix''' window, choose a button below to open its report or cleanup step.
+# Review the suggestions in a cleanup dialog and use '''Apply''' to apply its changes. To run steps without reviewing them individually, use '''Accept all hints'''.
+# Close the open window or dialog when you are finished.
+
+Main-window buttons, in screen order:
+
+* '''Generate report''' — choose a file for the citation analysis report; the saved report then opens in a report window.
+* '''Unpack Conflated Source''' — review suggestions to unpack mixed source text and prepare source fields.
+* '''Repository Consolidate''' — review suggestions for consolidating repositories.
+* '''Fix Repositories''' — review suggestions to create missing repositories and link sources to repositories.
+* '''Fix Sources''' — review suggestions to merge near-duplicate sources and quarantine non-sources.
+* '''Unpack Conflated Citation''' — review suggestions to extract dates and URLs from citation fields or notes.
+* '''Citation Attributes''' — review suggested GPS quality attributes and confidence ratings, including lowering the confidence of online family-tree citations.
+* '''Link Citation Media''' — review suggestions for linking media to citations.
+* '''Fix Notes''' — review suggested removal of import debris and empty notes, and whitespace trimming.
+* '''Accept all hints''' — confirm and run the cleanup steps without reviewing each step's hints.
+
+=== Generate report ===
+
+# Click '''Generate report'''. The '''Save Citation Fix Report''' file chooser opens.
+   [[File:gwizard_citationfix-generate-report-save.png|thumb|The Save Citation Fix Report file chooser with the report filename]]
+# Choose a location and file name. The default name is <code>CitationFixReport.txt</code>. Click '''Save'''.
+# When the report has been written, the '''GWizard Citation Fix report''' window opens with its contents.
+   [[File:gwizard_citationfix-generate-report.png|thumb|The GWizard Citation Fix report window displaying the generated report]]
+# Click '''Close''' to return to the main window.
+
+=== Unpack Conflated Source ===
+
+# Click '''Unpack Conflated Source'''. The '''Unpack Conflated Source''' dialog opens.
+   [[File:gwizard_citationfix-unpack-conflated-source.png|thumb|The Unpack Conflated Source dialog showing source-field suggestions]]
+# Review the suggested changes for mixed source text, repository entries, and publication information.
+# Click '''Apply''' to apply the selected changes, or '''Close''' to leave the dialog.
+
+=== Repository Consolidate ===
+
+# Click '''Repository Consolidate'''. The '''Repository Consolidate''' dialog opens.
+   [[File:gwizard_citationfix-repository-consolidate.png|thumb|The Repository Consolidate dialog showing repositories to consolidate]]
+# Review the repository suggestions and select the intended target where needed.
+# Click '''Apply''' to apply the changes, or '''Close''' to leave the dialog.
+
+=== Fix Repositories ===
+
+# Click '''Fix Repositories'''. The '''Fix Repositories''' dialog opens.
+   [[File:gwizard_citationfix-fix-repositories.png|thumb|The Fix Repositories dialog showing source and repository suggestions]]
+# Review the suggested repository links and any missing repository entries.
+# Click '''Apply''' to apply the changes, or '''Close''' to leave the dialog.
+
+=== Fix Sources ===
+
+# Click '''Fix Sources'''. The '''Fix Sources''' dialog opens.
+   [[File:gwizard_citationfix-fix-sources.png|thumb|The Fix Sources dialog showing source cleanup suggestions]]
+# Review the suggested source merges and any entries identified as non-sources.
+# Click '''Apply''' to apply the changes, or '''Close''' to leave the dialog.
+
+=== Unpack Conflated Citation ===
+
+# Click '''Unpack Conflated Citation'''. The '''Unpack Conflated Citation''' dialog opens.
+   [[File:gwizard_citationfix-unpack-conflated-citation.png|thumb|The Unpack Conflated Citation dialog showing citation-field suggestions]]
+# Review the suggestions for extracting dates and URLs from volume/page fields or notes.
+# Click '''Apply''' to apply the changes, or '''Close''' to leave the dialog.
+
+=== Citation Attributes ===
+
+# Click '''Citation Attributes'''. The '''Citation Attributes''' dialog opens.
+   [[File:gwizard_citationfix-citation-attributes.png|thumb|The Citation Attributes dialog showing suggested citation attributes]]
+# Review the suggested Genealogical Proof Standard (GPS) attributes—Source Type, Information Type, and Evidence Type—and confidence ratings. Confidence is only ever lowered, never raised; citations of online family trees are lowered to Low.
+# Click '''Apply''' to apply the changes, or '''Close''' to leave the dialog.
+
+=== Link Citation Media ===
+
+# Click '''Link Citation Media'''. The '''Link Citation Media''' dialog opens.
+   [[File:gwizard_citationfix-link-citation-media.png|thumb|The Link Citation Media dialog showing media-to-citation link suggestions]]
+# Review the proposed media links. Only Safe matches are set to link; Review and Conflict rows start on Skip. Select a row and click '''Inspect''' to examine that link in the inspector.
+# Click '''Apply''' to apply the selected links, or '''Close''' to leave the dialog.
+
+=== Fix Notes ===
+
+# Click '''Fix Notes'''. The '''Fix Notes''' dialog opens.
+   [[File:gwizard_citationfix-fix-notes.png|thumb|The Fix Notes dialog showing citation notes for review]]
+# Review the notes suggested for cleanup.
+# Click '''Apply''' to apply the changes, or '''Close''' to leave the dialog.
+
+=== Accept all hints ===
+
+# Click '''Accept all hints'''. The '''Accept all hints''' confirmation dialog explains that the steps will run without individual review.
+   [[File:gwizard_citationfix-accept-all-hints.png|thumb|The Accept all hints confirmation dialog]]
+# Click '''Accept all''' to proceed, or '''Cancel''' to return to the main window. Each step accepts the same hints its own dialog's '''Accept hints''' button fills in, then applies them.
+# After the run, the '''Accept All Hints Complete''' window shows the results and any changes requiring human intervention.
+   [[File:gwizard_citationfix-accept-all-hints-complete.png|thumb|The Accept All Hints Complete window showing the run results]]
+# Click '''Close''' to return to the main window.
+
+== Configure Options ==
+
+* The main window has no configurable options such as checkboxes, fields, or preferences.
+
+== Features ==
+
+* Reviews cleanup suggestions for source titles and fields, repositories, sources, citation fields, citation attributes, citation media, and notes.
+* Provides an individual review dialog for each cleanup step, with '''Apply''' and '''Close''' controls.
+* Generates a citation analysis report at a location and file name you choose, then displays the saved report.
+* '''Accept all hints''' runs the cleanup steps without individual review and displays a results window, including items that need human intervention.
+== Prerequisites ==
+* Gramps 6.1.x
+* <Optional external Python dependencies, e.g., Pillow, networkx — omit if none>
+
+== Issues ==
+* Report bugs or feature requests on the [https://gramps-project.org Gramps Bug Tracker] under the '''Addons''' project.
+* Discuss this addon on the [https://discourse.group Gramps Discourse Forum].
+
+== See Also ==
+* [[6.1_Addons|List of Gramps 6.1 Addons]]
+* [[Addons_development|Addons Development]]
+
+[[Category:Addons]]
+[[Category:Plugins]]
+[[Category:Developers/General]]

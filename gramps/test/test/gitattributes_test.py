@@ -61,7 +61,10 @@ class GitAttributesTest(unittest.TestCase):
         """
         try:
             res = subprocess.run(
-                ["git", "rev-parse", "--show-toplevel"],
+                # --show-cdup (a path relative to the current folder) rather
+                # than --show-toplevel: MSYS2's git reports the top level as
+                # /d/a/..., which Windows Python cannot open.
+                ["git", "rev-parse", "--show-cdup"],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -69,10 +72,11 @@ class GitAttributesTest(unittest.TestCase):
         except (FileNotFoundError, OSError):
             raise unittest.SkipTest("git executable not found")
 
-        if res.returncode != 0 or not res.stdout.strip():
+        if res.returncode != 0:
             raise unittest.SkipTest("Not running inside a git repository")
 
-        cls.repo_root = os.path.normpath(res.stdout.strip())
+        # Empty output means the current folder is the top level.
+        cls.repo_root = os.path.abspath(res.stdout.strip() or os.curdir)
 
     @staticmethod
     def _evaluate_compliance(i_eol: str, attrs: list[str]) -> str | None:
