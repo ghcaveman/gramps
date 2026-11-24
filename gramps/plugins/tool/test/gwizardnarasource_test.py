@@ -142,12 +142,14 @@ class NaraSourceTest(unittest.TestCase):
     def test_open_merge_uses_saved_hit(self) -> None:
         """Open Merge passes the saved record to the NARA window."""
         match = self.source.search(self.query)[0]
-        with patch(
-            "gramps.gui.gwizard.gwizardnaralauncher.open_nara_record",
-            return_value=True,
-        ) as opener:
+        mock_launcher = Mock()
+        mock_launcher.open_nara_record.return_value = True
+        with patch.dict(
+            "sys.modules",
+            {"gramps.gui.gwizard.gwizardnaralauncher": mock_launcher},
+        ):
             self.assertTrue(self.source.open_merge("dbs", "uis", "h1", match))
-        args, kwargs = opener.call_args
+        args, kwargs = mock_launcher.open_nara_record.call_args
         self.assertEqual(args[:3], ("uis", "dbs", "h1"))
         self.assertEqual(args[3], match.data["hit"])
         self.assertIs(kwargs["client"], self.client)
@@ -155,9 +157,13 @@ class NaraSourceTest(unittest.TestCase):
     def test_open_merge_without_hit(self) -> None:
         """A match without record details cannot be opened."""
         match = SourceMatch("1", "x", self.source.search(self.query)[0].candidate)
-        with patch("gramps.gui.dialog.ErrorDialog") as error:
+        mock_dialog = Mock()
+        with patch.dict(
+            "sys.modules",
+            {"gramps.gui.dialog": mock_dialog},
+        ):
             self.assertFalse(self.source.open_merge("dbs", "uis", "h1", match))
-        error.assert_called_once()
+        mock_dialog.ErrorDialog.assert_called_once()
 
 
 if __name__ == "__main__":

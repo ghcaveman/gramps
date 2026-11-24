@@ -55,6 +55,7 @@ from gramps.gen.lib import (
     Date,
     Event,
     EventRef,
+    EventRoleType,
     EventType,
     Citation,
     Source,
@@ -70,6 +71,7 @@ from gramps.gen.lib import (
     Url,
     UrlType,
 )
+from gramps.gen.datehandler import parser as dateparser
 from gramps.gen.utils.file import create_checksum, media_path, relative_path
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 
@@ -869,6 +871,9 @@ class AttachResult:
     source_created: bool = False
     citation_created: bool = False
     person_linked: bool = False
+    event_linked: bool = False
+    event_created: bool = False
+    event_type: str = ""
     media_added: int = 0
     media_linked: int = 0
     downloaded: int = 0
@@ -1121,6 +1126,7 @@ class NaraRecordAttacher:
                             "total": len(review.images),
                         },
                         (page_texts or {}).get(image.index, ""),
+                        citation=citation,
                     )
                     result.media_added += 1
                 if handle not in linked:
@@ -1135,6 +1141,16 @@ class NaraRecordAttacher:
                 person.add_citation(citation.get_handle())
                 self.db.commit_person(person, trans)
                 result.person_linked = True
+
+            # Link or create the relevant event (Pension, Naturalization, Military, Death, Marriage)
+            event_type = self._detect_record_event_type(parsed, descriptions)
+            if event_type is not None:
+                linked_evt = self._link_or_create_event(
+                    person, event_type, citation, parsed, trans
+                )
+                if linked_evt is not None:
+                    result.event_linked = True
+                    result.event_type = str(event_type)
         return result
 
     # ------------------------------------------------------------------
@@ -1356,10 +1372,11 @@ class NaraRecordAttacher:
         path: str,
         description: str,
         page_text: str = "",
+        citation: Citation | None = None,
     ) -> str:
         """
         Add a media object for an image and return its handle; a page text
-        becomes a Transcript note on it.
+        becomes a Transcript note on it and is cross-referenced on the citation.
         """
         media = Media()
         media.set_path(path)
@@ -1376,6 +1393,11 @@ class NaraRecordAttacher:
             note.set_type(NoteType(NoteType.TRANSCRIPT))
             self.db.add_note(note, trans)
             media.add_note(note.get_handle())
+            if (
+                citation is not None
+                and note.get_handle() not in citation.get_note_list()
+            ):
+                citation.add_note(note.get_handle())
         if not path.startswith(("http://", "https://")):
             media.set_checksum(create_checksum(os.path.join(media_path(self.db), path)))
         if image.object_id:
@@ -1568,6 +1590,16 @@ class NaraRecordAttacher:
             attribute.set_type(NAID_ATTRIBUTE)
             attribute.set_value(naid)
             citation.add_attribute(attribute)
+
+        date_str = str(parsed.get("date_str") or "").strip()
+        if date_str:
+            try:
+                date_obj = dateparser.parse(date_str)
+                if not date_obj.is_empty():
+                    citation.set_date_object(date_obj)
+            except Exception:
+                pass
+
         lines = [
             value
             for value in (
@@ -1585,3 +1617,121 @@ class NaraRecordAttacher:
         self.db.add_citation(citation, trans)
         result.citation_created = True
         return citation
+
+    @staticmethod
+    def _detect_record_event_type(
+        parsed: dict[str, Any], descriptions: dict[int, str] | None = None
+    ) -> EventType | None:
+        """
+        Determine if the NARA record documents a specific genealogical event.
+        """
+        title = str(parsed.get("title") or "").strip()
+        series = str(parsed.get("series_title") or "").strip()
+        scope = str(parsed.get("scope_note") or "").strip()
+        combined = f"{title} {series} {scope}".lower()
+
+        desc_text = " ".join((descriptions or {}).values()).lower()
+
+        if re.search(
+            r"naturaliz|citizenship|declaration\s+of\s+intent|petition\s+for",
+            combined,
+        ):
+            return EventType(EventType.NATURALIZATION)
+        if "death record" in desc_text or re.search(
+            r"certificate\s+of\s+death|death\s+certificate", combined
+        ):
+            return EventType(EventType.DEATH)
+        if "marriage record" in desc_text or re.search(
+            r"marriage\s+certificate|marriage\s+record|proof\s+of\s+marriage",
+            combined,
+        ):
+            return EventType(EventType.MARRIAGE)
+        if (
+            "claim brief" in desc_text
+            or "pension claim form" in desc_text
+            or re.search(r"\bpension\b|widow'?s\s+claim", combined)
+        ):
+            return EventType((EventType.CUSTOM, "Pension"))
+        if "service report" in desc_text or re.search(
+            r"military|service\s+record|confederate|union\s+army|civil\s+war|enlistment|mustered",
+            combined,
+        ):
+            return EventType(EventType.MILITARY_SERV)
+        if re.search(r"\bcensus\b|population\s+schedule", combined):
+            return EventType(EventType.CENSUS)
+
+        return None
+
+    def _link_or_create_event(
+        self,
+        person: Person,
+        event_type: EventType,
+        citation: Citation,
+        parsed: dict[str, Any],
+        trans: DbTxn,
+    ) -> Event | None:
+        """
+        Attach the citation to an existing matching event on the person,
+        or create a new event for this record and link it to the person.
+        """
+        target_event: Event | None = None
+
+        if int(event_type) == EventType.DEATH:
+            death_ref = person.get_death_ref()
+            if death_ref and death_ref.ref:
+                target_event = self.db.get_event_from_handle(death_ref.ref)
+        elif int(event_type) == EventType.MARRIAGE:
+            for fam_handle in person.get_family_handle_list():
+                fam = self.db.get_family_from_handle(fam_handle)
+                if not fam:
+                    continue
+                for ref in fam.get_event_ref_list():
+                    evt = self.db.get_event_from_handle(ref.ref)
+                    if evt and int(evt.get_type()) == EventType.MARRIAGE:
+                        target_event = evt
+                        break
+                if target_event:
+                    break
+        else:
+            for ref in person.get_event_ref_list():
+                evt = self.db.get_event_from_handle(ref.ref)
+                if evt and int(evt.get_type()) == int(event_type):
+                    target_event = evt
+                    break
+
+        if target_event is not None:
+            if citation.get_handle() not in target_event.get_citation_list():
+                target_event.add_citation(citation.get_handle())
+                self.db.commit_event(target_event, trans)
+            return target_event
+
+        # No existing event found: create a new one
+        new_event = Event()
+        new_event.set_type(event_type)
+        date_str = str(parsed.get("date_str") or "").strip()
+        if date_str:
+            try:
+                date_obj = dateparser.parse(date_str)
+                if not date_obj.is_empty():
+                    new_event.set_date_object(date_obj)
+            except Exception:
+                pass
+
+        title = str(parsed.get("title") or parsed.get("naid") or "")
+        if title:
+            new_event.set_description(title)
+
+        new_event.add_citation(citation.get_handle())
+        new_handle = self.db.add_event(new_event, trans)
+
+        ref = EventRef()
+        ref.ref = new_handle
+        ref.role = EventRoleType.PRIMARY
+
+        if int(event_type) == EventType.DEATH and not person.get_death_ref():
+            person.set_death_ref(ref)
+        else:
+            person.add_event_ref(ref)
+
+        self.db.commit_person(person, trans)
+        return new_event

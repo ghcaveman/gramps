@@ -792,6 +792,20 @@ class TestNaraRecordAttacher(unittest.TestCase):
         person = self.db.get_person_from_handle(self.person_handle)
         self.assertIn(result.citation_handle, person.get_citation_list())
 
+        # Verify event linking: Naturalization event created on person with citation
+        self.assertTrue(result.event_linked)
+        from gramps.gen.lib import EventType
+
+        events = [
+            self.db.get_event_from_handle(r.ref) for r in person.get_event_ref_list()
+        ]
+        nat_events = [e for e in events if e.get_type() == EventType.NATURALIZATION]
+        self.assertEqual(len(nat_events), 1)
+        self.assertIn(result.citation_handle, nat_events[0].get_citation_list())
+
+        # Verify citation date was populated
+        self.assertFalse(citation.get_date_object().is_empty())
+
         media = [
             self.db.get_media_from_handle(r.ref) for r in citation.get_media_list()
         ]
@@ -1028,6 +1042,12 @@ class TestNaraRecordAttacher(unittest.TestCase):
         self.assertIn("Box 123 Cert. 456", notes[0].get())
         self.assertIn("machine-read", notes[0].get())
         self.assertEqual(media[1].get_note_list(), [])
+
+        # Verify Transcript note is also on the Citation
+        person = self.db.get_person_from_handle(self.person_handle)
+        citation = self.db.get_citation_from_handle(person.get_citation_list()[0])
+        cit_notes = [self.db.get_note_from_handle(h) for h in citation.get_note_list()]
+        self.assertTrue(any(n.get_type() == NoteType.TRANSCRIPT for n in cit_notes))
 
 
 class TestNaraMergeWindowFlow(unittest.TestCase):
