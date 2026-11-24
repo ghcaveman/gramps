@@ -1352,8 +1352,167 @@ class GWizardMergeDialog(Gtk.Dialog):
         return out
 
     # ------------------------------------------------------------------
-    # Callbacks
+    # Data-loss checks (warning before a merge overwrites better data)
     # ------------------------------------------------------------------
+    def _event_date_and_place(
+        self, db: Any, person: Person, kind: str
+    ) -> tuple[Any | None, str]:
+        """
+        Return (date_object, place_name) for the person's birth/death event.
+
+        ``kind`` is 'birth' or 'death'.  Returns (None, '') when there is no
+        such event or no date on it.
+        """
+        if kind == "birth":
+            ref = vital_event_ref(db, person, "birth")
+        else:
+            ref = vital_event_ref(db, person, "death")
+        if not ref:
+            return None, ""
+        event = safe_get_event(db, ref.ref)
+        if not event:
+            return None, ""
+        date_obj = event.get_date_object()
+        place = ""
+        ph = event.get_place_handle()
+        if ph:
+            place_obj = safe_get_place(db, ph)
+            if place_obj:
+                place = place_obj.get_name().get_value() or ""
+        return date_obj, place
+
+    @staticmethod
+    def _date_loses_precision(target_date: Any | None, source_date: Any | None) -> bool:
+        """
+        Return True when the source date is less precise than (or missing
+        compared to) the target date.
+
+        A Gramps Date stores year/month/day with 0 meaning unknown.  Precision
+        tiers: year-only < year+month < full date.  Replacing a more precise
+        target date with a less precise source date loses information.
+        """
+        if target_date is None:
+            return False
+        if source_date is None:
+            return False  # No source event: apply() keeps the target's ref.
+
+        t_year = target_date.get_year()
+        s_year = source_date.get_year()
+        if not t_year:
+            return False  # Target has no year; nothing to lose.
+        if not s_year:
+            return True  # Target has a year; source has none → complete loss.
+
+        t_month = target_date.get_month()
+        t_day = target_date.get_day()
+        s_month = source_date.get_month()
+        s_day = source_date.get_day()
+
+        # Target has day precision but source does not.
+        if t_day > 0 and s_day == 0:
+            return True
+        # Target has month precision but source does not.
+        if t_month > 0 and s_month == 0:
+            return True
+        return False
+
+    def _check_data_loss(self) -> list[str]:
+        """
+        Scan accepted resolutions for fields where taking the source value
+        would degrade data already in the target family tree.
+
+        Returns a list of human-readable warning strings (empty when safe).
+        """
+        warnings: list[str] = []
+
+        for key, res in self._resolutions.items():
+            if res != "source":
+                continue
+
+            # ---- Birth / death events: date precision and place ----
+            if key in ("birth_event", "death_event"):
+                kind = "birth" if key == "birth_event" else "death"
+                t_date, t_place = self._event_date_and_place(
+                    self.target_db, self.target_person, kind
+                )
+                s_date, s_place = self._event_date_and_place(
+                    self.source_db, self.source_person, kind
+                )
+                if self._date_loses_precision(t_date, s_date):
+                    warnings.append(
+                        _(
+                            "{} date would lose precision "
+                            "(from a specific date to a less precise one)."
+                        )
+                        % kind.capitalize()
+                    )
+                if t_place and not s_place:
+                    warnings.append(
+                        _("{} place would be removed.").format(kind.capitalize())
+                    )
+
+            # ---- Other events: key is "event:<source event handle>" ----
+            elif key.startswith("event:"):
+                s_evt_h = key.split(":", 1)[1]
+                s_event = safe_get_event(self.source_db, s_evt_h)
+                if not s_event:
+                    continue
+                etype = str(s_event.get_type())
+                s_date = s_event.get_date_object()
+                s_place = ""
+                s_ph = s_event.get_place_handle()
+                if s_ph:
+                    s_place_obj = safe_get_place(self.source_db, s_ph)
+                    if s_place_obj:
+                        s_place = s_place_obj.get_name().get_value() or ""
+                # Match by event type against the target's events.
+                target_groups = person_events_by_type(
+                    self.target_db, self.target_person
+                )
+                for t_handle in target_groups.get(etype, []):
+                    t_event = safe_get_event(self.target_db, t_handle)
+                    if not t_event:
+                        continue
+                    t_date = t_event.get_date_object()
+                    t_place = ""
+                    t_ph = t_event.get_place_handle()
+                    if t_ph:
+                        t_place_obj = safe_get_place(self.target_db, t_ph)
+                        if t_place_obj:
+                            t_place = t_place_obj.get_name().get_value() or ""
+                    if self._date_loses_precision(t_date, s_date):
+                        warnings.append(
+                            _("{} event date would lose precision").format(etype)
+                        )
+                    if t_place and not s_place:
+                        warnings.append(
+                            _("{} event place would be removed").format(etype)
+                        )
+                    break
+
+            # ---- Name fields: target non-empty, source empty ----
+            elif key in ("given_name", "surname", "nickname", "call_name"):
+                left_name = self.source_person.get_primary_name()
+                right_name = self.target_person.get_primary_name()
+                if key == "given_name":
+                    t_val = right_name.first_name or ""
+                    s_val = left_name.first_name or ""
+                elif key == "surname":
+                    t_val = surname_text(right_name) or ""
+                    s_val = surname_text(left_name) or ""
+                elif key == "nickname":
+                    t_val = right_name.get_nick_name() or ""
+                    s_val = left_name.get_nick_name() or ""
+                else:  # call_name
+                    t_val = right_name.get_call_name() or ""
+                    s_val = left_name.get_call_name() or ""
+                if t_val and not s_val:
+                    warnings.append(
+                        _("{} would be cleared.").format(key.replace("_", " ").title())
+                    )
+
+        return warnings
+
     def _make_arrow(self, key: str, label: str) -> Gtk.Button:
         """
         Build a right-pointing arrow button that moves the source value
@@ -1621,6 +1780,28 @@ class GWizardMergeDialog(Gtk.Dialog):
         """
         Run the apply step for the collected resolutions and close.
         """
+        # Warn when accepting changes would lose information already in
+        # the tree (less precise dates, removed places, cleared fields).
+        warnings = self._check_data_loss()
+        if warnings:
+            msg = _(
+                "Accepting these changes would lose information already "
+                "in your family tree:\n\n%s\n\n"
+                "Continue anyway?"
+            ) % "\n".join("• " + w for w in warnings)
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                modal=True,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text=_("Confirm Data Loss"),
+            )
+            dialog.format_secondary_text(msg)
+            response = dialog.run()
+            dialog.destroy()
+            if response != Gtk.ResponseType.YES:
+                return
+
         missing = self._find_dangling_references()
         total_missing = sum(len(lst) for lst in missing.values())
 
