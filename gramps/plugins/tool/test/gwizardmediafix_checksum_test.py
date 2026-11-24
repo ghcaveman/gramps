@@ -54,7 +54,7 @@ Gtk = fakes.install()
 from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Media, MediaRef, Person
-from gramps.plugins.tool import gwizard_common as gc
+from gramps.plugins.tool import gwizard_mediafix_common as gc
 from gramps.plugins.tool import gwizardmediafix as mf
 from gramps.plugins.tool.gw_fixmediareferencesdialog import (
     FixMediaReferencesDialog,
@@ -170,7 +170,7 @@ class _ChecksumDbTest(unittest.TestCase):
 #
 # ------------------------------------------------------------
 class ChecksumHelperTest(_ChecksumDbTest):
-    """The pure checksum helpers in gwizard_common."""
+    """The pure checksum helpers in gwizard_mediafix_common."""
 
     def test_file_checksum_is_gramps_md5(self) -> None:
         """file_checksum gives the same MD5 Gramps stores, "" when unreadable."""
@@ -460,7 +460,7 @@ class ChecksumMaintenanceTest(_ChecksumDbTest):
         plan = mf.build_accept_all_plan(self.db, self.base, True)
         self.assertEqual(plan["checksums"], [(self.media(h_a).gramps_id, "a.jpg")])
         self.assertTrue(mf.plan_has_changes(plan))
-        self.assertIn("Store checksums: 1 record has none yet", mf.format_plan(plan))
+        self.assertIn("Checksums: 1 record has none yet", mf.format_plan(plan))
         self.assertEqual(self.tool()._auto_store_checksums(self.db), 1)
 
     def test_split_copies_get_checksum(self) -> None:

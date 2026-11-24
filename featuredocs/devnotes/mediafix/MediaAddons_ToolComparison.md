@@ -4,7 +4,7 @@
 
 This document compares **GWizard Media Fix** with the built-in **Media Manager** and the four media addons in `addons-source` whose functionality overlaps with it. It was written from the source code in `C:\gramps_dev\gramps_gwizard_mediafix_plugin\addons-source` (fork: `https://github.com/ghcaveman/addons-source.git`) and `gramps/plugins/tool/mediamanager.py`.
 
-> Note: the `addons-source/MediaFix` directory **is** GWizard Media Fix packaged as an addon (`gwizardmediafix.py`, `gw_fixmediareferencesdialog.py`, `gwizard_common.py`). It is listed below as "GWizard Media Fix".
+> Note: the `addons-source/MediaFix` directory **is** GWizard Media Fix packaged as an addon (`gwizardmediafix.py`, `gw_fixmediareferencesdialog.py`, `gwizard_mediafix_common.py`). It is listed below as "GWizard Media Fix".
 >
 > **Updated 2026-11-17** for the GWizard Media Fix changes made since: checksum storing and content matching, the image preview pane, *Look in folder...* (which replaced *Copy from folder...*), and the new `gw_mediapreview.py` module. Until the `addons-source/MediaFix` copy is rebuilt from the branch with `package_addon.py`, it still has the older behaviour.
 

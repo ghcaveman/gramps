@@ -42,7 +42,7 @@ id = "gwizardmediafix"
 package = "MediaFix"
 modules = [
     "gramps/plugins/tool/gwizardmediafix.py",
-    "gramps/plugins/tool/gwizard_common.py",
+    "gramps/plugins/tool/gwizard_mediafix_common.py",
     "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
     "gramps/plugins/tool/gw_mediapreview.py",
 ]
@@ -60,7 +60,7 @@ ignore = [
     "environment_create.py",
     # Media Fix tests come with the dependency; MediaFix ships them.
     "gramps/plugins/tool/test/gwizardmediafix*_test.py",
-    "gramps/plugins/tool/test/gwizard_common_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",

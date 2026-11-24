@@ -85,7 +85,7 @@ from gramps.plugins.tool.gwizardmediafix import (
     check_path_permission,
     build_accept_all_plan,
 )
-from gramps.plugins.tool.gwizard_common import (
+from gramps.plugins.tool.gwizard_mediafix_common import (
     has_media_fixed_tag,
     add_media_fixed_tag,
 )
@@ -188,7 +188,7 @@ class GWizardMediaFixTest(unittest.TestCase):
         )
 
     def test_find_missing_media_base_path_selector(self) -> None:
-        """FindMissingMediaDialog lets users choose and stage the base media path."""
+        """FindMissingMediaDialog saves a chosen base media path at once."""
         self.db.set_mediapath(None)
         dlg = FindMissingMediaDialog(dbstate=self.dbstate)
         self.assertTrue(hasattr(dlg, "path_entry"))
@@ -207,7 +207,18 @@ class GWizardMediaFixTest(unittest.TestCase):
 
         self.assertEqual(dlg.path_entry.get_text(), chosen_folder)
         self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(chosen_folder)))
-        self.assertEqual(self.db.get_mediapath(), None)
+        # Saved without pressing Apply.
+        self.assertEqual(self.db.get_mediapath(), chosen_folder)
+
+        # Cancelling the chooser changes nothing.
+        mock_chooser.run.return_value = Gtk.ResponseType.CANCEL
+        mock_chooser.get_filename.return_value = os.path.join(USER_HOME, "Other")
+        with patch(
+            "gramps.plugins.tool.gwizardmediafix.Gtk.FileChooserDialog",
+            return_value=mock_chooser,
+        ):
+            dlg.cb_select_mediapath()
+        self.assertEqual(self.db.get_mediapath(), chosen_folder)
 
     def test_consolidate_media_location_apply(self) -> None:
         """ConsolidateMediaLocationDialog detects non-standard/absolute paths and applies."""
@@ -432,7 +443,7 @@ class GWizardMediaFixTest(unittest.TestCase):
             c_h = self.db.add_citation(c, trans)
 
             m = Media()
-            m.set_path("C:/gramps_dev/Fuller, Harry Jay - 1910Census.jpg")
+            m.set_path("C:/gramps_dev/Barton, Walter James - 1910Census.jpg")
             m.set_description("1910 Census scan")
             m_h = self.db.add_media(m, trans)
 
@@ -453,9 +464,9 @@ class GWizardMediaFixTest(unittest.TestCase):
             p = Person()
             n = Name()
             sur = Surname()
-            sur.set_surname("Fuller")
+            sur.set_surname("Barton")
             n.add_surname(sur)
-            n.set_first_name("Harry Jay")
+            n.set_first_name("Walter James")
             p.set_primary_name(n)
             eref = EventRef()
             eref.set_reference_handle(e_h)
@@ -464,37 +475,37 @@ class GWizardMediaFixTest(unittest.TestCase):
 
         media = self.db.get_media_from_handle(m_h)
         ctx = resolve_media_reference_context(self.db, media)
-        self.assertEqual(ctx["surname"], "Fuller")
-        self.assertEqual(ctx["given"], "Harry Jay")
+        self.assertEqual(ctx["surname"], "Barton")
+        self.assertEqual(ctx["given"], "Walter James")
         self.assertEqual(ctx["doc_type"], "Census_scan")
         self.assertEqual(ctx["year"], "1910")
         self.assertIn("Citation:", ctx["assoc"])
         self.assertIn("Event: Census 1910", ctx["assoc"])
-        self.assertIn("Fuller, Harry Jay", ctx["assoc"])
+        self.assertIn("Barton, Walter James", ctx["assoc"])
 
         std = sanitize_standard_filename(media.get_path(), db=self.db, media=media)
         self.assertEqual(
             std,
             os.path.join(
                 "C:/gramps_dev",
-                f"{ctx['ref_id']}_Fuller_Harry_Jay-Census_scan-1910.jpg",
+                f"{ctx['ref_id']}_Barton_Walter_James-Census_scan-1910.jpg",
             ),
         )
 
     def test_deduplicate_name_and_document_year(self) -> None:
         """Redundant names in descriptions are stripped and document year takes precedence over birth year."""
-        with DbTxn("Create Duvault media", self.db) as trans:
+        with DbTxn("Create Murrow media", self.db) as trans:
             m = Media()
-            m.set_description("Duvault, Nettie - 1900Census")
-            m.set_path("Media/Duvault, Nettie - 1900Census.jpg")
+            m.set_description("Murrow, Edna - 1900Census")
+            m.set_path("Media/Murrow, Edna - 1900Census.jpg")
             m_h = self.db.add_media(m, trans)
 
             p = Person()
             n = Name()
             s = Surname()
-            s.set_surname("Devault")
+            s.set_surname("Morrow")
             n.add_surname(s)
-            n.set_first_name("Nettie")
+            n.set_first_name("Edna")
             p.set_primary_name(n)
 
             # Person's birth event is 1885
@@ -515,8 +526,8 @@ class GWizardMediaFixTest(unittest.TestCase):
 
         media = self.db.get_media_from_handle(m_h)
         ctx = resolve_media_reference_context(self.db, media)
-        self.assertEqual(ctx["surname"], "Devault")
-        self.assertEqual(ctx["given"], "Nettie")
+        self.assertEqual(ctx["surname"], "Morrow")
+        self.assertEqual(ctx["given"], "Edna")
         # Document year 1900 from description overrides birth year 1885
         self.assertEqual(ctx["year"], "1900")
         self.assertEqual(ctx["doc_type"], "Census")
@@ -526,7 +537,7 @@ class GWizardMediaFixTest(unittest.TestCase):
             std,
             os.path.join(
                 "Media",
-                f"{ctx['ref_id']}_Devault_Nettie-Census-1900.jpg",
+                f"{ctx['ref_id']}_Morrow_Edna-Census-1900.jpg",
             ),
         )
 
@@ -535,8 +546,8 @@ class GWizardMediaFixTest(unittest.TestCase):
         with DbTxn("Create duplicate media", self.db) as trans:
             for i in range(3):
                 m = Media()
-                m.set_description("Fuller 1910 Census")
-                m.set_path("C:/gramps_dev/Fuller, Harry Jay - 1910Census.jpg")
+                m.set_description("Barton 1910 Census")
+                m.set_path("C:/gramps_dev/Barton, Walter James - 1910Census.jpg")
                 self.db.add_media(m, trans)
 
         dups = find_duplicate_media_references(self.db)
@@ -556,7 +567,7 @@ class GWizardMediaFixTest(unittest.TestCase):
         """get_media_base_path resolves the base path exactly as Gramps does."""
         from gramps.gen.const import USER_PICTURES
         from gramps.gen.utils.file import media_path
-        from gramps.plugins.tool.gwizard_common import path_key
+        from gramps.plugins.tool.gwizard_mediafix_common import path_key
 
         # Unset: Gramps (and so the tool) uses the Pictures folder
         self.db.set_mediapath(None)
@@ -607,7 +618,7 @@ class GWizardMediaFixTest(unittest.TestCase):
         self.assertEqual(dlg.report_text, "Sample report content")
 
     def test_consolidate_media_location_base_path_display(self) -> None:
-        """ConsolidateMediaLocationDialog displays the media base path near the top and suggests relative paths."""
+        """ConsolidateMediaLocationDialog uses the saved media base path and suggests relative paths."""
         custom_path = os.path.join(USER_HOME, "ConsolidateTestMedia")
         self.db.set_mediapath(custom_path)
 
@@ -620,11 +631,6 @@ class GWizardMediaFixTest(unittest.TestCase):
 
         dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
         self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(custom_path)))
-        self.assertTrue(hasattr(dlg, "base_path_label"))
-        self.assertIn(
-            os.path.normpath(os.path.abspath(custom_path)),
-            dlg.base_path_label.markup or dlg.base_path_label.text,
-        )
         self.assertEqual(len(dlg.rows), 1)
         # Value in Hint should be base media path plus filename with naming standard
         std_fname = f"{m.get_gramps_id()}-Absolute_inside_base.jpg"
@@ -722,7 +728,7 @@ class GWizardMediaFixTest(unittest.TestCase):
 
             # File should be moved to destination and updated in DB without quotes
             updated_cons = self.db.get_media_from_handle(m_h)
-            from gramps.plugins.tool.gwizard_common import to_db_path
+            from gramps.plugins.tool.gwizard_mediafix_common import to_db_path
 
             self.assertEqual(
                 os.path.normpath(updated_cons.get_path()),
@@ -732,43 +738,25 @@ class GWizardMediaFixTest(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_consolidate_media_location_path_selector_widget(self) -> None:
-        """ConsolidateMediaLocationDialog provides a path selector widget that sets database media path."""
+    def test_consolidate_media_location_has_no_path_selector(self) -> None:
+        """The base media path is set in Step 2, not in Consolidate.
+
+        Consolidate only reads the saved setting and never changes it.
+        """
         custom_path = os.path.join(USER_HOME, "SelectorTestMedia")
         self.db.set_mediapath(custom_path)
 
         dlg = ConsolidateMediaLocationDialog(dbstate=self.dbstate)
-        self.assertTrue(hasattr(dlg, "path_entry"))
-        self.assertTrue(hasattr(dlg, "path_button"))
-        self.assertEqual(dlg.path_entry.get_text(), custom_path)
-
-        # Changing path_entry directly stages db mediapath and recomputes base_dir
-        new_path = os.path.join(USER_HOME, "NewMediaFolder")
-        dlg.path_entry.set_text(new_path)
-        dlg.cb_set_mediapath()
-        self.assertEqual(dlg._mediapath_text, new_path)
-        self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(new_path)))
+        # (hasattr() cannot be used: the GTK fakes answer any attribute.)
+        for name in ("path_entry", "path_button", "base_path_label"):
+            self.assertNotIn(name, vars(dlg))
+        for name in ("cb_set_mediapath", "cb_select_mediapath"):
+            self.assertNotIn(name, vars(ConsolidateMediaLocationDialog))
+        self.assertEqual(dlg.base_dir, os.path.normpath(os.path.abspath(custom_path)))
 
         with patch("gramps.plugins.tool.gwizardmediafix.OkDialog"):
             dlg.cb_apply(MagicMock())
-        self.assertEqual(self.db.get_mediapath(), new_path)
-
-        # Selecting folder from chooser dialog sets path on entry
-        chosen_folder = os.path.join(USER_HOME, "ChosenFolder")
-        mock_chooser = MagicMock()
-        mock_chooser.run.return_value = Gtk.ResponseType.OK
-        mock_chooser.get_filename.return_value = chosen_folder
-
-        with patch(
-            "gramps.plugins.tool.gwizardmediafix.Gtk.FileChooserDialog",
-            return_value=mock_chooser,
-        ):
-            dlg.cb_select_mediapath()
-            self.assertEqual(dlg.path_entry.get_text(), chosen_folder)
-            self.assertEqual(dlg._mediapath_text, chosen_folder)
-            self.assertEqual(
-                dlg.base_dir, os.path.normpath(os.path.abspath(chosen_folder))
-            )
+        self.assertEqual(self.db.get_mediapath(), custom_path)
 
     def test_consolidate_media_location_radio_buttons_move_vs_copy(self) -> None:
         """ConsolidateMediaLocationDialog provides radio buttons for move files vs make a copy."""
@@ -829,11 +817,11 @@ class GWizardMediaFixTest(unittest.TestCase):
                 self.assertTrue(mock_relocate.call_args[1].get("copy", False))
 
     def test_generate_media_fix_report_includes_base_path(self) -> None:
-        """generate_media_fix_report includes Media Base Path in summary metrics."""
+        """generate_media_fix_report includes the base media path in summary metrics."""
         custom_path = os.path.join(USER_HOME, "ReportMetricsMedia")
         self.db.set_mediapath(custom_path)
         report = generate_media_fix_report(self.db)
-        self.assertIn("Media Base Path:", report)
+        self.assertIn("Base media path:", report)
         self.assertIn(os.path.normpath(os.path.abspath(custom_path)), report)
 
     def test_is_in_default_path(self) -> None:
@@ -1370,7 +1358,8 @@ class GWizardMediaFixTest(unittest.TestCase):
                 self.assertIn("Find missing media: 1 missing path found", report_body)
                 self.assertIn(
                     "Fix media references: duplicate records merged: 1; "
-                    "unreferenced image tags deleted: 1.",
+                    "unreferenced image tags deleted: 1; names corrected: 0; "
+                    "leftover import notes deleted: 0.",
                     report_body,
                 )
                 self.assertIn("CHANGES REQUIRING HUMAN INTERVENTION:", report_body)
@@ -1390,7 +1379,7 @@ class GWizardMediaFixTest(unittest.TestCase):
 
     def test_accept_all_hints_report_dialog_selectable_label(self) -> None:
         """AcceptAllHintsReportDialog uses SelectableLabel so text can be highlighted and copied."""
-        from gramps.plugins.tool.gwizard_common import SelectableLabel
+        from gramps.plugins.tool.gwizard_mediafix_common import SelectableLabel
 
         sample_report = (
             "AUTOMATED CHANGES PERFORMED:\n  • Find missing media: 1 path updated."

@@ -49,7 +49,7 @@ Gtk = fakes.install()
 from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Media
-from gramps.plugins.tool import gwizard_common as gc
+from gramps.plugins.tool import gwizard_mediafix_common as gc
 from gramps.plugins.tool import gwizardmediafix as mf
 
 _CHOOSER = "gramps.plugins.tool.gwizardmediafix.Gtk.FileChooserDialog"
@@ -238,6 +238,25 @@ class PickFileTest(unittest.TestCase):
             self.assertEqual(
                 self.db.get_media_from_handle(handle).get_path(), "scans/census.jpg"
             )
+
+    def test_renamed_file_fills_rows_missing_the_old_name(self) -> None:
+        """Picking a renamed file fills the other rows missing the old name."""
+        old = "C:/Old/Media/Smyth, Anna - 1900Census.jpg"
+        h_first = self.add_media(old, "First")
+        h_second = self.add_media(old, "Second")
+        h_third = self.add_media("Other/Smyth, Anna - 1900Census.jpg", "Third")
+        h_other = self.add_media("Old/unrelated.jpg", "Unrelated")
+        renamed = self.touch("MediaBase", "I00042_Smith_Anna-Census-1900.jpg")
+
+        dlg = self.open_dialog()
+        self.pick(dlg, self.target_for(dlg, h_first), renamed)
+
+        for handle in (h_first, h_second, h_third):
+            self.assertEqual(
+                self.target_for(dlg, handle)["path_entry"].get_text(),
+                "I00042_Smith_Anna-Census-1900.jpg",
+            )
+        self.assertEqual(self.target_for(dlg, h_other)["path_entry"].get_text(), "")
 
     def test_base_path_changed_after_pick(self) -> None:
         """A chosen file is stored relative to the base path in force at Apply."""

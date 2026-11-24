@@ -56,9 +56,9 @@ from gramps.gen.utils.db import navigation_label
 from gramps.gen.utils.thumbnails import SIZE_LARGE, get_thumbnail_image
 
 try:
-    from .gwizard_common import escape_markup
+    from .gwizard_mediafix_common import escape_markup
 except (ImportError, ValueError):
-    from gwizard_common import (  # type: ignore[import-not-found,no-redef]
+    from gwizard_mediafix_common import (  # type: ignore[import-not-found,no-redef]
         escape_markup,
     )
 

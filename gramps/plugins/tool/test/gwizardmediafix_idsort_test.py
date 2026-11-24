@@ -58,7 +58,7 @@ Gtk = fakes.install()
 from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Media, MediaRef, Name, Note, Person, Surname
-from gramps.plugins.tool import gwizard_common as gc
+from gramps.plugins.tool import gwizard_mediafix_common as gc
 from gramps.plugins.tool import gwizardmediafix as mf
 from gramps.plugins.tool.gw_fixmediareferencesdialog import (
     FixMediaReferencesDialog,
