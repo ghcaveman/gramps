@@ -82,6 +82,8 @@ from gramps.gen.gwizard.gwizard_base import (
     surname_prefix_text,
     surname_text,
     SourceMatcher,
+    compare_date_specificity,
+    compare_place_specificity,
 )
 from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
 
@@ -819,18 +821,58 @@ class GWizardMergeDialog(Gtk.Dialog):
                     right_sources
                 )
 
+            supports_alt = (
+                key in ("birth_event", "death_event")
+                and left_obj is not None
+                and right_obj is not None
+            )
+            if supports_alt:
+                try:
+                    date_cmp = compare_date_specificity(
+                        left_obj.get_date_object(), right_obj.get_date_object()
+                    )
+                except Exception:
+                    date_cmp = 0
+                try:
+                    s_pl = safe_get_place(sd, left_obj.get_place_handle())
+                    t_pl = safe_get_place(td, right_obj.get_place_handle())
+                    place_cmp = compare_place_specificity(s_pl, t_pl, sd, td)
+                except Exception:
+                    place_cmp = 0
+
+                if date_cmp < 0 or place_cmp < 0:
+                    right_text += (
+                        "\n<small><b>%s</b></small>"
+                        % GLib.markup_escape_text(_("◀ tree has more detail"))
+                    )
+                elif date_cmp > 0 or place_cmp > 0:
+                    left_text += "\n<small><b>%s</b></small>" % GLib.markup_escape_text(
+                        _("incoming has more detail ▶")
+                    )
+
             left_cell = create_diff_cell(left_text, not same, 0.0)
             right_cell = create_diff_cell(right_text, not same, 0.0)
             self._value_column_size_group.add_widget(left_cell)
             self._value_column_size_group.add_widget(right_cell)
             btn = None
             if key is not None:
+
+                def _create_btn() -> Gtk.Button:
+                    if supports_alt:
+                        try:
+                            return self._make_arrow(
+                                key, label or _("Child"), supports_alternate=True
+                            )
+                        except TypeError:
+                            return self._make_arrow(key, label or _("Child"))
+                    return self._make_arrow(key, label or _("Child"))
+
                 if is_nullable_identity:
                     if ls and not rs:
-                        btn = self._make_arrow(key, label or _("Child"))
+                        btn = _create_btn()
                         self._mergeable_count += 1
                 elif not same and ls:
-                    btn = self._make_arrow(key, label or _("Child"))
+                    btn = _create_btn()
                     self._mergeable_count += 1
             gap = btn if btn is not None else Gtk.Label(label="")
             grid.attach(left_cell, 0, self._row_index, 1, 1)
@@ -1354,24 +1396,48 @@ class GWizardMergeDialog(Gtk.Dialog):
     # ------------------------------------------------------------------
     # Callbacks
     # ------------------------------------------------------------------
-    def _make_arrow(self, key: str, label: str) -> Gtk.Button:
+    def _make_arrow(
+        self, key: str, label: str, supports_alternate: bool = False
+    ) -> Gtk.Button:
         """
-        Build a right-pointing arrow button that moves the source value
-        (left) for this field into the current family tree (right) when
-        clicked.
+        Build an action button that transfers or merges the source value
+        into the current family tree when clicked.
         """
         btn = Gtk.Button(label=_("=>"))
-        btn.set_tooltip_text(_("Move %s to current family tree") % label)
-        btn.connect("clicked", self.cb_field_clicked, key)
+        if supports_alternate:
+            btn.set_tooltip_text(
+                _(
+                    "Click to merge (upgrades lower-detail fields and adds citations);\n"
+                    "click again to add as Alternate event (+ALT);\n"
+                    "click again to keep tree value."
+                )
+            )
+        else:
+            btn.set_tooltip_text(_("Move %s to current family tree") % label)
+        btn.connect("clicked", self.cb_field_clicked, key, supports_alternate)
         return btn
 
-    def cb_field_clicked(self, button: Gtk.Button, key: str) -> None:
+    def cb_field_clicked(
+        self, button: Gtk.Button, key: str, supports_alternate: bool = False
+    ) -> None:
         """
-        Record the user's choice to take the source value for this field.
+        Record the user's choice to merge or add the source value.
         """
-        button.set_label(_("\u2713"))
-        button.set_sensitive(False)
-        self._resolutions[key] = "source"
+        if supports_alternate:
+            current = self._resolutions.get(key)
+            if current is None:
+                button.set_label(_("\u2713"))
+                self._resolutions[key] = "source"
+            elif current == "source":
+                button.set_label(_("+ALT"))
+                self._resolutions[key] = "alternate"
+            else:
+                button.set_label(_("=>"))
+                self._resolutions.pop(key, None)
+        else:
+            button.set_label(_("\u2713"))
+            button.set_sensitive(False)
+            self._resolutions[key] = "source"
 
     def _find_dangling_references(self) -> dict[str, list[str]]:
         """

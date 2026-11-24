@@ -74,6 +74,8 @@ from .gwizard_base import (
     GWizardBase,
     GWizardCompareRow,
     CandidateMatcher,
+    compare_date_specificity,
+    compare_place_specificity,
     is_empty_event,
     safe_get,
     surname_prefix_text,
@@ -2403,9 +2405,21 @@ class GedGWizard(GWizardBase):
                 # Apply choices
                 # 1. Given Name
                 if resolutions.get("given_name") == "source":
-                    t_person.get_primary_name().first_name = (
-                        s_person.get_primary_name().first_name
-                    )
+                    s_given = str(s_person.get_primary_name().first_name or "").strip()
+                    t_given = str(t_person.get_primary_name().first_name or "").strip()
+                    s_toks = s_given.split()
+                    t_toks = t_given.split()
+                    # Preserve richer detail: if target has middle names and source is merely
+                    # a prefix or subset (e.g. target 'John Fitzgerald' vs source 'John'),
+                    # keep the fuller target name instead of truncating.
+                    if (
+                        len(t_toks) > len(s_toks)
+                        and s_toks
+                        and t_toks[: len(s_toks)] == s_toks
+                    ):
+                        pass
+                    else:
+                        t_person.get_primary_name().first_name = s_given
 
                 # 2. Surname
                 if resolutions.get("surname") == "source":
@@ -2465,27 +2479,87 @@ class GedGWizard(GWizardBase):
                         return primary.ref
                     return None
 
-                # 4. Birth Event
-                if resolutions.get("birth_event") == "source":
-                    s_birth_h = get_source_event_handle(s_person, EventType.BIRTH)
-                    t_birth_h = copy_event(s_birth_h, trans)
-                    if t_birth_h:
-                        t_person.set_birth_ref(
+                def merge_or_replace_vital_event(
+                    event_type_val: int,
+                    resolution_val: str,
+                ) -> None:
+                    s_evt_h = get_source_event_handle(s_person, event_type_val)
+                    if not s_evt_h:
+                        return
+                    s_evt = safe_get_event(source_db, s_evt_h)
+                    if not s_evt:
+                        return
+
+                    t_ref = (
+                        t_person.get_birth_ref()
+                        if event_type_val == EventType.BIRTH
+                        else t_person.get_death_ref()
+                    )
+                    t_evt_h = t_ref.ref if t_ref else None
+                    t_evt = safe_get_event(self.db, t_evt_h) if t_evt_h else None
+
+                    new_evt_h = copy_event(s_evt_h, trans)
+                    if not new_evt_h:
+                        return
+
+                    new_evt = safe_get_event(self.db, new_evt_h)
+                    if not new_evt:
+                        return
+
+                    if resolution_val == "alternate" and t_evt:
+                        # User chose to add incoming as alternate event, preserving primary
+                        t_person.add_event_ref(
                             copy_event_ref(
-                                s_birth_h, t_birth_h, trans, EventRoleType.PRIMARY
+                                s_evt_h, new_evt_h, trans, EventRoleType.PRIMARY
                             )
                         )
+                        return
+
+                    if t_evt:
+                        # Smart non-destructive merge:
+                        # 1. Date: preserve more specific date
+                        s_date = s_evt.get_date_object()
+                        t_date = t_evt.get_date_object()
+                        date_cmp = compare_date_specificity(s_date, t_date)
+                        if date_cmp < 0 and t_date and not t_date.is_empty():
+                            new_evt.set_date_object(t_date)
+
+                        # 2. Place: preserve more specific place
+                        s_pl = safe_get_place(source_db, s_evt.get_place_handle())
+                        t_pl = safe_get_place(self.db, t_evt.get_place_handle())
+                        place_cmp = compare_place_specificity(
+                            s_pl, t_pl, source_db, self.db
+                        )
+                        if place_cmp < 0 and t_evt.get_place_handle():
+                            new_evt.set_place_handle(t_evt.get_place_handle())
+
+                        # 3. Description: adopt target if incoming is empty
+                        if not new_evt.get_description() and t_evt.get_description():
+                            new_evt.set_description(t_evt.get_description())
+
+                        # 4. Citations & Notes: preserve target's citations and notes
+                        copy_new_citations(new_evt, t_evt, trans)
+                        copy_note_list(t_evt, trans)
+                        self.db.commit_event(new_evt, trans)
+
+                    # Update person's birth or death ref
+                    new_ref = copy_event_ref(
+                        s_evt_h, new_evt_h, trans, EventRoleType.PRIMARY
+                    )
+                    if event_type_val == EventType.BIRTH:
+                        t_person.set_birth_ref(new_ref)
+                    else:
+                        t_person.set_death_ref(new_ref)
+
+                # 4. Birth Event
+                res_birth = resolutions.get("birth_event")
+                if res_birth in ("source", "alternate"):
+                    merge_or_replace_vital_event(EventType.BIRTH, res_birth)
 
                 # 5. Death Event
-                if resolutions.get("death_event") == "source":
-                    s_death_h = get_source_event_handle(s_person, EventType.DEATH)
-                    t_death_h = copy_event(s_death_h, trans)
-                    if t_death_h:
-                        t_person.set_death_ref(
-                            copy_event_ref(
-                                s_death_h, t_death_h, trans, EventRoleType.PRIMARY
-                            )
-                        )
+                res_death = resolutions.get("death_event")
+                if res_death in ("source", "alternate"):
+                    merge_or_replace_vital_event(EventType.DEATH, res_death)
 
                 # Helpers for field-level items beyond the standard rows
                 def ensure_parent_family(trans: Any) -> Family:
