@@ -3219,7 +3219,7 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
         content.set_border_width(12)
         content.set_spacing(6)
 
-        info = Gtk.Label(
+        info = SelectableLabel(
             label=str(
                 _(
                     "Review media records whose files are missing on disk. "
@@ -3231,8 +3231,6 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
                 )
             )
         )
-        info.set_line_wrap(True)
-        info.set_halign(Gtk.Align.START)
         content.add(info)
 
         path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -3263,15 +3261,16 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
         content.add(self.base_path_label)
 
         if not self.rows:
-            done = Gtk.Label(label=str(_("No missing media files found.")))
-            done.set_halign(Gtk.Align.START)
+            done = SelectableLabel(
+                label=str(_("No missing media files found.")), wrap=False
+            )
             content.add(done)
             return
 
-        count_label = Gtk.Label(
-            label=str(_("Total missing media records found: %d") % len(self.rows))
+        count_label = SelectableLabel(
+            label=str(_("Total missing media records found: %d") % len(self.rows)),
+            wrap=False,
         )
-        count_label.set_halign(Gtk.Align.START)
         content.add(count_label)
 
         # Header grid
@@ -3879,7 +3878,7 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         content.set_border_width(12)
         content.set_spacing(6)
 
-        info = Gtk.Label(
+        info = SelectableLabel(
             label=str(
                 _(
                     "Review media records with hardcoded absolute or non-standard paths. "
@@ -3887,8 +3886,6 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                 )
             )
         )
-        info.set_line_wrap(True)
-        info.set_halign(Gtk.Align.START)
         content.add(info)
 
         # Naming Template selection row
@@ -4016,15 +4013,16 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
 
         if not self.rows:
-            done = Gtk.Label(label=str(_("All media paths are already consolidated.")))
-            done.set_halign(Gtk.Align.START)
+            done = SelectableLabel(
+                label=str(_("All media paths are already consolidated.")), wrap=False
+            )
             content.add(done)
             return
 
-        count_label = Gtk.Label(
-            label=str(_("Total unconsolidated media paths: %d") % len(self.rows))
+        count_label = SelectableLabel(
+            label=str(_("Total unconsolidated media paths: %d") % len(self.rows)),
+            wrap=False,
         )
-        count_label.set_halign(Gtk.Align.START)
         content.add(count_label)
 
         header_grid = create_table_grid(col_spacing=6, row_spacing=0)
@@ -5069,7 +5067,7 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         content.set_border_width(12)
         content.set_spacing(8)
 
-        desc = Gtk.Label(
+        desc = SelectableLabel(
             label=str(
                 _(
                     "Comprehensive utility to inspect media files across your database, find missing files, "
@@ -5077,8 +5075,6 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
                 )
             )
         )
-        desc.set_line_wrap(True)
-        desc.set_halign(Gtk.Align.START)
         content.add(desc)
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)

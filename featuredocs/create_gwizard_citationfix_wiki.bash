@@ -31,6 +31,7 @@ PLUGIN_DISPLAY_NAME="GWizard Citation Fix"
 # Parent branch for the isolated git diff.  Adjust if you work off a different
 # base (e.g. a release branch).
 PARENT_BRANCH="functionality_base"
+# ---------------------------------------------------------------------------
 
 # Resolve the repository root (the directory that contains the top‑level
 # "gramps" folder).  This script lives in "featuredocs/", so the repo root is
