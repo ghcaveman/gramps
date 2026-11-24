@@ -192,16 +192,22 @@ def unpacked_abbreviation(
         return None
     if abbrev.casefold() == old.casefold():
         return new if abbrev != new else None
-    if repo and abbrev.casefold().startswith(repo.casefold()):
-        rest = abbrev[len(repo) :].lstrip(" -:;,")
-        if rest and rest != abbrev:
-            return rest
     # "New title (https://site)": the abbreviation is the title plus a URL
     # or note in brackets, which belongs in the publication info instead.
     if abbrev.casefold().startswith(new.casefold()):
         tail = abbrev[len(new) :].strip()
         if tail.startswith(("(", "[")) and tail != "":
             return new
+    # Strip a leading repository name only when the new title dropped it
+    # too: "FamilySearch Family Tree" keeps its "FamilySearch".
+    if (
+        repo
+        and abbrev.casefold().startswith(repo.casefold())
+        and not new.casefold().startswith(repo.casefold())
+    ):
+        rest = abbrev[len(repo) :].lstrip(" -:;,")
+        if rest and rest != abbrev:
+            return rest
     return None
 
 
@@ -294,7 +300,7 @@ ACCESS_DATE_REGEX = re.compile(
     re.IGNORECASE,
 )
 # '..."Title", Site (https://url : date), Entry for Jane Doe, 1910.'
-_NOTE_ENTRY_REGEX = re.compile(r"https?://[^)]*\)\s*,\s*(.+?)\s*\.?\s*$", re.DOTALL)
+_NOTE_ENTRY_REGEX = re.compile(r"https?://[^)\n]*\)\s*,\s*(.+?)\s*\.?\s*$")
 
 
 def extract_url(text: str) -> str:
@@ -333,9 +339,17 @@ def extract_access_date(text: str, allow_timestamp: bool = False) -> str:
 
 
 def extract_note_entry(notes_text: str) -> str:
-    """Return the "Entry for ..." detail from a full citation kept in a note."""
-    match = _NOTE_ENTRY_REGEX.search((notes_text or "").strip())
-    return match.group(1).strip() if match else ""
+    """Return the "Entry for ..." detail from a full citation kept in a note.
+
+    Each line is checked on its own. ``notes_text`` is often several notes
+    joined by newlines; matching across them once captured every later
+    note (other URLs included) into the citation's Volume/Page.
+    """
+    for line in (notes_text or "").splitlines():
+        match = _NOTE_ENTRY_REGEX.search(line.strip())
+        if match:
+            return match.group(1).strip()
+    return ""
 
 
 def is_tree_source_title(title: str) -> bool:

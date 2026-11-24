@@ -52,6 +52,7 @@ from gramps.plugins.tool.gw_goldstandardrepos import GoldStandardRepositories
 from gramps.plugins.tool.gwizardcitationshared import (
     clean_source_title,
     detect_title_elements,
+    golden_repository_for,
     is_debris_text,
     is_tree_source_title,
     normalize_repo_name,
@@ -371,6 +372,8 @@ class GWizardCitationRepairEngine:
 
         changed = 0
         created = 0
+        moved_to: dict[str, set[str]] = defaultdict(set)
+        self.last_repositories_folded = 0
         for change in changes:
             target = str(change.get("target_name") or "").strip()
             if not target:
@@ -390,6 +393,7 @@ class GWizardCitationRepairEngine:
             current = [ref.get_reference_handle() for ref in source.get_reporef_list()]
             if old_handle and old_handle in current:
                 source.replace_repo_references(old_handle, new_handle)
+                moved_to[old_handle].add(new_handle)
             elif new_handle not in current:
                 repo_ref = RepoRef()
                 repo_ref.set_reference_handle(new_handle)
@@ -398,7 +402,50 @@ class GWizardCitationRepairEngine:
                 continue
             db.commit_source(source, trans)
             changed += 1
+        self.last_repositories_folded = self._fold_emptied_repositories(
+            db, moved_to, trans
+        )
         return changed, created
+
+    def _fold_emptied_repositories(
+        self, db: DbWriteBase, moved_to: dict[str, set[str]], trans: Any
+    ) -> int:
+        """Merge repositories left empty by a reassignment into their target.
+
+        A repository is folded only when every source moved off it went to
+        one repository, no source still points at it, and its name plainly
+        is that gold-standard repository ("The National Archives and Records
+        Administration (NARA)" into "National Archives and Records
+        Administration (NARA)"). Its notes, addresses and web links move to
+        the target, and an address that only repeats the name is dropped.
+        Moving the last source off "Ancestry.com" to "FamilySearch" leaves
+        Ancestry.com alone.
+
+        :returns: the number of repositories folded.
+        """
+        # Imported here: the consolidate dialog imports this engine.
+        from gramps.plugins.tool.gw_repoconsolidatedialog import (
+            _tidy_keeper_address,
+        )
+
+        folded = 0
+        for old_handle, targets in moved_to.items():
+            if len(targets) != 1:
+                continue
+            target_handle = next(iter(targets))
+            if list(db.find_backlink_handles(old_handle, ["Source"])):
+                continue
+            old_repo = db.get_repository_from_handle(old_handle)
+            target_repo = db.get_repository_from_handle(target_handle)
+            if old_repo is None or target_repo is None:
+                continue
+            target_name = str(target_repo.get_name() or "")
+            if golden_repository_for(str(old_repo.get_name() or "")) != target_name:
+                continue
+            if self.merge_repositories(db, target_handle, old_handle, trans):
+                _tidy_keeper_address(db, target_handle, trans)
+                folded += 1
+        return folded
 
     # ------------------------------------------------------------
     # Step 3: sources
