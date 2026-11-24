@@ -518,6 +518,8 @@ class GWizardCitationReport:
                 continue
         stats["citations_no_page"] = no_page
         stats["citations_with_media"] = with_media
+        stats["citations_without_media"] = max(0, len(citations) - with_media)
+        stats["citations_with_page"] = max(0, len(citations) - no_page)
 
         # Sources ------------------------------------------------------
         conflated_sources = []
@@ -1293,19 +1295,33 @@ class GWizardCitationReport:
         get = stats.get
         lines = []
 
+        total_cits = get("citations", 0)
+        with_media = get("citations_with_media", 0)
+        without_media = get("citations_without_media", max(0, total_cits - with_media))
+        pct_without_media = (
+            (without_media / total_cits * 100.0) if total_cits > 0 else 0.0
+        )
+
+        total_media = get("media", 0)
+        media_found = get("media_found_count", 0)
+        media_missing = get("media_missing_count", 0)
+
         # 1. Database Totals Block
         lines.append(
             _(
                 "Database totals: {people} people, {sources} sources, "
-                "{repositories} repositories, {citations} citations, "
+                "{repositories} repositories, {citations} citations "
+                "({with_media} with images, {without_media} without images), "
                 "{notes} notes, {media} media."
             ).format(
                 people=get("people", 0),
                 sources=get("sources", 0),
                 repositories=get("repositories", 0),
-                citations=get("citations", 0),
+                citations=total_cits,
+                with_media=with_media,
+                without_media=without_media,
                 notes=get("notes", 0),
-                media=get("media", 0),
+                media=total_media,
             )
         )
         lines.append("")
@@ -1329,6 +1345,68 @@ class GWizardCitationReport:
 
         def of_total(text: str, number: int, total: int) -> str:
             return "- " + text.format(number_of=number, total=total)
+
+        if total_cits > 0 and without_media > 0:
+            lines.append(
+                "- "
+                + _(
+                    "Citations without attached images/media: {number_of} of {total} ({percent:.1f}%)."
+                ).format(
+                    number_of=without_media,
+                    total=total_cits,
+                    percent=pct_without_media,
+                )
+            )
+
+        if total_media > 0 and media_missing > 0:
+            lines.append(
+                "- "
+                + _(
+                    "Missing media files on disk: {number_of} of {total} ({percent:.1f}%)."
+                ).format(
+                    number_of=media_missing,
+                    total=total_media,
+                    percent=(media_missing / total_media * 100.0),
+                )
+            )
+
+        media_no_chk = get(
+            "media_without_checksum",
+            max(0, total_media - get("media_with_checksum", 0)),
+        )
+        if total_media > 0 and media_no_chk > 0:
+            lines.append(
+                "- "
+                + _(
+                    "Media files lacking stored checksums: {number_of} of {total} ({percent:.1f}%)."
+                ).format(
+                    number_of=media_no_chk,
+                    total=total_media,
+                    percent=(media_no_chk / total_media * 100.0),
+                )
+            )
+
+        media_dups = get("media_duplicate_records", 0)
+        if media_dups > 0:
+            lines.append(
+                "- "
+                + _(
+                    "Duplicate media records pointing to identical files: {number_of} duplicate references."
+                ).format(
+                    number_of=media_dups,
+                )
+            )
+
+        media_zero = get("media_zero_refs", 0)
+        if media_zero > 0:
+            lines.append(
+                "- "
+                + _(
+                    "Orphaned media records unreferenced in database: {number_of}."
+                ).format(
+                    number_of=media_zero,
+                )
+            )
 
         lines.append(
             of_total(
