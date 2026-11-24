@@ -614,18 +614,77 @@ class GWizardCitationReport:
         stats["notes_long"] = long_notes
 
         # Media --------------------------------------------------------
+        base_dir = ""
+        try:
+            from gramps.plugins.tool.gwizardmediafix import get_media_base_path
+
+            base_dir = get_media_base_path(db)
+        except Exception:
+            if hasattr(db, "get_mediapath"):
+                try:
+                    base_dir = db.get_mediapath() or ""
+                except Exception:
+                    base_dir = ""
+
         absolute = 0
+        found = 0
+        missing = 0
+        with_checksum = 0
+        zero_refs = 0
+        multi_refs = 0
+        path_counts: Counter = Counter()
         basenames: Counter = Counter()
+
         for media in media_objs:
             try:
-                path = str(media.get_path() or "")
-                if os.path.isabs(path) or path[1:3] in (":\\", ":/"):
+                raw_path = str(media.get_path() or "").strip()
+                is_abs = os.path.isabs(raw_path) or raw_path[1:3] in (":\\", ":/")
+                if is_abs:
                     absolute += 1
-                basenames[os.path.basename(path.replace("\\", "/")).lower()] += 1
+                    full_path = raw_path
+                else:
+                    full_path = (
+                        os.path.join(base_dir, raw_path) if base_dir else raw_path
+                    )
+
+                if raw_path and os.path.exists(full_path):
+                    found += 1
+                elif raw_path:
+                    missing += 1
+
+                chk = str(media.get_checksum() or "").strip()
+                if chk:
+                    with_checksum += 1
+
+                if raw_path:
+                    path_counts[raw_path.replace("\\", "/").lower()] += 1
+                    basenames[
+                        os.path.basename(raw_path.replace("\\", "/")).lower()
+                    ] += 1
+
+                m_handle = media.get_handle()
+                if m_handle and hasattr(db, "find_backlink_handles"):
+                    try:
+                        blinks = list(db.find_backlink_handles(m_handle))
+                        if len(blinks) == 0:
+                            zero_refs += 1
+                        elif len(blinks) > 1:
+                            multi_refs += 1
+                    except Exception:
+                        pass
             except Exception as exc:  # pylint: disable=broad-except
                 self._errors.record("media: path scan", exc, media)
                 continue
+
         stats["media_absolute_count"] = absolute
+        stats["media_found_count"] = found
+        stats["media_missing_count"] = missing
+        stats["media_with_checksum"] = with_checksum
+        stats["media_zero_refs"] = zero_refs
+        stats["media_multi_refs"] = multi_refs
+        stats["media_duplicate_records"] = sum(
+            c - 1 for c in path_counts.values() if c > 1
+        )
         stats["media_dup_basenames"] = {
             base: count for base, count in basenames.items() if base and count > 1
         }
@@ -916,6 +975,319 @@ class GWizardCitationReport:
                 out.append("- " + text.format(number_of=len(value)))
         return out
 
+    def _format_overall_health(self, stats: dict[str, Any]) -> list[str]:
+        """Format the consolidated Citation and Media Health summary section."""
+        get = stats.get
+        lines: list[str] = []
+        lines.append("")
+        lines.append("=" * 72)
+        lines.append(_("OVERALL CITATION & MEDIA HEALTH SUMMARY"))
+        lines.append("=" * 72)
+
+        total_cits = get("citations", 0)
+        with_media = get("citations_with_media", 0)
+        without_media = total_cits - with_media
+        no_page = get("citations_no_page", 0)
+        with_page = max(0, total_cits - no_page)
+
+        total_people = get("people", 0)
+        unsourced_people = get("people_unsourced", 0)
+        sourced_people = max(0, total_people - unsourced_people)
+
+        total_sources = get("sources", 0)
+        sources_no_repo = len(get("sources_no_repo", []))
+        sources_with_repo = max(0, total_sources - sources_no_repo)
+        conflated_sources = len(get("conflated_sources", []))
+        clean_sources = max(0, total_sources - conflated_sources)
+
+        total_media = get("media", 0)
+        media_found = get("media_found_count", 0)
+        media_missing = get("media_missing_count", 0)
+        media_abs = get("media_absolute_count", 0)
+        media_rel = max(0, total_media - media_abs)
+        media_chk = get("media_with_checksum", 0)
+        media_no_chk = max(0, total_media - media_chk)
+        media_dups = get("media_duplicate_records", 0)
+        media_zero = get("media_zero_refs", 0)
+        promotable = get("media_in_galleries_promotable", 0)
+        unpackable = get("media_on_sources_unpackable", 0)
+        suspect = len(get("suspect_citation_media", []))
+
+        def _pct(num: int, denom: int) -> float:
+            return (num / denom * 100.0) if denom > 0 else 0.0
+
+        # --- Citation Health Highlights ---
+        lines.append("")
+        lines.append(_("--- Citation Health Highlights ---"))
+
+        # 1. Citations without images
+        if total_cits > 0:
+            lines.append(
+                _(
+                    "* Citation Image Coverage: %(with_img)d of %(total)d citations "
+                    "(%(pct_with).1f%%) have attached media/scans."
+                )
+                % {
+                    "with_img": with_media,
+                    "total": total_cits,
+                    "pct_with": _pct(with_media, total_cits),
+                }
+            )
+            lines.append(
+                _(
+                    "  ↳ Citations without images: %(without_img)d of %(total)d "
+                    "(%(pct_without).1f%%)."
+                )
+                % {
+                    "without_img": without_media,
+                    "total": total_cits,
+                    "pct_without": _pct(without_media, total_cits),
+                }
+            )
+        else:
+            lines.append(_("* Citation Image Coverage: No citations in database."))
+
+        # 2. Individual sourcing
+        if total_people > 0:
+            lines.append(
+                _(
+                    "* Individual Sourcing: %(sourced)d of %(total)d people "
+                    "(%(pct_sourced).1f%%) have at least one citation."
+                )
+                % {
+                    "sourced": sourced_people,
+                    "total": total_people,
+                    "pct_sourced": _pct(sourced_people, total_people),
+                }
+            )
+            if unsourced_people > 0:
+                lines.append(
+                    _(
+                        "  ↳ Unsourced individuals: %(unsourced)d of %(total)d "
+                        "(%(pct_unsourced).1f%%)."
+                    )
+                    % {
+                        "unsourced": unsourced_people,
+                        "total": total_people,
+                        "pct_unsourced": _pct(unsourced_people, total_people),
+                    }
+                )
+        else:
+            lines.append(_("* Individual Sourcing: No individuals in database."))
+
+        # 3. Pinpoint detail
+        if total_cits > 0:
+            lines.append(
+                _(
+                    "* Pinpoint Detail Quality: %(with_page)d of %(total)d citations "
+                    "(%(pct_page).1f%%) cite specific Volume/Page/Entry."
+                )
+                % {
+                    "with_page": with_page,
+                    "total": total_cits,
+                    "pct_page": _pct(with_page, total_cits),
+                }
+            )
+            if no_page > 0:
+                lines.append(
+                    _(
+                        "  ↳ Citations lacking pinpoint detail: %(no_page)d of "
+                        "%(total)d (%(pct_no_page).1f%%)."
+                    )
+                    % {
+                        "no_page": no_page,
+                        "total": total_cits,
+                        "pct_no_page": _pct(no_page, total_cits),
+                    }
+                )
+
+        # 4. Repository links
+        if total_sources > 0:
+            lines.append(
+                _(
+                    "* Repository Linkage: %(with_repo)d of %(total)d sources "
+                    "(%(pct_repo).1f%%) link to an archive/repository."
+                )
+                % {
+                    "with_repo": sources_with_repo,
+                    "total": total_sources,
+                    "pct_repo": _pct(sources_with_repo, total_sources),
+                }
+            )
+            if sources_no_repo > 0:
+                lines.append(
+                    _(
+                        "  ↳ Sources missing repository link: %(no_repo)d of "
+                        "%(total)d (%(pct_no_repo).1f%%)."
+                    )
+                    % {
+                        "no_repo": sources_no_repo,
+                        "total": total_sources,
+                        "pct_no_repo": _pct(sources_no_repo, total_sources),
+                    }
+                )
+
+        # 5. Conflated titles
+        if total_sources > 0 and conflated_sources > 0:
+            lines.append(
+                _(
+                    "* Source Title Conflation: %(conflated)d of %(total)d sources "
+                    "(%(pct_conflated).1f%%) mix repository, source, or citation text."
+                )
+                % {
+                    "conflated": conflated_sources,
+                    "total": total_sources,
+                    "pct_conflated": _pct(conflated_sources, total_sources),
+                }
+            )
+
+        # --- Media Health Highlights (from Media Fix) ---
+        lines.append("")
+        lines.append(_("--- Media Health Highlights (from Media Fix) ---"))
+        if total_media > 0:
+            lines.append(
+                _(
+                    "* File Accessibility: %(found)d of %(total)d files "
+                    "(%(pct_found).1f%%) verified on disk."
+                )
+                % {
+                    "found": media_found,
+                    "total": total_media,
+                    "pct_found": _pct(media_found, total_media),
+                }
+            )
+            if media_missing > 0:
+                lines.append(
+                    _(
+                        "  ↳ Missing media files: %(missing)d of %(total)d "
+                        "(%(pct_missing).1f%%)."
+                    )
+                    % {
+                        "missing": media_missing,
+                        "total": total_media,
+                        "pct_missing": _pct(media_missing, total_media),
+                    }
+                )
+
+            lines.append(
+                _(
+                    "* Path Portability: %(relative)d of %(total)d media records "
+                    "(%(pct_rel).1f%%) use portable relative paths."
+                )
+                % {
+                    "relative": media_rel,
+                    "total": total_media,
+                    "pct_rel": _pct(media_rel, total_media),
+                }
+            )
+            if media_abs > 0:
+                lines.append(
+                    _(
+                        "  ↳ Non-portable absolute paths: %(abs)d of %(total)d "
+                        "(%(pct_abs).1f%%)."
+                    )
+                    % {
+                        "abs": media_abs,
+                        "total": total_media,
+                        "pct_abs": _pct(media_abs, total_media),
+                    }
+                )
+
+            lines.append(
+                _(
+                    "* File Integrity (Checksums): %(chk)d of %(total)d files "
+                    "(%(pct_chk).1f%%) have stored checksums."
+                )
+                % {
+                    "chk": media_chk,
+                    "total": total_media,
+                    "pct_chk": _pct(media_chk, total_media),
+                }
+            )
+            if media_no_chk > 0:
+                lines.append(
+                    _(
+                        "  ↳ Unverified files lacking checksum: %(no_chk)d of "
+                        "%(total)d (%(pct_no_chk).1f%%)."
+                    )
+                    % {
+                        "no_chk": media_no_chk,
+                        "total": total_media,
+                        "pct_no_chk": _pct(media_no_chk, total_media),
+                    }
+                )
+
+            if media_dups > 0 or media_zero > 0:
+                lines.append(
+                    _(
+                        "* Reference Redundancy: %(dups)d duplicate records pointing "
+                        "to identical files; %(zero)d unreferenced orphaned records."
+                    )
+                    % {"dups": media_dups, "zero": media_zero}
+                )
+
+            if promotable > 0 or unpackable > 0 or suspect > 0:
+                lines.append(
+                    _(
+                        "* Citation Media Alignment: %(promotable)d gallery scans "
+                        "promotable to citations; %(unpackable)d source scans "
+                        "unpackable; %(suspect)d suspect conflicts."
+                    )
+                    % {
+                        "promotable": promotable,
+                        "unpackable": unpackable,
+                        "suspect": suspect,
+                    }
+                )
+        else:
+            lines.append(_("* Media Status: No media objects in database."))
+
+        # --- Overall Score Calculation ---
+        weights_total = 0.0
+        points = 0.0
+
+        if total_people > 0:
+            weights_total += 25.0
+            points += 25.0 * (sourced_people / total_people)
+        if total_cits > 0:
+            weights_total += 20.0
+            points += 20.0 * (with_media / total_cits)
+            weights_total += 20.0
+            points += 20.0 * (with_page / total_cits)
+        if total_sources > 0:
+            weights_total += 15.0
+            points += 15.0 * (sources_with_repo / total_sources)
+        if total_media > 0:
+            weights_total += 20.0
+            media_score = (
+                (media_found / total_media * 0.5)
+                + (media_rel / total_media * 0.25)
+                + (media_chk / total_media * 0.25)
+            )
+            points += 20.0 * media_score
+
+        if weights_total > 0:
+            health_score = int(round(points / weights_total * 100.0))
+        else:
+            health_score = 100
+
+        if health_score >= 90:
+            rating = _("Excellent")
+        elif health_score >= 75:
+            rating = _("Good")
+        elif health_score >= 50:
+            rating = _("Fair (Needs Attention)")
+        else:
+            rating = _("Poor (Action Recommended)")
+
+        lines.append("")
+        lines.append(_("--- Overall Health Score ---"))
+        lines.append(
+            _("Overall Health Score: %(score)d/100 (%(rating)s)")
+            % {"score": health_score, "rating": rating}
+        )
+        return lines
+
     def format_analysis(self, stats: dict[str, Any]) -> str:
         """Formats the collected statistics dictionary into a deep, descriptive report body."""
         get = stats.get
@@ -1194,6 +1566,9 @@ class GWizardCitationReport:
             steps.append(_("Merge or delete the placeholder 'Unknown' sources."))
         lines.append(_("Suggested order of fixes:"))
         lines += ["%d. %s" % (number, step) for number, step in enumerate(steps, 1)]
+
+        # 5. Overall Health Summary
+        lines.extend(self._format_overall_health(stats))
 
         return "\n".join(lines)
 
