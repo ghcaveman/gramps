@@ -5749,8 +5749,8 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
             manual_items.append(
                 str(_("  • Reference items needing review (%d):") % len(ref_errors))
             )
-            for err in ref_errors[:5]:
-                manual_items.append(f"      - {err}")
+            for ref_error in ref_errors[:5]:
+                manual_items.append(f"      - {ref_error}")
 
         if unconsolidated:
             manual_items.append(
