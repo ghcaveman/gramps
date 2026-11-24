@@ -687,8 +687,8 @@ class NameMismatchFixTest(_DbTestCase):
 # Fix media references: leftover import notes (was 'Clean import notes')
 #
 # ------------------------------------------------------------
-class ImportNoteRowsTest(_DbTestCase):
-    """Step 3 lists and deletes out-of-date import notes."""
+class _NotedMediaTestCase(_DbTestCase):
+    """Shared helper for tests that need media records with import notes."""
 
     def add_noted_media(
         self, path: str, readable: bool, referenced: bool = True
@@ -713,6 +713,10 @@ class ImportNoteRowsTest(_DbTestCase):
                 person.add_media_reference(ref)
                 self.db.add_person(person, trans)
         return m_h, n_h
+
+
+class ImportNoteRowsTest(_NotedMediaTestCase):
+    """Step 3 lists and deletes out-of-date import notes."""
 
     def note_targets(self, dlg: Any) -> list[dict[str, Any]]:
         """The dialog's import-note rows."""
@@ -782,10 +786,8 @@ class ImportNoteRowsTest(_DbTestCase):
         self.assertEqual(self.db.get_media_from_handle(m_h).get_note_list(), [n_h])
 
 
-class AcceptAllMatchesStepThreeTest(_DbTestCase):
+class AcceptAllMatchesStepThreeTest(_NotedMediaTestCase):
     """'Accept all hints' does what Fix media references does."""
-
-    add_noted_media = ImportNoteRowsTest.add_noted_media
 
     def link(self, media_handle: str, surname: str, given: str) -> None:
         """Link a named person to a media record."""
