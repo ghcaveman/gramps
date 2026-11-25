@@ -1,17 +1,9 @@
 import json
 import os
-import sys
 import unittest
 
-# Ensure the addon directory is importable whether run from repo root or test/
 _HERE = os.path.dirname(os.path.abspath(__file__))
-for candidate in (_HERE, os.path.dirname(_HERE)):
-    if os.path.isfile(os.path.join(candidate, "gwizardnaraquerybuilder.py")):
-        if candidate not in sys.path:
-            sys.path.insert(0, candidate)
-        break
-
-import gwizardnaraquerybuilder as qb
+from gramps.plugins.tool import gwizardnaraquerybuilder as qb
 from gramps.gen.gwizard.gwizard_base import RecordQuery, score_record
 from gramps.gen.gwizard.gwizardnaramatch import best_match, record_candidate
 from gramps.gen.gwizard.gwizardnaramerge import NaraCatalogInterface

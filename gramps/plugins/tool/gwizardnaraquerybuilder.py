@@ -3,19 +3,57 @@ from typing import Dict, List, Optional, Any
 
 # Standard U.S. State names and abbreviations for location extraction
 US_STATES = {
-    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
-    "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
-    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho",
-    "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
-    "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
-    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi",
-    "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
-    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
-    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
-    "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
-    "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah",
-    "VT": "Vermont", "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
-    "WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia"
+    "AL": "Alabama",
+    "AK": "Alaska",
+    "AZ": "Arizona",
+    "AR": "Arkansas",
+    "CA": "California",
+    "CO": "Colorado",
+    "CT": "Connecticut",
+    "DE": "Delaware",
+    "FL": "Florida",
+    "GA": "Georgia",
+    "HI": "Hawaii",
+    "ID": "Idaho",
+    "IL": "Illinois",
+    "IN": "Indiana",
+    "IA": "Iowa",
+    "KS": "Kansas",
+    "KY": "Kentucky",
+    "LA": "Louisiana",
+    "ME": "Maine",
+    "MD": "Maryland",
+    "MA": "Massachusetts",
+    "MI": "Michigan",
+    "MN": "Minnesota",
+    "MS": "Mississippi",
+    "MO": "Missouri",
+    "MT": "Montana",
+    "NE": "Nebraska",
+    "NV": "Nevada",
+    "NH": "New Hampshire",
+    "NJ": "New Jersey",
+    "NM": "New Mexico",
+    "NY": "New York",
+    "NC": "North Carolina",
+    "ND": "North Dakota",
+    "OH": "Ohio",
+    "OK": "Oklahoma",
+    "OR": "Oregon",
+    "PA": "Pennsylvania",
+    "RI": "Rhode Island",
+    "SC": "South Carolina",
+    "SD": "South Dakota",
+    "TN": "Tennessee",
+    "TX": "Texas",
+    "UT": "Utah",
+    "VT": "Vermont",
+    "VA": "Virginia",
+    "WA": "Washington",
+    "WV": "West Virginia",
+    "WI": "Wisconsin",
+    "WY": "Wyoming",
+    "DC": "District of Columbia",
 }
 STATE_LOOKUP = {k.lower(): v for k, v in US_STATES.items()}
 STATE_LOOKUP.update({v.lower(): v for v in US_STATES.values()})
@@ -65,9 +103,14 @@ def parse_gedcom_individuals(ged_path: str) -> Dict[str, Dict[str, Any]]:
                     curr_id = tag.strip("@")
                     curr_type = "INDI"
                     individuals[curr_id] = {
-                        "id": curr_id, "names": [], "sex": None,
-                        "birth_year": None, "death_year": None,
-                        "places": [], "tags": set(), "fams": []
+                        "id": curr_id,
+                        "names": [],
+                        "sex": None,
+                        "birth_year": None,
+                        "death_year": None,
+                        "places": [],
+                        "tags": set(),
+                        "fams": [],
                     }
                 elif val == "FAM":
                     curr_id = tag.strip("@")
@@ -203,7 +246,9 @@ def build_nara_queries(ind: Dict[str, Any]) -> List[Dict[str, Any]]:
     if ind["places"] and not has_us_events:
         return []
 
-    given_variants, surnames = _extract_name_parts(ind["names"], ind["married_surnames"])
+    given_variants, surnames = _extract_name_parts(
+        ind["names"], ind["married_surnames"]
+    )
     if not given_variants or not surnames:
         return []
 
@@ -230,6 +275,7 @@ def build_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Backward-compatible helper returning the primary NARA API query dict, or None."""
     queries = build_nara_queries(ind)
     return queries[0] if queries else None
+
 
 def is_valid_nara_hit(
     nara_title: str,
@@ -268,10 +314,7 @@ def is_valid_nara_hit(
         return False
 
     given_tokens = {
-        tok.casefold()
-        for g in given_variants
-        for tok in g.split()
-        if len(tok) >= 3
+        tok.casefold() for g in given_variants for tok in g.split() if len(tok) >= 3
     }
     surname_tokens = {s.casefold() for s in surnames if len(s) >= 2}
 

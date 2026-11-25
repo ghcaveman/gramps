@@ -40,14 +40,6 @@ import sys
 from typing import TYPE_CHECKING, Any
 import re
 
-try:
-    from gwizardnaraquerybuilder import build_nara_queries, is_valid_nara_hit
-except ImportError:
-    from gramps.gen.gwizard.gwizardnaraquerybuilder import (
-        build_nara_queries,
-        is_valid_nara_hit,
-    )
-
 # Helper to strip nicknames like "Fred" or (Buddy) from given names
 _NICK_RE = re.compile(r'["\'].*?["\']|\(.*?\)')
 
@@ -91,21 +83,23 @@ for _path in (
 
 if TYPE_CHECKING:
     from gramps.plugins.tool.gwizardnaraquerybuilder import (
-        build_nara_query,
+        build_nara_queries,
         is_valid_nara_hit,
     )
 else:
-    from gwizardnaraquerybuilder import build_nara_query, is_valid_nara_hit
+    from gwizardnaraquerybuilder import build_nara_queries, is_valid_nara_hit
 
 
 def _record_query_to_ind(query: RecordQuery) -> dict[str, Any]:
     """Adapt a GWizard RecordQuery into the dict shape expected by gwizardnaraquerybuilder."""
     full_given = " ".join(part for part in (query.given, query.middle) if part).strip()
-    birth_surname = query.surnames if query.surnames else ""
+    birth_surname = query.surnames[0] if query.surnames else ""
     married_surnames = set(query.surnames[1:]) if len(query.surnames) > 1 else set()
     sex = {"male": "M", "female": "F"}.get(query.gender.casefold(), "")
     return {
-        "names": [f"{full_given} /{birth_surname}/"] if (full_given or birth_surname) else [],
+        "names": (
+            [f"{full_given} /{birth_surname}/"] if (full_given or birth_surname) else []
+        ),
         "married_surnames": married_surnames,
         "sex": sex,
         "birth_year": query.birth_year,
@@ -113,6 +107,7 @@ def _record_query_to_ind(query: RecordQuery) -> dict[str, Any]:
         "places": list(getattr(query, "places", []) or []),
         "tags": set(getattr(query, "tags", set()) or set()),
     }
+
 
 # -------------------------------------------------------------------------
 #
@@ -179,7 +174,7 @@ class NaraSource(RecordSource):
         end = (
             str(query.death_year + RECORD_YEARS_AFTER_DEATH) if query.death_year else ""
         )
-        return queries["q"], start, end
+        return queries[0]["q"], start, end
 
     def search(self, query: RecordQuery) -> list[SourceMatch]:
         """Search the catalog; each record is scored on its best-named person."""
@@ -245,7 +240,7 @@ class NaraSource(RecordSource):
                 break
 
         return matches
-    
+
     def open_merge(
         self,
         dbstate: Any,
