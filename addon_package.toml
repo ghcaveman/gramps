@@ -28,12 +28,35 @@ modules = [
     "gramps/gui/gwizard/gwizardfsmergedialog.py",
     "gramps/plugins/tool/gwizardfsmerge.py",
     "gramps/plugins/tool/gwizardfssource.py",
+    "gramps/plugins/tool/gwizardcitation*.py",
+    "gramps/plugins/tool/gw_*.py",
 ]
 tests = [
     "gramps/gen/gwizard/test/gwizardfamilysearch_test.py",
     "gramps/gui/gwizard/test/gwizardfslauncher_test.py",
     "gramps/plugins/tool/test/gwizardfssource_test.py",
+    "gramps/plugins/tool/test/gw_*_test.py",
 ]
+test_helpers = [
+    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
+]
+exclude = [
+    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/plugins/tool/gw_mediapreview.py",
+]
+
+# Citation Fix: a second Tools menu entry in the combined addon package.
+[[extra_registrations]]
+id = "gwizardcitationfix"
+name = "GWizard Citation Fix"
+description = "Wizard-style cleanup of repositories, sources, citations and notes in the open Family Tree."
+fname = "gwizardcitationfix.py"
+toolclass = "GWizardCitationFix"
+optionclass = "GWizardCitationFixOptions"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardCitationFix_Tool"
+gramps_versions = ["5.2.0", "6.2.0"]
 
 # The GWizard Multi-Archive Record Scan: a second Tools menu entry in the same addon. It
 # lists every person with the record sources (WikiTree, NARA, ...) other
@@ -67,6 +90,16 @@ modules = [
     "gramps/plugins/tool/gwizardmerge.py",
 ]
 
+[[dependencies]]
+id = "gwizardmediafix"
+package = "MediaFix"
+modules = [
+    "gramps/plugins/tool/gwizardmediafix.py",
+    "gramps/plugins/tool/gwizard_mediafix_common.py",
+    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/plugins/tool/gw_mediapreview.py",
+]
+
 [check]
 base = ["functionality_base", "origin/functionality_base"]
 ignore = [
@@ -86,6 +119,9 @@ ignore = [
     "gramps/gui/gwizard/gwizard_filemerge_*.py",
     "gramps/plugins/tool/gwizard_filemerge_*.py",
     "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
+    # Media Fix tests come with the dependency; MediaFix ships them.
+    "gramps/plugins/tool/test/gwizardmediafix*_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",
