@@ -29,7 +29,11 @@ for naid in ["162205316", "525749641", "132721642"]:
         "levelOfDescription": rec.get("levelOfDescription"),
         "recordGroupNumber": rec.get("ancestors", [{}])[0].get("recordGroupNumber"),
         "seriesTitle": next(
-            (a.get("title") for a in rec.get("ancestors", []) if a.get("levelOfDescription") == "series"),
+            (
+                a.get("title")
+                for a in rec.get("ancestors", [])
+                if a.get("levelOfDescription") == "series"
+            ),
             None,
         ),
         "inclusiveStartDate": rec.get("inclusiveStartDate"),
