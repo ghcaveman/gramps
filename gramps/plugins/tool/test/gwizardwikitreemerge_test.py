@@ -121,6 +121,21 @@ class GWizardWikiTreeToolTest(unittest.TestCase):
         self.assertIn('toolclass = "GWizardNaraMerge"', registration)
         self.assertIn('optionclass = "GWizardNaraMergeOptions"', registration)
 
+    def test_nara_tool_registration(self) -> None:
+        """Verify the NARA merge tool is registered in the source tree."""
+        tools_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "tools.gpr.py",
+        )
+        with open(tools_path, "r", encoding="utf-8") as handle:
+            content = handle.read()
+
+        self.assertIn('id="gwizardnara"', content)
+        self.assertIn('name=_("GWizard NARA Merge")', content)
+        self.assertIn('fname="gwizardnara.py"', content)
+        self.assertIn('toolclass="GWizardNaraMerge"', content)
+        self.assertIn('optionclass="GWizardNaraMergeOptions"', content)
+
 
 if __name__ == "__main__":
     unittest.main()
