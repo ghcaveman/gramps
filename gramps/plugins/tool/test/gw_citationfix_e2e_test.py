@@ -113,7 +113,10 @@ class ImportTest(unittest.TestCase):
         for name in CITATION_FIX_MODULES:
             module = importlib.import_module("gramps.plugins.tool." + name)
             with self.subTest(module=name):
-                with open(module.__file__, encoding="utf-8") as handle:
+                module_path = module.__file__
+                if module_path is None:
+                    self.fail(f"{module.__name__} has no file")
+                with open(module_path, encoding="utf-8") as handle:
                     self.assertNotIn("Gtk.Label(", handle.read())
 
 
