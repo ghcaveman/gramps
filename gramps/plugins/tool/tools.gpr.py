@@ -591,8 +591,37 @@ register(
 
 register(
     TOOL,
-    id="gwizardrecordscan",
+    id="gwizardfsmerge",
     name=_("GWizard FamilySearch Merge"),
+    description=_(
+        "Check every person in the Family Tree against the installed GWizard "
+        "record sources (WikiTree, NARA, ...), count the likely matches at "
+        "three match levels, and open a merge window for a match."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizardfsmerge.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardFamilySearchMerge",
+    optionclass="GWizardFamilySearchMergeOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
+)
+
+# ------------------------------------------------------------------------
+#
+# Multi-Archive Record Scan
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardrecordscan",
+    name=_("Multi-Archive Record Scan"),
     description=_(
         "Check every person in the Family Tree against the installed GWizard "
         "record sources (WikiTree, NARA, ...), count the likely matches at "
@@ -608,34 +637,6 @@ register(
     category=TOOL_DBPROC,
     toolclass="GWizardRecordScan",
     optionclass="GWizardRecordScanOptions",
-    tool_modes=[TOOL_MODE_GUI],
-    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
-)
-
-# ------------------------------------------------------------------------
-#
-# GWizard FamilySearch Merge
-#
-# ------------------------------------------------------------------------
-
-register(
-    TOOL,
-    id="gwizardfsmerge",
-    name=_("Multi-Archive Record Scan"),
-    description=_(
-        "Family Tree Processing Tool to search FamilySearch profiles and relatives "
-        "and compare/merge data side-by-side with the open Family Tree."
-    ),
-    version="0.0.1",
-    gramps_target_version=MODULE_VERSION,
-    status=EXPERIMENTAL,
-    audience=EXPERT,
-    fname="gwizardfsmerge.py",
-    authors=["Kevin White"],
-    authors_email=["gocaveman@gmail.com"],
-    category=TOOL_DBPROC,
-    toolclass="GWizardFamilySearchMerge",
-    optionclass="GWizardFamilySearchMergeOptions",
     tool_modes=[TOOL_MODE_GUI],
     help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFamilySearchMerge_Tool",
 )

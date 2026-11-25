@@ -77,6 +77,100 @@ _BARE_ID_REGEX = re.compile(r"\b([A-Za-z0-9]{4}-[A-Za-z0-9]{3,4})\b")
 
 # ------------------------------------------------------------
 #
+# FamilySearchAuthenticationError
+#
+# ------------------------------------------------------------
+class FamilySearchAuthenticationError(RuntimeError):
+    """Raised when a FamilySearch request is not authorized."""
+
+
+# ------------------------------------------------------------
+#
+# Search result formatting
+#
+# ------------------------------------------------------------
+def _search_result(
+    fsid: str, person_data: dict[str, Any], fallback_name: str = ""
+) -> dict[str, str] | None:
+    """Build a search result from FamilySearch display properties."""
+    display = person_data.get("display") or {}
+    name = str(display.get("name") or display.get("fullName") or fallback_name).strip()
+    if not name:
+        return None
+
+    lifespan = str(display.get("lifespan") or display.get("lifeSpan") or "").strip()
+    birth_date = str(display.get("birthDate") or "").strip()
+    death_date = str(display.get("deathDate") or "").strip()
+    if not lifespan:
+        if birth_date and death_date:
+            lifespan = f"{birth_date} - {death_date}"
+        else:
+            lifespan = birth_date or death_date
+
+    return {
+        "fsid": fsid,
+        "name": name,
+        "life": lifespan,
+        "gender": str(display.get("gender") or "").strip(),
+        "birth_date": birth_date,
+        "birth_place": str(display.get("birthPlace") or "").strip(),
+        "death_date": death_date,
+        "death_place": str(display.get("deathPlace") or "").strip(),
+    }
+
+
+def _search_query_term(field: str, value: str) -> str:
+    """Build one FamilySearch query term, quoting values that contain spaces."""
+    clean_value = " ".join(value.split())
+    if not clean_value:
+        return ""
+    if " " in clean_value:
+        clean_value = '"' + clean_value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return f"{field}:{clean_value}"
+
+
+def _response_data(response: Any, operation: str) -> dict[str, Any]:
+    """Return decoded FamilySearch response data or raise a useful error."""
+    if isinstance(response, dict):
+        return response
+
+    status_code = getattr(response, "status_code", None)
+    if status_code == 401:
+        raise FamilySearchAuthenticationError(
+            _(
+                "Failed authentication with FamilySearch. In the Family Trees "
+                "menu, choose FamilySearch Sign in..., then try again."
+            )
+        )
+    if isinstance(status_code, int) and status_code >= 400:
+        raise RuntimeError(
+            _("FamilySearch %(operation)s failed (HTTP %(status)s).")
+            % {"operation": operation, "status": status_code}
+        )
+
+    json_method = getattr(response, "json", None)
+    if not callable(json_method):
+        raise RuntimeError(
+            _("FamilySearch %(operation)s returned an invalid response.")
+            % {"operation": operation}
+        )
+    try:
+        data = json_method()
+    except Exception as err:
+        raise RuntimeError(
+            _("FamilySearch %(operation)s returned invalid JSON.")
+            % {"operation": operation}
+        ) from err
+    if not isinstance(data, dict):
+        raise RuntimeError(
+            _("FamilySearch %(operation)s returned an invalid response.")
+            % {"operation": operation}
+        )
+    return data
+
+
+# ------------------------------------------------------------
+#
 # FamilySearch ID utilities
 #
 # ------------------------------------------------------------
@@ -198,6 +292,10 @@ class FamilySearchInterface:
         first_name: str = "",
         last_name: str = "",
         birth_date: str = "",
+        death_date: str = "",
+        gender: str = "",
+        birth_place: str = "",
+        death_place: str = "",
         limit: int = 25,
     ) -> list[dict[str, Any]]:
         """
@@ -207,8 +305,13 @@ class FamilySearchInterface:
         :param first_name: Given name constraint.
         :param last_name: Surname constraint.
         :param birth_date: Birth year or date constraint.
+        :param death_date: Death year or date constraint.
+        :param gender: Gender constraint.
+        :param birth_place: Birth place constraint.
+        :param death_place: Death place constraint.
         :param limit: Maximum results to retrieve.
-        :returns: List of result dictionaries containing 'fsid', 'name', 'life'.
+        :returns: List of result dictionaries containing ID, name, lifespan,
+            gender, and birth/death dates and places.
         :rtype: list[dict[str, Any]]
         """
         sess = self.session
@@ -218,17 +321,52 @@ class FamilySearchInterface:
         clean_query = (query or "").strip()
         fsid = extract_familysearch_id(clean_query)
         if fsid:
-            return [{"fsid": fsid, "name": fsid, "life": ""}]
+            endpoint = f"/platform/tree/persons/{fsid}"
+            get_url = getattr(sess, "get_url", None)
+            try:
+                if callable(get_url):
+                    response = get_url(endpoint)
+                else:
+                    get_json = getattr(sess, "get_jsonurl", None) or getattr(
+                        sess, "get_json", None
+                    )
+                    response = get_json(endpoint) if callable(get_json) else None
+                data = _response_data(response, _("profile lookup"))
+            except Exception as err:
+                LOG.warning("FamilySearch profile lookup failed for %s: %s", fsid, err)
+                raise
+            gedcomx = data.get("gedcomx") or data.get("gedcomX") or {}
+            persons = data.get("persons") or gedcomx.get("persons")
+            person_data = (
+                persons[0]
+                if isinstance(persons, list)
+                and persons
+                and isinstance(persons[0], dict)
+                else data
+            )
+            result = _search_result(fsid, person_data)
+            return [result] if result else []
 
-        parts: list[str] = []
-        if clean_query:
-            parts.append(clean_query)
-        if first_name:
-            parts.append(f"givenName:{first_name}")
-        if last_name:
-            parts.append(f"surname:{last_name}")
-        if birth_date:
-            parts.append(f"birthDate:{birth_date}")
+        search_fields = (
+            ("givenName", first_name),
+            ("surname", last_name),
+            ("birthDate", birth_date),
+            ("birthPlace", birth_place),
+            ("deathDate", death_date),
+            ("deathPlace", death_place),
+            ("gender", gender),
+        )
+        populated_fields = [
+            (field, value) for field, value in search_fields if value.strip()
+        ]
+        parts: list[str] = [clean_query] if clean_query else []
+        if not clean_query and len(populated_fields) == 1:
+            parts.append(" ".join(populated_fields[0][1].split()))
+        else:
+            for field, value in populated_fields:
+                term = _search_query_term(field, value)
+                if term:
+                    parts.append(term)
 
         q_str = " ".join(parts).strip()
         if not q_str:
@@ -246,23 +384,26 @@ class FamilySearchInterface:
                     headers=headers,
                     params=params,
                 )
-                if isinstance(resp, dict):
-                    data = resp
-                elif hasattr(resp, "json"):
-                    data = resp.json()
+                data = _response_data(resp, _("search"))
             except Exception as err:
                 LOG.warning("FamilySearch search request failed: %s", err)
-                return []
+                raise
         else:
             get_json = getattr(sess, "get_jsonurl", None) or getattr(
                 sess, "get_json", None
             )
             if callable(get_json):
                 endpoint = "/platform/tree/search?" + urlencode(params)
-                data = get_json(endpoint, headers=headers)
+                try:
+                    data = _response_data(
+                        get_json(endpoint, headers=headers), _("search")
+                    )
+                except Exception as err:
+                    LOG.warning("FamilySearch search request failed: %s", err)
+                    raise
 
-        if not isinstance(data, dict):
-            return []
+        if data is None:
+            raise RuntimeError(_("FamilySearch search is unavailable."))
 
         entries = data.get("entries")
         if entries is None:
@@ -288,24 +429,11 @@ class FamilySearchInterface:
                 continue
             seen.add(fid)
 
-            display = p_data.get("display") or {}
-            name = (
-                str(display.get("name") or display.get("fullName") or "").strip()
-                or str(entry.get("title") or "").strip()
-                or fid
+            result = _search_result(
+                fid, p_data, str(entry.get("title") or "").strip() or fid
             )
-            lifespan = str(
-                display.get("lifespan") or display.get("lifeSpan") or ""
-            ).strip()
-            if not lifespan:
-                birth = str(display.get("birthDate") or "").strip()
-                death = str(display.get("deathDate") or "").strip()
-                if birth and death:
-                    lifespan = f"{birth} - {death}"
-                else:
-                    lifespan = birth or death
-
-            results.append({"fsid": fid, "name": name, "life": lifespan})
+            if result:
+                results.append(result)
 
         return results
 

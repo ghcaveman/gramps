@@ -177,6 +177,7 @@ _GWIZARD_TOOL_ORDER = (
     "gwizardmergealt",  # GWizard File Merge (Alt)
     "gwizardwikitree",  # GWizard WikiTree Merge
     "gwizardnara",  # GWizard NARA Merge
+    "gwizardfsmerge",  # GWizard FamilySearch Merge
     "gwizardrecordscan",  # Multi-Archive Record Scan
 )
 

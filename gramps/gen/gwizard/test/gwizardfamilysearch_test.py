@@ -89,6 +89,7 @@ from gramps.gen.fs import utils as fs_utilities
 from gramps.gen.fs.fs_import import deserializer as deserialize
 from gramps.gen.fs.tree import Tree
 from gramps.gen.gwizard.gwizardfamilysearch import (
+    FamilySearchAuthenticationError,
     FamilySearchGWizard,
     FamilySearchInterface,
     extract_familysearch_id,
@@ -370,6 +371,11 @@ class TestFamilySearchGWizardFlow(unittest.TestCase):
                                     "display": {
                                         "name": "Abraham Lincoln",
                                         "lifespan": "1809-1865",
+                                        "gender": "Male",
+                                        "birthDate": "12 February 1809",
+                                        "birthPlace": "Hodgenville, Kentucky",
+                                        "deathDate": "15 April 1865",
+                                        "deathPlace": "Springfield, Illinois",
                                     },
                                 }
                             ]
@@ -384,6 +390,102 @@ class TestFamilySearchGWizardFlow(unittest.TestCase):
         self.assertEqual(results[0]["fsid"], "GSVF-SGV")
         self.assertEqual(results[0]["name"], "Abraham Lincoln")
         self.assertEqual(results[0]["life"], "1809-1865")
+        self.assertEqual(results[0]["gender"], "Male")
+        self.assertEqual(results[0]["birth_date"], "12 February 1809")
+        self.assertEqual(results[0]["birth_place"], "Hodgenville, Kentucky")
+        self.assertEqual(results[0]["death_date"], "15 April 1865")
+        self.assertEqual(results[0]["death_place"], "Springfield, Illinois")
+
+    def test_interface_search_person_by_id(self):
+        mock_session = MagicMock()
+        mock_session.get_url.return_value = {
+            "persons": [
+                {
+                    "id": "GSVF-SGV",
+                    "display": {
+                        "name": "Abraham Lincoln",
+                        "birthDate": "12 February 1809",
+                        "birthPlace": "Hodgenville, Kentucky",
+                        "deathDate": "15 April 1865",
+                        "deathPlace": "Springfield, Illinois",
+                    },
+                }
+            ]
+        }
+        client = FamilySearchInterface(session=mock_session)
+
+        results = client.search_person(query="GSVF-SGV")
+
+        mock_session.get_url.assert_called_once_with("/platform/tree/persons/GSVF-SGV")
+        self.assertEqual(
+            results,
+            [
+                {
+                    "fsid": "GSVF-SGV",
+                    "name": "Abraham Lincoln",
+                    "life": "12 February 1809 - 15 April 1865",
+                    "gender": "",
+                    "birth_date": "12 February 1809",
+                    "birth_place": "Hodgenville, Kentucky",
+                    "death_date": "15 April 1865",
+                    "death_place": "Springfield, Illinois",
+                }
+            ],
+        )
+
+    def test_interface_search_person_with_vital_filters(self):
+        mock_session = MagicMock()
+        mock_session.get_url.return_value = {"entries": []}
+        client = FamilySearchInterface(session=mock_session)
+
+        results = client.search_person(
+            first_name="Mary Jane",
+            last_name="Smith",
+            birth_date="1900",
+            birth_place="Springfield, Illinois",
+            death_date="1980",
+            death_place="Boston",
+            gender="Female",
+        )
+
+        self.assertEqual(results, [])
+        mock_session.get_url.assert_called_once_with(
+            "/platform/tree/search",
+            headers={"Accept": "application/x-gedcomx-atom+json"},
+            params={
+                "q": (
+                    'givenName:"Mary Jane" surname:Smith birthDate:1900 '
+                    'birthPlace:"Springfield, Illinois" deathDate:1980 '
+                    "deathPlace:Boston gender:Female"
+                ),
+                "count": "25",
+            },
+        )
+
+    def test_interface_search_person_by_surname_uses_free_text(self):
+        mock_session = MagicMock()
+        mock_session.get_url.return_value = {"entries": []}
+        client = FamilySearchInterface(session=mock_session)
+
+        self.assertEqual(client.search_person(last_name="Schmidt"), [])
+
+        mock_session.get_url.assert_called_once_with(
+            "/platform/tree/search",
+            headers={"Accept": "application/x-gedcomx-atom+json"},
+            params={"q": "Schmidt", "count": "25"},
+        )
+
+    def test_interface_search_person_reports_http_errors(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_session = MagicMock()
+        mock_session.get_url.return_value = mock_response
+        client = FamilySearchInterface(session=mock_session)
+
+        with self.assertRaisesRegex(
+            FamilySearchAuthenticationError, "Failed authentication"
+        ):
+            client.search_person(last_name="Schmidt")
 
     def test_interface_is_authenticated(self):
         mock_session = MagicMock()
