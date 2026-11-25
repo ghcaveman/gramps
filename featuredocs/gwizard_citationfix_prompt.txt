@@ -46,6 +46,9 @@ Save your output into: C:/gramps_dev/gramps_gwizard_citationfix_plugin/gramps_gw
 - featuredocs/devnotes/citationfix/HandlingSourceCitationsWithUrls_GoogleAI.txt
 - featuredocs/devnotes/citationfix/UrlPolicyAsExplainedByDevin.md
 - featuredocs/devnotes/environment/install.md
+- featuredocs/devnotes/mediafix/ImageAndCitationInteraction.md
+- featuredocs/devnotes/mediafix/MediaAddons_ToolComparison.md
+- featuredocs/devnotes/mediafix/MediaAndCitationReferences_Devin.md
 - featuredocs/devnotes/mediafix/MediaArrangementInAGedcomFile.md
 - featuredocs/gwizard_citationfix.mediawiki
 - featuredocs/gwizard_citationfix_image_audit.txt
@@ -108,10 +111,18 @@ Save your output into: C:/gramps_dev/gramps_gwizard_citationfix_plugin/gramps_gw
 - gramps/plugins/tool/test/gw_unpacksourcesdialog_test.py
 - gramps/plugins/tool/test/gwizard_common_test.py
 - gramps/plugins/tool/test/gwizard_gtk_fakes.py
+- gramps/plugins/tool/test/gwizard_mediafix_common_test.py
+- gramps/plugins/tool/test/gwizardmediafix_checksum_test.py
+- gramps/plugins/tool/test/gwizardmediafix_contentcheck_test.py
 - gramps/plugins/tool/test/gwizardmediafix_ex_test.py
 - gramps/plugins/tool/test/gwizardmediafix_fixes_test.py
+- gramps/plugins/tool/test/gwizardmediafix_folder_test.py
+- gramps/plugins/tool/test/gwizardmediafix_idsort_test.py
 - gramps/plugins/tool/test/gwizardmediafix_pickfile_test.py
+- gramps/plugins/tool/test/gwizardmediafix_preview_test.py
+- gramps/plugins/tool/test/gwizardmediafix_scanlimit_test.py
 - gramps/plugins/tool/test/gwizardmediafix_test.py
+- gramps/plugins/tool/test/gwizardmediafix_translation_test.py
 - gramps/plugins/tool/tools.gpr.py
 - package_addon.py
 - po/POTFILES.in
@@ -763,11 +774,11 @@ CitationFixDialog.cb_apply:
 
 --- gramps/plugins/tool/gw_fixmediareferencesdialog.py ---
 FixMediaReferencesDialog.__init__:
-  line 269: button: Accept hints (%d)
-  line 274: button: Apply
-  line 279: dialog button: Close
+  line 518: button: Accept hints (%d)
+  line 523: button: Apply
+  line 528: dialog button: Close
 FixMediaReferencesDialog.cb_accept_hints:
-  line 505: message title: Hints accepted
+  line 911: message title: Hints accepted
 FixMediaReferencesDialog.cb_apply:
   line 657: message title: Nothing was changed
   line 663: message title: Nothing to apply
