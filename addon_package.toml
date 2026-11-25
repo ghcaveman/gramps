@@ -30,13 +30,45 @@ modules = [
     "gramps/plugins/tool/gwizardwikitreeprovenance.py",
     "gramps/plugins/tool/gwizardaddonutil.py",
     "gramps/plugins/tool/gwizardwikitreesource.py",
+    "gramps/gen/gwizard/gwizardnaramatch.py",
+    "gramps/gen/gwizard/gwizardnaramerge.py",
+    "gramps/gen/gwizard/gwizardnarapages.py",
+    "gramps/gui/gwizard/gwizardnaraattachdialog.py",
+    "gramps/gui/gwizard/gwizardnaralauncher.py",
+    "gramps/plugins/tool/gwizard_filemerge_scan.py",
+    "gramps/plugins/tool/gwizardnara.py",
+    "gramps/plugins/tool/gwizardnaraquerybuilder.py",
+    "gramps/plugins/tool/gwizardnarasource.py",
 ]
 tests = [
     "gramps/gen/gwizard/test/gwizardwikitree_test.py",
     "gramps/gen/gwizard/test/gwizardwikitreematch_test.py",
     "gramps/gui/gwizard/test/gwizardwikitreelauncher_test.py",
     "gramps/plugins/tool/test/gwizardwikitree*_test.py",
+    "gramps/gen/gwizard/test/gwizardnara_test.py",
+    "gramps/gen/gwizard/test/gwizardnaramatch_test.py",
+    "gramps/gen/gwizard/test/gwizardnarapages_test.py",
+    "gramps/gui/gwizard/test/gwizardnaraattachdialog_test.py",
+    "gramps/gui/gwizard/test/gwizardnaralauncher_test.py",
+    "gramps/plugins/tool/test/gwizard_filemerge_scan_test.py",
+    "gramps/plugins/tool/test/gwizardnarasource_test.py",
 ]
+exclude = [
+    # Avoid a flattened test-name clash with the gen-level NARA tests.
+    "gramps/plugins/tool/test/gwizardnara_test.py",
+]
+
+# The GWizard NARA Merge: a second Tools menu entry in the combined addon.
+[[extra_registrations]]
+id = "gwizardnara"
+name = "GWizard NARA Merge"
+description = "Family Tree Processing Tool to search the National Archives (NARA) catalog and compare/merge archival data side-by-side with the open Family Tree."
+fname = "gwizardnara.py"
+toolclass = "GWizardNaraMerge"
+optionclass = "GWizardNaraMergeOptions"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+gramps_versions = ["5.2.0", "6.2.0"]
 
 # The GWizard Multi-Archive Record Scan: a second Tools menu entry in the same addon. It
 # lists every person with the record sources (WikiTree, NARA, ...) other
@@ -69,7 +101,6 @@ modules = [
     "gramps/gui/gwizard/gwizardmergedialog.py",
     "gramps/plugins/tool/gwizardmerge.py",
 ]
-
 [check]
 # The branch this feature branch was started from (local name first, then
 # the remote one, whichever exists).
@@ -79,6 +110,20 @@ ignore = [
     # Notes and helper scripts in the repo root (* stays in the root folder).
     "*.md",
     "*.txt",
+    "*.bash",
+    "*.ged",
+    "environment_create*.py",
+    "make_gwizard_testdata_images.py",
+    "package_gwizard_filemerge.py",
+    "_apply_changes.py",
+    "diagnose_duplicate_sources.py",
+    "test_import.py",
+    "nara_sample_*.json",
+    "gramps/gen/config.py",
+    "gramps/gui/viewmanager.py",
+    "gramps/version.py",
+    "gramps/test/test/gitattributes_test.py",
+    "gramps/gen/gwizard/gwizardnaramerge.py.bak",
     # File Merge files and tests come with the dependency; GWizardFileMerge
     # ships them.
     "gramps/gen/gwizard/__init__.py",
@@ -94,6 +139,15 @@ ignore = [
     "gramps/gui/gwizard/gwizard_filemerge_*.py",
     "gramps/plugins/tool/gwizard_filemerge_*.py",
     "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
+    # Media Fix files, built from the gwizard_mediafix repo (not listed as a
+    # dependency yet; see the note at the top).
+    "gramps/plugins/tool/gwizardmediafix.py",
+    "gramps/plugins/tool/gwizard_mediafix_common.py",
+    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/plugins/tool/gw_mediapreview.py",
+    "gramps/plugins/tool/test/gwizardmediafix*_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
+    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",
