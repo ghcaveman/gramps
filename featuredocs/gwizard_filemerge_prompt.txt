@@ -32,57 +32,50 @@ Save your output into: C:/gramps_dev/gramps_gwizard_filemerge_plugin/gramps_gwiz
 
 ### Feature Files (from changed_files.txt):
 - addon_package.toml
-- featuredocs/.gitignore
-- featuredocs/README_gwizard_filemerge.md
-- featuredocs/create_gwizard_filemerge_wiki.bash
-- featuredocs/gwizard_filemerge.mediawiki
-- featuredocs/gwizard_filemerge_image_audit.txt
-- featuredocs/gwizard_filemerge_prompt.txt
-- featuredocs/images/gwizard_filemerge-compare.png
-- featuredocs/images/gwizard_filemerge-merge.png
-- featuredocs/script_output.txt
-- gramps/gen/gwizard/__init__.py
-- gramps/gen/gwizard/gwizard_base.py
-- gramps/gen/gwizard/gwizardgedcom.py
-- gramps/gen/gwizard/test/__init__.py
-- gramps/gen/gwizard/test/data/gwizard_mergefrom_sources.ged
-- gramps/gen/gwizard/test/data/make_sample_media.py
-- gramps/gen/gwizard/test/data/media/adoption_certificate.png
-- gramps/gen/gwizard/test/data/media/birth_certificate.png
-- gramps/gen/gwizard/test/data/media/census_record.png
-- gramps/gen/gwizard/test/data/media/death_certificate.png
-- gramps/gen/gwizard/test/data/media/grave_marker.png
-- gramps/gen/gwizard/test/data/media/marriage_certificate.png
-- gramps/gen/gwizard/test/data/media/newspaper_christening.png
-- gramps/gen/gwizard/test/data/media/newspaper_marriage.png
-- gramps/gen/gwizard/test/data/media/newspaper_obituary.png
-- gramps/gen/gwizard/test/gwizard_compare_detail_test.py
-- gramps/gen/gwizard/test/gwizard_compare_performance_test.py
-- gramps/gen/gwizard/test/gwizard_extra_items_test.py
-- gramps/gen/gwizard/test/gwizard_family_compare_test.py
-- gramps/gen/gwizard/test/gwizard_fixes_test.py
-- gramps/gen/gwizard/test/gwizard_handle_map_test.py
-- gramps/gen/gwizard/test/gwizard_link_families_test.py
-- gramps/gen/gwizard/test/gwizard_nickname_test.py
-- gramps/gen/gwizard/test/gwizard_relative_pairing_test.py
-- gramps/gen/gwizard/test/gwizard_source_matcher_test.py
-- gramps/gen/gwizard/test/gwizard_test.py
-- gramps/gui/gwizard/__init__.py
-- gramps/gui/gwizard/gwizardcompare.py
-- gramps/gui/gwizard/gwizardlauncher.py
-- gramps/gui/gwizard/gwizardmergedialog.py
-- gramps/gui/gwizard/test/__init__.py
-- gramps/gui/gwizard/test/gwizard_dialog_test.py
-- gramps/gui/gwizard/test/gwizard_merge_fields_test.py
-- gramps/gui/gwizard/test/gwizard_styling_test.py
-- gramps/plugins/tool/gwizardmerge.py
-- gramps/plugins/tool/test/gwizardmerge_test.py
+- featuredocs/README_gwizard_mediafix.md
+- featuredocs/ToolComparison.md
+- featuredocs/create_gwizard_mediafix_wiki.bash
+- featuredocs/devnotes/environment/install.md
+- featuredocs/devnotes/mediafix/ImageAndCitationInteraction.md
+- featuredocs/devnotes/mediafix/MediaAddons_ToolComparison.md
+- featuredocs/devnotes/mediafix/MediaAndCitationReferences_Devin.md
+- featuredocs/devnotes/mediafix/MediaArrangementInAGedcomFile.md
+- featuredocs/devnotes/mediafix/MediaFix_OpportunitiesForImprovement.md
+- featuredocs/devnotes/mediafix/MediaManager_ToolComparison.md
+- featuredocs/gwizard_mediafix.mediawiki
+- featuredocs/gwizard_mediafix_image_audit.txt
+- featuredocs/gwizard_mediafix_prompt.txt
+- featuredocs/images/gwizard_mediafix-accept-all-hints-complete.png
+- featuredocs/images/gwizard_mediafix-accept-all-hints.png
+- featuredocs/images/gwizard_mediafix-clean-import-notes.png
+- featuredocs/images/gwizard_mediafix-consolidate.png
+- featuredocs/images/gwizard_mediafix-find-missing.png
+- featuredocs/images/gwizard_mediafix-fix-references.png
+- featuredocs/images/gwizard_mediafix-main.png
+- featuredocs/images/gwizard_mediafix-report-save.png
+- featuredocs/images/gwizard_mediafix-report.png
+- featuredocs/images/gwizard_mediafix-undo-last-file-moves.png
+- gramps/gui/viewmanager.py
+- gramps/plugins/tool/gw_fixmediareferencesdialog.py
+- gramps/plugins/tool/gw_mediapreview.py
+- gramps/plugins/tool/gwizard_mediafix_common.py
+- gramps/plugins/tool/gwizardmediafix.py
+- gramps/plugins/tool/test/__init__.py
+- gramps/plugins/tool/test/gwizard_gtk_fakes.py
+- gramps/plugins/tool/test/gwizard_mediafix_common_test.py
+- gramps/plugins/tool/test/gwizardmediafix_checksum_test.py
+- gramps/plugins/tool/test/gwizardmediafix_contentcheck_test.py
+- gramps/plugins/tool/test/gwizardmediafix_ex_test.py
+- gramps/plugins/tool/test/gwizardmediafix_fixes_test.py
+- gramps/plugins/tool/test/gwizardmediafix_folder_test.py
+- gramps/plugins/tool/test/gwizardmediafix_idsort_test.py
+- gramps/plugins/tool/test/gwizardmediafix_pickfile_test.py
+- gramps/plugins/tool/test/gwizardmediafix_preview_test.py
+- gramps/plugins/tool/test/gwizardmediafix_scanlimit_test.py
+- gramps/plugins/tool/test/gwizardmediafix_test.py
+- gramps/plugins/tool/test/gwizardmediafix_translation_test.py
 - gramps/plugins/tool/tools.gpr.py
-- gramps/version.py
-- gwizard_filemerge_functionality_explained.txt
-- gwizard_filemerge_test_plan.txt
-- gwizard_filemerge_todo_list.txt
-- package_gwizard_filemerge.py
+- gramps/test/test/gitattributes_test.py
 - po/POTFILES.in
 
 ### Plugin Registration Metadata (.gpr.py):
@@ -678,33 +671,155 @@ register(
 
 
 ### UI Inventory (window titles and buttons extracted from the code, grouped by the function that creates them):
---- gramps/gui/gwizard/gwizardcompare.py ---
-GWizardCompareWindow.__init__:
-  line 226: window title: GWizard Compare
-GWizardCompareWindow.select_category:
-  line 473: message title: Populate Failed
-GWizardCompareWindow._build_toolbar:
-  line 1020: button: Close
-  line 1024: button: Merge...
-  line 1031: button: Add as New...
-  line 1038: button: Next
-  line 1042: button: Previous
-GWizardCompareWindow._build_panel:
-  line 1123: list item (button or choice): Individual Details
-  line 1124: list item (button or choice): Family Relations
-  line 1125: list item (button or choice): Children
-  line 1126: list item (button or choice): Events & Other Records
-GWizardCompareWindow.cb_add_new:
-  line 2215: message title: Add as New failed
-  line 2235: message title: Add as New failed
-  line 2241: message title: Some relationships were not linked
+--- gramps/gui/viewmanager.py ---
+(module):
+  line 152: list item (button or choice): Unsupported
+ViewManager.__build_main_window:
+  line 429: window title: %s - Gramps
+ViewManager._on_fs_status_clicked:
+  line 449: message title: FamilySearch
+  line 449: dialog button: Sign in
+  line 449: dialog button: Cancel
+ViewManager.login:
+  line 662: message title: FamilySearch
+  line 675: message title: FamilySearch
+  line 683: message title: FamilySearch
+ViewManager.abort:
+  line 937: message title: Abort changes?
+  line 937: dialog button: Abort changes
+  line 937: dialog button: Cancel
+  line 954: message title: Cannot abandon session's changes
+ViewManager._post_load_newdb_gui:
+  line 1403: message title: Gramps had a problem the last time it was run.
+  line 1403: dialog button: Yes
+  line 1403: dialog button: No
+ViewManager.post_close_db:
+  line 1442: window title: %s - Gramps
+ViewManager.get_available_views:
+  line 1880: message title: Failed Loading View
+run_plugin:
+  line 1991: message title: Failed Loading Plugin
+QuickBackup.__init__:
+  line 2092: dialog button: Close
+  line 2093: dialog button: OK
+  line 2157: button: %s (%s %s)
+  line 2160: button: Exclude
+  line 2178: message title: Backup file already exists! Overwrite?
+  line 2178: dialog button: Proceed and overwrite
+  line 2178: dialog button: Cancel the backup
+QuickBackup.select_backup_path:
+  line 2232: window title: Select backup directory
+  line 2237: dialog button: Cancel
+  line 2237: dialog button: Apply
 
---- gramps/gui/gwizard/gwizardlauncher.py ---
-ask_source_file:
-  line 133: dialog button: Cancel
-  line 133: dialog button: OK
-run_gwizard_merge_flow:
-  line 214: message title: Load Failed
+--- gramps/plugins/tool/gw_fixmediareferencesdialog.py ---
+FixMediaReferencesDialog.__init__:
+  line 518: button: Accept hints (%d)
+  line 523: button: Apply
+  line 528: dialog button: Close
+FixMediaReferencesDialog.cb_accept_hints:
+  line 911: message title: Hints accepted
+FixMediaReferencesDialog.cb_apply:
+  line 1079: message title: Nothing was changed
+  line 1085: message title: Nothing to apply
+  line 1128: message title: Media References Resolved
+
+--- gramps/plugins/tool/gwizardmediafix.py ---
+(module):
+  line 195: list item (button or choice): Reference ID + Community Standard ({ref_id}_{surname}_{given}-{doc_type}-{year})
+  line 201: list item (button or choice): Community Standard ({surname}_{given}-{doc_type}-{year})
+  line 205: list item (button or choice): Reference ID + Document Type ({ref_id}_{doc_type}-{year})
+  line 209: list item (button or choice): Media ID + Document Type ({id}_{doc_type}-{year})
+  line 213: list item (button or choice): Media ID + Original Name ({id}_{orig})
+  line 217: list item (button or choice): Sanitized Original Name ({orig})
+  line 221: list item (button or choice): Community Standard + content hash (never clashes for different files)
+ask_full_scan:
+  line 2772: dialog button: Keep this report
+  line 2773: dialog button: Scan all files this time
+  line 2774: dialog button: Always scan all files
+confirm_text:
+  line 2805: dialog button: Cancel
+format_folder_search:
+  line 3022: list item (button or choice): Found by content (renamed or moved files): %d
+  line 3023: list item (button or choice): Found by file name: %d
+FindMissingMediaDialog.__init__:
+  line 3192: button: Accept hints (%d)
+  line 3197: button: Look in folder...
+  line 3211: button: Apply
+  line 3216: dialog button: Close
+FindMissingMediaDialog.cb_accept_hints:
+  line 3448: message title: Hints accepted
+FindMissingMediaDialog.cb_pick_file:
+  line 3467: window title: Select the file for %s
+FindMissingMediaDialog.cb_select_mediapath:
+  line 3612: window title: Select media directory
+FindMissingMediaDialog.save_mediapath:
+  line 3659: message title: Base media path saved
+FindMissingMediaDialog.cb_look_in_folder:
+  line 3673: message title: Nothing to look for
+  line 3679: window title: Select the folder to search for the missing files
+  line 3700: message title: Folder not readable
+  line 3733: message title: No missing files found
+FindMissingMediaDialog.cb_apply:
+  line 3800: message title: Nothing to apply
+  line 3818: message title: Media Paths Updated
+ConsolidateMediaLocationDialog.__init__:
+  line 3916: button: Use naming standard
+  line 3919: button: Keep original filename
+  line 3933: button: Move files
+  line 3936: button: Make a copy
+  line 4003: button: Accept hints (%d)
+  line 4008: button: Apply
+  line 4013: dialog button: Close
+ConsolidateMediaLocationDialog.cb_accept_hints:
+  line 4261: message title: Hints accepted
+ConsolidateMediaLocationDialog.cb_apply:
+  line 4289: message title: Duplicate Source Files Detected
+  line 4376: message title: Nothing to apply
+  line 4422: message title: Media Locations Consolidated
+MediaFixReportDialog.__init__:
+  line 4468: dialog button: Close
+AcceptAllHintsReportDialog.__init__:
+  line 4532: dialog button: Close
+GWizardMediaFix._build_window:
+  line 5060: window title: GWizard Media Fix
+  line 5084: list item (button or choice): Generate report
+  line 5085: list item (button or choice): Find missing media
+  line 5086: list item (button or choice): Fix media references
+  line 5087: list item (button or choice): Consolidate media location
+  line 5088: list item (button or choice): Undo last file moves
+  line 5100: button: Accept all hints
+  line 5105: dialog button: Close
+GWizardMediaFix.cb_generate_report:
+  line 5127: window title: Save Media Fix Report
+  line 5133: dialog button: Cancel
+  line 5133: dialog button: Save
+  line 5141: button: Check file contents against stored checksums (slower)
+  line 5207: message title: Report Not Written
+GWizardMediaFix.offer_checksum_update:
+  line 5227: message title: Update changed checksums
+  line 5227: dialog button: Update checksums
+  line 5227: dialog button: Keep old checksums
+  line 5251: message title: Checksums updated
+GWizardMediaFix.cb_button:
+  line 5293: window title: Find Missing Media
+  line 5301: window title: Fix Media References
+  line 5311: window title: Consolidate Media Location
+GWizardMediaFix.cb_undo_moves:
+  line 5482: message title: No file moves to undo
+  line 5491: message title: Undo last file moves
+  line 5491: dialog button: Undo moves
+  line 5491: dialog button: Cancel
+  line 5514: message title: File moves undone
+GWizardMediaFix.ask_for_base_path:
+  line 5527: message title: No base media path
+  line 5527: dialog button: Choose folder...
+  line 5527: dialog button: Continue without
+  line 5546: window title: Select the base media folder
+  line 5567: message title: Base media path saved
+GWizardMediaFix.cb_auto_all:
+  line 5585: message title: Nothing to change automatically
+  line 5821: window title: Accept All Hints Complete
 
 --- gramps/gui/gwizard/gwizardmergedialog.py ---
 GWizardAddNewDialog.__init__:
