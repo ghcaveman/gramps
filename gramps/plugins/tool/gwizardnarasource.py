@@ -37,7 +37,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 import re
 
 # Helper to strip nicknames like "Fred" or (Buddy) from given names
@@ -81,7 +81,13 @@ for _path in (
     if os.path.isdir(_path) and _path not in sys.path:
         sys.path.insert(0, _path)
 
-from gwizardnaraquerybuilder import build_nara_query, is_valid_nara_hit
+if TYPE_CHECKING:
+    from gramps.plugins.tool.gwizardnaraquerybuilder import (
+        build_nara_query,
+        is_valid_nara_hit,
+    )
+else:
+    from gwizardnaraquerybuilder import build_nara_query, is_valid_nara_hit
 
 
 def _record_query_to_ind(query: RecordQuery) -> dict[str, Any]:

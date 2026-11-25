@@ -220,11 +220,10 @@ def build_nara_queries(ind: Dict[str, Any]) -> List[Dict[str, Any]]:
     queries: List[Dict[str, Any]] = []
     seen_q: set[str] = set()
 
-    def push_query(q_str: str) -> None:
-        q_clean = re.sub(r"\s+", " ", q_str).strip()
-        if q_clean and q_clean not in seen_q:
-            seen_q.add(q_clean)
-            queries.append({"q": q_clean, "limit": 20})
+    # 4. Build Record-Type & Geographic Anchors
+    anchors: List[str] = []
+    if states:
+        anchors.extend(f'"{st}"' for st in states)
 
     # Tier 1: Most specific given variant (e.g., "Jonathan W" or "Mario E") + surname + single state
     for s in surnames:
