@@ -34,6 +34,7 @@ modules = [
     "gramps/gui/gwizard/gwizardnaralauncher.py",
     "gramps/plugins/tool/gwizard_filemerge_scan.py",
     "gramps/plugins/tool/gwizardnara.py",
+    "gramps/plugins/tool/gwizardnaraquerybuilder.py",
     "gramps/plugins/tool/gwizardnarasource.py",
 ]
 tests = [
@@ -44,6 +45,10 @@ tests = [
     "gramps/gui/gwizard/test/gwizardnaralauncher_test.py",
     "gramps/plugins/tool/test/gwizard_filemerge_scan_test.py",
     "gramps/plugins/tool/test/gwizardnarasource_test.py",
+]
+exclude = [
+    # Avoid a flattened test-name clash with the gen-level NARA tests.
+    "gramps/plugins/tool/test/gwizardnara_test.py",
 ]
 
 # The GWizard Multi-Archive Record Scan: a second Tools menu entry in the same addon. It
@@ -103,6 +108,15 @@ ignore = [
     "environment_create*.py",
     "make_gwizard_testdata_images.py",
     "package_gwizard_filemerge.py",
+    "_apply_changes.py",
+    "diagnose_duplicate_sources.py",
+    "test_import.py",
+    "nara_sample_*.json",
+    "gramps/gen/config.py",
+    "gramps/gui/viewmanager.py",
+    "gramps/version.py",
+    "gramps/test/test/gitattributes_test.py",
+    "gramps/gen/gwizard/gwizardnaramerge.py.bak",
     # File Merge files and tests come with the dependency; GWizardFileMerge
     # ships them.
     "gramps/gen/gwizard/__init__.py",
