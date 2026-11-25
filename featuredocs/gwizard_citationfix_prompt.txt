@@ -1,6 +1,6 @@
 You are a technical documentation writer for the Gramps Genealogy Software Wiki.
-Write a clear, end-user Markdown manual for the feature 'gwizard_mediafix'.
-Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwizard_mediafix/featuredocs/README_gwizard_mediafix.md
+Write a clear, end-user Markdown manual for the feature 'gwizard_citationfix'.
+Save your output into: C:/gramps_dev/gramps_gwizard_citationfix_plugin/gramps_gwizard_citationfix/featuredocs/README_gwizard_citationfix.md
 
 ### Strict Rules:
 1. Base all UI labels, menu paths, checkboxes, and behavior strictly on the provided .gpr.py metadata and git diff.
@@ -16,13 +16,13 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
    Then add one `### <Button label>` subsection per button, in the same order, with numbered steps that follow the code
    (for example, if a file chooser opens before a report window, say so in that order).
 6. Screenshots - insert Markdown image tags using this exact collision-proof naming format:
-   `![Caption describing what to capture](images/gwizard_mediafix-<short-name>.png)`
-   - The page header already shows `images/gwizard_mediafix-main.png` (the main window as it first opens). Do NOT reference
-     `gwizard_mediafix-main.png` again, and do NOT add a screenshot of the Gramps menu.
+   `![Caption describing what to capture](images/gwizard_citationfix-<short-name>.png)`
+   - The page header already shows `images/gwizard_citationfix-main.png` (the main window as it first opens). Do NOT reference
+     `gwizard_citationfix-main.png` again, and do NOT add a screenshot of the Gramps menu.
    - In each button's subsection, add one screenshot for each window or dialog that button opens, placed at the step where it
-     appears. Name it after the button: `gwizard_mediafix-<button-label-in-kebab-case>.png`, adding a suffix such as `-preview`,
+     appears. Name it after the button: `gwizard_citationfix-<button-label-in-kebab-case>.png`, adding a suffix such as `-preview`,
      `-save` or `-complete` when one button opens more than one window
-     (e.g. `gwizard_mediafix-generate-report-save.png`, `gwizard_mediafix-generate-report.png`).
+     (e.g. `gwizard_citationfix-generate-report-save.png`, `gwizard_citationfix-generate-report.png`).
    - Captions must name the window by its title from the UI Inventory and say what to capture.
    - Screenshots that already exist are listed under "Existing Screenshots" below. When one of them shows the window
      you are illustrating (judge by its name), use that exact filename instead of making up a new one.
@@ -31,17 +31,39 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 8. Do not invent menu paths, buttons, or options not present in the diff or UI Inventory. If a menu path is inherited and unclear, mark it `[VERIFY MENU PATH]`.
 
 ### Feature Files (from changed_files.txt):
+- ImageAndCitationInteraction.md
+- MediaAndCitationRferences_Devin.md
 - WikiTree_ImprovementList.md
+- _apply_changes.py
 - addon_package.toml
+- diagnose_duplicate_sources.py
 - featuredocs/.gitignore
-- featuredocs/README_gwizard_mediafix.md
+- featuredocs/README_gwizard_citationfix.md
 - featuredocs/ToolComparison.md
-- featuredocs/create_gwizard_mediafix_wiki.bash
+- featuredocs/create_gwizard_citationfix_wiki.bash
+- featuredocs/devnotes/citationfix/CitationAttributes_GoogleAi.md
+- featuredocs/devnotes/citationfix/GeminiRepositorySourcesCitationDescription.txt
+- featuredocs/devnotes/citationfix/HandlingSourceCitationsWithUrls_GoogleAI.txt
+- featuredocs/devnotes/citationfix/UrlPolicyAsExplainedByDevin.md
 - featuredocs/devnotes/environment/install.md
 - featuredocs/devnotes/mediafix/MediaArrangementInAGedcomFile.md
-- featuredocs/gwizard_mediafix.mediawiki
-- featuredocs/gwizard_mediafix_image_audit.txt
-- featuredocs/gwizard_mediafix_prompt.txt
+- featuredocs/gwizard_citationfix.mediawiki
+- featuredocs/gwizard_citationfix_image_audit.txt
+- featuredocs/gwizard_citationfix_prompt.txt
+- featuredocs/images/gwizard_citationfix-accept-all-hints-complete.png
+- featuredocs/images/gwizard_citationfix-accept-all-hints.png
+- featuredocs/images/gwizard_citationfix-citation-attributes.png
+- featuredocs/images/gwizard_citationfix-fix-citations.png
+- featuredocs/images/gwizard_citationfix-fix-notes.png
+- featuredocs/images/gwizard_citationfix-fix-repositories.png
+- featuredocs/images/gwizard_citationfix-fix-sources.png
+- featuredocs/images/gwizard_citationfix-generate-report-save.png
+- featuredocs/images/gwizard_citationfix-generate-report.png
+- featuredocs/images/gwizard_citationfix-link-citation-media.png
+- featuredocs/images/gwizard_citationfix-main.png
+- featuredocs/images/gwizard_citationfix-repository-consolidate.png
+- featuredocs/images/gwizard_citationfix-unpack-conflated-citation.png
+- featuredocs/images/gwizard_citationfix-unpack-conflated-source.png
 - featuredocs/images/gwizard_mediafix-accept-all-hints-complete.png
 - featuredocs/images/gwizard_mediafix-accept-all-hints.png
 - featuredocs/images/gwizard_mediafix-clean-import-notes.png
@@ -52,10 +74,38 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 - featuredocs/images/gwizard_mediafix-report-save.png
 - featuredocs/images/gwizard_mediafix-report.png
 - featuredocs/images/gwizard_mediafix-undo-last-file-moves.png
+- gramps/plugins/tool/gw_citationattributesdialog.py
+- gramps/plugins/tool/gw_citationsfixdialog.py
 - gramps/plugins/tool/gw_fixmediareferencesdialog.py
+- gramps/plugins/tool/gw_goldstandardrepos.py
+- gramps/plugins/tool/gw_linkcitationmediadialog.py
+- gramps/plugins/tool/gw_notesfixdialog.py
+- gramps/plugins/tool/gw_repoconsolidatedialog.py
+- gramps/plugins/tool/gw_repomergedialog.py
+- gramps/plugins/tool/gw_sourcesfixdialog.py
+- gramps/plugins/tool/gw_unpackcitationsdialog.py
+- gramps/plugins/tool/gw_unpacksourcesdialog.py
 - gramps/plugins/tool/gwizard_common.py
+- gramps/plugins/tool/gwizardcitationfix.py
+- gramps/plugins/tool/gwizardcitationmediaengine.py
+- gramps/plugins/tool/gwizardcitationrepairengine.py
+- gramps/plugins/tool/gwizardcitationreport.py
+- gramps/plugins/tool/gwizardcitationshared.py
 - gramps/plugins/tool/gwizardmediafix.py
 - gramps/plugins/tool/test/__init__.py
+- gramps/plugins/tool/test/gw_citationattributesdialog_test.py
+- gramps/plugins/tool/test/gw_citationfix_e2e_test.py
+- gramps/plugins/tool/test/gw_citationmediaengine_test.py
+- gramps/plugins/tool/test/gw_citationreport_test.py
+- gramps/plugins/tool/test/gw_citationsfixdialog_test.py
+- gramps/plugins/tool/test/gw_gwizardcitationfix_test.py
+- gramps/plugins/tool/test/gw_linkcitationmediadialog_test.py
+- gramps/plugins/tool/test/gw_notesfixdialog_test.py
+- gramps/plugins/tool/test/gw_repoconsolidatedialog_test.py
+- gramps/plugins/tool/test/gw_repomergedialog_test.py
+- gramps/plugins/tool/test/gw_sourcesfixdialog_test.py
+- gramps/plugins/tool/test/gw_unpackcitationsdialog_test.py
+- gramps/plugins/tool/test/gw_unpacksourcesdialog_test.py
 - gramps/plugins/tool/test/gwizard_common_test.py
 - gramps/plugins/tool/test/gwizard_gtk_fakes.py
 - gramps/plugins/tool/test/gwizardmediafix_ex_test.py
@@ -63,9 +113,10 @@ Save your output into: C:/gramps_dev/gramps_gwizard_mediafix_plugin/gramps_gwiza
 - gramps/plugins/tool/test/gwizardmediafix_pickfile_test.py
 - gramps/plugins/tool/test/gwizardmediafix_test.py
 - gramps/plugins/tool/tools.gpr.py
-- package_gwizard_mediafix.py
+- package_addon.py
 - po/POTFILES.in
 - po/POTFILES.skip
+- test_import.py
 
 ### Plugin Registration Metadata (.gpr.py):
 --- gramps/plugins/tool/tools.gpr.py ---
@@ -604,6 +655,32 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard Citation Fix
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardcitationfix",
+    name=_("GWizard Citation Fix"),
+    description=_(
+        "Open the GWizard Citation Fix dialog to generate " "and view citation reports."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    fname="gwizardcitationfix.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardCitationFix",
+    optionclass="GWizardCitationFixOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url=TOOLS_HELP,
+)
+
+# ------------------------------------------------------------------------
+#
 # Find database Loop
 #
 # ------------------------------------------------------------------------
@@ -657,6 +734,33 @@ register(
 
 
 ### UI Inventory (window titles and buttons extracted from the code, grouped by the function that creates them):
+--- gramps/plugins/tool/gw_citationattributesdialog.py ---
+CitationAttributesDialog.__init__:
+  line 350: button: Apply
+  line 355: dialog button: Close
+CitationAttributesDialog.cb_accept_hints:
+  line 649: message title: Hints accepted
+CitationAttributesDialog.cb_apply:
+  line 680: message title: Nothing to apply
+  line 692: message title: Citation Attributes Updated
+
+--- gramps/plugins/tool/gw_citationsfixdialog.py ---
+CitationFixDialog.__init__:
+  line 116: button: Apply
+  line 120: dialog button: Close
+  line 245: button: Apply
+  line 250: dialog button: Close
+CitationFixDialog.build_rows:
+  line 350: button: …
+CitationFixDialog.cb_accept_hints:
+  line 466: message title: Hints accepted
+CitationFixDialog.cb_show_notes:
+  line 493: window title: Citation notes
+  line 499: dialog button: Close
+CitationFixDialog.cb_apply:
+  line 541: message title: Nothing to apply
+  line 553: message title: Citation fixes applied
+
 --- gramps/plugins/tool/gw_fixmediareferencesdialog.py ---
 FixMediaReferencesDialog.__init__:
   line 269: button: Accept hints (%d)
@@ -665,9 +769,121 @@ FixMediaReferencesDialog.__init__:
 FixMediaReferencesDialog.cb_accept_hints:
   line 505: message title: Hints accepted
 FixMediaReferencesDialog.cb_apply:
-  line 658: message title: Nothing was changed
-  line 664: message title: Nothing to apply
-  line 688: message title: Media References Resolved
+  line 657: message title: Nothing was changed
+  line 663: message title: Nothing to apply
+  line 687: message title: Media References Resolved
+
+--- gramps/plugins/tool/gw_linkcitationmediadialog.py ---
+GWLinkCitationMediaDialog.__init__:
+  line 523: dialog button: Close
+  line 568: button: Apply
+  line 573: dialog button: Close
+GWLinkCitationMediaDialog._build_data_grid:
+  line 642: button: Inspect
+GWLinkCitationMediaDialog.cb_apply:
+  line 817: message title: Media Linking Complete
+
+--- gramps/plugins/tool/gw_notesfixdialog.py ---
+NotesFixDialog.__init__:
+  line 186: button: Apply
+  line 191: dialog button: Close
+NotesFixDialog.cb_accept_hints:
+  line 370: message title: Hints accepted
+NotesFixDialog.cb_apply:
+  line 400: message title: Nothing to apply
+  line 412: message title: Note fixes applied
+
+--- gramps/plugins/tool/gw_repoconsolidatedialog.py ---
+RepoConsolidateDialog.__init__:
+  line 672: dialog button: Close
+  line 738: button: Apply
+  line 743: dialog button: Close
+RepoConsolidateDialog.cb_accept_hints:
+  line 888: message title: Hints accepted
+RepoConsolidateDialog.cb_apply:
+  line 910: message title: Nothing to consolidate
+RepoConsolidateDialog._show_result:
+  line 929: message title: Consolidate warnings
+
+--- gramps/plugins/tool/gw_repomergedialog.py ---
+RepoMergeDialog.__init__:
+  line 151: button: Apply
+  line 155: dialog button: Close
+  line 199: button: Apply
+  line 205: dialog button: Close
+RepoMergeDialog.cb_accept_hints:
+  line 655: message title: Hints accepted
+RepoMergeDialog.cb_apply:
+  line 700: message title: Nothing to change
+  line 740: message title: Repository changes had problems
+  line 746: message title: Repositories updated
+
+--- gramps/plugins/tool/gw_sourcesfixdialog.py ---
+SourceFixDialog.__init__:
+  line 122: button: Apply
+  line 126: dialog button: Close
+  line 203: button: Apply
+  line 208: dialog button: Close
+SourceFixDialog.cb_accept_hints:
+  line 358: message title: Hints accepted
+SourceFixDialog.cb_apply:
+  line 384: message title: Nothing to fix
+  line 393: message title: Source fixes applied
+
+--- gramps/plugins/tool/gw_unpackcitationsdialog.py ---
+UnpackCitationsDialog.__init__:
+  line 284: button: Apply
+  line 289: dialog button: Close
+UnpackCitationsDialog.cb_accept_hints:
+  line 504: message title: Hints accepted
+UnpackCitationsDialog.cb_apply:
+  line 560: message title: Nothing to apply
+  line 572: message title: Citation Unpacking Complete
+
+--- gramps/plugins/tool/gw_unpacksourcesdialog.py ---
+UnpackSourcesDialog.__init__:
+  line 165: button: Apply
+  line 170: dialog button: Close
+UnpackSourcesDialog.cb_accept_hints:
+  line 363: message title: Hints accepted
+UnpackSourcesDialog.cb_apply:
+  line 391: message title: Nothing to apply
+  line 403: message title: Field Unpacking Complete
+
+--- gramps/plugins/tool/gwizard_common.py ---
+reports_apply_errors.wrapper:
+  line 87: message title: Changes not applied
+
+--- gramps/plugins/tool/gwizardcitationfix.py ---
+GWizardCitationFix._build_window:
+  line 855: window title: GWizard Citation Fix
+  line 878: button: Accept all hints
+  line 882: dialog button: Close
+GWizardCitationFix.show_fix_dialog:
+  line 1025: dialog button: Close
+  line 1034: button: Auto (best guess)
+GWizardCitationFix.cb_fix_auto:
+  line 1050: message title: Fix failed
+GWizardCitationFix.cb_auto_all:
+  line 1056: message title: Accept all hints
+  line 1056: dialog button: Accept all
+  line 1056: dialog button: Cancel
+  line 1126: window title: Accept All Hints Complete
+  line 1133: dialog button: Close
+GWizardCitationFix.cb_generate_report:
+  line 1163: window title: Save Citation Fix Report
+  line 1169: dialog button: Cancel
+  line 1169: dialog button: Save
+  line 1222: message title: Report Failed
+GWizardCitationFix.cb_view_report:
+  line 1237: window title: GWizard Citation Fix report
+  line 1243: dialog button: Close
+
+--- gramps/plugins/tool/gwizardcitationreport.py ---
+GWizardCitationReport._format_placement:
+  line 901: list item (button or choice): Repositories not linked to any source: {number_of}.
+  line 902: list item (button or choice): Repositories whose address just repeats the name: {number_of}.
+  line 906: list item (button or choice): Repositories with a long address field (likely several places or notes packed in): {number_of}.
 
 --- gramps/plugins/tool/gwizardmediafix.py ---
 (module):
@@ -679,94 +895,98 @@ FixMediaReferencesDialog.cb_apply:
   line 154: list item (button or choice): Sanitized Original Name ({orig})
   line 158: list item (button or choice): Community Standard + content hash (never clashes for different files)
 confirm_plan:
-  line 1947: window title: Accept all hints - preview
-  line 1954: dialog button: Cancel
-  line 1955: dialog button: Accept all
+  line 1928: window title: Accept all hints - preview
+  line 1935: dialog button: Cancel
+  line 1936: dialog button: Accept all
 FindMissingMediaDialog.__init__:
-  line 2106: button: Accept hints (%d)
-  line 2111: button: Copy from folder...
-  line 2116: button: Apply
-  line 2121: dialog button: Close
+  line 2085: button: Accept hints (%d)
+  line 2090: button: Copy from folder...
+  line 2095: button: Apply
+  line 2100: dialog button: Close
 FindMissingMediaDialog.cb_accept_hints:
-  line 2295: message title: Hints accepted
+  line 2269: message title: Hints accepted
 FindMissingMediaDialog.cb_pick_file:
-  line 2314: window title: Select the file for %s
+  line 2288: window title: Select the file for %s
 FindMissingMediaDialog.cb_select_mediapath:
-  line 2421: window title: Select media directory
+  line 2395: window title: Select media directory
 FindMissingMediaDialog.cb_copy_from_folder:
-  line 2452: message title: Set a base media path first
-  line 2463: window title: Select folder containing the missing files
-  line 2482: message title: Folder not readable
-  line 2502: message title: Copies queued
+  line 2426: message title: Set a base media path first
+  line 2437: window title: Select folder containing the missing files
+  line 2456: message title: Folder not readable
+  line 2476: message title: Copies queued
 FindMissingMediaDialog.cb_apply:
-  line 2602: message title: Nothing to apply
-  line 2627: message title: Media Paths Updated
+  line 2575: message title: Nothing to apply
+  line 2600: message title: Media Paths Updated
 ConsolidateMediaLocationDialog.__init__:
-  line 2766: button: Use naming standard
-  line 2769: button: Keep original filename
-  line 2783: button: Move files
-  line 2786: button: Make a copy
-  line 2857: button: Accept hints (%d)
-  line 2862: button: Apply
-  line 2867: dialog button: Close
+  line 2739: button: Use naming standard
+  line 2742: button: Keep original filename
+  line 2756: button: Move files
+  line 2759: button: Make a copy
+  line 2826: button: Accept hints (%d)
+  line 2831: button: Apply
+  line 2836: dialog button: Close
 ConsolidateMediaLocationDialog.cb_select_mediapath:
-  line 2992: window title: Select media directory
+  line 2959: window title: Select media directory
 ConsolidateMediaLocationDialog.cb_accept_hints:
-  line 3173: message title: Hints accepted
+  line 3136: message title: Hints accepted
 ConsolidateMediaLocationDialog.cb_apply:
-  line 3201: message title: Duplicate Source Files Detected
-  line 3310: message title: Base media path saved
-  line 3316: message title: Nothing to apply
-  line 3336: message title: Media Locations Consolidated
+  line 3164: message title: Duplicate Source Files Detected
+  line 3270: message title: Base media path saved
+  line 3276: message title: Nothing to apply
+  line 3296: message title: Media Locations Consolidated
 MediaFixReportDialog.__init__:
-  line 3382: dialog button: Close
+  line 3342: dialog button: Close
 AcceptAllHintsReportDialog.__init__:
-  line 3446: dialog button: Close
+  line 3406: dialog button: Close
 GWizardMediaFix._build_window:
-  line 3878: window title: GWizard Media Fix
-  line 3904: list item (button or choice): Generate report
-  line 3905: list item (button or choice): Find missing media
-  line 3906: list item (button or choice): Fix media references
-  line 3907: list item (button or choice): Consolidate media location
-  line 3908: list item (button or choice): Clean import notes
-  line 3909: list item (button or choice): Undo last file moves
-  line 3921: button: Accept all hints
-  line 3926: dialog button: Close
+  line 3832: window title: GWizard Media Fix
+  line 3858: list item (button or choice): Generate report
+  line 3859: list item (button or choice): Find missing media
+  line 3860: list item (button or choice): Fix media references
+  line 3861: list item (button or choice): Consolidate media location
+  line 3862: list item (button or choice): Clean import notes
+  line 3863: list item (button or choice): Undo last file moves
+  line 3875: button: Accept all hints
+  line 3880: dialog button: Close
 GWizardMediaFix.cb_generate_report:
-  line 3944: window title: Save Media Fix Report
-  line 3950: dialog button: Cancel
-  line 3950: dialog button: Save
-  line 3982: message title: Report Not Written
+  line 3898: window title: Save Media Fix Report
+  line 3904: dialog button: Cancel
+  line 3904: dialog button: Save
+  line 3936: message title: Report Not Written
 GWizardMediaFix.cb_button:
-  line 4019: window title: Find Missing Media
-  line 4026: window title: Fix Media References
-  line 4035: window title: Consolidate Media Location
+  line 3973: window title: Find Missing Media
+  line 3980: window title: Fix Media References
+  line 3989: window title: Consolidate Media Location
 GWizardMediaFix.cb_undo_moves:
-  line 4245: message title: No file moves to undo
-  line 4254: message title: Undo last file moves
-  line 4254: dialog button: Undo moves
-  line 4254: dialog button: Cancel
-  line 4277: message title: File moves undone
+  line 4197: message title: No file moves to undo
+  line 4206: message title: Undo last file moves
+  line 4206: dialog button: Undo moves
+  line 4206: dialog button: Cancel
+  line 4229: message title: File moves undone
 GWizardMediaFix.cb_clean_notes:
-  line 4284: message title: No stale import notes
-  line 4296: message title: Clean import notes
-  line 4296: dialog button: Delete
-  line 4296: dialog button: Cancel
-  line 4318: message title: Import notes cleaned
+  line 4236: message title: No stale import notes
+  line 4248: message title: Clean import notes
+  line 4248: dialog button: Delete
+  line 4248: dialog button: Cancel
+  line 4270: message title: Import notes cleaned
 GWizardMediaFix.cb_auto_all:
-  line 4355: message title: Nothing to change automatically
-  line 4509: window title: Accept All Hints Complete
+  line 4308: message title: Nothing to change automatically
+  line 4462: window title: Accept All Hints Complete
 
-### Existing Screenshots (already captured in featuredocs/images/; the header's gwizard_mediafix-main.png is not listed):
-- images/gwizard_mediafix-accept-all-hints-complete.png
-- images/gwizard_mediafix-accept-all-hints.png
-- images/gwizard_mediafix-clean-import-notes.png
-- images/gwizard_mediafix-consolidate.png
-- images/gwizard_mediafix-find-missing.png
-- images/gwizard_mediafix-fix-references.png
-- images/gwizard_mediafix-report-save.png
-- images/gwizard_mediafix-report.png
-- images/gwizard_mediafix-undo-last-file-moves.png
+### Existing Screenshots (already captured in featuredocs/images/; the header's gwizard_citationfix-main.png is not listed):
+- images/gwizard_citationfix-accept-all-hints-complete.png
+- images/gwizard_citationfix-accept-all-hints.png
+- images/gwizard_citationfix-citation-attributes.png
+- images/gwizard_citationfix-fix-citations.png
+- images/gwizard_citationfix-fix-notes.png
+- images/gwizard_citationfix-fix-repositories.png
+- images/gwizard_citationfix-fix-sources.png
+- images/gwizard_citationfix-generate-report-save.png
+- images/gwizard_citationfix-generate-report.png
+- images/gwizard_citationfix-link-citation-media.png
+- images/gwizard_citationfix-repository-consolidate.png
+- images/gwizard_citationfix-unpack-conflated-citation.png
+- images/gwizard_citationfix-unpack-conflated-source.png
 
 ### Isolated Feature Diff (against functionality_base):
 (git diff warning: fatal: bad revision 'functionality_base...HEAD')

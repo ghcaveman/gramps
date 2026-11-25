@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 # ---------------------------------------------------------------------------
-# build_gwizard_mediafix_wiki.bash
+# build_gwizard_citationfix_wiki.bash
 # ---------------------------------------------------------------------------
 # Helper script that runs the full documentation pipeline for the
-# "gwizard_mediafix" feature.
+# "gwizard_citationfix" feature.
 #
 # It performs the two stages defined by featuredocs/build_feature_docs.py:
 #   1) --prepare – generate the AI prompt and starter README (if not already
@@ -13,11 +13,11 @@
 #      standard header/footer, and run the image‑audit checker.
 #
 # The script also ensures that the audit output is captured in a side‑car
-# text file (gwizard_mediafix_image_audit.txt) – this behaviour is added by
+# text file (gwizard_citationfix_image_audit.txt) – this behaviour is added by
 # the patched build_feature_docs.py.
 #
 # Usage:
-#   ./featuredocs/build_gwizard_mediafix_wiki.bash
+#   ./featuredocs/build_gwizard_citationfix_wiki.bash
 #
 # You can adjust the parent branch if you need a different diff base.
 # ---------------------------------------------------------------------------
@@ -25,8 +25,8 @@
 set -euo pipefail
 
 # Feature slug – must match the name used throughout the docs.
-FEATURE="gwizard_mediafix"
-PLUGIN_DISPLAY_NAME="GWizard Media Fix"
+FEATURE="gwizard_citationfix"
+PLUGIN_DISPLAY_NAME="GWizard Citation Fix"
 
 # Parent branch for the isolated git diff.  Adjust if you work off a different
 # base (e.g. a release branch).
@@ -39,7 +39,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ---- changed_files.txt lifecycle (mirrors check_banner.bash) --------------
 # Allow the list file location to be overridden via the environment, e.g.
-#   CHANGED_FILE=/tmp/my_changed_files.txt ./build_gwizard_mediafix_wiki.bash
+#   CHANGED_FILE=/tmp/my_changed_files.txt ./build_gwizard_citationfix_wiki.bash
 CHANGED_FILE="${CHANGED_FILE:-changed_files.txt}"
 
 # Remember whether the list file existed before we started so we can clean up
@@ -77,7 +77,7 @@ python "$REPO_ROOT/featuredocs/build_feature_docs.py" \
     --prepare
 
 # Run the build step – this generates the MediaWiki file and runs the image
-# audit.  The audit output is saved to "gwizard_mediafix_image_audit.txt" by the
+# audit.  The audit output is saved to "gwizard_citationfix_image_audit.txt" by the
 # patched Python script.
 python "$REPO_ROOT/featuredocs/build_feature_docs.py" \
     "$FEATURE" \

@@ -101,7 +101,7 @@ from gramps.gen.lib import (
     Surname,
 )
 from gramps.gen.types import MediaHandle
-from gramps.plugins.tool import gwizard_common as gc
+from gramps.plugins.tool import gwizard_mediafix_common as gc
 from gramps.plugins.tool import gwizardmediafix as mf
 from gramps.plugins.tool.gw_fixmediareferencesdialog import (
     FixMediaReferencesDialog,
@@ -364,7 +364,7 @@ class DuplicateScanRobustnessTest(_DbTestCase):
         self.add_media("shared/a.jpg", "One")
         self.add_media("shared/a.jpg", "Two")
         with patch(
-            "gramps.plugins.tool.gwizard_common.media_path_full",
+            "gramps.plugins.tool.gwizard_mediafix_common.media_path_full",
             side_effect=ValueError("bad media path"),
         ):
             groups = find_duplicate_media_groups(self.db)
@@ -436,9 +436,9 @@ class SharedCensusNamingTest(_DbTestCase):
     """The resolver picks the described person from a household event."""
 
     HOUSEHOLD = [
-        ("I0003", "Fuller", "Harry Jay"),
-        ("I0001", "Fuller", "Anna"),
-        ("I0002", "Fuller", "Lilly"),
+        ("I0003", "Barton", "Walter James"),
+        ("I0001", "Barton", "Anna"),
+        ("I0002", "Barton", "Clara"),
     ]
 
     def build(
@@ -490,14 +490,14 @@ class SharedCensusNamingTest(_DbTestCase):
     def test_citation_chain_picks_described_person(self) -> None:
         """Citation -> shared Event -> the person named in the description."""
         ctx = mf.resolve_media_reference_context(
-            self.db, self.build("Fuller, Lilly - 1910Census")
+            self.db, self.build("Barton, Clara - 1910Census")
         )
-        self.assertEqual((ctx["ref_id"], ctx["given"]), ("I0002", "Lilly"))
+        self.assertEqual((ctx["ref_id"], ctx["given"]), ("I0002", "Clara"))
 
     def test_spelling_variant_still_matches(self) -> None:
-        """A close misspelling ('Fuler') still picks Lilly, not the first person."""
+        """A close misspelling ('Barten') still picks Clara, not the first person."""
         ctx = mf.resolve_media_reference_context(
-            self.db, self.build("Fuler, Lilly - 1910Census")
+            self.db, self.build("Barten, Clara - 1910Census")
         )
         self.assertEqual(ctx["ref_id"], "I0002")
 
@@ -505,7 +505,7 @@ class SharedCensusNamingTest(_DbTestCase):
         """Media on the shared event itself also uses the description."""
         ctx = mf.resolve_media_reference_context(
             self.db,
-            self.build("Fuller, Anna - 1910Census", via_citation=False),
+            self.build("Barton, Anna - 1910Census", via_citation=False),
         )
         # Anna is neither the first participant added nor the last
         self.assertEqual((ctx["ref_id"], ctx["given"]), ("I0001", "Anna"))
@@ -592,6 +592,561 @@ class SharedFileConsolidationTest(_DbTestCase):
 
 # ------------------------------------------------------------
 #
+# Fix media references: misspelled names in descriptions
+#
+# ------------------------------------------------------------
+class NameMismatchFixTest(_DbTestCase):
+    """Step 3 corrects a description that misspells the linked person."""
+
+    def add_person(
+        self, surname: str, given: str, media_handle: str, alt: str = ""
+    ) -> str:
+        """Add a person linked to a media record and return its handle."""
+
+        def make_name(sur_text: str) -> Name:
+            name = Name()
+            name.set_first_name(given)
+            sur = Surname()
+            sur.set_surname(sur_text)
+            name.add_surname(sur)
+            return name
+
+        with DbTxn("add person", self.db) as trans:
+            person = Person()
+            person.set_primary_name(make_name(surname))
+            if alt:
+                person.add_alternate_name(make_name(alt))
+            ref = MediaRef()
+            ref.set_reference_handle(media_handle)
+            person.add_media_reference(ref)
+            return self.db.add_person(person, trans)
+
+    def name_targets(self, dlg: Any) -> list[dict[str, Any]]:
+        """The dialog's name-mismatch rows."""
+        return [t for t in dlg.row_targets if t["group"]["type"] == "name_mismatch"]
+
+    def test_spelling_variant_is_corrected(self) -> None:
+        """Smyth -> Smith, keeping the rest of the description."""
+        h = self.add_media("anna.jpg", "Smyth, Anna - 1900Census")
+        self.add_person("Smith", "Anna", h)
+
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        targets = self.name_targets(dlg)
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0]["group"]["new_desc"], "Smith, Anna - 1900Census")
+        self.assertEqual(targets[0]["suggested_action"], 0)
+
+        with patch(_DLG):
+            dlg.cb_accept_hints(MagicMock())
+            dlg.cb_apply(MagicMock())
+
+        media = self.db.get_media_from_handle(h)
+        self.assertEqual(media.get_description(), "Smith, Anna - 1900Census")
+        self.assertEqual(mf.find_name_mismatches(self.db), [])
+
+    def test_keep_leaves_description(self) -> None:
+        """'Keep description' changes nothing."""
+        h = self.add_media("anna.jpg", "Smyth, Anna - 1900Census")
+        self.add_person("Smith", "Anna", h)
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        self.name_targets(dlg)[0]["action_combo"].set_active(1)
+        with patch(_DLG):
+            dlg.cb_apply(MagicMock())
+        self.assertEqual(
+            self.db.get_media_from_handle(h).get_description(),
+            "Smyth, Anna - 1900Census",
+        )
+
+    def test_alternate_name_is_not_a_mismatch(self) -> None:
+        """An alternate name with the description's spelling counts as a match."""
+        h = self.add_media("anna.jpg", "Smyth, Anna - 1900Census")
+        self.add_person("Smith", "Anna", h, alt="Smyth")
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        self.assertEqual(self.name_targets(dlg), [])
+        self.assertEqual(mf.find_name_mismatches(self.db), [])
+
+    def test_different_person_is_not_offered(self) -> None:
+        """A description naming someone else stays in the report only."""
+        h = self.add_media("jones.jpg", "Jones, John - 1900Census")
+        self.add_person("Smith", "Anna", h)
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        self.assertEqual(self.name_targets(dlg), [])
+        self.assertEqual(len(mf.find_name_mismatches(self.db)), 1)
+
+    def test_replace_name_keeps_separator(self) -> None:
+        """Only the name changes, not the separator or the rest."""
+        self.assertEqual(
+            mf.replace_name_in_text("Smyth, Anna_1900Census", "Smith", "Anna"),
+            "Smith, Anna_1900Census",
+        )
+        self.assertEqual(mf.replace_name_in_text("scan", "Smith", "Anna"), "scan")
+
+
+# ------------------------------------------------------------
+#
+# Fix media references: leftover import notes (was 'Clean import notes')
+#
+# ------------------------------------------------------------
+class _NotedMediaTestCase(_DbTestCase):
+    """Shared helper for tests that need media records with import notes."""
+
+    def add_noted_media(
+        self, path: str, readable: bool, referenced: bool = True
+    ) -> tuple[str, str]:
+        """A media record with an import note; returns (media, note) handles."""
+        if readable:
+            self.touch("MediaBase", path)
+        self.db.set_mediapath(self.base)
+        with DbTxn("noted media", self.db) as trans:
+            note = Note()
+            note.set(gc.IMPORT_NOTE_PREFIX + " (multi-media object)")
+            n_h = self.db.add_note(note, trans)
+            media = Media()
+            media.set_path(path)
+            media.set_description(path)
+            media.add_note(n_h)
+            m_h = self.db.add_media(media, trans)
+            if referenced:  # otherwise it is also an unreferenced row
+                person = Person()
+                ref = MediaRef()
+                ref.set_reference_handle(m_h)
+                person.add_media_reference(ref)
+                self.db.add_person(person, trans)
+        return m_h, n_h
+
+
+class ImportNoteRowsTest(_NotedMediaTestCase):
+    """Step 3 lists and deletes out-of-date import notes."""
+
+    def note_targets(self, dlg: Any) -> list[dict[str, Any]]:
+        """The dialog's import-note rows."""
+        return [t for t in dlg.row_targets if t["group"]["type"] == "import_notes"]
+
+    def test_readable_file_notes_deleted(self) -> None:
+        """A readable file's import note is offered and deleted on Apply."""
+        m_h, n_h = self.add_noted_media("found.jpg", readable=True)
+        self.add_noted_media("lost.jpg", readable=False)
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        targets = self.note_targets(dlg)
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0]["group"]["keeper"]["handle"], m_h)
+        with patch(_DLG) as ok_dialog:
+            dlg.cb_accept_hints(MagicMock())
+            dlg.cb_apply(MagicMock())
+        self.assertEqual(self.db.get_media_from_handle(m_h).get_note_list(), [])
+        with self.assertRaises(HandleError):
+            self.db.get_note_from_handle(n_h)
+        self.assertIn("Removed 1 leftover import notes", ok_dialog.call_args[0][1])
+
+    def test_record_deleted_in_same_apply(self) -> None:
+        """An unreferenced record deleted earlier in Apply is no error."""
+        m_h, n_h = self.add_noted_media("found.jpg", readable=True, referenced=False)
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        types = sorted(t["group"]["type"] for t in dlg.row_targets)
+        self.assertEqual(types, ["import_notes", "unreferenced"])
+        with patch(_DLG) as ok_dialog:
+            dlg.cb_accept_hints(MagicMock())
+            dlg.cb_apply(MagicMock())
+        message = ok_dialog.call_args[0][1]
+        self.assertNotIn("not found", message)
+        self.assertIn("Deleted 1 unreferenced", message)
+        with self.assertRaises(HandleError):
+            self.db.get_media_from_handle(m_h)
+        with self.assertRaises(HandleError):
+            self.db.get_note_from_handle(n_h)
+
+    def test_record_merged_in_same_apply(self) -> None:
+        """A record merged away earlier in Apply: its note leaves the keeper."""
+        m_a, n_a = self.add_noted_media("shared.jpg", readable=True)
+        m_b, n_b = self.add_noted_media("shared.jpg", readable=True)
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        with patch(_DLG) as ok_dialog:
+            dlg.cb_accept_hints(MagicMock())
+            dlg.cb_apply(MagicMock())
+        self.assertNotIn("not found", ok_dialog.call_args[0][1])
+        survivors = []
+        for handle in (m_a, m_b):
+            try:
+                survivors.append(self.db.get_media_from_handle(handle))
+            except HandleError:
+                pass
+        self.assertEqual(len(survivors), 1)
+        self.assertEqual(survivors[0].get_note_list(), [])
+        for note in (n_a, n_b):
+            with self.assertRaises(HandleError):
+                self.db.get_note_from_handle(note)
+
+    def test_keep_notes(self) -> None:
+        """'Keep notes' leaves the note."""
+        m_h, n_h = self.add_noted_media("found.jpg", readable=True)
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        self.note_targets(dlg)[0]["action_combo"].set_active(1)
+        with patch(_DLG):
+            dlg.cb_apply(MagicMock())
+        self.assertEqual(self.db.get_media_from_handle(m_h).get_note_list(), [n_h])
+
+
+class AcceptAllMatchesStepThreeTest(_NotedMediaTestCase):
+    """'Accept all hints' does what Fix media references does."""
+
+    def link(self, media_handle: str, surname: str, given: str) -> None:
+        """Link a named person to a media record."""
+        with DbTxn("person", self.db) as trans:
+            person = Person()
+            name = Name()
+            name.set_first_name(given)
+            sur = Surname()
+            sur.set_surname(surname)
+            name.add_surname(sur)
+            person.set_primary_name(name)
+            ref = MediaRef()
+            ref.set_reference_handle(media_handle)
+            person.add_media_reference(ref)
+            self.db.add_person(person, trans)
+
+    def run_accept_all(self, choose: bool = False, folder: str = "") -> str:
+        """Run Accept all hints, confirming the preview; return the summary.
+
+        :param choose: The answer to the no-base-path prompt.
+        :param folder: The folder picked in its chooser ("" = Cancel).
+        """
+        tool = mf.GWizardMediaFix.__new__(mf.GWizardMediaFix)
+        tool.dbstate = self.dbstate
+        tool.window = MagicMock()
+        question = MagicMock()
+        question.return_value.run.return_value = choose
+        chooser = MagicMock()
+        chooser.run.return_value = (
+            mf.Gtk.ResponseType.OK if folder else mf.Gtk.ResponseType.CANCEL
+        )
+        chooser.get_filename.return_value = folder or None
+        with (
+            patch.object(mf, "confirm_plan", return_value=True) as confirm,
+            patch.object(mf, "AcceptAllHintsReportDialog") as report,
+            patch.object(mf, "QuestionDialog2", question),
+            patch.object(mf.Gtk, "FileChooserDialog", return_value=chooser),
+            patch.object(mf, "OkDialog"),
+        ):
+            tool.cb_auto_all()
+        self.asked = question.called
+        self.preview = confirm.call_args[0][1]
+        return report.call_args[1]["report_text"]
+
+    def test_names_and_notes_fixed(self) -> None:
+        """Misspelled names are corrected and leftover import notes deleted."""
+        self.touch("MediaBase", "anna.jpg")
+        self.db.set_mediapath(self.base)
+        h_name = self.add_media("anna.jpg", "Smyth, Anna - 1900Census")
+        self.link(h_name, "Smith", "Anna")
+        m_h, n_h = self.add_noted_media("found.jpg", readable=True)
+        m_a, n_a = self.add_noted_media("shared.jpg", readable=True)
+        m_b, n_b = self.add_noted_media("shared.jpg", readable=True)
+
+        summary = self.run_accept_all()
+
+        self.assertIn("use the linked person's name (1)", self.preview)
+        self.assertIn("delete leftover import notes (2 records)", self.preview)
+        self.assertIn("names corrected: 1; leftover import notes deleted: 3", summary)
+        self.assertEqual(
+            self.db.get_media_from_handle(h_name).get_description(),
+            "Smith, Anna - 1900Census",
+        )
+        for note in (n_h, n_a, n_b):
+            with self.assertRaises(HandleError):
+                self.db.get_note_from_handle(note)
+        self.assertNotIn("OPTIONAL CLEANUP", summary)
+
+    def test_uses_each_steps_own_code(self) -> None:
+        """Every fix goes through the function its step's dialog uses."""
+        self.db.set_mediapath(self.base)
+        # Find missing media: lost here, found in the base folder by name
+        self.touch("MediaBase", "scans", "lost.jpg")
+        h_lost = self.add_media("Old/lost.jpg", "Lost")
+        self.link(h_lost, "Jones", "Mary")
+        # Fix media references: a duplicate pair and an empty orphan
+        shared = self.touch("Elsewhere", "shared.jpg")
+        h_a = self.add_media(shared, "Shared")
+        self.link(h_a, "Jones", "Paul")
+        self.add_media(shared, "Shared")
+        self.add_media("orphan.jpg", "Orphan")
+        # Fix media references: a misspelled name
+        self.touch("MediaBase", "anna.jpg")
+        h_name = self.add_media("anna.jpg", "Smyth, Anna - 1900Census")
+        self.link(h_name, "Smith", "Anna")
+
+        shared_fixes = (
+            "repoint_media",
+            "merge_into_keeper",
+            "delete_unreferenced",
+            "apply_name_fix",
+            "relocate_media_records",
+        )
+        spies = {
+            name: patch.object(mf, name, wraps=getattr(mf, name))
+            for name in shared_fixes
+        }
+        mocks = {name: spy.start() for name, spy in spies.items()}
+        try:
+            self.run_accept_all()
+        finally:
+            for spy in spies.values():
+                spy.stop()
+        for name, mock in mocks.items():
+            self.assertTrue(mock.called, "%s was not used" % name)
+
+    def test_skipped_consolidation_is_not_fully_resolved(self) -> None:
+        """Without a base path the summary asks for one instead of 'resolved'."""
+        self.db.set_mediapath(None)
+        shared = self.touch("Elsewhere", "shared.jpg")
+        h_a = self.add_media(shared, "Shared")
+        self.link(h_a, "Jones", "Paul")
+        self.add_media(shared, "Shared")
+        summary = self.run_accept_all()
+        self.assertIn("Consolidate media location was skipped", summary)
+        self.assertIn("CHANGES REQUIRING HUMAN INTERVENTION", summary)
+        self.assertNotIn("fully resolved", summary)
+
+    def far_record(self) -> str:
+        """A referenced record whose file is outside the media folder."""
+        handle = self.add_media(self.touch("Elsewhere", "far.jpg"), "Far")
+        self.link(handle, "Jones", "Mary")
+        return handle
+
+    def test_prompt_sets_base_path_and_consolidates(self) -> None:
+        """No base path: choosing a folder saves it and consolidation runs."""
+        self.db.set_mediapath(None)
+        handle = self.far_record()
+        summary = self.run_accept_all(choose=True, folder=self.base)
+        self.assertTrue(self.asked)
+        self.assertEqual(self.db.get_mediapath(), self.base)
+        path = self.db.get_media_from_handle(handle).get_path()
+        self.assertFalse(os.path.isabs(path))
+        self.assertTrue(os.path.exists(os.path.join(self.base, path)))
+        self.assertNotIn("Consolidate media location was skipped", summary)
+
+    def test_prompt_declined_skips_consolidation(self) -> None:
+        """Continuing without a base path runs the rest and skips consolidation."""
+        self.db.set_mediapath(None)
+        handle = self.far_record()
+        summary = self.run_accept_all(choose=False)
+        self.assertTrue(self.asked)
+        self.assertFalse((self.db.get_mediapath() or "").strip())
+        self.assertTrue(os.path.isabs(self.db.get_media_from_handle(handle).get_path()))
+        self.assertIn("Consolidate media location was skipped", summary)
+
+    def test_chooser_cancelled_skips_consolidation(self) -> None:
+        """Cancelling the folder chooser is the same as continuing without."""
+        self.db.set_mediapath(None)
+        self.far_record()
+        summary = self.run_accept_all(choose=True, folder="")
+        self.assertFalse((self.db.get_mediapath() or "").strip())
+        self.assertIn("Consolidate media location was skipped", summary)
+
+    def test_no_prompt_when_base_path_set(self) -> None:
+        """With a base path already set nothing is asked."""
+        self.db.set_mediapath(self.base)
+        self.far_record()
+        self.run_accept_all()
+        self.assertFalse(self.asked)
+
+    def test_unreadable_file_notes_kept(self) -> None:
+        """A file that still cannot be found keeps its import note."""
+        self.db.set_mediapath(self.base)
+        m_h, n_h = self.add_noted_media("lost.jpg", readable=False)
+        plan = mf.build_accept_all_plan(self.db, self.base, True)
+        self.assertEqual(plan["notes"], [])
+        self.assertIsNotNone(self.db.get_note_from_handle(n_h))
+
+
+# ------------------------------------------------------------
+#
+# Consolidate reuses an identical file already at the standard name
+#
+# ------------------------------------------------------------
+class IdenticalDestinationTest(_DbTestCase):
+    """No _2, _3 ... copies when the same file is already in the media folder."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        gc._CHECKSUM_CACHE.clear()
+        self.db.set_mediapath(self.base)
+        self.src = os.path.join(self.tmp, "images", "scan.jpg")
+        os.makedirs(os.path.dirname(self.src))
+        with open(self.src, "w", encoding="utf-8") as handle:
+            handle.write("census scan")
+        self.handle = self.add_media(self.src, "Scan")
+        with DbTxn("person", self.db) as trans:
+            person = Person()
+            ref = MediaRef()
+            ref.set_reference_handle(self.handle)
+            person.add_media_reference(ref)
+            self.db.add_person(person, trans)
+        dlg = mf.ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+        self.standard = os.path.basename(dlg.rows[0]["suggested_path"])
+
+    def put_in_base(self, text: str) -> str:
+        """Put a file with the standard name in the media folder."""
+        path = os.path.join(self.base, self.standard)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        return path
+
+    def consolidate(self) -> str:
+        """Accept the hints and apply; return the result message."""
+        dlg = mf.ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+        with patch(_MF_DLG) as ok_dialog:
+            dlg.cb_accept_hints(MagicMock())
+            dlg.cb_apply(MagicMock())
+        return ok_dialog.call_args[0][1]
+
+    def path(self) -> str:
+        """The record's stored path."""
+        return self.db.get_media_from_handle(self.handle).get_path()
+
+    def test_identical_file_reused(self) -> None:
+        """The record uses the file already there; the original stays put."""
+        self.put_in_base("census scan")
+        message = self.consolidate()
+        self.assertEqual(self.path(), self.standard)
+        self.assertTrue(os.path.exists(self.src))
+        self.assertFalse(any("_2" in n for n in os.listdir(self.base)))
+        self.assertIn("already in the media folder with the same content", message)
+
+    def test_different_file_renamed_and_reported(self) -> None:
+        """A different file with the standard name: _2, and it is reported."""
+        self.put_in_base("some other scan")
+        message = self.consolidate()
+        self.assertTrue(self.path().endswith("_2.jpg"))
+        self.assertFalse(os.path.exists(self.src))  # moved as usual
+        self.assertIn("Renamed because a different file", message)
+
+    def test_undo_after_reuse(self) -> None:
+        """Undo points the record back at the original, which was left in place."""
+        dest = self.put_in_base("census scan")
+        self.consolidate()
+        log = os.path.join(self.base, gc.MOVE_LOG_NAME)
+        gc.undo_logged_run(self.db, log)
+        self.assertEqual(os.path.normcase(self.path()), os.path.normcase(self.src))
+        self.assertTrue(os.path.exists(self.src))
+        self.assertTrue(os.path.exists(dest))
+
+    def run_accept_all(self) -> str:
+        """Run Accept all hints; return the summary."""
+        tool = mf.GWizardMediaFix.__new__(mf.GWizardMediaFix)
+        tool.dbstate = self.dbstate
+        tool.window = MagicMock()
+        with (
+            patch.object(mf, "confirm_plan", return_value=True) as confirm,
+            patch.object(mf, "AcceptAllHintsReportDialog") as report,
+        ):
+            tool.cb_auto_all()
+        self.preview = confirm.call_args[0][1]
+        return report.call_args[1]["report_text"]
+
+    def test_accept_all_reuses_identical_file(self) -> None:
+        """Accept all hints: no _2 copy, and still fully resolved."""
+        self.put_in_base("census scan")
+        summary = self.run_accept_all()
+        self.assertIn("(already there with the same content)", self.preview)
+        self.assertEqual(self.path(), self.standard)
+        self.assertIn("already there with the same content", summary)
+        self.assertIn("0 files moved or renamed", summary)
+        self.assertIn("fully resolved", summary)
+
+    def test_accept_all_reports_real_clash(self) -> None:
+        """Accept all hints: a clash with a different file needs attention."""
+        self.put_in_base("some other scan")
+        summary = self.run_accept_all()
+        self.assertIn("(renamed: name taken by another file)", self.preview)
+        self.assertTrue(self.path().endswith("_2.jpg"))
+        self.assertIn("Renamed because a different file", summary)
+        self.assertNotIn("fully resolved", summary)
+
+
+# ------------------------------------------------------------
+#
+# Checksums stored automatically (was 'Store checksums')
+#
+# ------------------------------------------------------------
+class AutoChecksumTest(_DbTestCase):
+    """Each step's Apply fills in missing checksums, and only missing ones."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        gc._CHECKSUM_CACHE.clear()
+        self.db.set_mediapath(self.base)
+        self.touch("MediaBase", "plain.jpg")
+        self.h_plain = self.add_media("plain.jpg", "No checksum yet")
+        self.touch("MediaBase", "kept.jpg")
+        self.h_kept = self.add_media("kept.jpg", "Old checksum")
+        media = self.db.get_media_from_handle(self.h_kept)
+        media.set_checksum("0" * 32)  # no longer matches: must be kept
+        with DbTxn("set", self.db) as trans:
+            self.db.commit_media(media, trans)
+            # Referenced, so Step 3 does not offer to delete them.
+            person = Person()
+            for handle in (self.h_plain, self.h_kept):
+                ref = MediaRef()
+                ref.set_reference_handle(handle)
+                person.add_media_reference(ref)
+            self.db.add_person(person, trans)
+
+    def checksum(self, handle: str) -> str:
+        """A record's stored checksum."""
+        return self.db.get_media_from_handle(handle).get_checksum()
+
+    def assert_filled(self, message: str) -> None:
+        """The plain record got one, the changed one kept its old checksum."""
+        self.assertTrue(self.checksum(self.h_plain))
+        self.assertEqual(self.checksum(self.h_kept), "0" * 32)
+        self.assertIn("that had none", message)
+
+    def test_fix_references_apply(self) -> None:
+        """Step 3."""
+        self.add_media("orphan.jpg", "Bare orphan")
+        dlg = FixMediaReferencesDialog(dbstate=self.dbstate)
+        with patch(_DLG) as ok_dialog:
+            dlg.cb_accept_hints(MagicMock())
+            dlg.cb_apply(MagicMock())
+        self.assert_filled(ok_dialog.call_args[0][1])
+
+    def test_consolidate_apply(self) -> None:
+        """Step 4."""
+        outside = self.touch("elsewhere", "far.jpg")
+        h_far = self.add_media(outside, "Far away")
+        dlg = mf.ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+        # Move only the far record, so the others get their checksum from the
+        # automatic pass, not from being moved.
+        for row, target in zip(dlg.rows, dlg.row_targets):
+            if h_far in (
+                target["entry"].get("handles") or [target["entry"].get("handle")]
+            ):
+                target["path_entry"].set_text(row["suggested_path"])
+        with patch(_MF_DLG) as ok_dialog:
+            dlg.cb_apply(MagicMock())
+        self.assert_filled(ok_dialog.call_args[0][1])
+
+    def test_find_missing_apply(self) -> None:
+        """Step 2."""
+        found = self.touch("MediaBase", "scans", "lost.jpg")
+        h_lost = self.add_media("old/lost.jpg", "Lost")
+        dlg = mf.FindMissingMediaDialog(dbstate=self.dbstate)
+        target = next(t for t in dlg.row_targets if t["entry"].get("handle") == h_lost)
+        target["path_entry"].set_text(found)
+        with patch(_MF_DLG) as ok_dialog:
+            dlg.cb_apply(MagicMock())
+        self.assert_filled(ok_dialog.call_args[0][1])
+
+    def test_nothing_to_apply_changes_nothing(self) -> None:
+        """No checksums are written when Apply had nothing to do."""
+        dlg = mf.ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+        with patch(_MF_DLG):
+            dlg.cb_apply(MagicMock())
+        self.assertFalse(self.checksum(self.h_plain))
+
+
+# ------------------------------------------------------------
+#
 # Fix 4: base path changes keep other records valid
 #
 # ------------------------------------------------------------
@@ -635,13 +1190,23 @@ class BasePathChangeTest(_DbTestCase):
         path = self.db.get_media_from_handle(self.h_ok).get_path()
         self.assertEqual(path.replace("\\", "/"), "MediaBase/a.jpg")
 
-    def test_consolidate_keeps_unlisted_record(self) -> None:
-        """Consolidate: a record not in the batch still finds its file."""
-        dlg = mf.ConsolidateMediaLocationDialog(dbstate=self.dbstate)
-        self.change_base(dlg, self.new_base)
+    def test_find_missing_folder_pick_saves_and_keeps_records(self) -> None:
+        """Picking a folder saves the base path at once and keeps records valid."""
+        dlg = mf.FindMissingMediaDialog(dbstate=self.dbstate)
+        chooser = MagicMock()
+        chooser.run.return_value = mf.Gtk.ResponseType.OK
+        chooser.get_filename.return_value = self.new_base
+        with patch.object(mf.Gtk, "FileChooserDialog", return_value=chooser):
+            with patch(_MF_DLG) as ok_dialog:
+                dlg.cb_select_mediapath()
+        self.assertEqual(self.db.get_mediapath(), self.new_base)
         path = self.db.get_media_from_handle(self.h_ok).get_path()
-        resolved = gc.full_media_path(self.db, path)
-        self.assertTrue(os.path.samefile(resolved, os.path.join(self.base, "a.jpg")))
+        self.assertTrue(os.path.samefile(path, os.path.join(self.base, "a.jpg")))
+        self.assertIn("still points at its file", ok_dialog.call_args[0][1])
+        # Apply afterwards does not count the base change a second time.
+        with patch(_MF_DLG):
+            dlg.cb_apply(MagicMock())
+        self.assertEqual(self.db.get_mediapath(), self.new_base)
 
     def test_unchanged_base_touches_nothing(self) -> None:
         """No base change: other records are not rewritten."""
@@ -768,7 +1333,7 @@ class SmallFixesTest(_DbTestCase):
         base = os.path.join(self.tmp, "Smith & Jones")
         os.makedirs(base)
         self.db.set_mediapath(base)
-        dlg = mf.ConsolidateMediaLocationDialog(dbstate=self.dbstate)
+        dlg = mf.FindMissingMediaDialog(dbstate=self.dbstate)
         self.assertIn("Smith &amp; Jones", dlg.base_path_label.markup)
         self.assertNotIn("Smith & Jones", dlg.base_path_label.markup)
 

@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 # -------------------------------------------------------------------------
 #
@@ -48,16 +49,19 @@ Gtk = fakes.install()
 from gramps.gen.db import DbTxn
 from gramps.gen.db.utils import make_database
 from gramps.gen.lib import Media, Tag
-from gramps.plugins.tool.gwizard_common import (
+from gramps.plugins.tool.gwizard_mediafix_common import (
     SelectableLabel,
     TableLabel,
     HeaderLabel,
     create_table_grid,
+    reports_apply_errors,
     clean_path,
     is_absolute_path,
     path_key,
     to_db_path,
     unique_destination,
+    consolidation_destination,
+    same_content,
     relocate_file,
     build_basename_index,
     TAG_MEDIA_FIXED,
@@ -160,6 +164,39 @@ class GWizardCommonTest(unittest.TestCase):
         self.assertEqual(to_db_path(outside, base), outside)
         self.assertEqual(to_db_path("", base), "")
         self.assertEqual(to_db_path(inside, ""), inside)
+
+    def test_consolidation_destination_reuses_identical_file(self) -> None:
+        """An identical file at the destination is reused; a different one is not."""
+        with tempfile.TemporaryDirectory() as tmp:
+
+            def write(name: str, text: str) -> str:
+                path = os.path.join(tmp, name)
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(text)
+                return path
+
+            src = write("src.jpg", "photo")
+            same = write("same.jpg", "photo")
+            other = write("other.jpg", "another photo")
+            self.assertTrue(same_content(src, same))
+            self.assertFalse(same_content(src, other))
+            self.assertFalse(same_content(src, os.path.join(tmp, "none.jpg")))
+
+            claimed: set[str] = set()
+            self.assertEqual(
+                consolidation_destination(same, claimed, src), (same, "reuse")
+            )
+            # Once claimed in this batch it is not handed out again.
+            dest, how = consolidation_destination(same, claimed, src)
+            self.assertEqual(how, "renamed")
+            self.assertNotEqual(dest, same)
+
+            dest, how = consolidation_destination(other, set(), src)
+            self.assertEqual(how, "renamed")
+            self.assertTrue(dest.endswith("other_2.jpg"))
+
+            free = os.path.join(tmp, "free.jpg")
+            self.assertEqual(consolidation_destination(free, set(), src), (free, ""))
 
     def test_unique_destination(self) -> None:
         """unique_destination appends numerical suffixes to avoid collisions on disk and in batch."""
@@ -294,6 +331,33 @@ class GWizardCommonTest(unittest.TestCase):
             self.assertFalse(add_media_fixed_tag(db, media, commit=True))
         finally:
             db.close()
+
+
+class ReportsApplyErrorsTest(unittest.TestCase):
+    """A failed Apply is shown to the user instead of being lost."""
+
+    def test_error_is_shown_and_not_raised(self) -> None:
+        """The decorator logs the error and shows an error dialog."""
+
+        class _Dialog:
+            @reports_apply_errors
+            def cb_apply(self, _button: object) -> str:
+                raise RuntimeError("disk full")
+
+            @reports_apply_errors
+            def cb_ok(self, _button: object) -> str:
+                return "done"
+
+        dialog = _Dialog()
+        with patch("gramps.gui.dialog.ErrorDialog") as error_dialog:
+            with self.assertLogs(
+                "gramps.plugins.tool.gwizard_mediafix_common", "ERROR"
+            ):
+                self.assertIsNone(dialog.cb_apply(None))
+            self.assertEqual(dialog.cb_ok(None), "done")
+        error_dialog.assert_called_once()
+        self.assertIn("nothing was changed", error_dialog.call_args.args[1])
+        self.assertIn("disk full", error_dialog.call_args.args[1])
 
 
 # Test discovery imports every test module before running any, so take the

@@ -127,7 +127,7 @@ Each item lists the gap, where the idea comes from, and a suggested approach. Pr
   _ = _trans.sgettext
   ngettext = _trans.ngettext
   ```
-  Also apply it in `gw_fixmediareferencesdialog.py`, `gwizard_common.py` and the new `gw_mediapreview.py`.
+  Also apply it in `gw_fixmediareferencesdialog.py`, `gwizard_mediafix_common.py` and the new `gw_mediapreview.py`.
 * **Done:**
   * All four modules use the pattern above (`ngettext` only where it is used). As a built-in tool there is no `locale/` folder, so Gramps' own translations are used as before.
   * The generated `.gpr.py` had the same problem: it redefined `_` as `glocale.translation.gettext`, hiding the addon translator Gramps passes to it. `package_addon.py` (in `gramps_devutil`) no longer writes that line, so the tool's name and description are translated too.

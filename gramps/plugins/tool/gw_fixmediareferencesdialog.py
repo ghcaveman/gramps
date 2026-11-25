@@ -44,12 +44,13 @@ from gi.repository import Gtk
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
+from gramps.gen.errors import HandleError
 from gramps.gen.merge.mergemediaquery import MergeMediaQuery
 from gramps.gen.utils.file import media_path_full
 from gramps.gui.dialog import OkDialog
 
 try:
-    from .gwizard_common import (
+    from .gwizard_mediafix_common import (
         TableLabel,
         HeaderLabel,
         create_table_grid,
@@ -67,7 +68,7 @@ try:
         remove_media_with_import_notes,
     )
 except (ImportError, ValueError):
-    from gwizard_common import (  # type: ignore[import-not-found,no-redef]
+    from gwizard_mediafix_common import (  # type: ignore[import-not-found,no-redef]
         TableLabel,
         HeaderLabel,
         create_table_grid,
@@ -272,6 +273,202 @@ def find_duplicate_media_groups(
     return groups
 
 
+def find_name_fix_groups(db: DbReadBase | None) -> list[dict[str, Any]]:
+    """Rows for media whose description misspells the linked person's name.
+
+    Only probable spelling variants ("Smyth" for "Smith") are offered: a
+    description naming a different person may mean the media is linked to the
+    wrong person, which needs a human look (it stays in the report).  A name
+    that matches one of the person's alternate names is not a mismatch.
+
+    Kept apart from :func:`find_duplicate_media_groups`, whose groups 'Accept
+    all hints' also uses.
+
+    :param db: The database.
+    :returns: Groups of type ``"name_mismatch"``.
+    """
+    if not db:
+        return []
+    try:
+        from .gwizardmediafix import find_name_mismatch_records
+    except (ImportError, ValueError):
+        from gwizardmediafix import (  # type: ignore[import-not-found,no-redef]
+            find_name_mismatch_records,
+        )
+
+    groups: list[dict[str, Any]] = []
+    for rec in find_name_mismatch_records(db):
+        if rec["kind"] != "probable spelling variant":
+            continue
+        if not rec["new_desc"] or rec["new_desc"] == rec["desc"]:
+            continue
+        try:
+            media = db.get_media_from_handle(rec["handle"])
+        except Exception:
+            media = None
+        raw_path = clean_path(str(media.get_path() or "")) if media else ""
+        record = {
+            "handle": rec["handle"],
+            "gramps_id": rec["gramps_id"],
+            "desc": rec["desc"],
+            "raw_path": raw_path,
+            "full_path": path_key(full_media_path(db, raw_path)) if raw_path else "",
+        }
+        groups.append(
+            {
+                "type": "name_mismatch",
+                "file_key": record["full_path"],
+                "records": [record],
+                "keeper": record,
+                "raw_path": raw_path,
+                "in_desc": rec["in_desc"],
+                "linked": rec["linked"],
+                "new_desc": rec["new_desc"],
+            }
+        )
+    groups.sort(key=lambda g: gramps_id_key(g["keeper"]["gramps_id"]))
+    return groups
+
+
+# ------------------------------------------------------------
+#
+# The fixes themselves, shared by this dialog and 'Accept all hints' so the
+# two always do exactly the same thing.
+#
+# ------------------------------------------------------------
+def merge_into_keeper(dbstate: Any, group: dict[str, Any]) -> tuple[int, list[str]]:
+    """
+    Merge every other record of a duplicate group into its keeper.
+
+    :param dbstate: The Gramps database state (Gramps' merge needs it).
+    :param group: A ``"duplicate"`` group from :func:`find_duplicate_media_groups`.
+    :returns: ``(records merged, errors)``.
+    """
+    db = dbstate.db
+    try:
+        keeper_media = db.get_media_from_handle(group["keeper"]["handle"])
+    except HandleError:
+        return 0, []
+    if not keeper_media:
+        return 0, []
+    merged = 0
+    errors: list[str] = []
+    for other in group["records"]:
+        if other["handle"] == group["keeper"]["handle"]:
+            continue
+        try:
+            other_media = db.get_media_from_handle(other["handle"])
+        except HandleError:
+            continue  # already merged or deleted
+        if not other_media:
+            continue
+        try:
+            MergeMediaQuery(dbstate, keeper_media, other_media).execute()
+            fill_merged_checksum(db, keeper_media, other_media)
+            add_media_fixed_tag(db, keeper_media, commit=True)
+            merged += 1
+        except Exception as err:
+            LOG.exception("Failed to merge media record: %s", err)
+            errors.append("[%s] %s" % (other.get("gramps_id", ""), err))
+    return merged, errors
+
+
+def delete_unreferenced(db: DbWriteBase, handle: str) -> bool:
+    """
+    Delete an unreferenced media record and the import notes only it used.
+
+    :param db: The database.
+    :param handle: The record's handle.
+    :returns: Whether it was deleted (``False`` if it was already gone).
+    """
+    try:
+        if db.get_media_from_handle(handle) is None:
+            return False
+    except HandleError:
+        return False
+    with DbTxn(_("Remove Unreferenced Media"), db) as trans:
+        remove_media_with_import_notes(db, handle, trans)
+    return True
+
+
+def apply_name_fix(db: DbWriteBase, group: dict[str, Any]) -> bool:
+    """
+    Put the linked person's name into one media description.
+
+    Shared by the Fix media references dialog and 'Accept all hints', so the
+    two always do the same thing.  A record merged away or deleted earlier in
+    the same run, or whose description was edited since the scan, is skipped.
+
+    :param db: The database.
+    :param group: A group from :func:`find_name_fix_groups`.
+    :returns: Whether the description was changed.
+    """
+    try:
+        media = db.get_media_from_handle(group["keeper"]["handle"])
+    except HandleError:
+        return False
+    if media is None or str(media.get_description() or "") != group["keeper"]["desc"]:
+        return False
+    with DbTxn(_("Correct Media Description"), db) as trans:
+        media.set_description(group["new_desc"])
+        add_media_fixed_tag(db, media, txn=trans)
+        db.commit_media(media, trans)
+    return True
+
+
+def find_import_note_groups(db: DbReadBase | None) -> list[dict[str, Any]]:
+    """Rows for media carrying leftover "Records not imported into OBJE" notes.
+
+    Only media whose file is readable now are listed: the note describes an
+    import problem that has since been fixed.  (This used to be the separate
+    'Clean import notes' step.)
+
+    :param db: The database.
+    :returns: Groups of type ``"import_notes"``, one per media record.
+    """
+    if not db:
+        return []
+    try:
+        from .gwizardmediafix import find_stale_import_notes
+    except (ImportError, ValueError):
+        from gwizardmediafix import (  # type: ignore[import-not-found,no-redef]
+            find_stale_import_notes,
+        )
+
+    by_media: dict[str, list[tuple[str, str, str, str]]] = {}
+    for item in find_stale_import_notes(db):
+        by_media.setdefault(item[0], []).append(item)
+
+    groups: list[dict[str, Any]] = []
+    for handle, items in by_media.items():
+        try:
+            media = db.get_media_from_handle(handle)
+        except Exception:
+            media = None
+        if media is None:
+            continue
+        raw_path = clean_path(str(media.get_path() or ""))
+        record = {
+            "handle": handle,
+            "gramps_id": str(media.get_gramps_id() or ""),
+            "desc": str(media.get_description() or ""),
+            "raw_path": raw_path,
+            "full_path": path_key(full_media_path(db, raw_path)) if raw_path else "",
+        }
+        groups.append(
+            {
+                "type": "import_notes",
+                "file_key": record["full_path"],
+                "records": [record],
+                "keeper": record,
+                "raw_path": raw_path,
+                "items": items,
+            }
+        )
+    groups.sort(key=lambda g: gramps_id_key(g["keeper"]["gramps_id"]))
+    return groups
+
+
 # ------------------------------------------------------------
 #
 # FixMediaReferencesDialog
@@ -311,6 +508,8 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
 
         if dbstate and dbstate.db:
             self.groups = find_duplicate_media_groups(dbstate.db)
+            self.groups += find_name_fix_groups(dbstate.db)
+            self.groups += find_import_note_groups(dbstate.db)
             self.rows = self.groups
 
         n_hints = len(self.groups)
@@ -334,9 +533,12 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
             label=str(
                 _(
                     "Review duplicate references where a single media file is shared by multiple records, "
-                    "or image tags with no data references in the database. "
+                    "or image tags with no data references in the database, "
+                    "descriptions that misspell the linked person's name, and leftover "
+                    "import notes on files that are readable now. "
                     "You can merge duplicate media records into a single keeper, create separate file copies, "
-                    "or delete unreferenced records."
+                    "delete unreferenced records, correct the name in a description, "
+                    "or delete leftover import notes."
                 )
             )
         )
@@ -346,7 +548,12 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
 
         if not self.groups:
             done = Gtk.Label(
-                label=str(_("No duplicate or unreferenced media records found."))
+                label=str(
+                    _(
+                        "No duplicate or unreferenced media records, misspelled "
+                        "names or leftover import notes found."
+                    )
+                )
             )
             done.set_halign(Gtk.Align.START)
             content.add(done)
@@ -354,13 +561,22 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
 
         dup_count = sum(1 for g in self.groups if g.get("type") == "duplicate")
         unref_count = sum(1 for g in self.groups if g.get("type") == "unreferenced")
+        name_count = sum(1 for g in self.groups if g.get("type") == "name_mismatch")
+        note_count = sum(1 for g in self.groups if g.get("type") == "import_notes")
         count_label = Gtk.Label(
             label=str(
                 _(
                     "Total items to fix: %(total)d (duplicate file groups: "
-                    "%(dups)d, unreferenced image tags: %(unref)d)"
+                    "%(dups)d, unreferenced image tags: %(unref)d, "
+                    "misspelled names: %(names)d, leftover import notes: %(notes)d)"
                 )
-                % {"total": len(self.groups), "dups": dup_count, "unref": unref_count}
+                % {
+                    "total": len(self.groups),
+                    "dups": dup_count,
+                    "unref": unref_count,
+                    "names": name_count,
+                    "notes": note_count,
+                }
             )
         )
         count_label.set_halign(Gtk.Align.START)
@@ -411,7 +627,100 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
             keeper = group["keeper"]
             g_type = group.get("type", "duplicate")
 
-            if g_type == "unreferenced":
+            if g_type == "name_mismatch":
+                # Column 0: File path and the record's description
+                file_label = TableLabel(
+                    "\n".join(
+                        [
+                            group["raw_path"],
+                            f"  • [{keeper['gramps_id']}] {keeper['desc']}",
+                        ]
+                    ),
+                    width_chars=40,
+                    width_request=320,
+                )
+                grid.attach(file_label, 0, row_index, 1, 1)
+
+                # Column 1: The name in the description vs the linked person
+                ref_label = TableLabel(
+                    "\n".join(
+                        [
+                            str(_("Description says: %s")) % group["in_desc"],
+                            str(_("Linked person: %s")) % group["linked"],
+                        ]
+                    ),
+                    width_chars=40,
+                    width_request=300,
+                )
+                grid.attach(ref_label, 1, row_index, 1, 1)
+
+                # Column 2: Action ComboBox
+                action_combo = Gtk.ComboBoxText()
+                action_combo.append_text(str(_("Use the linked person's name")))
+                action_combo.append_text(str(_("Keep description (no change)")))
+                action_combo.set_active(0)
+                action_combo.set_hexpand(True)
+                grid.attach(action_combo, 2, row_index, 1, 1)
+                suggested_action = 0
+
+                # Column 3: Hint label
+                hint_label = TableLabel(
+                    str(_("Probable spelling variant: change description to '%s'"))
+                    % group["new_desc"],
+                    width_chars=36,
+                    width_request=280,
+                )
+                hint_label.set_hexpand(True)
+                grid.attach(hint_label, 3, row_index, 1, 1)
+
+            elif g_type == "import_notes":
+                # Column 0: File path and the record's description
+                file_label = TableLabel(
+                    "\n".join(
+                        [
+                            group["raw_path"],
+                            f"  • [{keeper['gramps_id']}] "
+                            + (keeper["desc"] or _("(unnamed)")),
+                        ]
+                    ),
+                    width_chars=40,
+                    width_request=320,
+                )
+                grid.attach(file_label, 0, row_index, 1, 1)
+
+                # Column 1: The notes
+                ref_label = TableLabel(
+                    str(_("Import notes: %s"))
+                    % ", ".join(item[3] for item in group["items"]),
+                    width_chars=40,
+                    width_request=300,
+                )
+                grid.attach(ref_label, 1, row_index, 1, 1)
+
+                # Column 2: Action ComboBox
+                action_combo = Gtk.ComboBoxText()
+                action_combo.append_text(str(_("Delete leftover import notes")))
+                action_combo.append_text(str(_("Keep notes (no change)")))
+                action_combo.set_active(0)
+                action_combo.set_hexpand(True)
+                grid.attach(action_combo, 2, row_index, 1, 1)
+                suggested_action = 0
+
+                # Column 3: Hint label
+                hint_label = TableLabel(
+                    str(
+                        _(
+                            "The file is readable now, so these 'Records not "
+                            "imported into OBJE' notes are out of date"
+                        )
+                    ),
+                    width_chars=36,
+                    width_request=280,
+                )
+                hint_label.set_hexpand(True)
+                grid.attach(hint_label, 3, row_index, 1, 1)
+
+            elif g_type == "unreferenced":
                 # Column 0: File path and records summary
                 desc_lines = [
                     group["raw_path"],
@@ -558,7 +867,16 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
             for region in self.regions_for(rec["handle"], "[%s]" % rec["gramps_id"]):
                 region["record"] = index
                 regions.append(region)
-        if group.get("type") == "unreferenced":
+        if group.get("type") == "name_mismatch":
+            caption = str(_("[%(gid)s] is linked to %(name)s.")) % {
+                "gid": group["keeper"]["gramps_id"],
+                "name": group["linked"],
+            }
+        elif group.get("type") == "import_notes":
+            caption = (
+                str(_("[%s] has leftover import notes.")) % group["keeper"]["gramps_id"]
+            )
+        elif group.get("type") == "unreferenced":
             caption = str(_("[%s] has no references.")) % group["keeper"]["gramps_id"]
         else:
             caption = ngettext(
@@ -614,6 +932,8 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
         merged_count = 0
         copied_count = 0
         deleted_count = 0
+        renamed_count = 0
+        notes_count = 0
         errors: list[str] = []
 
         for target in self.row_targets:
@@ -628,24 +948,44 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
             group = target["group"]
             g_type = group.get("type", "duplicate")
 
+            if g_type == "name_mismatch":
+                if choice != 0:
+                    continue
+                try:
+                    if apply_name_fix(self.dbstate.db, group):
+                        renamed_count += 1
+                except Exception as err:
+                    LOG.exception("Failed to correct media description: %s", err)
+                    errors.append("[%s] %s" % (group["keeper"]["gramps_id"], err))
+                continue
+
+            if g_type == "import_notes":
+                if choice != 0:
+                    continue
+                try:
+                    from .gwizardmediafix import remove_import_notes
+                except (ImportError, ValueError):
+                    from gwizardmediafix import (  # type: ignore[import-not-found,no-redef]
+                        remove_import_notes,
+                    )
+                try:
+                    # Media deleted or merged away above are skipped inside.
+                    notes_count += remove_import_notes(self.dbstate.db, group["items"])
+                except Exception as err:
+                    LOG.exception("Failed to remove import notes: %s", err)
+                    errors.append("[%s] %s" % (group["keeper"]["gramps_id"], err))
+                continue
+
             if g_type == "unreferenced":
                 if choice == 0:
-                    handle = group["keeper"]["handle"]
-                    cand = self.dbstate.db.get_media_from_handle(handle)
-                    if cand:
-                        try:
-                            with DbTxn(
-                                _("Remove Unreferenced Media"), self.dbstate.db
-                            ) as trans:
-                                remove_media_with_import_notes(
-                                    self.dbstate.db, handle, trans
-                                )
-                                deleted_count += 1
-                        except Exception as err:
-                            LOG.exception(
-                                "Failed to remove unreferenced media: %s", err
-                            )
-                            errors.append(str(err))
+                    try:
+                        if delete_unreferenced(
+                            self.dbstate.db, group["keeper"]["handle"]
+                        ):
+                            deleted_count += 1
+                    except Exception as err:
+                        LOG.exception("Failed to remove unreferenced media: %s", err)
+                        errors.append(str(err))
                 continue
 
             if choice == 2:  # Keep shared (no change)
@@ -656,31 +996,9 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
 
             if choice == 0:
                 # Merge duplicate records into keeper
-                keeper_media = self.dbstate.db.get_media_from_handle(keeper["handle"])
-                if not keeper_media:
-                    continue
-                for other in records:
-                    if other["handle"] == keeper["handle"]:
-                        continue
-                    try:
-                        other_media = self.dbstate.db.get_media_from_handle(
-                            other["handle"]
-                        )
-                        if other_media:
-                            query = MergeMediaQuery(
-                                self.dbstate, keeper_media, other_media
-                            )
-                            query.execute()
-                            fill_merged_checksum(
-                                self.dbstate.db, keeper_media, other_media
-                            )
-                            add_media_fixed_tag(
-                                self.dbstate.db, keeper_media, commit=True
-                            )
-                            merged_count += 1
-                    except Exception as err:
-                        LOG.exception("Failed to merge media record: %s", err)
-                        errors.append(str(err))
+                merged, merge_errors = merge_into_keeper(self.dbstate, group)
+                merged_count += merged
+                errors.extend(merge_errors)
 
             elif choice == 1:
                 # Create separate file copies for each duplicate record
@@ -748,7 +1066,13 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                             % log_err
                         )
 
-        if merged_count == 0 and copied_count == 0 and deleted_count == 0:
+        if not (
+            merged_count
+            or copied_count
+            or deleted_count
+            or renamed_count
+            or notes_count
+        ):
             if errors:
                 # Every selected action failed: say why,
                 # instead of claiming nothing was selected.
@@ -762,7 +1086,9 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
                 str(_("Nothing to apply")),
                 str(
                     _(
-                        "No actions selected. Choose 'Merge', 'Create copies', or 'Delete' for one or more records first."
+                        "No actions selected. Choose 'Merge', 'Create copies', 'Delete', "
+                        "'Use the linked person's name' or 'Delete leftover import "
+                        "notes' for one or more records first."
                     )
                 ),
                 parent=self,
@@ -778,6 +1104,23 @@ class FixMediaReferencesDialog(PreviewRowsMixin, Gtk.Dialog):
             summary.append(
                 str(_("Deleted %d unreferenced media records.")) % deleted_count
             )
+        if renamed_count > 0:
+            summary.append(
+                str(_("Corrected the name in %d media descriptions.")) % renamed_count
+            )
+        if notes_count > 0:
+            summary.append(str(_("Removed %d leftover import notes.")) % notes_count)
+
+        try:
+            from .gwizardmediafix import checksums_added_note, fill_missing_checksums
+        except (ImportError, ValueError):
+            from gwizardmediafix import (  # type: ignore[import-not-found,no-redef]
+                checksums_added_note,
+                fill_missing_checksums,
+            )
+        note = checksums_added_note(fill_missing_checksums(self.dbstate.db, self))
+        if note:
+            summary.append("\n\n" + note)
 
         msg = " ".join(summary)
         if errors:

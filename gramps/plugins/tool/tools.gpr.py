@@ -671,6 +671,32 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard Citation Fix
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardcitationfix",
+    name=_("GWizard Citation Fix"),
+    description=_(
+        "Open the GWizard Citation Fix dialog to generate " "and view citation reports."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    fname="gwizardcitationfix.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardCitationFix",
+    optionclass="GWizardCitationFixOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url=TOOLS_HELP,
+)
+
+# ------------------------------------------------------------------------
+#
 # Find database Loop
 #
 # ------------------------------------------------------------------------

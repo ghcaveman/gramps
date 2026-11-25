@@ -27,6 +27,7 @@
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import csv
+import functools
 import html
 import logging
 import os
@@ -34,7 +35,7 @@ import re
 import shutil
 import sys
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 # -------------------------------------------------------------------------
 #
@@ -64,6 +65,42 @@ LOG = logging.getLogger(__name__)
 
 # "C:\..." or "C:/..." - a Windows drive path, recognised on every platform
 _WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+_Method = TypeVar("_Method", bound=Callable[..., Any])
+
+
+def reports_apply_errors(method: _Method) -> _Method:
+    """Decorate a dialog's Apply handler so a failure is shown, not lost.
+
+    The apply functions run in one transaction and let errors through, so
+    Gramps rolls the whole transaction back. This shows the user that
+    nothing was changed, and logs the details.
+
+    :param method: A dialog method; ``self`` is used as the dialog parent.
+    :returns: The wrapped method.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as error:  # pylint: disable=broad-except
+            LOG.exception("Apply failed in %s", type(self).__name__)
+            # pylint: disable-next=import-outside-toplevel
+            from gramps.gui.dialog import ErrorDialog
+
+            ErrorDialog(
+                _("Changes not applied"),
+                _(
+                    "Something went wrong, so nothing was changed. "
+                    "The details are in the Gramps log.\n\n{error}"
+                ).format(error=error),
+                parent=self,
+            )
+            return None
+
+    return wrapper  # type: ignore[return-value]
 
 
 def escape_markup(text: Any) -> str:
@@ -402,6 +439,60 @@ def unique_destination(dest: str, claimed: set[str], src: str | None = None) -> 
         n += 1
     claimed.add(path_key(cand))
     return cand
+
+
+def same_content(first: str, second: str) -> bool:
+    """
+    Return True if two readable files have exactly the same content.
+
+    Compared by size first, then by checksum (MD5, as Gramps stores it).
+
+    :param first: A file's full path.
+    :param second: Another file's full path.
+    :returns: Whether both can be read and their contents are identical.
+    """
+    try:
+        if os.path.getsize(first) != os.path.getsize(second):
+            return False
+    except OSError:
+        return False
+    digest = file_checksum(first)
+    return bool(digest) and digest == file_checksum(second)
+
+
+def consolidation_destination(
+    dest: str, claimed: set[str], src: str | None = None
+) -> tuple[str, str]:
+    """
+    Choose where a file goes when consolidating.
+
+    When *dest* already holds a file with exactly the same content as *src*
+    (e.g. left by an earlier run, or a copy made by hand), that file is
+    reused instead of adding ``_2``, ``_3`` ... to the name.  Otherwise this
+    is :func:`unique_destination`.  The result is claimed.
+
+    :param dest: The standard destination.
+    :param claimed: Destinations already used in this batch.
+    :param src: The file being consolidated.
+    :returns: ``(path, how)``: *how* is ``"reuse"`` when an identical file
+        is already there, ``"renamed"`` when the name was taken by a
+        different file, otherwise ``""``.
+    """
+    if (
+        src
+        and path_key(dest) not in claimed
+        and os.path.isfile(dest)
+        and os.path.exists(src)
+    ):
+        try:
+            same_file = os.path.samefile(src, dest)
+        except OSError:
+            same_file = False
+        if not same_file and same_content(src, dest):
+            claimed.add(path_key(dest))
+            return dest, "reuse"
+    final = unique_destination(dest, claimed, src)
+    return final, ("renamed" if path_key(final) != path_key(dest) else "")
 
 
 def relocate_file(src: str, dest: str, copy: bool = False) -> tuple[bool, str]:
