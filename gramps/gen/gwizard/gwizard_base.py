@@ -238,6 +238,136 @@ def is_empty_event(event: Any, db: Any = None) -> bool:
     return True
 
 
+def date_specificity_score(date_obj: Any) -> float:
+    """
+    Return a numeric score representing the precision and specificity of a Date.
+
+    Scores range from 0.0 (empty) to 4.0 (exact day, month, year):
+    - 0.0: Empty, none, or invalid
+    - 0.5: Text-only date without numeric components
+    - 1.0: Broad modifier (before/after/about/range) with year only
+    - 2.0: Exact year only (e.g. '1877')
+    - 2.5: Broad modifier with month and year
+    - 3.0: Exact month and year (e.g. 'JAN 1877')
+    - 3.5: Broad modifier with full day, month, year
+    - 4.0: Exact day, month, year (e.g. '25 JAN 1877')
+    """
+    if date_obj is None:
+        return 0.0
+    if hasattr(date_obj, "is_empty") and date_obj.is_empty():
+        return 0.0
+
+    try:
+        year = int(date_obj.get_year()) if hasattr(date_obj, "get_year") else 0
+        month = int(date_obj.get_month()) if hasattr(date_obj, "get_month") else 0
+        day = int(date_obj.get_day()) if hasattr(date_obj, "get_day") else 0
+        modifier = (
+            int(date_obj.get_modifier()) if hasattr(date_obj, "get_modifier") else 0
+        )
+        quality = int(date_obj.get_quality()) if hasattr(date_obj, "get_quality") else 0
+    except Exception:
+        return 0.0
+
+    if year <= 0:
+        text = str(getattr(date_obj, "get_text", lambda: "")() or "").strip()
+        return 0.5 if text else 0.0
+
+    if day > 0 and month > 0:
+        base = 4.0
+    elif month > 0:
+        base = 3.0
+    else:
+        base = 2.0
+
+    if modifier != 0:
+        base -= 0.5
+    if quality != 0:
+        base -= 0.2
+
+    return max(0.0, base)
+
+
+def compare_date_specificity(date_a: Any, date_b: Any) -> int:
+    """
+    Compare the specificity of two date objects.
+
+    :returns: 1 if date_a is more specific than date_b,
+             -1 if date_b is more specific than date_a,
+              0 if both have equivalent specificity.
+    :rtype: int
+    """
+    score_a = date_specificity_score(date_a)
+    score_b = date_specificity_score(date_b)
+    if score_a > score_b:
+        return 1
+    if score_a < score_b:
+        return -1
+    return 0
+
+
+def place_specificity_score(place: Any, db: Any = None) -> float:
+    """
+    Return a numeric score representing the level of detail of a place.
+
+    Evaluates the number of enclosing geographic levels (e.g. comma-separated
+    tokens), coordinates, and hierarchy depth.
+    """
+    if place is None:
+        return 0.0
+
+    title = ""
+    has_coords = False
+    hierarchy_depth = 0
+
+    if isinstance(place, str):
+        title = place.strip()
+    else:
+        try:
+            name_obj = place.get_name() if hasattr(place, "get_name") else None
+            title = (
+                str(name_obj.get_value() or "")
+                if name_obj
+                else str(place.get_title() or "")
+            ).strip()
+            lat = str(getattr(place, "get_latitude", lambda: "")() or "").strip()
+            lon = str(getattr(place, "get_longitude", lambda: "")() or "").strip()
+            has_coords = bool(lat and lon)
+            placerefs: list[Any] = getattr(place, "get_placeref_list", lambda: [])()
+            hierarchy_depth = len(placerefs)
+        except Exception:
+            title = str(place).strip()
+
+    if not title and not has_coords and hierarchy_depth == 0:
+        return 0.0
+
+    tokens = [t.strip() for t in title.split(",") if t.strip()]
+    score = float(len(tokens))
+    if has_coords:
+        score += 1.0
+    score += float(hierarchy_depth) * 0.5
+    return score
+
+
+def compare_place_specificity(
+    place_a: Any, place_b: Any, db_a: Any = None, db_b: Any = None
+) -> int:
+    """
+    Compare the specificity of two places.
+
+    :returns: 1 if place_a is more specific than place_b,
+             -1 if place_b is more specific than place_a,
+              0 if both have equivalent specificity.
+    :rtype: int
+    """
+    score_a = place_specificity_score(place_a, db_a)
+    score_b = place_specificity_score(place_b, db_b)
+    if score_a > score_b:
+        return 1
+    if score_a < score_b:
+        return -1
+    return 0
+
+
 def vital_event_ref(db: Any, person: Person | None, kind: str) -> Any | None:
     """
     Return the reference to the person's birth or death event.
