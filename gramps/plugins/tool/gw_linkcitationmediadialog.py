@@ -50,6 +50,9 @@ from gramps.gen.utils.file import media_path_full
 from gramps.gen.utils.thumbnails import get_thumbnail_image
 from gramps.gui.dialog import OkDialog
 from gramps.plugins.tool.gwizard_mediafix_common import (
+    HeaderLabel,
+    SelectableLabel,
+    TableLabel,
     clean_path,
     escape_markup,
     full_media_path,
@@ -240,8 +243,9 @@ def build_link_citation_media_rows(
             action_label = action
             default_action = "link"
 
-        # If conflict, default action should be skip
-        if compat.status == "conflict":
+        # Only safe matches are linked by default (and by Accept hints);
+        # Review and Conflict rows start on Skip until the user picks.
+        if compat.status != "safe":
             default_action = "skip"
 
         # Status icon & text
@@ -426,8 +430,9 @@ def auto_link_citation_media(
 ) -> int:
     """Headless auto-linker for 'Accept all hints'.
 
-    Applies only safe (🟢) candidates with zero conflicts in one transaction.
-    Only media that follows the Media Fix rules is used; see
+    Applies every row whose hint is "link" (the safe 🟢 candidates), the
+    same rows the dialog's Accept hints selects, in one transaction. Only
+    media that follows the Media Fix rules is used; see
     :func:`build_link_citation_media_rows` for ``stats``.
     """
     if not db:
@@ -436,18 +441,9 @@ def auto_link_citation_media(
         return 0
 
     rows = build_link_citation_media_rows(db, stats)
-    safe_plan = [
-        r
-        for r in rows
-        if r.get("status") == "safe"
-        and r.get("compatibility")
-        and not r["compatibility"].conflicts
-    ]
-    if not safe_plan:
+    safe_plan = [dict(r, chosen_action=r["hint_target"]) for r in rows]
+    if not any(r["chosen_action"] != "skip" for r in safe_plan):
         return 0
-
-    for r in safe_plan:
-        r["chosen_action"] = "link"
 
     class _FakeDbState:
         def __init__(self, database: Any) -> None:
@@ -503,10 +499,7 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
 
         problems_text = media_problems_message(self.stats["media_problems"])
         if problems_text:
-            problems_label = Gtk.Label(label=problems_text)
-            problems_label.set_line_wrap(True)
-            problems_label.set_selectable(True)
-            problems_label.set_halign(Gtk.Align.START)
+            problems_label = SelectableLabel(label=problems_text)
             content.pack_start(problems_label, False, False, 0)
 
         if not self.rows:
@@ -517,13 +510,12 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
                     "No candidate media links found. All citations and media "
                     "attachments are well-aligned."
                 )
-            done = Gtk.Label(label=str(done_text))
-            done.set_halign(Gtk.Align.START)
+            done = SelectableLabel(label=str(done_text), wrap=False)
             content.add(done)
             self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
             return
 
-        stat_label = Gtk.Label(
+        stat_label = SelectableLabel(
             label=ngettext(
                 "Found {number_of} candidate media link: {safe} Safe 🟢, {review} "
                 "Review 🟡, {conflict} Conflict 🔴",
@@ -532,9 +524,9 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
                 len(self.rows),
             ).format(
                 number_of=len(self.rows), safe=n_safe, review=n_review, conflict=n_conf
-            )
+            ),
+            wrap=False,
         )
-        stat_label.set_halign(Gtk.Align.START)
         content.pack_start(stat_label, False, False, 0)
 
         # Main horizontal split: Table on Left, Inspector on Right
@@ -594,35 +586,27 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
             "",
         ]
         for col_idx, head in enumerate(headers):
-            lbl = Gtk.Label()
-            lbl.set_markup(f"<b>{head}</b>")
-            lbl.set_halign(Gtk.Align.START)
+            lbl = HeaderLabel(head)
             grid.attach(lbl, col_idx, 0, 1, 1)
 
         row_index = 1
         for row in rows:
             # Col 0: Status
-            status_lbl = Gtk.Label(label=row["status_display"])
-            status_lbl.set_halign(Gtk.Align.START)
+            status_lbl = TableLabel(label=row["status_display"], wrap=False)
             grid.attach(status_lbl, 0, row_index, 1, 1)
 
             # Col 1: Citation
-            cit_lbl = Gtk.Label(label=row["cit_display"])
-            cit_lbl.set_halign(Gtk.Align.START)
-            cit_lbl.set_line_wrap(True)
+            cit_lbl = TableLabel(label=row["cit_display"])
             cit_lbl.set_max_width_chars(32)
             grid.attach(cit_lbl, 1, row_index, 1, 1)
 
             # Col 2: Media
-            media_lbl = Gtk.Label(label=row["media_display"])
-            media_lbl.set_halign(Gtk.Align.START)
-            media_lbl.set_line_wrap(True)
+            media_lbl = TableLabel(label=row["media_display"])
             media_lbl.set_max_width_chars(28)
             grid.attach(media_lbl, 2, row_index, 1, 1)
 
             # Col 3: Proposed Action
-            act_lbl = Gtk.Label(label=row["action_display"])
-            act_lbl.set_halign(Gtk.Align.START)
+            act_lbl = TableLabel(label=row["action_display"], wrap=False)
             grid.attach(act_lbl, 3, row_index, 1, 1)
 
             # Col 4: Choice Dropdown
@@ -660,9 +644,7 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
         box.set_size_request(380, -1)  # Gtk.Box has no set_min_content_width
         box.set_border_width(6)
 
-        title = Gtk.Label()
-        title.set_markup("<b>" + str(_("Link Inspector")) + "</b>")
-        title.set_halign(Gtk.Align.START)
+        title = HeaderLabel(str(_("Link Inspector")))
         box.pack_start(title, False, False, 0)
 
         # Thumbnail image display
@@ -671,18 +653,15 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
         box.pack_start(self.preview_image, False, False, 0)
 
         # Score badge
-        self.preview_score = Gtk.Label()
-        self.preview_score.set_halign(Gtk.Align.START)
+        self.preview_score = SelectableLabel(wrap=False)
         box.pack_start(self.preview_score, False, False, 0)
 
         # Scrolled details text
         scrolled_text = Gtk.ScrolledWindow()
         scrolled_text.set_min_content_height(220)
         scrolled_text.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        self.preview_text = Gtk.Label()
-        self.preview_text.set_halign(Gtk.Align.START)
+        self.preview_text = SelectableLabel()
         self.preview_text.set_valign(Gtk.Align.START)
-        self.preview_text.set_line_wrap(True)
         self.preview_text.set_max_width_chars(45)
         scrolled_text.add(self.preview_text)
         box.pack_start(scrolled_text, True, True, 0)
@@ -789,9 +768,9 @@ class GWLinkCitationMediaDialog(Gtk.Dialog):
         row["chosen_action"] = val
 
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
-        """Select safe default choices for all rows."""
+        """Set every row whose hint is to link (the safe rows) to Link."""
         for row, combo in self.row_combos:
-            if row["status"] == "safe":
+            if row["hint_target"] == "link":
                 combo.set_active_id("link")
                 row["chosen_action"] = "link"
 

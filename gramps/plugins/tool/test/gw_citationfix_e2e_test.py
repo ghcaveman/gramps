@@ -79,7 +79,6 @@ from gramps.plugins.tool.gw_repoconsolidatedialog import apply_repo_consolidatio
 
 CITATION_FIX_MODULES = (
     "gw_citationattributesdialog",
-    "gw_citationsfixdialog",
     "gw_goldstandardrepos",
     "gw_linkcitationmediadialog",
     "gw_notesfixdialog",
@@ -104,6 +103,18 @@ class ImportTest(unittest.TestCase):
         for name in CITATION_FIX_MODULES:
             with self.subTest(module=name):
                 importlib.import_module("gramps.plugins.tool." + name)
+
+    def test_no_plain_gtk_labels(self) -> None:
+        """Dialog text uses the shared labels, so it can be copied.
+
+        SelectableLabel, TableLabel and HeaderLabel (gwizard_mediafix_common)
+        make the text selectable with the mouse; a plain Gtk.Label is not.
+        """
+        for name in CITATION_FIX_MODULES:
+            module = importlib.import_module("gramps.plugins.tool." + name)
+            with self.subTest(module=name):
+                with open(module.__file__, encoding="utf-8") as handle:
+                    self.assertNotIn("Gtk.Label(", handle.read())
 
 
 class CitationFixEndToEndTest(unittest.TestCase):

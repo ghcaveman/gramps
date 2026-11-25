@@ -752,7 +752,6 @@ gramps/plugins/tool/test/gwizardmediafix_fixes_test.py
 gramps/plugins/tool/test/gw_citationattributesdialog_test.py
 gramps/plugins/tool/test/gw_citationmediaengine_test.py
 gramps/plugins/tool/test/gw_citationreport_test.py
-gramps/plugins/tool/test/gw_citationsfixdialog_test.py
 gramps/plugins/tool/test/gw_gwizardcitationfix_test.py
 gramps/plugins/tool/test/gw_linkcitationmediadialog_test.py
 gramps/plugins/tool/test/gw_notesfixdialog_test.py

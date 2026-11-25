@@ -54,7 +54,7 @@ from gramps.gen.config import config
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.const import USER_HOME
 from gramps.gen.db import DbReadBase, DbWriteBase
-from gramps.gui.dialog import ErrorDialog, OkDialog, QuestionDialog2
+from gramps.gui.dialog import ErrorDialog, QuestionDialog2
 from gramps.gui.managedwindow import ManagedWindow
 from gramps.gui.plug import tool
 from gramps.gui.utils import ProgressMeter
@@ -64,11 +64,6 @@ from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
 from gramps.plugins.tool.gwizardcitationreport import GWizardCitationReport
-from gramps.plugins.tool.gwizardcitationshared import (
-    build_family_titles,
-    build_title_repo_index,
-    suggest_repository,
-)
 from gramps.plugins.tool.gwizardcitationshared import (
     normalize_repo_name as _shared_normalize,
 )
@@ -272,7 +267,6 @@ AUTO_STEP_LAYERS = (
     "repositories",
     "sources",
     "unpack_citations",
-    "citations",
     "citation_attributes",
     "link_citation_media",
     "notes",
@@ -331,10 +325,13 @@ def run_auto_layer(layer: str, db: DbWriteBase) -> str:
         parts = [consolidation_summary(result)] + list(result["errors"])
         return " ".join(parts)
     if layer == "repositories":
-        changed, created = auto_assign_source_repositories(
-            GWizardCitationRepairEngine(), db
+        from gramps.plugins.tool.gw_repomergedialog import (
+            auto_fix_repositories,
+            repo_fix_summary,
         )
-        return repository_change_summary(changed, created)
+
+        result = auto_fix_repositories(db)
+        return " ".join([repo_fix_summary(result)] + list(result["errors"]))
     if layer == "sources":
         from gramps.plugins.tool.gw_sourcesfixdialog import (
             auto_fix_sources,
@@ -349,15 +346,6 @@ def run_auto_layer(layer: str, db: DbWriteBase) -> str:
         return ngettext(
             "Unpacked {number_of} conflated citation.",
             "Unpacked {number_of} conflated citations.",
-            count,
-        ).format(number_of=count)
-    if layer == "citations":
-        from gramps.plugins.tool.gw_citationsfixdialog import auto_fix_citations
-
-        count = auto_fix_citations(db)
-        return ngettext(
-            "Refined {number_of} citation.",
-            "Refined {number_of} citations.",
             count,
         ).format(number_of=count)
     if layer == "citation_attributes":
@@ -573,72 +561,6 @@ def find_items_needing_review(db: DbReadBase) -> list[str]:
     return items
 
 
-# ------------------------------------------------------------
-def build_repo_fix_changes(db: DbReadBase) -> list[dict[str, str]]:
-    """Return the repository change the Fix Repositories hints suggest per source.
-
-    One entry per source/repository pair that has a hint, using the same
-    suggestions the Fix Repositories dialog shows in its Hint column. Each
-    entry is ``{"source_handle", "old_repo_handle", "target_name"}`` for
-    ``GWizardCitationRepairEngine.reassign_source_repositories``.
-    """
-    golden = GoldStandardRepositories.get_names()
-    names = {
-        str(repo.get_handle()): str(repo.get_name() or "")
-        for repo in db.iter_repositories()
-    }
-    rows: list[dict[str, str]] = []
-    for source in db.iter_sources():
-        handle = str(source.get_handle() or "")
-        title = str(source.get_title() or "")
-        refs = [
-            str(ref.get_reference_handle() or "") for ref in source.get_reporef_list()
-        ]
-        for ref_handle in refs or [""]:
-            name = names.get(ref_handle, "")
-            rows.append(
-                {
-                    "source_handle": handle,
-                    "title": title,
-                    "repo_handle": ref_handle if name else "",
-                    "repo_name": name,
-                }
-            )
-    index = build_title_repo_index([row for row in rows if row["repo_handle"]])
-    family = build_family_titles([row["title"] for row in rows])
-    changes: list[dict[str, str]] = []
-    for row in rows:
-        suggestion = suggest_repository(
-            row["title"],
-            row["source_handle"],
-            row["repo_name"],
-            index,
-            golden,
-            family,
-        )
-        if suggestion:
-            changes.append(
-                {
-                    "source_handle": row["source_handle"],
-                    "old_repo_handle": row["repo_handle"],
-                    "target_name": suggestion[0],
-                }
-            )
-    return changes
-
-
-def auto_assign_source_repositories(
-    engine: Any, db: DbWriteBase, trans: Any = None
-) -> tuple[int, int]:
-    """Accept every Fix Repositories hint and apply it in one transaction.
-
-    This is the single no-review implementation shared by the per-step
-    Auto button and Accept all hints. Returns
-    ``(sources changed, repositories created)``.
-    """
-    return engine.reassign_source_repositories(db, build_repo_fix_changes(db), trans)
-
-
 def get_button_specs() -> list[tuple[str, str, bool]]:
     """Return the (key, label, sensitive) specs for the dialog buttons."""
     return [
@@ -648,7 +570,6 @@ def get_button_specs() -> list[tuple[str, str, bool]]:
         ("fix_repositories", str(_("Fix Repositories")), True),
         ("fix_sources", str(_("Fix Sources")), True),
         ("unpack_citations", str(_("Unpack Conflated Citation")), True),
-        ("fix_citations", str(_("Fix Citations")), True),
         ("citation_attributes", str(_("Citation Attributes")), True),
         ("link_citation_media", str(_("Link Citation Media")), True),
         ("fix_notes", str(_("Fix Notes")), True),
@@ -776,11 +697,6 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
             ),
         ),
         (
-            "citations",
-            str(_("Fix Citations")),
-            str(_("Clean tree page/date and confidence.")),
-        ),
-        (
             "citation_attributes",
             str(_("Citation Attributes")),
             str(
@@ -803,7 +719,7 @@ def get_fix_layer_specs() -> list[tuple[str, str, str]]:
         (
             "notes",
             str(_("Fix Notes")),
-            str(_("Remove import debris and convert bare-URL notes.")),
+            str(_("Remove import debris and empty notes, and trim whitespace.")),
         ),
     ]
 
@@ -917,8 +833,6 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
             self.cb_fix_layer("sources")
         elif key == "unpack_citations":
             self.cb_fix_layer("unpack_citations")
-        elif key == "fix_citations":
-            self.cb_fix_layer("citations")
         elif key == "citation_attributes":
             self.cb_fix_layer("citation_attributes")
         elif key == "link_citation_media":
@@ -974,19 +888,6 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                 transient_for=self.window,
             ).show_dialog()
             return
-        if layer == "citations":
-            try:
-                from gramps.plugins.tool.gw_citationsfixdialog import CitationFixDialog
-            except ImportError:
-                LOG.warning("gw_citationsfixdialog not available; using auto fix")
-            else:
-                CitationFixDialog(
-                    title=title,
-                    dbstate=self.dbstate,
-                    description=get_fix_description("citations"),
-                    transient_for=self.window,
-                ).show_dialog()
-                return
         if layer == "citation_attributes":
             from gramps.plugins.tool.gw_citationattributesdialog import (
                 CitationAttributesDialog,
@@ -1020,38 +921,7 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                 transient_for=self.window,
             ).show_dialog()
             return
-
-        dialog = Gtk.Dialog(
-            title=title, transient_for=self.window, modal=True, destroy_with_parent=True
-        )
-        dialog.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
-        dialog.connect("response", lambda dlg, resp: dlg.destroy())
-        content = dialog.get_content_area()
-        content.set_border_width(12)
-        content.set_spacing(6)
-        label = Gtk.Label(label=get_fix_description(layer))
-        label.set_line_wrap(True)
-        label.set_halign(Gtk.Align.START)
-        content.add(label)
-        auto_button = Gtk.Button(label=str(_("Auto (best guess)")))
-        auto_button.connect("clicked", self.cb_fix_auto, layer)
-        content.add(auto_button)
-        dialog.show_all()
-        dialog.run()
-        dialog.destroy()
-
-    def cb_fix_auto(self, button: Gtk.Button, layer: str) -> None:
-        """Run the no-review fix for one layer (same code as Accept all hints)."""
-        if layer not in AUTO_STEP_LAYERS:
-            return
-        title = get_auto_step_titles().get(layer, layer)
-        try:
-            message = run_auto_layer(layer, self.dbstate.db)
-        except Exception as error:  # pylint: disable=broad-except
-            LOG.exception("Auto fix failed for layer %s", layer)
-            ErrorDialog(str(_("Fix failed")), str(error), parent=self.window)
-            return
-        OkDialog(title, message, parent=self.window)
+        raise ValueError("Unknown step: %s" % layer)
 
     def cb_auto_all(self) -> None:
         """Run best-guess auto fixes across all cleanup layers in order."""
@@ -1074,18 +944,15 @@ class GWizardCitationFix(tool.Tool, ManagedWindow):
                     "flag titles that are image file names for review.\n"
                     "5. Unpack Conflated Citation: extract dates and URLs from "
                     "volume/page fields, without duplicating notes.\n"
-                    "6. Fix Citations: lower the confidence of user-tree citations "
-                    "and fill in volume/page and date from the hints.\n"
-                    "7. Citation Attributes: assign Genealogical Proof Standard "
+                    "6. Citation Attributes: assign Genealogical Proof Standard "
                     "attributes (Source Type, Information Type, Evidence Type) and "
-                    "QUAY confidence.\n"
-                    "8. Link Citation Media: link safe documentary scans from "
+                    "QUAY confidence, lowering online-tree citations to Low.\n"
+                    "7. Link Citation Media: link safe documentary scans from "
                     "galleries and sources to citations.\n"
-                    "9. Fix Notes: delete import debris and empty notes, trim "
-                    "whitespace, and remove notes that only repeat a web address "
-                    "already in the citation page.\n\n"
+                    "8. Fix Notes: delete import debris and empty notes, and trim "
+                    "whitespace.\n\n"
                     "Each step is one transaction: Edit > Undo reverses one step at a "
-                    "time (up to 9 undos)."
+                    "time (up to 8 undos)."
                 )
             ),
             str(_("_Accept all")),

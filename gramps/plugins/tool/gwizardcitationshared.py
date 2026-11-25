@@ -1063,14 +1063,6 @@ def suggest_source_merge_target(
 # Shared apply helpers (used by the dialogs and the no-review paths)
 #
 # ------------------------------------------------------------
-_BARE_URL_NOTE = re.compile(r"^https?://\S+$", re.IGNORECASE)
-
-
-def is_bare_url_text(text: str) -> bool:
-    """Return True when the text is nothing but one web address."""
-    return bool(_BARE_URL_NOTE.match((text or "").strip()))
-
-
 def parse_citation_date(text: str) -> Any:
     """Parse date text into a Gramps Date, or return None if unparseable."""
     text = (text or "").strip()
@@ -1123,16 +1115,4 @@ def add_note_once(
     note.set(text)
     note.set_type(note_type)
     obj.add_note(db.add_note(note, trans))
-    return True
-
-
-def delete_note_if_unused(db: DbWriteBase, trans: Any, note_handle: str) -> bool:
-    """Delete a note when no object refers to it any more.
-
-    Call this after committing the objects the note was detached from, so
-    the database no longer lists them as users. Returns True if deleted.
-    """
-    if list(db.find_backlink_handles(note_handle)):
-        return False
-    db.remove_note(note_handle, trans)
     return True

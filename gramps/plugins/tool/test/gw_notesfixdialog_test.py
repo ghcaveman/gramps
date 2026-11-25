@@ -237,7 +237,9 @@ class NotesFixDialogTest(unittest.TestCase):
         with (
             patch.object(NotesFixDialog, "add_action_widget") as mock_action,
             patch.object(NotesFixDialog, "add_button") as mock_add_button,
-            patch("gramps.plugins.tool.gw_notesfixdialog.Gtk.Label") as mock_label_cls,
+            patch(
+                "gramps.plugins.tool.gw_notesfixdialog.SelectableLabel"
+            ) as mock_label_cls,
         ):
             dlg = NotesFixDialog(dbstate=self.dbstate)
             self.assertTrue(hasattr(dlg, "accept_button"))
@@ -252,7 +254,7 @@ class NotesFixDialogTest(unittest.TestCase):
                 call.kwargs.get("label", "") for call in mock_label_cls.call_args_list
             ]
             footer_found = any(
-                "Remove import debris and convert bare-URL notes." in text
+                "Remove import debris and empty notes, and trim whitespace." in text
                 for text in labels_created
             )
             self.assertTrue(footer_found)

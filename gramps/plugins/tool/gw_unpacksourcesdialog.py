@@ -45,7 +45,6 @@ from gi.repository import Gtk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.db import DbReadBase
 from gramps.gui.dialog import OkDialog
 from gramps.plugins.tool.gwizard_mediafix_common import (
     HeaderLabel,
@@ -56,41 +55,10 @@ from gramps.plugins.tool.gwizard_mediafix_common import (
 from gramps.plugins.tool.gwizardcitationrepairengine import (
     GWizardCitationRepairEngine,
 )
-from gramps.plugins.tool.gwizardcitationshared import clean_source_title
 
 _ = glocale.translation.sgettext
 ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
-
-
-def _plan_title_cleanups(
-    db: DbReadBase, planned_handles: set[str]
-) -> list[dict[str, Any]]:
-    """Return plan rows for sources whose titles have markup or quotes.
-
-    Sources the engine already planned are skipped, so nothing appears twice.
-    """
-    extra: list[dict[str, Any]] = []
-    for source in db.iter_sources():
-        handle = source.get_handle()
-        if handle in planned_handles:
-            continue
-        old_title = str(source.get_title() or "")
-        new_title, moved, repo_name, reason = clean_source_title(old_title)
-        if not new_title and not moved and not repo_name:
-            continue
-        extra.append(
-            {
-                "handle": handle,
-                "gramps_id": source.get_gramps_id(),
-                "old_title": old_title,
-                "new_title": new_title or old_title.strip(),
-                "moved_text": moved,
-                "repo_name": repo_name,
-                "reason": reason,
-            }
-        )
-    return extra
 
 
 # ------------------------------------------------------------
@@ -120,12 +88,9 @@ class UnpackSourcesDialog(Gtk.Dialog):
         )
         self.dbstate = dbstate
         self.engine = GWizardCitationRepairEngine()
+        # The engine plans the title splits and the markup/quote clean-ups,
+        # the same plan Accept all hints applies.
         raw_plan = list(self.engine.plan_unpack_conflated_sources(dbstate.db))
-        raw_plan.extend(
-            _plan_title_cleanups(
-                dbstate.db, {str(item.get("handle", "")) for item in raw_plan}
-            )
-        )
         self.plan: list[dict[str, Any]] = []
         for item in raw_plan:
             hint_parts = []

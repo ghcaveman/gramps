@@ -162,6 +162,26 @@ class GWizardCitationReportTest(unittest.TestCase):
         self.assertIn("Death_Certificate_1860", text)
         self.assertIn("Link Citation Media", text)
 
+        # Overall health summary checks
+        self.assertIn("OVERALL CITATION & MEDIA HEALTH SUMMARY", text)
+        self.assertIn("Citation Health Highlights", text)
+        self.assertIn("Media Health Highlights (from Media Fix)", text)
+        self.assertIn("Overall Health Score", text)
+        self.assertIn("Citation Image Coverage: 1 of 2 citations (50.0%)", text)
+        self.assertIn("Citations without images: 1 of 2 (50.0%)", text)
+
+    def test_overall_health_summary_empty_db(self) -> None:
+        """Overall health summary handles empty database gracefully."""
+        report = GWizardCitationReport()
+        stats = report.collect_db_stats(self.db)
+        text = report.format_analysis(stats)
+
+        self.assertIn("OVERALL CITATION & MEDIA HEALTH SUMMARY", text)
+        self.assertIn("No citations in database", text)
+        self.assertIn("No individuals in database", text)
+        self.assertIn("No media objects in database", text)
+        self.assertIn("Overall Health Score: 100/100 (Excellent)", text)
+
 
 # Test discovery imports every test module before running any, so take the
 # fakes off Gtk again now that the GWizard modules are imported; other Gramps

@@ -434,7 +434,7 @@ class SourceFixDialogTest(unittest.TestCase):
             patch.object(SourceFixDialog, "add_action_widget") as mock_action,
             patch.object(SourceFixDialog, "add_button") as mock_add_button,
             patch(
-                "gramps.plugins.tool.gw_sourcesfixdialog.Gtk.Label"
+                "gramps.plugins.tool.gw_sourcesfixdialog.SelectableLabel"
             ) as mock_label_cls,
         ):
             dlg = SourceFixDialog("Fix Sources", DummyDbState(self.db))

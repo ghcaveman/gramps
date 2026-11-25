@@ -906,7 +906,6 @@ gramps/plugins/tool/gw_fixmediareferencesdialog.py
 gramps/plugins/tool/gw_mediapreview.py
 gramps/plugins/tool/gwizardmediafix.py
 gramps/plugins/tool/gw_citationattributesdialog.py
-gramps/plugins/tool/gw_citationsfixdialog.py
 gramps/plugins/tool/gw_goldstandardrepos.py
 gramps/plugins/tool/gw_linkcitationmediadialog.py
 gramps/plugins/tool/gw_notesfixdialog.py
@@ -920,6 +919,16 @@ gramps/plugins/tool/gwizardcitationmediaengine.py
 gramps/plugins/tool/gwizardcitationrepairengine.py
 gramps/plugins/tool/gwizardcitationreport.py
 gramps/plugins/tool/gwizardcitationshared.py
+gramps/plugins/tool/gw_fixmediareferencesdialog.py
+gramps/plugins/tool/gwizardmediafix.py
+gramps/plugins/tool/gwizardcitationfix.py
+gramps/plugins/tool/gw_goldstandardrepos.py
+gramps/plugins/tool/gw_repomergedialog.py
+gramps/plugins/tool/gw_sourcesfixdialog.py
+gramps/plugins/tool/gw_unpacksourcesdialog.py
+gramps/plugins/tool/gw_unpackcitationsdialog.py
+gramps/plugins/tool/gw_notesfixdialog.py
+gramps/plugins/tool/gw_citationattributesdialog.py
 gramps/plugins/tool/mergecitations.glade
 gramps/plugins/tool/mergecitations.py
 gramps/plugins/tool/notrelated.glade

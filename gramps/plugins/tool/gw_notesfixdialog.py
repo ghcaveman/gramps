@@ -34,7 +34,7 @@ from typing import Any
 # GTK modules
 #
 # -------------------------------------------------------------------------
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk
 
 # -------------------------------------------------------------------------
 #
@@ -43,11 +43,15 @@ from gi.repository import Gtk, Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gui.dialog import OkDialog
-from gramps.plugins.tool.gwizard_mediafix_common import reports_apply_errors
+from gramps.plugins.tool.gwizard_mediafix_common import (
+    HeaderLabel,
+    SelectableLabel,
+    TableLabel,
+    reports_apply_errors,
+)
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.plugins.tool.gwizardcitationshared import (
-    is_bare_url_text,
     is_debris_text,
     note_text,
 )
@@ -57,24 +61,8 @@ ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 
-def _url_already_in_every_citation_page(
-    db: DbReadBase, note_handle: str, url: str
-) -> bool:
-    """True when every user of the note is a citation whose page holds ``url``."""
-    users = list(db.find_backlink_handles(note_handle))
-    if not users:
-        return False
-    for class_name, handle in users:
-        if class_name != "Citation":
-            return False
-        citation = db.get_citation_from_handle(handle)
-        if citation is None or url not in str(citation.get_page() or ""):
-            return False
-    return True
-
-
 def build_note_fix_rows(db: DbReadBase) -> list[dict[str, Any]]:
-    """Find notes with problems: import debris, empty, padded, or a repeated URL."""
+    """Find notes with problems: import debris, empty, or padded with spaces."""
     rows: list[dict[str, Any]] = []
     for note in db.iter_notes():
         n_handle = str(note.get_handle() or "")
@@ -100,15 +88,6 @@ def build_note_fix_rows(db: DbReadBase) -> list[dict[str, Any]]:
             suggested_text = _("[Purge note]")
             hint_text = _("Import debris / migration log (suggest Purge)")
             problem = "debris"
-        elif is_bare_url_text(stripped) and _url_already_in_every_citation_page(
-            db, n_handle, stripped
-        ):
-            # The same web address is already in the Volume/Page field of
-            # every citation that uses this note, so the note repeats it.
-            suggested_action = _("Purge")
-            suggested_text = _("[Purge note]")
-            hint_text = _("Web address already in the citation page (suggest Purge)")
-            problem = "duplicate_url"
         elif raw_text != stripped:
             # Leading or trailing whitespace
             suggested_action = _("Trim")
@@ -195,17 +174,16 @@ class NotesFixDialog(Gtk.Dialog):
         content.set_spacing(6)
 
         if not self.rows:
-            done = Gtk.Label(label=str(_("No note problems found.")))
-            done.set_halign(Gtk.Align.START)
+            done = SelectableLabel(label=str(_("No note problems found.")), wrap=False)
             content.add(done)
             return
 
-        count_label = Gtk.Label(
+        count_label = SelectableLabel(
             label=str(
                 _("Problem notes found: {number_of}").format(number_of=len(self.rows))
-            )
+            ),
+            wrap=False,
         )
-        count_label.set_halign(Gtk.Align.START)
         content.add(count_label)
 
         # Header row above the scrolled grid
@@ -215,23 +193,19 @@ class NotesFixDialog(Gtk.Dialog):
         header_grid.set_hexpand(True)
         header_grid.set_vexpand(False)
 
-        from_head = Gtk.Label()
-        from_head.set_markup("<b>%s</b>" % str(_("Note")))
+        from_head = HeaderLabel(str(_("Note")))
         from_head.set_halign(Gtk.Align.START)
         from_head.set_hexpand(False)
 
-        action_head = Gtk.Label()
-        action_head.set_markup("<b>%s</b>" % str(_("Action")))
+        action_head = HeaderLabel(str(_("Action")))
         action_head.set_halign(Gtk.Align.START)
         action_head.set_hexpand(False)
 
-        to_head = Gtk.Label()
-        to_head.set_markup("<b>%s</b>" % str(_("Note")))
+        to_head = HeaderLabel(str(_("Note")))
         to_head.set_halign(Gtk.Align.START)
         to_head.set_hexpand(False)
 
-        hint_head = Gtk.Label()
-        hint_head.set_markup("<b>%s</b>" % str(_("Hint")))
+        hint_head = HeaderLabel(str(_("Hint")))
         hint_head.set_halign(Gtk.Align.START)
         hint_head.set_hexpand(True)
 
@@ -255,9 +229,9 @@ class NotesFixDialog(Gtk.Dialog):
         desc_text = (
             description
             if description is not None
-            else str(_("Remove import debris and convert bare-URL notes."))
+            else str(_("Remove import debris and empty notes, and trim whitespace."))
         )
-        hint_footer = Gtk.Label(
+        hint_footer = SelectableLabel(
             label=f"{desc_text} "
             + str(
                 _(
@@ -266,8 +240,6 @@ class NotesFixDialog(Gtk.Dialog):
                 )
             )
         )
-        hint_footer.set_line_wrap(True)
-        hint_footer.set_halign(Gtk.Align.START)
         hint_footer.set_size_request(-1, 45)
         content.pack_start(hint_footer, False, False, 0)
 
@@ -285,17 +257,11 @@ class NotesFixDialog(Gtk.Dialog):
             from_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             from_box.set_size_request(320, -1)
             lines = entry.get("display_text", "").splitlines()
-            l1 = Gtk.Label(label=lines[0] if len(lines) > 0 else "")
-            l1.set_xalign(0.0)
-            l1.set_line_wrap(True)
-            l1.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            l1 = TableLabel(label=lines[0] if len(lines) > 0 else "")
             l1.set_max_width_chars(42)
             from_box.pack_start(l1, False, False, 0)
 
-            l2 = Gtk.Label(label=lines[1] if len(lines) > 1 else "")
-            l2.set_xalign(0.0)
-            l2.set_line_wrap(True)
-            l2.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            l2 = TableLabel(label=lines[1] if len(lines) > 1 else "")
             l2.set_max_width_chars(42)
             from_box.pack_start(l2, False, False, 0)
 
@@ -314,11 +280,7 @@ class NotesFixDialog(Gtk.Dialog):
             grid.attach(text_entry, 2, row_index, 1, 1)
 
             # Column 3: Hint - Label
-            hint_label = Gtk.Label(label=entry.get("hint_text", ""))
-            hint_label.set_halign(Gtk.Align.START)
-            hint_label.set_xalign(0.0)
-            hint_label.set_line_wrap(True)
-            hint_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            hint_label = TableLabel(label=entry.get("hint_text", ""))
             hint_label.set_size_request(240, -1)
             hint_label.set_max_width_chars(32)
             grid.attach(hint_label, 3, row_index, 1, 1)
@@ -443,21 +405,27 @@ def apply_note_fix(
 ) -> bool:
     """Purge, trim or rewrite one note; the one implementation for all callers.
 
-    ``action`` is ``purge`` or ``trim`` (any case). A purge detaches the note
-    from every object that uses it, then deletes it. Returns True if the
-    note was changed or removed.
+    ``action`` is ``purge`` or ``trim``, or the translated Purge/Trim text
+    the dialog shows (any case). A purge detaches the note from every
+    object that uses it, then deletes it. Returns True if the note was
+    changed or removed.
     """
     act = (action or "").strip().lower()
+    if act == str(_("Purge")).lower():
+        act = "purge"
+    elif act == str(_("Trim")).lower():
+        act = "trim"
     new_text = (new_text or "").strip()
     if not act and not new_text:
         return False
+    purge_texts = {"[purge note]", str(_("[Purge note]")).lower()}
     try:
         note = db.get_note_from_handle(note_handle)
     except HandleError:
         note = None
     if note is None:
         return False
-    if act == "purge" or new_text.lower() == "[purge note]":
+    if act == "purge" or new_text.lower() in purge_texts:
         for class_name, parent_handle in list(db.find_backlink_handles(note_handle)):
             getter = getattr(db, "get_%s_from_handle" % class_name.lower(), None)
             commit = getattr(db, "commit_%s" % class_name.lower(), None)
