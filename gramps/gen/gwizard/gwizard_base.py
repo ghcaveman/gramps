@@ -791,6 +791,8 @@ class RecordQuery:
     birth_year: int | None = None
     death_year: int | None = None
     gender: str = ""  # "male", "female" or "" (any case)
+    places: list[str] = field(default_factory=list)
+    tags: set[str] = field(default_factory=set)
 
     def has_name(self) -> bool:
         """Return True when there is a name to match against."""

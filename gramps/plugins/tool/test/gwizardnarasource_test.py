@@ -105,18 +105,26 @@ class NaraSourceTest(unittest.TestCase):
             self.assertTrue(NaraSource().available()[0])
 
     def test_search_terms(self) -> None:
-        """Keywords are the given name and birth surname; years bound records."""
+        """Query builder includes name variants; years bound records."""
         query = RecordQuery(
             given="John", surnames=["Smith", "Jones"], birth_year=1820, death_year=1880
         )
-        self.assertEqual(NaraSource.search_terms(query), ("John Smith", "1820", "1890"))
+        self.assertEqual(
+            NaraSource.search_terms(query),
+            (
+                '("John Jones" OR "John Smith" OR "Jones, John" OR "Smith, John")',
+                "1820",
+                "1890",
+            ),
+        )
 
     def test_search_finds_maiden_name_in_title(self) -> None:
         """Mary Kreizer is found in "Mary Kreizer Smith, Widow of ..."."""
         matches = self.source.search(self.query)
         kwargs = self.client.search_records.call_args.kwargs
-        self.assertEqual(kwargs["query"], "Mary Kreizer")
+        self.assertEqual(kwargs["query"], '("Kreizer, Mary" OR "Mary Kreizer")')
         self.assertEqual(kwargs["start_year"], "1840")
+        self.assertEqual(kwargs["level_of_description"], "item,fileUnit")
         scored = score_matches(self.query, matches)
         self.assertEqual(scored[0].match.key, "115768360")
         self.assertIn("NAID 115768360", scored[0].match.label)
@@ -142,12 +150,14 @@ class NaraSourceTest(unittest.TestCase):
     def test_open_merge_uses_saved_hit(self) -> None:
         """Open Merge passes the saved record to the NARA window."""
         match = self.source.search(self.query)[0]
-        with patch(
-            "gramps.gui.gwizard.gwizardnaralauncher.open_nara_record",
-            return_value=True,
-        ) as opener:
+        mock_launcher = Mock()
+        mock_launcher.open_nara_record.return_value = True
+        with patch.dict(
+            "sys.modules",
+            {"gramps.gui.gwizard.gwizardnaralauncher": mock_launcher},
+        ):
             self.assertTrue(self.source.open_merge("dbs", "uis", "h1", match))
-        args, kwargs = opener.call_args
+        args, kwargs = mock_launcher.open_nara_record.call_args
         self.assertEqual(args[:3], ("uis", "dbs", "h1"))
         self.assertEqual(args[3], match.data["hit"])
         self.assertIs(kwargs["client"], self.client)
@@ -155,9 +165,13 @@ class NaraSourceTest(unittest.TestCase):
     def test_open_merge_without_hit(self) -> None:
         """A match without record details cannot be opened."""
         match = SourceMatch("1", "x", self.source.search(self.query)[0].candidate)
-        with patch("gramps.gui.dialog.ErrorDialog") as error:
+        mock_dialog = Mock()
+        with patch.dict(
+            "sys.modules",
+            {"gramps.gui.dialog": mock_dialog},
+        ):
             self.assertFalse(self.source.open_merge("dbs", "uis", "h1", match))
-        error.assert_called_once()
+        mock_dialog.ErrorDialog.assert_called_once()
 
 
 if __name__ == "__main__":

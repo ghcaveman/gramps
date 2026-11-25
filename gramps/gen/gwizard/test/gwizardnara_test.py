@@ -210,6 +210,7 @@ class TestNaraCatalogInterface(unittest.TestCase):
             rows=5,
             material_type="textual records",
             available_online=True,
+            level_of_description="item,fileUnit",
         )
 
         self.assertIsNotNone(result)
@@ -218,12 +219,13 @@ class TestNaraCatalogInterface(unittest.TestCase):
         self.assertEqual(args[0], "https://catalog.archives.gov/api/v2/records/search")
         self.assertEqual(kwargs["params"]["q"], "Civil War")
         self.assertEqual(kwargs["params"]["limit"], 5)
-        self.assertEqual(kwargs["params"]["typeOfMaterials"], "textual records")
+        self.assertEqual(kwargs["params"]["generalRecordsTypes"], "textual records")
         self.assertEqual(kwargs["params"]["availableOnline"], "true")
+        self.assertEqual(kwargs["params"]["levelOfDescription"], "item,fileUnit")
 
     @patch("requests.get")
     def test_search_records_record_years(self, mock_get: Mock) -> None:
-        """Verify record years are sent as startDate/endDate only when set."""
+        """Verify record years are sent as a NARA date range only when set."""
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"body": {"hits": {"hits": []}}}
@@ -232,13 +234,19 @@ class TestNaraCatalogInterface(unittest.TestCase):
 
         client.search_records(query="Smith", start_year="1840", end_year="1935")
         params = mock_get.call_args.kwargs["params"]
-        self.assertEqual(params["startDate"], "1840")
-        self.assertEqual(params["endDate"], "1935")
+        self.assertEqual(params["dateRange"], "1840 TO 1935")
+
+        client.search_records(query="Smith", start_year="1840")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["dateRange"], "1840 TO *")
+
+        client.search_records(query="Smith", end_year="1935")
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["dateRange"], "* TO 1935")
 
         client.search_records(query="Smith")
         params = mock_get.call_args.kwargs["params"]
-        self.assertNotIn("startDate", params)
-        self.assertNotIn("endDate", params)
+        self.assertNotIn("dateRange", params)
 
     @patch("requests.get")
     def test_search_records_error_handling(self, mock_get: Mock) -> None:
@@ -792,6 +800,20 @@ class TestNaraRecordAttacher(unittest.TestCase):
         person = self.db.get_person_from_handle(self.person_handle)
         self.assertIn(result.citation_handle, person.get_citation_list())
 
+        # Verify event linking: Naturalization event created on person with citation
+        self.assertTrue(result.event_linked)
+        from gramps.gen.lib import EventType
+
+        events = [
+            self.db.get_event_from_handle(r.ref) for r in person.get_event_ref_list()
+        ]
+        nat_events = [e for e in events if e.get_type() == EventType.NATURALIZATION]
+        self.assertEqual(len(nat_events), 1)
+        self.assertIn(result.citation_handle, nat_events[0].get_citation_list())
+
+        # Verify citation date was populated
+        self.assertFalse(citation.get_date_object().is_empty())
+
         media = [
             self.db.get_media_from_handle(r.ref) for r in citation.get_media_list()
         ]
@@ -1028,6 +1050,12 @@ class TestNaraRecordAttacher(unittest.TestCase):
         self.assertIn("Box 123 Cert. 456", notes[0].get())
         self.assertIn("machine-read", notes[0].get())
         self.assertEqual(media[1].get_note_list(), [])
+
+        # Verify Transcript note is also on the Citation
+        person = self.db.get_person_from_handle(self.person_handle)
+        citation = self.db.get_citation_from_handle(person.get_citation_list()[0])
+        cit_notes = [self.db.get_note_from_handle(h) for h in citation.get_note_list()]
+        self.assertTrue(any(n.get_type() == NoteType.TRANSCRIPT for n in cit_notes))
 
 
 class TestNaraMergeWindowFlow(unittest.TestCase):

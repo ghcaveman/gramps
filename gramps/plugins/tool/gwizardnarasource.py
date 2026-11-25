@@ -38,6 +38,37 @@ import logging
 import os
 import sys
 from typing import Any
+import re
+
+# Helper to strip nicknames like "Fred" or (Buddy) from given names
+_NICK_RE = re.compile(r'["\'].*?["\']|\(.*?\)')
+
+
+def _clean_given_variants(given: str, middle: str) -> list[str]:
+    variants = set()
+    for raw in (given, f"{given} {middle}".strip()):
+        cleaned = re.sub(r"\s+", " ", _NICK_RE.sub("", raw)).strip()
+        if cleaned and not cleaned.lower().startswith(("unknown", "child", "baby")):
+            variants.add(cleaned)
+    # Also extract quoted nicknames as alternate given names (e.g., "Fred")
+    for nick in re.findall(r'["\']([^"\']+)["\']', f"{given} {middle}"):
+        if len(nick.strip()) > 1:
+            variants.add(nick.strip())
+    return sorted(variants)
+
+
+def _is_range_folder(title: str, given_variants: list[str]) -> bool:
+    """Return True if title is an alphabetical box range ('A THRU B') without the person's given name."""
+    upper = title.upper()
+    if " THRU " not in upper and not upper.startswith("NATURALIZATION INDEX"):
+        return False
+    return not any(
+        tok.upper() in upper
+        for g in given_variants
+        for tok in g.split()
+        if len(tok.strip(".")) > 2
+    )
+
 
 # As a standalone addon the sibling modules live in the addon directory, and
 # the shared GWizard modules in the GWizard File Merge addon next to it;
@@ -49,6 +80,28 @@ for _path in (
 ):
     if os.path.isdir(_path) and _path not in sys.path:
         sys.path.insert(0, _path)
+
+from gwizardnaraquerybuilder import build_nara_query, is_valid_nara_hit
+
+
+def _record_query_to_ind(query: RecordQuery) -> dict[str, Any]:
+    """Adapt a GWizard RecordQuery into the dict shape expected by gwizardnaraquerybuilder."""
+    full_given = " ".join(part for part in (query.given, query.middle) if part).strip()
+    birth_surname = query.surnames[0] if query.surnames else ""
+    married_surnames = set(query.surnames[1:]) if len(query.surnames) > 1 else set()
+    sex = {"male": "M", "female": "F"}.get(query.gender.casefold(), "")
+    return {
+        "names": (
+            [f"{full_given} /{birth_surname}/"] if (full_given or birth_surname) else []
+        ),
+        "married_surnames": married_surnames,
+        "sex": sex,
+        "birth_year": query.birth_year,
+        "death_year": query.death_year,
+        "places": list(query.places),
+        "tags": set(query.tags),
+    }
+
 
 # -------------------------------------------------------------------------
 #
@@ -107,36 +160,41 @@ class NaraSource(RecordSource):
 
     @staticmethod
     def search_terms(query: RecordQuery) -> tuple[str, str, str]:
-        """
-        Return (keywords, first record year, last record year) for a person:
-        the first given name and birth surname, records from the birth year
-        to some years after the death.
-        """
-        surname = query.surnames[0] if query.surnames else ""
-        keywords = " ".join(part for part in (query.given, surname) if part)
+        """Return (keywords, first record year, last record year) for a person."""
+        params = build_nara_query(_record_query_to_ind(query))
+        if not params:
+            return "", "", ""
         start = str(query.birth_year) if query.birth_year else ""
         end = (
             str(query.death_year + RECORD_YEARS_AFTER_DEATH) if query.death_year else ""
         )
-        return keywords, start, end
+        return params["q"], start, end
 
     def search(self, query: RecordQuery) -> list[SourceMatch]:
         """Search the catalog; each record is scored on its best-named person."""
         from gramps.gen.gwizard.gwizardnaramatch import best_match, record_candidate
         from gramps.gen.gwizard.gwizardnaramerge import NaraCatalogInterface
 
+        ind = _record_query_to_ind(query)
         keywords, start, end = self.search_terms(query)
         if not keywords:
             return []
         client = self.client()
         response = client.search_records(
-            query=keywords, rows=self.search_limit, start_year=start, end_year=end
+            query=keywords,
+            rows=self.search_limit,
+            start_year=start,
+            end_year=end,
+            level_of_description="item,fileUnit",
         )
         if response is None:
             raise RuntimeError(_("The NARA catalog search failed."))
         matches: list[SourceMatch] = []
         for hit in client.extract_hits(response):
             parsed = NaraCatalogInterface.parse_record(hit)
+            title = str(parsed.get("title") or "")
+            if not is_valid_nara_hit(title, ind):
+                continue
             best = best_match(query, parsed)
             if best.candidate is None:
                 continue
@@ -144,13 +202,13 @@ class NaraSource(RecordSource):
             if score_record(query, candidate).score < self.min_score:
                 continue
             naid = str(parsed.get("naid") or "")
-            title = str(parsed.get("title") or naid)
-            if len(title) > 90:
-                title = title[:87] + "..."
+            display_title = title or naid
+            if len(display_title) > 90:
+                display_title = display_title[:87] + "..."
             matches.append(
                 SourceMatch(
                     key=naid,
-                    label=f"{title} [NAID {naid}]" if naid else title,
+                    label=f"{display_title} [NAID {naid}]" if naid else display_title,
                     candidate=candidate,
                     url=NARA_URL % naid if naid else "",
                     data={"hit": hit},
