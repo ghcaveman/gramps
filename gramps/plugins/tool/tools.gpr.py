@@ -585,14 +585,14 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard Multi-Archive Record Scan
+# GWizard FamilySearch Merge
 #
 # ------------------------------------------------------------------------
 
 register(
     TOOL,
     id="gwizardrecordscan",
-    name=_("Multi-Archive Record Scan"),
+    name=_("GWizard FamilySearch Merge"),
     description=_(
         "Check every person in the Family Tree against the installed GWizard "
         "record sources (WikiTree, NARA, ...), count the likely matches at "
@@ -621,7 +621,7 @@ register(
 register(
     TOOL,
     id="gwizardfsmerge",
-    name=_("GWizard FamilySearch Merge"),
+    name=_("Multi-Archive Record Scan"),
     description=_(
         "Family Tree Processing Tool to search FamilySearch profiles and relatives "
         "and compare/merge data side-by-side with the open Family Tree."
