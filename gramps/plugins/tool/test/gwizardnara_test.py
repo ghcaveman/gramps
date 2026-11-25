@@ -66,22 +66,34 @@ class GWizardNaraToolTest(unittest.TestCase):
         self.assertTrue(issubclass(GWizardNaraMerge, object))
         self.assertIn("GWizard NARA Merge", GWizardNaraMerge.__doc__ or "")
 
-    def test_tools_gpr_registration(self) -> None:
-        """Verify gwizardnara tool registration entry in tools.gpr.py."""
-        gpr_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "tools.gpr.py"
+    def test_addon_package_registration(self) -> None:
+        """Verify the NARA tool is registered by the combined addon."""
+        manifest_path = os.path.abspath(
+            os.path.join(
+                os.path.dirname(__file__),
+                "..",
+                "..",
+                "..",
+                "..",
+                "addon_package.toml",
+            )
         )
-        self.assertTrue(os.path.isfile(gpr_path))
+        self.assertTrue(os.path.isfile(manifest_path))
 
-        with open(gpr_path, "r", encoding="utf-8") as handle:
+        with open(manifest_path, "r", encoding="utf-8") as handle:
             content = handle.read()
 
-        self.assertIn('id="gwizardnara"', content)
-        self.assertIn('name=_("GWizard NARA Merge")', content)
-        self.assertIn('fname="gwizardnara.py"', content)
-        self.assertIn('toolclass="GWizardNaraMerge"', content)
-        self.assertIn('optionclass="GWizardNaraMergeOptions"', content)
-        self.assertIn("category=TOOL_DBPROC", content)
+        registrations = [
+            section
+            for section in content.split("[[extra_registrations]]")[1:]
+            if section.lstrip().startswith('id = "gwizardnara"')
+        ]
+        self.assertEqual(len(registrations), 1)
+        registration = registrations[0]
+        self.assertIn('name = "GWizard NARA Merge"', registration)
+        self.assertIn('fname = "gwizardnara.py"', registration)
+        self.assertIn('toolclass = "GWizardNaraMerge"', registration)
+        self.assertIn('optionclass = "GWizardNaraMergeOptions"', registration)
 
 
 if __name__ == "__main__":
