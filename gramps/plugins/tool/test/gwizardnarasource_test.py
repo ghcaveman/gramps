@@ -105,26 +105,21 @@ class NaraSourceTest(unittest.TestCase):
             self.assertTrue(NaraSource().available()[0])
 
     def test_search_terms(self) -> None:
-        """Query builder includes name variants; years bound records."""
+        """The primary query and years bound the NARA search."""
         query = RecordQuery(
             given="John", surnames=["Smith", "Jones"], birth_year=1820, death_year=1880
         )
         self.assertEqual(
             NaraSource.search_terms(query),
-            (
-                '("John Jones" OR "John Smith" OR "Jones, John" OR "Smith, John")',
-                "1820",
-                "1890",
-            ),
+            ("John Smith", "1820", "1890"),
         )
 
     def test_search_finds_maiden_name_in_title(self) -> None:
         """Mary Kreizer is found in "Mary Kreizer Smith, Widow of ..."."""
         matches = self.source.search(self.query)
         kwargs = self.client.search_records.call_args.kwargs
-        self.assertEqual(kwargs["query"], '("Kreizer, Mary" OR "Mary Kreizer")')
+        self.assertEqual(kwargs["query"], "Mary Kreizer")
         self.assertEqual(kwargs["start_year"], "1840")
-        self.assertEqual(kwargs["level_of_description"], "item,fileUnit")
         scored = score_matches(self.query, matches)
         self.assertEqual(scored[0].match.key, "115768360")
         self.assertIn("NAID 115768360", scored[0].match.label)

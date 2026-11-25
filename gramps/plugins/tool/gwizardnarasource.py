@@ -193,6 +193,7 @@ class NaraSource(RecordSource):
         client = self.client()
         seen_naids: set[str] = set()
         matches: list[SourceMatch] = []
+        successful_search = False
 
         for q_params in queries:
             response = client.search_records(
@@ -203,6 +204,7 @@ class NaraSource(RecordSource):
             )
             if response is None:
                 continue
+            successful_search = True
             for hit in client.extract_hits(response):
                 parsed = NaraCatalogInterface.parse_record(hit)
                 naid = str(parsed.get("naid") or "")
@@ -238,6 +240,9 @@ class NaraSource(RecordSource):
                 )
             if matches:
                 break
+
+        if not successful_search:
+            raise RuntimeError(_("The NARA catalog search failed."))
 
         return matches
 
