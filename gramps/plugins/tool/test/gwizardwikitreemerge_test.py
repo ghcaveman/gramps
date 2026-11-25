@@ -90,6 +90,52 @@ class GWizardWikiTreeToolTest(unittest.TestCase):
         self.assertIn('optionclass="GWizardWikiTreeMergeOptions"', content)
         self.assertIn("category=TOOL_DBPROC", content)
 
+    def test_addon_package_registration(self) -> None:
+        """Verify both tools are registered by the combined addon."""
+        manifest_path = os.path.abspath(
+            os.path.join(
+                os.path.dirname(__file__),
+                "..",
+                "..",
+                "..",
+                "..",
+                "addon_package.toml",
+            )
+        )
+        self.assertTrue(os.path.isfile(manifest_path))
+
+        with open(manifest_path, "r", encoding="utf-8") as handle:
+            content = handle.read()
+
+        self.assertIn('id = "gwizardwikitree"', content)
+        self.assertIn('name = "GWizard WikiTree Merge"', content)
+        registrations = [
+            section
+            for section in content.split("[[extra_registrations]]")[1:]
+            if section.lstrip().startswith('id = "gwizardnara"')
+        ]
+        self.assertEqual(len(registrations), 1)
+        registration = registrations[0]
+        self.assertIn('name = "GWizard NARA Merge"', registration)
+        self.assertIn('fname = "gwizardnara.py"', registration)
+        self.assertIn('toolclass = "GWizardNaraMerge"', registration)
+        self.assertIn('optionclass = "GWizardNaraMergeOptions"', registration)
+
+    def test_nara_tool_registration(self) -> None:
+        """Verify the NARA merge tool is registered in the source tree."""
+        tools_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "tools.gpr.py",
+        )
+        with open(tools_path, "r", encoding="utf-8") as handle:
+            content = handle.read()
+
+        self.assertIn('id="gwizardnara"', content)
+        self.assertIn('name=_("GWizard NARA Merge")', content)
+        self.assertIn('fname="gwizardnara.py"', content)
+        self.assertIn('toolclass="GWizardNaraMerge"', content)
+        self.assertIn('optionclass="GWizardNaraMergeOptions"', content)
+
 
 if __name__ == "__main__":
     unittest.main()
