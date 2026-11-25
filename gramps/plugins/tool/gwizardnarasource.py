@@ -40,6 +40,14 @@ import sys
 from typing import TYPE_CHECKING, Any
 import re
 
+try:
+    from gwizardnaraquerybuilder import build_nara_queries, is_valid_nara_hit
+except ImportError:
+    from gramps.gen.gwizard.gwizardnaraquerybuilder import (
+        build_nara_queries,
+        is_valid_nara_hit,
+    )
+
 # Helper to strip nicknames like "Fred" or (Buddy) from given names
 _NICK_RE = re.compile(r'["\'].*?["\']|\(.*?\)')
 
@@ -93,21 +101,18 @@ else:
 def _record_query_to_ind(query: RecordQuery) -> dict[str, Any]:
     """Adapt a GWizard RecordQuery into the dict shape expected by gwizardnaraquerybuilder."""
     full_given = " ".join(part for part in (query.given, query.middle) if part).strip()
-    birth_surname = query.surnames[0] if query.surnames else ""
+    birth_surname = query.surnames if query.surnames else ""
     married_surnames = set(query.surnames[1:]) if len(query.surnames) > 1 else set()
     sex = {"male": "M", "female": "F"}.get(query.gender.casefold(), "")
     return {
-        "names": (
-            [f"{full_given} /{birth_surname}/"] if (full_given or birth_surname) else []
-        ),
+        "names": [f"{full_given} /{birth_surname}/"] if (full_given or birth_surname) else [],
         "married_surnames": married_surnames,
         "sex": sex,
         "birth_year": query.birth_year,
         "death_year": query.death_year,
-        "places": list(query.places),
-        "tags": set(query.tags),
+        "places": list(getattr(query, "places", []) or []),
+        "tags": set(getattr(query, "tags", set()) or set()),
     }
-
 
 # -------------------------------------------------------------------------
 #
@@ -167,14 +172,14 @@ class NaraSource(RecordSource):
     @staticmethod
     def search_terms(query: RecordQuery) -> tuple[str, str, str]:
         """Return (keywords, first record year, last record year) for a person."""
-        params = build_nara_query(_record_query_to_ind(query))
-        if not params:
+        queries = build_nara_queries(_record_query_to_ind(query))
+        if not queries:
             return "", "", ""
         start = str(query.birth_year) if query.birth_year else ""
         end = (
             str(query.death_year + RECORD_YEARS_AFTER_DEATH) if query.death_year else ""
         )
-        return params["q"], start, end
+        return queries["q"], start, end
 
     def search(self, query: RecordQuery) -> list[SourceMatch]:
         """Search the catalog; each record is scored on its best-named person."""
@@ -182,46 +187,65 @@ class NaraSource(RecordSource):
         from gramps.gen.gwizard.gwizardnaramerge import NaraCatalogInterface
 
         ind = _record_query_to_ind(query)
-        keywords, start, end = self.search_terms(query)
-        if not keywords:
+        queries = build_nara_queries(ind)
+        if not queries:
             return []
-        client = self.client()
-        response = client.search_records(
-            query=keywords,
-            rows=self.search_limit,
-            start_year=start,
-            end_year=end,
-            level_of_description="item,fileUnit",
-        )
-        if response is None:
-            raise RuntimeError(_("The NARA catalog search failed."))
-        matches: list[SourceMatch] = []
-        for hit in client.extract_hits(response):
-            parsed = NaraCatalogInterface.parse_record(hit)
-            title = str(parsed.get("title") or "")
-            if not is_valid_nara_hit(title, ind):
-                continue
-            best = best_match(query, parsed)
-            if best.candidate is None:
-                continue
-            candidate = record_candidate(best.candidate)
-            if score_record(query, candidate).score < self.min_score:
-                continue
-            naid = str(parsed.get("naid") or "")
-            display_title = title or naid
-            if len(display_title) > 90:
-                display_title = display_title[:87] + "..."
-            matches.append(
-                SourceMatch(
-                    key=naid,
-                    label=f"{display_title} [NAID {naid}]" if naid else display_title,
-                    candidate=candidate,
-                    url=NARA_URL % naid if naid else "",
-                    data={"hit": hit},
-                )
-            )
-        return matches
 
+        start = str(query.birth_year) if query.birth_year else ""
+        end = (
+            str(query.death_year + RECORD_YEARS_AFTER_DEATH) if query.death_year else ""
+        )
+        client = self.client()
+        seen_naids: set[str] = set()
+        matches: list[SourceMatch] = []
+
+        for q_params in queries:
+            response = client.search_records(
+                query=q_params["q"],
+                rows=self.search_limit,
+                start_year=start,
+                end_year=end,
+            )
+            if response is None:
+                continue
+            for hit in client.extract_hits(response):
+                parsed = NaraCatalogInterface.parse_record(hit)
+                naid = str(parsed.get("naid") or "")
+                if not naid or naid in seen_naids:
+                    continue
+                seen_naids.add(naid)
+
+                title = str(parsed.get("title") or "")
+                note = str(parsed.get("scope_note") or "")
+                if not is_valid_nara_hit(
+                    title, ind, note, max_years_after_death=RECORD_YEARS_AFTER_DEATH
+                ):
+                    continue
+
+                best = best_match(query, parsed)
+                if best.candidate is None:
+                    continue
+                candidate = record_candidate(best.candidate)
+                if score_record(query, candidate).score < self.min_score:
+                    continue
+
+                display_title = title or naid
+                if len(display_title) > 90:
+                    display_title = display_title[:87] + "..."
+                matches.append(
+                    SourceMatch(
+                        key=naid,
+                        label=f"{display_title} [NAID {naid}]",
+                        candidate=candidate,
+                        url=NARA_URL % naid,
+                        data={"hit": hit},
+                    )
+                )
+            if matches:
+                break
+
+        return matches
+    
     def open_merge(
         self,
         dbstate: Any,

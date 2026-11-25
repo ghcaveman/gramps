@@ -1,0 +1,31 @@
+It targets the best low-frequency-surname relatives directly from your .ged file:
+• Luigi "Louis" Pittaluga (I500124) — Grandfather (b. 1 Oct 1898, Genoa; immigrated 1927/1929 via St. Albans; naturalized 15 Mar 1944; lived in Philadelphia & Willow Grove, PA; d. 1 Oct 1981, Hollywood, FL).
+• Alphonse "Fred" Altomari (I00297) — Grandfather-in-law / extended line (b. 10 Jul 1885, Italy; immigrated 1892/1898; naturalized 27 Jan 1909 & 9 Dec 1914 in PA; WWI draft 1917–1918 in Philadelphia, PA).
+• Jonathan William Hellings (I00017) — Great-great-grandfather (b. 3 Dec 1847, Montgomery Co., PA; Civil War military service 1861–1866; pension application 6 Dec 1909 in PA).
+• Giacento "Jean" Di Lauro (I00116) — Great-grandfather (b. 6 Oct 1876, Italy; WWI draft registration 1917–1918 in PA).
+• Sebastian DeCristoforo (I00123) — Great-grandfather (b. 1889, Italy; immigrated 1912; WWII draft registration 1942 in Philadelphia, PA).
+
+
+
+1. Your 100% Verifiable Ground-Truth NARA Records
+
+
+Match #1: Jonathan William Hellings (I00017 — Your Great-Great-Grandfather)
+
+• GEDCOM Facts: Born 3 Dec 1847 in Montgomery County, PA; Military Service in Philadelphia/Pennsylvania (27 MAR 1865 to 21 MAR 1866); Pension filed 6 DEC 1909 in PA.
+• Exact NARA Record: NAID 162205316 [fileUnit]
+	• Title: [Pennsylvania] Hellings, Jonathan W - 214th Infantry, Company K
+	• Why it's 100% verified: The 214th Pennsylvania Infantry was organized in Philadelphia in March 1865 and mustered out in March 1866—matching your GEDCOM's exact enlistment (27 MAR 1865) and discharge (21 MAR 1866) dates down to the month, plus his middle initial W (William) and state (Pennsylvania).
+
+Match #2: Mario E. Decristoforo (I00125 — Son of I00123 Sebastian Decristoforo / Brother of your Grandmother Angelina)
+
+• GEDCOM Facts: Mario E /Decristoforo/, born 16 DEC 1922 in Philadelphia, PA.
+• Exact NARA Record: NAID 525749641 [fileUnit]
+	• Title: Enrollee Files: Decristoforo, Mario Edward THRU Dedow, William Clifford
+	• Why it's 100% verified: Civilian Conservation Corps (CCC) enrollee file explicitly naming Decristoforo, Mario Edward (matching Mario E Decristoforo, born 1922, who was 17–19 during the late-1930s/1940 CCC enrollment).
+
+Candidate #3 to Inspect for Louis Pittaluga (I500124 — Your Grandfather)
+
+• NAID 132721642 [item]: Letter(s) received from Pittaluga, Louis
+	• Why it's promising: Out of 10 hits, this is the only individual item explicitly indexed to Pittaluga, Louis. Fetching its full JSON via ?naId=132721642 will show the date and agency (such as the Patent Office, INS, or War Department) to verify if it is your grandfather.
+

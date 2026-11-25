@@ -154,19 +154,16 @@ def _extract_name_parts(
             add_surname(s_match.group(1))
 
         given_part = raw.split("/")[0].strip()
-        # Extract quoted or parenthetical nicknames as alternate given names
         for n1, n2 in re.findall(r'["\']([^"\']+)["\']|\(([^)]+)\)', given_part):
             nick = (n1 or n2).strip()
             if len(nick) > 1:
                 add_given(nick)
 
-        # Strip nicknames from primary given string
         clean_given = re.sub(r'["\'].*?["\']|\(.*?\)', " ", given_part).strip()
         clean_given = re.sub(r"\s+", " ", clean_given)
         if clean_given:
             tokens = [t.strip(".") for t in clean_given.split() if t.strip(".")]
             if len(tokens) >= 2:
-                # e.g., "Jonathan W Hellings" and "Jonathan William Hellings"
                 add_given(f"{tokens[0]} {tokens[1][0]}")
                 add_given(" ".join(tokens))
             if tokens:
@@ -194,20 +191,14 @@ def build_nara_queries(ind: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Return an ordered list of clean, WAF-safe NARA API v2 query parameter dicts
     for an individual (from most specific to broadest), or [] if skipped.
-
-    Avoids parentheses and double quotes in `q` because NARA's CloudFront/API
-    Gateway routes URL-encoded parentheses/quotes to the React HTML frontend.
     """
     byear = ind["birth_year"]
     states = _extract_us_states(ind["places"])
     tags = ind["tags"]
 
-    # 1. Pre-filter: Skip post-1955 births (72-year privacy rule)
     if byear and byear > 1955:
         return []
 
-    # 2. Pre-filter: Skip individuals with places listed, none of which are U.S. states,
-    #    unless they have U.S. immigration/naturalization tags
     has_us_events = bool(states) or bool(tags & {"IMMI", "NATU", "CENS"})
     if ind["places"] and not has_us_events:
         return []
@@ -220,16 +211,15 @@ def build_nara_queries(ind: Dict[str, Any]) -> List[Dict[str, Any]]:
     queries: List[Dict[str, Any]] = []
     seen_q: set[str] = set()
 
-    # 4. Build Record-Type & Geographic Anchors
-    anchors: List[str] = []
-    if states:
-        anchors.extend(f'"{st}"' for st in states)
+    def push_query(q_str: str) -> None:
+        q_clean = re.sub(r"\s+", " ", q_str).strip()
+        if q_clean and q_clean not in seen_q:
+            seen_q.add(q_clean)
+            queries.append({"q": q_clean, "limit": 20})
 
-    # Tier 1: Most specific given variant (e.g., "Jonathan W" or "Mario E") + surname + single state
     for s in surnames:
         if primary_state:
             push_query(f"{given_variants[0]} {s} {primary_state}")
-        # Tier 2: Given variants + surname (without state, in case state isn't indexed)
         for g in given_variants[:3]:
             push_query(f"{g} {s}")
 
@@ -241,26 +231,42 @@ def build_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     queries = build_nara_queries(ind)
     return queries[0] if queries else None
 
-
 def is_valid_nara_hit(
-    nara_title: str, ind: Dict[str, Any], scope_note: str = ""
+    nara_title: str,
+    ind: Dict[str, Any],
+    scope_note: str = "",
+    max_years_after_death: int = 5,
 ) -> bool:
     """
-    Filter out bulk microfilm rolls, census EDs, morning reports, and alphabetical
-    range folders (e.g., 'Di Pietri THRU Polesello') unless BOTH the person's
-    surname and given name appear explicitly in the title or scope note.
+    Filter out bulk microfilm rolls, census EDs, morning reports, out-of-range years,
+    and alphabetical range folders unless BOTH the person's surname and given name
+    appear explicitly in the record title itself.
     """
     title_clean = (nara_title or "").strip()
     if not title_clean:
         return False
+
     title_lower = title_clean.casefold()
     haystack = f"{title_clean} {scope_note}".casefold()
+
+    # Reject records whose explicit title year is before birth or well after death
+    byear = ind.get("birth_year")
+    dyear = ind.get("death_year")
+    title_years = [
+        int(y) for y in re.findall(r"\b(1[7-9]\d{2}|20[0-2]\d)\b", title_clean)
+    ]
+    if title_years:
+        if byear and max(title_years) < byear:
+            return False
+        if dyear and min(title_years) > (dyear + max_years_after_death):
+            return False
+
     given_variants, surnames = _extract_name_parts(
         ind["names"], ind["married_surnames"]
     )
     if not given_variants or not surnames:
         return False
-    # Extract individual given tokens of length >= 3 (e.g. "mario", "jonathan", "luigi")
+
     given_tokens = {
         tok.casefold()
         for g in given_variants
@@ -268,21 +274,29 @@ def is_valid_nara_hit(
         if len(tok) >= 3
     }
     surname_tokens = {s.casefold() for s in surnames if len(s) >= 2}
-    has_surname = any(
+
+    surname_in_title = any(
+        re.search(rf"\b{re.escape(s)}\b", title_lower) for s in surname_tokens
+    )
+    given_in_title = any(
+        re.search(rf"\b{re.escape(g)}\b", title_lower) for g in given_tokens
+    )
+    has_surname = surname_in_title or any(
         re.search(rf"\b{re.escape(s)}\b", haystack) for s in surname_tokens
     )
-    has_given = any(
-        re.search(rf"\b{re.escape(g)}\b", haystack) for g in given_tokens
-    )
+
     is_range_or_roll = (
         " thru " in title_lower
+        or "enumeration district" in title_lower
         or title_lower.startswith(_BULK_ROLL_PREFIXES)
-        or bool(re.search(r"\b[a-z]{2,}\s*-\s*[a-z]{2,}\b", title_lower))
-        and "index" in title_lower
+        or title_lower.startswith("pension file number")
+        or (
+            bool(re.search(r"\b[a-z]{2,}\s*-\s*[a-z]{2,}\b", title_lower))
+            and "index" in title_lower
+        )
     )
+
     if is_range_or_roll:
-        # Only keep a range folder if BOTH surname AND given name explicitly appear
-        # (e.g., "Enrollee Files: Decristoforo, Mario Edward THRU Dedow, William Clifford")
-        return has_surname and has_given
-    # For regular items/fileUnits, require at least the surname to appear in title/note
+        return surname_in_title and given_in_title
+
     return has_surname
