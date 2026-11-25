@@ -3,60 +3,41 @@ from typing import Dict, List, Optional, Any
 
 # Standard U.S. State names and abbreviations for location extraction
 US_STATES = {
-    "AL": "Alabama",
-    "AK": "Alaska",
-    "AZ": "Arizona",
-    "AR": "Arkansas",
-    "CA": "California",
-    "CO": "Colorado",
-    "CT": "Connecticut",
-    "DE": "Delaware",
-    "FL": "Florida",
-    "GA": "Georgia",
-    "HI": "Hawaii",
-    "ID": "Idaho",
-    "IL": "Illinois",
-    "IN": "Indiana",
-    "IA": "Iowa",
-    "KS": "Kansas",
-    "KY": "Kentucky",
-    "LA": "Louisiana",
-    "ME": "Maine",
-    "MD": "Maryland",
-    "MA": "Massachusetts",
-    "MI": "Michigan",
-    "MN": "Minnesota",
-    "MS": "Mississippi",
-    "MO": "Missouri",
-    "MT": "Montana",
-    "NE": "Nebraska",
-    "NV": "Nevada",
-    "NH": "New Hampshire",
-    "NJ": "New Jersey",
-    "NM": "New Mexico",
-    "NY": "New York",
-    "NC": "North Carolina",
-    "ND": "North Dakota",
-    "OH": "Ohio",
-    "OK": "Oklahoma",
-    "OR": "Oregon",
-    "PA": "Pennsylvania",
-    "RI": "Rhode Island",
-    "SC": "South Carolina",
-    "SD": "South Dakota",
-    "TN": "Tennessee",
-    "TX": "Texas",
-    "UT": "Utah",
-    "VT": "Vermont",
-    "VA": "Virginia",
-    "WA": "Washington",
-    "WV": "West Virginia",
-    "WI": "Wisconsin",
-    "WY": "Wyoming",
-    "DC": "District of Columbia",
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+    "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
+    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho",
+    "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+    "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi",
+    "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
+    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+    "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+    "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah",
+    "VT": "Vermont", "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
+    "WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia"
 }
 STATE_LOOKUP = {k.lower(): v for k, v in US_STATES.items()}
 STATE_LOOKUP.update({v.lower(): v for v in US_STATES.values()})
+
+# Title patterns that indicate bulk microfilm rolls, census EDs, or box containers
+# rather than an individual's record—unless the person's full name appears verbatim.
+_BULK_ROLL_PREFIXES = (
+    "morning reports",
+    "fiche_",
+    "roll ",
+    "number ",
+    "1950 census",
+    "1940 census",
+    "1930 census",
+    "1920 census",
+    "1910 census",
+    "1900 census",
+    "naturalization index",
+    "[last names:",
+    "muster rolls",
+    "alphabetical listing",
+)
 
 
 def parse_gedcom_individuals(ged_path: str) -> Dict[str, Dict[str, Any]]:
@@ -84,14 +65,9 @@ def parse_gedcom_individuals(ged_path: str) -> Dict[str, Dict[str, Any]]:
                     curr_id = tag.strip("@")
                     curr_type = "INDI"
                     individuals[curr_id] = {
-                        "id": curr_id,
-                        "names": [],
-                        "sex": None,
-                        "birth_year": None,
-                        "death_year": None,
-                        "places": [],
-                        "tags": set(),
-                        "fams": [],
+                        "id": curr_id, "names": [], "sex": None,
+                        "birth_year": None, "death_year": None,
+                        "places": [], "tags": set(), "fams": []
                     }
                 elif val == "FAM":
                     curr_id = tag.strip("@")
@@ -148,49 +124,58 @@ def parse_gedcom_individuals(ged_path: str) -> Dict[str, Dict[str, Any]]:
     return individuals
 
 
-def _clean_name_variants(raw_names: List[str], married_surnames: set) -> List[str]:
-    """Generates clean 'First Last' and 'Last, First' variants without nicknames/suffixes."""
-    variants = set()
-    given_names = set()
-    surnames = set(married_surnames)
+def _extract_name_parts(
+    raw_names: List[str], married_surnames: set
+) -> tuple[List[str], List[str]]:
+    """
+    Return (cleaned_given_variants, cleaned_surnames) without embedded quotes,
+    parenthetical notes, or placeholder strings.
+    """
+    given_names: list[str] = []
+    surnames: list[str] = []
+
+    def add_given(val: str) -> None:
+        cleaned = re.sub(r"\s+", " ", val).strip(" .,")
+        if (
+            cleaned
+            and not cleaned.lower().startswith(("unknown", "child", "baby"))
+            and cleaned not in given_names
+        ):
+            given_names.append(cleaned)
+
+    def add_surname(val: str) -> None:
+        cleaned = re.sub(r"\(.*?\)|\?", "", val).strip(" .,")
+        if cleaned and cleaned.lower() != "unknown" and cleaned not in surnames:
+            surnames.append(cleaned)
 
     for raw in raw_names:
-        # Extract surname inside /.../
         s_match = re.search(r"/([^/]+)/", raw)
-        surname = s_match.group(1).strip() if s_match else ""
-        # Remove trailing ? or parenthetical notes like (AZ) or (Montevideo)
-        surname = re.sub(r"\(.*?\)|\?", "", surname).strip()
-        if not surname or surname.lower() == "unknown":
-            continue
-        surnames.add(surname)
+        if s_match:
+            add_surname(s_match.group(1))
 
-        # Extract given part before /.../
         given_part = raw.split("/")[0].strip()
         # Extract quoted or parenthetical nicknames as alternate given names
-        nicks = re.findall(r'["\']([^"\']+)["\']|\(([^)]+)\)', given_part)
-        for n1, n2 in nicks:
+        for n1, n2 in re.findall(r'["\']([^"\']+)["\']|\(([^)]+)\)', given_part):
             nick = (n1 or n2).strip()
             if len(nick) > 1:
-                given_names.add(nick)
+                add_given(nick)
 
-        # Strip nicknames and punctuation from primary given name
-        clean_given = re.sub(r'["\'].*?["\']|\(.*?\)', "", given_part).strip()
+        # Strip nicknames from primary given string
+        clean_given = re.sub(r'["\'].*?["\']|\(.*?\)', " ", given_part).strip()
         clean_given = re.sub(r"\s+", " ", clean_given)
-        if clean_given and not clean_given.lower().startswith(
-            ("unknown", "child", "baby")
-        ):
-            given_names.add(clean_given)
-            # Also add first token only if middle name exists (e.g. "Luigi" from "Luigi Emmanual")
-            first_token = clean_given.split(" ")[0].rstrip(".")
-            if len(first_token) > 1:
-                given_names.add(first_token)
+        if clean_given:
+            tokens = [t.strip(".") for t in clean_given.split() if t.strip(".")]
+            if len(tokens) >= 2:
+                # e.g., "Jonathan W Hellings" and "Jonathan William Hellings"
+                add_given(f"{tokens[0]} {tokens[1][0]}")
+                add_given(" ".join(tokens))
+            if tokens:
+                add_given(tokens[0])
 
-    for g in given_names:
-        for s in surnames:
-            variants.add(f'"{g} {s}"')
-            variants.add(f'"{s}, {g}"')
+    for ms in sorted(married_surnames):
+        add_surname(ms)
 
-    return sorted(variants)
+    return given_names, surnames
 
 
 def _extract_us_states(places: List[str]) -> List[str]:
@@ -205,91 +190,100 @@ def _extract_us_states(places: List[str]) -> List[str]:
     return sorted(found_states)
 
 
-def build_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def build_nara_queries(ind: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    Returns NARA API v2 query parameters for an individual,
-    or None if the profile should be skipped (non-U.S., post-1955, or missing name).
+    Return an ordered list of clean, WAF-safe NARA API v2 query parameter dicts
+    for an individual (from most specific to broadest), or [] if skipped.
+
+    Avoids parentheses and double quotes in `q` because NARA's CloudFront/API
+    Gateway routes URL-encoded parentheses/quotes to the React HTML frontend.
     """
     byear = ind["birth_year"]
-    dyear = ind["death_year"]
     states = _extract_us_states(ind["places"])
     tags = ind["tags"]
-    sex = ind["sex"]
 
     # 1. Pre-filter: Skip post-1955 births (72-year privacy rule)
     if byear and byear > 1955:
-        return None
+        return []
 
     # 2. Pre-filter: Skip individuals with places listed, none of which are U.S. states,
     #    unless they have U.S. immigration/naturalization tags
     has_us_events = bool(states) or bool(tags & {"IMMI", "NATU", "CENS"})
     if ind["places"] and not has_us_events:
-        return None
+        return []
 
-    # 3. Build Name Variants
-    name_clauses = _clean_name_variants(ind["names"], ind["married_surnames"])
-    if not name_clauses:
-        return None
+    given_variants, surnames = _extract_name_parts(ind["names"], ind["married_surnames"])
+    if not given_variants or not surnames:
+        return []
 
-    q_parts = [f"({' OR '.join(name_clauses)})"]
+    primary_state = states[0] if len(states) == 1 else ""
+    queries: List[Dict[str, Any]] = []
+    seen_q: set[str] = set()
 
-    # 4. Build Record-Type & Geographic Anchors
-    anchors = []
-    if states:
-        anchors.extend(f'"{st}"' for st in states)
+    def push_query(q_str: str) -> None:
+        q_clean = re.sub(r"\s+", " ", q_str).strip()
+        if q_clean and q_clean not in seen_q:
+            seen_q.add(q_clean)
+            queries.append({"q": q_clean, "limit": 20})
 
-    # Immigration / Naturalization anchors
-    if "IMMI" in tags or "NATU" in tags:
-        anchors.extend(
-            [
-                '"naturalization"',
-                '"petition"',
-                '"declaration"',
-                '"manifest"',
-                '"crossing"',
-            ]
-        )
+    # Tier 1: Most specific given variant (e.g., "Jonathan W" or "Mario E") + surname + single state
+    for s in surnames:
+        if primary_state:
+            push_query(f"{given_variants[0]} {s} {primary_state}")
+        # Tier 2: Given variants + surname (without state, in case state isn't indexed)
+        for g in given_variants[:3]:
+            push_query(f"{g} {s}")
 
-    # Military / Draft / Pension anchors based on birth cohort
-    if sex == "M" and byear:
-        if 1820 <= byear <= 1848:
-            anchors.extend(['"pension"', '"infantry"', '"cavalry"', '"regiment"'])
-        elif 1872 <= byear <= 1927:
-            anchors.extend(['"draft"', '"selective service"', '"enlistment"'])
-
-    if any("MILITARY" in t or "PENSION" in t for t in tags):
-        anchors.extend(['"pension"', '"military"', '"service"'])
-
-    if anchors:
-        # Deduplicate while preserving order
-        unique_anchors = list(dict.fromkeys(anchors))
-        q_parts.append(f"({' OR '.join(unique_anchors)})")
-
-    return {
-        "q": " AND ".join(q_parts),
-        "availableOnline": "true",
-        "levelOfDescription": "item,fileUnit",
-        "limit": 25,
-    }
+    return queries
 
 
-def is_valid_nara_hit(nara_title: str, ind: Dict[str, Any]) -> bool:
+def build_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Backward-compatible helper returning the primary NARA API query dict, or None."""
+    queries = build_nara_queries(ind)
+    return queries[0] if queries else None
+
+
+def is_valid_nara_hit(
+    nara_title: str, ind: Dict[str, Any], scope_note: str = ""
+) -> bool:
     """
-    Post-filter to discard alphabetical microfilm range folders (e.g., 'Smith THRU Snyder')
-    unless the person's actual given name appears in the record title.
+    Filter out bulk microfilm rolls, census EDs, morning reports, and alphabetical
+    range folders (e.g., 'Di Pietri THRU Polesello') unless BOTH the person's
+    surname and given name appear explicitly in the title or scope note.
     """
-    title_upper = nara_title.upper()
-    is_range_folder = " THRU " in title_upper or title_upper.startswith(
-        "NATURALIZATION INDEX"
-    )
-
-    if is_range_folder:
-        # Check if any of the person's given names explicitly appear in the title
-        for raw in ind["names"]:
-            given_part = re.sub(r'["\'].*?["\']|\(.*?\)', "", raw.split("/")[0]).strip()
-            for token in given_part.split():
-                clean_tok = token.strip(".").upper()
-                if len(clean_tok) > 2 and clean_tok in title_upper:
-                    return True
+    title_clean = (nara_title or "").strip()
+    if not title_clean:
         return False
-    return True
+    title_lower = title_clean.casefold()
+    haystack = f"{title_clean} {scope_note}".casefold()
+    given_variants, surnames = _extract_name_parts(
+        ind["names"], ind["married_surnames"]
+    )
+    if not given_variants or not surnames:
+        return False
+    # Extract individual given tokens of length >= 3 (e.g. "mario", "jonathan", "luigi")
+    given_tokens = {
+        tok.casefold()
+        for g in given_variants
+        for tok in g.split()
+        if len(tok) >= 3
+    }
+    surname_tokens = {s.casefold() for s in surnames if len(s) >= 2}
+    has_surname = any(
+        re.search(rf"\b{re.escape(s)}\b", haystack) for s in surname_tokens
+    )
+    has_given = any(
+        re.search(rf"\b{re.escape(g)}\b", haystack) for g in given_tokens
+    )
+    is_range_or_roll = (
+        " thru " in title_lower
+        or title_lower.startswith(_BULK_ROLL_PREFIXES)
+        or bool(re.search(r"\b[a-z]{2,}\s*-\s*[a-z]{2,}\b", title_lower))
+        and "index" in title_lower
+    )
+    if is_range_or_roll:
+        # Only keep a range folder if BOTH surname AND given name explicitly appear
+        # (e.g., "Enrollee Files: Decristoforo, Mario Edward THRU Dedow, William Clifford")
+        return has_surname and has_given
+    # For regular items/fileUnits, require at least the surname to appear in title/note
+    return has_surname
