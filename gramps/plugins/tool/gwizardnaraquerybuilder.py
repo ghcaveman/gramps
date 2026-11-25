@@ -234,7 +234,7 @@ def build_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     q_parts = [f"({' OR '.join(name_clauses)})"]
 
     # 4. Build Record-Type & Geographic Anchors
-    anchors = []
+    anchors: List[str] = []
     if states:
         anchors.extend(f'"{st}"' for st in states)
 
