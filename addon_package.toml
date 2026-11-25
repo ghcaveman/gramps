@@ -1,22 +1,23 @@
-# GWizard Citation Fix addon -- built by package_addon.py (from gramps_devutil).
+# GWizard WikiTree Merge addon -- built by package_addon.py (from gramps_devutil).
 # See addon_package.example.toml in gramps_devutil for every option.
 #
-# Depends on the GWizard Media Fix addon, which is built from the
-# gwizard_mediafix branch (its own addon_package.toml). Merge that branch into
-# this one before a release so the two stay in step.
+# Depends on the GWizard File Merge addon, which is built from the
+# gwizard_filemerge branch (its own addon_package.toml). This branch takes
+# the shared gwizard modules from gwizard_filemerge unchanged; merge that
+# branch into this one before a release so the two stay in step.
 
-package = "CitationFix"
+package = "GWizardWikiTreeMerge"
 
 [registration]
-id = "gwizardcitationfix"
-name = "GWizard Citation Fix"
-description = "Wizard-style cleanup of repositories, sources, citations and notes in the open Family Tree."
-fname = "gwizardcitationfix.py"
-toolclass = "GWizardCitationFix"
-optionclass = "GWizardCitationFixOptions"
+id = "gwizardwikitree"
+name = "GWizard WikiTree Merge"
+description = "Family Tree Processing Tool to search WikiTree profiles and ancestors and compare/merge data side-by-side with the open Family Tree."
+fname = "gwizardwikitreemerge.py"
+toolclass = "GWizardWikiTreeMerge"
+optionclass = "GWizardWikiTreeMergeOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
-help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardCitationFix_Tool"
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardWikiTreeMerge_Tool"
 gramps_versions = ["5.2.0", "6.2.0"]
 
 [files]
