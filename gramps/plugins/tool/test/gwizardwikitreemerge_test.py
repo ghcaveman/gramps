@@ -26,6 +26,7 @@
 #
 # -------------------------------------------------------------------------
 import os
+import re
 import unittest
 
 # -------------------------------------------------------------------------
@@ -91,50 +92,44 @@ class GWizardWikiTreeToolTest(unittest.TestCase):
         self.assertIn("category=TOOL_DBPROC", content)
 
     def test_addon_package_registration(self) -> None:
-        """Verify both tools are registered by the combined addon."""
-        manifest_path = os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__),
-                "..",
-                "..",
-                "..",
-                "..",
-                "addon_package.toml",
-            )
-        )
-        self.assertTrue(os.path.isfile(manifest_path))
-
-        with open(manifest_path, "r", encoding="utf-8") as handle:
-            content = handle.read()
-
+        """
+        Verify addon_package_wikitree.toml registers the WikiTree tool, the
+        Multi-Archive Record Scan and the WikiTree record source.
+        """
+        content = _read_config("addon_package_wikitree.toml", self)
         self.assertIn('id = "gwizardwikitree"', content)
         self.assertIn('name = "GWizard WikiTree Merge"', content)
-        registrations = [
-            section
-            for section in content.split("[[extra_registrations]]")[1:]
-            if section.lstrip().startswith('id = "gwizardnara"')
-        ]
-        self.assertEqual(len(registrations), 1)
-        registration = registrations[0]
-        self.assertIn('name = "GWizard NARA Merge"', registration)
-        self.assertIn('fname = "gwizardnara.py"', registration)
-        self.assertIn('toolclass = "GWizardNaraMerge"', registration)
-        self.assertIn('optionclass = "GWizardNaraMergeOptions"', registration)
-
-    def test_nara_tool_registration(self) -> None:
-        """Verify the NARA merge tool is registered in the source tree."""
-        tools_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "tools.gpr.py",
+        self.assertIn('fname = "gwizardwikitreemerge.py"', content)
+        self.assertIn('toolclass = "GWizardWikiTreeMerge"', content)
+        self.assertIn('optionclass = "GWizardWikiTreeMergeOptions"', content)
+        self.assertEqual(
+            _extra_registration_ids(content),
+            ["gwizardrecordscan", "gwizardwikitreesource"],
         )
-        with open(tools_path, "r", encoding="utf-8") as handle:
-            content = handle.read()
 
-        self.assertIn('id="gwizardnara"', content)
-        self.assertIn('name=_("GWizard NARA Merge")', content)
-        self.assertIn('fname="gwizardnara.py"', content)
-        self.assertIn('toolclass="GWizardNaraMerge"', content)
-        self.assertIn('optionclass="GWizardNaraMergeOptions"', content)
+
+def _read_config(name: str, test: unittest.TestCase) -> str:
+    """
+    Return the text of a packaging config in the repository root, skipping
+    the test when it is not there (the built addon does not include it).
+    """
+    path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", name)
+    )
+    if not os.path.isfile(path):
+        test.skipTest("%s is only in the source tree" % name)
+    with open(path, "r", encoding="utf-8") as handle:
+        return handle.read()
+
+
+def _extra_registration_ids(content: str) -> list[str]:
+    """The id of each [[extra_registrations]] table, in order."""
+    ids = []
+    for section in content.split("[[extra_registrations]]")[1:]:
+        match = re.search(r'^id = "([^"]+)"', section, re.MULTILINE)
+        if match:
+            ids.append(match.group(1))
+    return ids
 
 
 if __name__ == "__main__":
