@@ -277,6 +277,8 @@ class ErrorDialog(Gtk.MessageDialog):
         self.add_button(_("_Close"), Gtk.ResponseType.CLOSE)
         self.set_markup('<span weight="bold" size="larger">%s</span>' % str(msg1))
         self.format_secondary_text(msg2)
+        # Make labels selectable so users can copy error messages
+        ErrorDialog._make_labels_selectable(self.get_content_area())
         self.set_icon(ICON)
         self.set_title("%s - Gramps" % str(msg1))
         if parent:
@@ -288,6 +290,17 @@ class ErrorDialog(Gtk.MessageDialog):
         self.destroy()
         if parent and parent_modal:
             parent.set_modal(True)
+
+    @staticmethod
+    def _make_labels_selectable(widget) -> None:
+        """Recursively make all Gtk.Label children selectable."""
+        if isinstance(widget, Gtk.Label):
+            widget.set_selectable(True)
+        try:
+            for child in widget.get_children():
+                ErrorDialog._make_labels_selectable(child)
+        except Exception:
+            pass
 
 
 class RunDatabaseRepair(ErrorDialog):

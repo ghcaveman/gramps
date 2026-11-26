@@ -408,6 +408,7 @@ class FamilySearchSearchDialog(Gtk.Dialog):
         self.status_label = Gtk.Label(label="")
         self.status_label.set_xalign(0.0)
         self.status_label.set_line_wrap(True)
+        self.status_label.set_selectable(True)
         self.status_label.set_text(
             _(
                 "Check the terms to search on and click Search, or look up "
