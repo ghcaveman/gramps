@@ -82,7 +82,7 @@ LOG = logging.getLogger(__name__)
 RECORD_SOURCE_CATEGORY = "GWizardRecordSource"
 
 # Default threshold (percent) for counting a match.
-DEFAULT_THRESHOLD = 80
+DEFAULT_THRESHOLD = 70
 
 # Scan outcomes for one person and source.
 STATUS_OK = "ok"  # searched (or looked up), results stored
@@ -342,11 +342,55 @@ def married_surnames(db: Any, person: Person) -> list[str]:
     return found
 
 
+def _person_places_and_tags(db: Any, person: Person) -> tuple[list[str], set[str]]:
+    """Extract place strings and normalized event tags from a Gramps Person."""
+    places: list[str] = []
+    tags: set[str] = set()
+    event_map = {
+        "Immigration": "IMMI",
+        "Naturalization": "NATU",
+        "Census": "CENS",
+        "Military Service": "MILITARY",
+        "Residence": "RESI",
+    }
+    for ref in person.get_event_ref_list() or []:
+        try:
+            event = db.get_event_from_handle(ref.ref)
+        except Exception:
+            continue
+        if event is None:
+            continue
+        etype = str(event.get_type() or "").strip()
+        if etype in event_map:
+            tags.add(event_map[etype])
+        elif etype:
+            tags.add(etype.upper())
+
+        phandle = event.get_place_handle()
+        if phandle:
+            try:
+                place = db.get_place_from_handle(phandle)
+            except Exception:
+                place = None
+            if place is not None:
+                from gramps.gen.display.place import displayer as place_displayer
+
+                ptitle = (
+                    place_displayer.display(db, place)
+                    or place.get_title()
+                    or place.get_name().get_value()
+                )
+                if ptitle and ptitle not in places:
+                    places.append(str(ptitle))
+    return places, tags
+
+
 def query_for_person(db: Any, person: Person) -> RecordQuery:
     """
     Return the details a person is matched on: the first given name, the
     other given names as middle names, the birth surname followed by any
-    married surnames, the birth and death years, and the gender.
+    married surnames, the birth and death years, the gender, and the
+    places and event types (as tags) from the person's events.
     """
     name = person.get_primary_name()
     given_names = str(name.get_first_name() or "").split()
@@ -358,6 +402,7 @@ def query_for_person(db: Any, person: Person) -> RecordQuery:
         if married not in surnames:
             surnames.append(married)
     gender = {Person.MALE: "male", Person.FEMALE: "female"}.get(person.get_gender(), "")
+    places, tags = _person_places_and_tags(db, person)
     return RecordQuery(
         given=given_names[0] if given_names else "",
         middle=" ".join(given_names[1:]),
@@ -365,6 +410,8 @@ def query_for_person(db: Any, person: Person) -> RecordQuery:
         birth_year=_vital_year(db, person, "birth"),
         death_year=_vital_year(db, person, "death"),
         gender=gender,
+        places=places,
+        tags=tags,
     )
 
 
