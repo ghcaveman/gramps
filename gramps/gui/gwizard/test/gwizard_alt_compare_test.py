@@ -454,7 +454,7 @@ class LauncherTest(unittest.TestCase):
     def _open(self, alternate: bool) -> tuple[MagicMock, MagicMock]:
         from unittest import mock
 
-        from gramps.gui.gwizard import gwizardlauncher
+        from gramps.gui.gwizard import gwizard_filemerge_launcher
 
         with (
             mock.patch(
@@ -464,7 +464,7 @@ class LauncherTest(unittest.TestCase):
                 "gramps.gui.gwizard.gwizardcompare.GWizardCompareWindow"
             ) as standard,
         ):
-            gwizardlauncher.open_compare_window(
+            gwizard_filemerge_launcher.open_compare_window(
                 "uistate", "dbstate", "gwizard", parent=None, alternate=alternate
             )
         return alt, standard

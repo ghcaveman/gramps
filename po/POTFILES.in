@@ -658,7 +658,7 @@ gramps/gui/glade/updateaddons.glade
 gramps/gui/grampsgui.py
 gramps/gui/gwizard/gwizardaltcompare.py
 gramps/gui/gwizard/gwizardcompare.py
-gramps/gui/gwizard/gwizardlauncher.py
+gramps/gui/gwizard/gwizard_filemerge_launcher.py
 gramps/gui/gwizard/gwizardmergedialog.py
 gramps/gui/gwizard/gwizardwikitreelauncher.py
 gramps/gui/gwizard/gwizardwikitreemergedialog.py
@@ -894,7 +894,6 @@ gramps/plugins/tool/eventnames.py
 gramps/plugins/tool/finddupes.glade
 gramps/plugins/tool/finddupes.py
 gramps/plugins/tool/findloop.py
-gramps/plugins/tool/gwizardaddonutil.py
 gramps/plugins/tool/gwizardmerge.py
 gramps/plugins/tool/gwizardwikitreemerge.py
 gramps/plugins/tool/gwizardwikitreesource.py

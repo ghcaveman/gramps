@@ -111,7 +111,7 @@ except (ImportError, ValueError):
 # Gramps modules
 #
 # -------------------------------------------------------------------------
-from gramps.gui.gwizard.gwizardlauncher import _case_insensitive_pattern
+from gramps.gui.gwizard.gwizard_filemerge_launcher import _case_insensitive_pattern
 
 
 # ------------------------------------------------------------------
@@ -131,7 +131,9 @@ class GWizardFileMergeHelperTest(unittest.TestCase):
 
     def test_build_source_file_filters_fallback(self) -> None:
         """Filters always include genealogy types and an All files entry."""
-        from gramps.gui.gwizard.gwizardlauncher import build_source_file_filters
+        from gramps.gui.gwizard.gwizard_filemerge_launcher import (
+            build_source_file_filters,
+        )
 
         filters = build_source_file_filters()
         names = [f.get_name() for f in filters]

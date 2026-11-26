@@ -1,41 +1,40 @@
 #!/usr/bin/env bash
 
 # ---------------------------------------------------------------------------
-# create_gwizard_mediafix_wiki.bash
+# create_gwizard_filemerge_wiki.bash -- wiki build script for GWizard File Merge
 # ---------------------------------------------------------------------------
-# Helper script that runs the full documentation pipeline for the
-# "gwizard_filemerge" feature.
+# Made from featuredocs/create_example_wiki.bash (copied in from
+# gramps_devutil); only the three values below are specific to this feature.
 #
-# It performs the two stages defined by featuredocs/build_feature_docs.py:
-#   1) --prepare – generate the AI prompt and starter README (if not already
-#      present).
-#   2) --build   – convert the README to MediaWiki, prepend/append the
-#      standard header/footer, and run the image‑audit checker.
+# Runs the full documentation pipeline in featuredocs/build_feature_docs.py:
+#   1) --prepare  writes featuredocs/gwizard_filemerge_prompt.txt for your AI
+#                 assistant, and a starter featuredocs/README_gwizard_filemerge.md
+#                 if there isn't one yet.
+#   2) --build    converts README_gwizard_filemerge.md to
+#                 gwizard_filemerge.mediawiki, adds the standard header/footer,
+#                 and audits the screenshots (the audit is also saved to
+#                 gwizard_filemerge_image_audit.txt).
 #
-# The script also ensures that the audit output is captured in a side‑car
-# text file (gwizard_filemerge_image_audit.txt) – this behaviour is added by
-# the patched build_feature_docs.py.
-#
-# Usage:
-#   ./featuredocs/create_gwizard_mediafix_wiki.bash
-#
-# You can adjust the parent branch if you need a different diff base.
+# Usage, from the repo root:
+#   ./featuredocs/create_gwizard_filemerge_wiki.bash
+# Then paste gwizard_filemerge_prompt.txt into your AI assistant, save its
+# answer as README_gwizard_filemerge.md, take the screenshots it asks for, and
+# run the script again to rebuild the .mediawiki page.
 # ---------------------------------------------------------------------------
 
 set -euo pipefail
 
-# ---- Edit these three values for your feature ----------------------------
-# Feature slug. It names every generated file (README_gwizard_mediafix.md,
-# gwizard_mediafix_prompt.txt, gwizard_mediafix.mediawiki, gwizard_mediafix_image_audit.txt) and the
-# screenshots (images/gwizard_mediafix-<short-name>.png), so use the same slug
-# everywhere: lower case with underscores, e.g. "my_feature".
-FEATURE="gwizard_mediafix"
+# ---- Feature values ------------------------------------------------------
+# Feature slug. It names every generated file (README_<slug>.md,
+# <slug>_prompt.txt, <slug>.mediawiki, <slug>_image_audit.txt) and the
+# screenshots (images/<slug>-<short-name>.png).
+FEATURE="gwizard_filemerge"
 
-# Name shown in the wiki page's infobox and intro, e.g. "My Feature".
-PLUGIN_DISPLAY_NAME="GWizard Media Fix"
+# Name shown in the wiki page's infobox and intro.
+PLUGIN_DISPLAY_NAME="GWizard File Merge"
 
-# Parent branch for the isolated git diff.  Adjust if you work off a different
-# base (e.g. a release branch).
+# Branch the feature was started from. Only changes made since this branch
+# are documented.
 PARENT_BRANCH="functionality_base"
 # ---------------------------------------------------------------------------
 
@@ -46,7 +45,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ---- changed_files.txt lifecycle (mirrors check_banner.bash) --------------
 # Allow the list file location to be overridden via the environment, e.g.
-#   CHANGED_FILE=/tmp/my_changed_files.txt ./featuredocs/create_gwizard_mediafix_wiki.bash
+#   CHANGED_FILE=/tmp/my_changed_files.txt ./featuredocs/create_gwizard_filemerge_wiki.bash
 CHANGED_FILE="${CHANGED_FILE:-changed_files.txt}"
 
 # Remember whether the list file existed before we started so we can clean up
@@ -84,7 +83,7 @@ python "$REPO_ROOT/featuredocs/build_feature_docs.py" \
     --prepare
 
 # Run the build step – this generates the MediaWiki file and runs the image
-# audit.  The audit output is saved to "gwizard_filemerge_image_audit.txt" by the
+# audit.  The audit output is saved to "<slug>_image_audit.txt" by the
 # patched Python script.
 python "$REPO_ROOT/featuredocs/build_feature_docs.py" \
     "$FEATURE" \

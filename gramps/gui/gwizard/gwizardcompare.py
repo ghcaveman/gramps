@@ -108,7 +108,7 @@ except ImportError:  # Gramps < 6.1 has no gramps.gen.fs package
 
 from gramps.gui.managedwindow import ManagedWindow
 from gramps.gui.dialog import ErrorDialog
-from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
+from gramps.gui.gwizard.gwizard_filemerge_launcher import truncate_display_name
 
 # -------------------------------------------------------------------------
 #
