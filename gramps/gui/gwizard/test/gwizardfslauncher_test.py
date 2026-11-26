@@ -289,7 +289,17 @@ class TestFamilySearchLauncher(unittest.TestCase):
 
         mock_client.search_person.assert_called_once_with(query="GSVF-SGV")
         dlg.store.append.assert_called_once_with(
-            ["GSVF-SGV", "Abraham Lincoln", "", "", "", "", ""]
+            [
+                "GSVF-SGV",
+                "Abraham Lincoln",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "100% (FamilySearch ID)",
+                101.0,
+            ]
         )
         self.assertEqual(len(dlg.buttons), 2)
         dlg.merge_button.set_sensitive.assert_any_call(False)
@@ -320,10 +330,105 @@ class TestFamilySearchLauncher(unittest.TestCase):
             limit=25,
         )
         mock_client.search_person.assert_any_call(query="GSVF-SGV")
+        rows = [call.args[0] for call in dlg.store.append.call_args_list]
+        # The profile looked up by ID comes first, then the name results.
+        self.assertEqual([row[0] for row in rows], ["GSVF-SGV", "HENR-SCH"])
+        self.assertEqual(rows[0][7:], ["100% (FamilySearch ID)", 101.0])
+        self.assertEqual(rows[1][:7], ["HENR-SCH", "Henry Schmidt", "", "", "", "", ""])
+
+    def _henry_dialog(self, client: Any) -> Any:
+        """Return a search dialog filled in for a Henry Schmidt born 1890."""
+        dlg = FamilySearchSearchDialog(client=client)
+        dlg.fs_id_entry.get_text.return_value = "G7LC-JRT"
+        dlg.given_name_entry.get_text.return_value = "Henry"
+        dlg.surname_entry.get_text.return_value = "Schmidt"
+        dlg.birth_year_entry.get_text.return_value = "1890"
+        dlg.term_entries["gender"].get_text.return_value = "Male"
+        return dlg
+
+    def test_results_are_listed_best_match_first(self):
+        mock_client = MagicMock()
+        mock_client.search_person.side_effect = [
+            [
+                {
+                    "fsid": "AAAA-001",
+                    "name": "Henry Schmidt",
+                    "gender": "Female",
+                    "birth_date": "11 March 1890",
+                },
+                {
+                    "fsid": "AAAA-002",
+                    "name": "Henry Schmidt",
+                    "gender": "Male",
+                    "birth_date": "1894",
+                },
+                {
+                    "fsid": "AAAA-003",
+                    "name": "Henry Schmidt",
+                    "gender": "Male",
+                    "birth_date": "2 May 1890",
+                },
+                {
+                    "fsid": "AAAA-004",
+                    "name": "Martin Henry Schmidt",
+                    "gender": "Male",
+                    "birth_date": "1890",
+                },
+            ],
+            [
+                {
+                    "fsid": "G7LC-JRT",
+                    "name": "Henry Schmidt",
+                    "gender": "Male",
+                    "life": "1890-1966",
+                }
+            ],
+        ]
+        dlg = self._henry_dialog(mock_client)
+
+        dlg.cb_search()
+
+        rows = [call.args[0] for call in dlg.store.append.call_args_list]
         self.assertEqual(
-            dlg.store.append.call_args_list[0].args[0],
-            ["HENR-SCH", "Henry Schmidt", "", "", "", "", ""],
+            [row[0] for row in rows],
+            ["G7LC-JRT", "AAAA-003", "AAAA-004", "AAAA-002", "AAAA-001"],
         )
+        self.assertEqual(rows[0][7], "100% (FamilySearch ID)")
+        self.assertEqual(rows[1][7:], ["100%", 100.0])
+        scores = [row[8] for row in rows]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+        self.assertIn("best match first", dlg.status_label.set_text.call_args[0][0])
+
+    def test_id_profile_found_by_name_is_still_first(self):
+        mock_client = MagicMock()
+        mock_client.search_person.side_effect = [
+            [
+                {"fsid": "AAAA-003", "name": "Henry Schmidt", "birth_date": "1890"},
+                {"fsid": "G7LC-JRT", "name": "Hank Smith", "birth_date": "1850"},
+            ],
+            [{"fsid": "G7LC-JRT", "name": "Hank Smith", "birth_date": "1850"}],
+        ]
+        dlg = self._henry_dialog(mock_client)
+
+        dlg.cb_search()
+
+        rows = [call.args[0] for call in dlg.store.append.call_args_list]
+        self.assertEqual([row[0] for row in rows], ["G7LC-JRT", "AAAA-003"])
+        self.assertEqual(rows[0][7], "100% (FamilySearch ID)")
+
+    def test_match_column_sorts_by_score(self):
+        from gi.repository import Gtk
+
+        Gtk.TreeViewColumn.reset_mock()
+        dlg = FamilySearchSearchDialog(client=MagicMock())
+        titles = [call.args[0] for call in Gtk.TreeViewColumn.call_args_list]
+        self.assertEqual(titles[2], "Match")
+        columns = [call.args[0] for call in dlg.tree_view.append_column.call_args_list]
+        columns[2].set_sort_column_id.assert_called_once_with(8)
+
+    def test_gender_is_searched_by_default(self):
+        dlg = FamilySearchSearchDialog(client=MagicMock())
+        self.assertTrue(dlg.term_checks["gender"].get_active())
 
     def test_middle_name_is_included_only_when_checked(self):
         mock_client = MagicMock()

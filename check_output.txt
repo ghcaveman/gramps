@@ -1,0 +1,27 @@
+INFO: Config: addon_package_familysearch.toml
+INFO: Config: C:/gramps_dev/gramps_gwizard_familysearch_plugin/gramps_gwizard_familysearch/addon_package_familysearch.toml
+INFO: Module          gramps/gen/gwizard/gwizardfamilysearch.py
+INFO: Module          gramps/gen/gwizard/gwizardfsprovenance.py
+INFO: Module          gramps/gui/gwizard/gwizardfslauncher.py
+INFO: Module          gramps/gui/gwizard/gwizardfsmergedialog.py
+INFO: Module          gramps/plugins/tool/gwizard_filemerge_scan.py
+INFO: Module          gramps/plugins/tool/gwizardfsmerge.py
+INFO: Module          gramps/plugins/tool/gwizardfssource.py
+INFO: Test            gramps/gen/gwizard/test/gwizardfamilysearch_test.py
+INFO: Test            gramps/gui/gwizard/test/gwizardfslauncher_test.py
+INFO: Test            gramps/plugins/tool/test/gwizard_filemerge_scan_test.py
+INFO: Test            gramps/plugins/tool/test/gwizardfsmerge_test.py
+INFO: Test            gramps/plugins/tool/test/gwizardfssource_test.py
+INFO: From dependency gramps/gen/gwizard/gwizard_base.py
+INFO: From dependency gramps/gen/gwizard/gwizard_filemerge_media.py
+INFO: From dependency gramps/gen/gwizard/gwizard_filemerge_recordscan.py
+INFO: From dependency gramps/gen/gwizard/gwizardaltmatch.py
+INFO: From dependency gramps/gen/gwizard/gwizardgedcom.py
+INFO: From dependency gramps/gui/gwizard/gwizard_filemerge_launcher.py
+INFO: From dependency gramps/gui/gwizard/gwizard_filemerge_recordscandialog.py
+INFO: From dependency gramps/gui/gwizard/gwizardaltcompare.py
+INFO: From dependency gramps/gui/gwizard/gwizardcompare.py
+INFO: From dependency gramps/gui/gwizard/gwizardmergedialog.py
+INFO: From dependency gramps/plugins/tool/gwizardmerge.py
+INFO: Branch check against origin/functionality_base
+INFO: 0 warning(s)

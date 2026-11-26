@@ -33,7 +33,6 @@ FamilySearch as an available archive column.
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import logging
-import re
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -45,7 +44,6 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.gwizard.gwizard_base import (
     RecordCandidate,
     RecordQuery,
-    year_range,
 )
 from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     RecordSource,
@@ -56,85 +54,15 @@ from gramps.gen.gwizard.gwizardfamilysearch import (
     extract_familysearch_id,
     get_familysearch_id,
 )
+from gramps.gen.gwizard.gwizardfsmatch import candidate_from_result
 from gramps.gen.gwizard.gwizardfsprovenance import profile_url
 
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
 
-_YEAR_RE = re.compile(r"\b(\d{4})\b")
-
-
-# ------------------------------------------------------------
-#
-# Matching & Candidate conversion
-#
-# ------------------------------------------------------------
-def _extract_years_from_life(
-    life_str: str,
-) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
-    """
-    Extract birth and death year ranges from a lifespan string.
-
-    :param life_str: E.g. "1809 - 1865", "1809-", or "1900".
-    :returns: Tuple of (birth_years, death_years).
-    """
-    if not life_str:
-        return None, None
-
-    tokens = [t.strip() for t in life_str.split("-")]
-    birth_years = None
-    death_years = None
-
-    if tokens:
-        m1 = _YEAR_RE.search(tokens[0])
-        if m1:
-            try:
-                y = int(m1.group(1))
-                birth_years = year_range(y)
-            except (ValueError, TypeError):
-                pass
-
-    if len(tokens) > 1:
-        m2 = _YEAR_RE.search(tokens[1])
-        if m2:
-            try:
-                y = int(m2.group(1))
-                death_years = year_range(y)
-            except (ValueError, TypeError):
-                pass
-
-    return birth_years, death_years
-
-
-def candidate_from_fs_result(res: dict[str, Any]) -> RecordCandidate:
-    """
-    Convert a FamilySearch search result into a RecordCandidate for scoring.
-
-    :param res: FamilySearch search result dictionary.
-    :returns: RecordCandidate instance.
-    :rtype: RecordCandidate
-    """
-    name_str = str(res.get("name") or "").strip()
-    given = ""
-    surnames: list[str] = []
-
-    if name_str:
-        tokens = name_str.split()
-        if len(tokens) == 1:
-            given = tokens[0]
-        elif len(tokens) > 1:
-            given = " ".join(tokens[:-1])
-            surnames.append(tokens[-1])
-
-    life_str = str(res.get("life") or "")
-    birth_years, death_years = _extract_years_from_life(life_str)
-
-    return RecordCandidate(
-        given=given,
-        surnames=surnames,
-        birth_years=birth_years,
-        death_years=death_years,
-    )
+# The name this module used to offer; the conversion now lives in
+# gwizardfsmatch.py, shared with the FamilySearch search window.
+candidate_from_fs_result = candidate_from_result
 
 
 # ------------------------------------------------------------
@@ -221,7 +149,7 @@ class FamilySearchSource(RecordSource):
         return SourceMatch(
             key=fid,
             label=label,
-            candidate=candidate_from_fs_result(res),
+            candidate=candidate_from_result(res),
             url=profile_url(fid) if fid else "",
         )
 

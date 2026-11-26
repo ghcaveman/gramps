@@ -28,6 +28,7 @@ gramps_versions = ["5.2.0", "6.2"]
 [files]
 modules = [
     "gramps/gen/gwizard/gwizardfamilysearch.py",
+    "gramps/gen/gwizard/gwizardfsmatch.py",
     "gramps/gen/gwizard/gwizardfsprovenance.py",
     "gramps/gui/gwizard/gwizardfslauncher.py",
     "gramps/gui/gwizard/gwizardfsmergedialog.py",
@@ -37,6 +38,7 @@ modules = [
 ]
 tests = [
     "gramps/gen/gwizard/test/gwizardfamilysearch_test.py",
+    "gramps/gen/gwizard/test/gwizardfsmatch_test.py",
     "gramps/gui/gwizard/test/gwizardfslauncher_test.py",
     "gramps/plugins/tool/test/gwizardfsmerge_test.py",
     "gramps/plugins/tool/test/gwizardfssource_test.py",

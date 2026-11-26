@@ -37,7 +37,6 @@ from gramps.gen.gwizard.gwizard_base import RecordQuery
 from gramps.gen.lib import Attribute, Person
 from gramps.plugins.tool.gwizardfssource import (
     FamilySearchSource,
-    _extract_years_from_life,
     candidate_from_fs_result,
     load_on_reg,
 )
@@ -68,19 +67,6 @@ class FamilySearchSourceTest(unittest.TestCase):
         self.assertEqual(len(sources), 1)
         self.assertIsInstance(sources[0], FamilySearchSource)
         self.assertEqual(sources[0].source_id, "familysearch")
-
-    def test_extract_years_from_life(self):
-        by, dy = _extract_years_from_life("1809 - 1865")
-        self.assertEqual(by, (1809, 1809))
-        self.assertEqual(dy, (1865, 1865))
-
-        by2, dy2 = _extract_years_from_life("1809-")
-        self.assertEqual(by2, (1809, 1809))
-        self.assertIsNone(dy2)
-
-        by3, dy3 = _extract_years_from_life("")
-        self.assertIsNone(by3)
-        self.assertIsNone(dy3)
 
     def test_candidate_from_fs_result(self):
         cand = candidate_from_fs_result(

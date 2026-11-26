@@ -38,6 +38,7 @@ from typing import Any, Callable
 # -------------------------------------------------------------------------
 from gi.repository import GLib
 from gi.repository import Gtk
+from gi.repository import Pango
 
 # -------------------------------------------------------------------------
 #
@@ -45,7 +46,7 @@ from gi.repository import Gtk
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
-from gramps.gen.gwizard.gwizard_base import surname_text
+from gramps.gen.gwizard.gwizard_base import RecordQuery, surname_text
 from gramps.gen.gwizard.gwizardfamilysearch import (
     FamilySearchAuthenticationError,
     FamilySearchGWizard,
@@ -53,6 +54,12 @@ from gramps.gen.gwizard.gwizardfamilysearch import (
     extract_familysearch_id,
     get_familysearch_id,
     is_familysearch_id,
+)
+from gramps.gen.gwizard.gwizardfsmatch import (
+    ID_MATCH_SORT_SCORE,
+    id_match_text,
+    match_text,
+    score_result,
 )
 from gramps.gen.lib import NameType, Person
 from gramps.gui.dialog import ErrorDialog
@@ -75,7 +82,7 @@ SEARCH_TERM_DEFAULTS: dict[str, bool] = {
     "first_name": True,
     "middle_name": False,
     "last_name": True,
-    "gender": False,
+    "gender": True,
     "birth_year": True,
     "birth_place": False,
     "death_year": False,
@@ -418,7 +425,17 @@ class FamilySearchSearchDialog(Gtk.Dialog):
         content.pack_start(self.status_label, False, False, 0)
 
         # 4. Search results
-        self.store = Gtk.ListStore(str, str, str, str, str, str, str)
+        # Model columns:
+        # 0: FamilySearch ID (str)
+        # 1: Name (str)
+        # 2: Gender (str)
+        # 3: Birth Date (str)
+        # 4: Birth Place (str)
+        # 5: Death Date (str)
+        # 6: Death Place (str)
+        # 7: Match (str), such as "92%" or "100% (FamilySearch ID)"
+        # 8: Match score (float), for sorting the Match column
+        self.store = Gtk.ListStore(str, str, str, str, str, str, str, str, float)
         self.tree_view = Gtk.TreeView(model=self.store)
         self.tree_view.set_headers_visible(True)
         self.tree_view.set_vexpand(True)
@@ -426,22 +443,26 @@ class FamilySearchSearchDialog(Gtk.Dialog):
         self.tree_view.set_search_column(1)
         self.tree_view.connect("row-activated", self.cb_row_activated)
 
-        for col_idx, (col_title, width) in enumerate(
-            [
-                (_("FamilySearch ID"), 130),
-                (_("Name"), 200),
-                (_("Gender"), 75),
-                (_("Birth Date"), 120),
-                (_("Birth Place"), 160),
-                (_("Death Date"), 120),
-                (_("Death Place"), 160),
-            ]
+        for col_title, col_idx, width in (
+            (_("FamilySearch ID"), 0, 110),
+            (_("Name"), 1, 180),
+            (_("Match"), 7, 70),
+            (_("Gender"), 2, 65),
+            (_("Birth Date"), 3, 110),
+            (_("Birth Place"), 4, 150),
+            (_("Death Date"), 5, 110),
+            (_("Death Place"), 6, 150),
         ):
             renderer = Gtk.CellRendererText()
+            expand = col_idx in (1, 4, 6)
+            if expand:
+                renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
             col = Gtk.TreeViewColumn(col_title, renderer, text=col_idx)
             col.set_min_width(width)
             col.set_resizable(True)
-            col.set_expand(col_idx in (1, 4, 6))
+            col.set_expand(expand)
+            # The Match column sorts by its numeric score.
+            col.set_sort_column_id(8 if col_idx == 7 else col_idx)
             self.tree_view.append_column(col)
 
         selection = self.tree_view.get_selection()
@@ -555,6 +576,68 @@ class FamilySearchSearchDialog(Gtk.Dialog):
         if not self.term_checks[key].get_active():
             return ""
         return str(self.term_entries[key].get_text()).strip()
+
+    def _match_query(self) -> RecordQuery:
+        """
+        Return the details to score results against: the names, years and
+        gender in the search boxes (filled from the target person), checked
+        or not.
+        """
+
+        def text(key: str) -> str:
+            return str(self.term_entries[key].get_text()).strip()
+
+        def year(key: str) -> int | None:
+            value = text(key)[:4]
+            return int(value) if len(value) == 4 and value.isdigit() else None
+
+        surname = text("last_name")
+        return RecordQuery(
+            given=text("first_name"),
+            middle=text("middle_name"),
+            surnames=[surname] if surname else [],
+            birth_year=year("birth_year"),
+            death_year=year("death_year"),
+            gender=text("gender").casefold(),
+        )
+
+    @staticmethod
+    def _ranked_rows(
+        results: list[dict[str, Any]], fs_id: str, query: RecordQuery
+    ) -> list[list[Any]]:
+        """
+        Return the results as store rows, best match first: the profile
+        looked up by FamilySearch ID at 100%, then the rest by their match
+        score. Equal scores keep FamilySearch's own order. Each profile is
+        listed once.
+        """
+        id_row: list[Any] | None = None
+        scored: list[tuple[float, list[Any]]] = []
+        seen: set[str] = set()
+        for res in results:
+            fid = res.get("fsid")
+            if not fid or fid in seen:
+                continue
+            seen.add(fid)
+            row = [
+                fid,
+                res.get("name") or "",
+                res.get("gender") or "",
+                res.get("birth_date") or "",
+                res.get("birth_place") or "",
+                res.get("death_date") or "",
+                res.get("death_place") or "",
+            ]
+            if fs_id and fid == fs_id:
+                id_row = row + [id_match_text(), ID_MATCH_SORT_SCORE]
+            elif query.has_name():
+                result = score_result(query, res)
+                scored.append((result.score, row + [match_text(result), result.score]))
+            else:
+                scored.append((-1.0, row + ["-", -1.0]))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        rows = [row for _score, row in scored]
+        return [id_row] + rows if id_row else rows
 
     def _update_target_label(self) -> None:
         """
@@ -736,30 +819,16 @@ class FamilySearchSearchDialog(Gtk.Dialog):
             self.search_button.set_sensitive(True)
             return
 
-        seen: set[str] = set()
-        for res in results:
-            fid = res.get("fsid")
-            if not fid or fid in seen:
-                continue
-            seen.add(fid)
-            self.store.append(
-                [
-                    fid,
-                    res.get("name") or "",
-                    res.get("gender") or "",
-                    res.get("birth_date") or "",
-                    res.get("birth_place") or "",
-                    res.get("death_date") or "",
-                    res.get("death_place") or "",
-                ]
-            )
+        rows = self._ranked_rows(results, fs_id, self._match_query())
+        for row in rows:
+            self.store.append(row)
 
-        count = len(seen)
+        count = len(rows)
         if count > 0:
             self.status_label.set_text(
                 _(
-                    "Found %(count)d matching profiles. Select a profile and "
-                    "click Compare / Merge."
+                    "Found %(count)d matching profiles, best match first. "
+                    "Select a profile and click Compare / Merge."
                 )
                 % {"count": count}
             )
