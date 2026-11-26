@@ -49,6 +49,14 @@ _PLACEHOLDER_GIVENS = (
     "stillborn",
 )
 
+_GIVEN_VARIANTS = {
+    "nickolas": ["Nicholas"],
+    "nicholas": ["Nickolas"],
+    "emanuale": ["Emanuele"],
+    "barbera": ["Barbara"],
+    "giacento": ["Giacinto", "Jean"],
+}
+
 _US_STATES = {
     "al": "Alabama",
     "ak": "Alaska",
@@ -165,6 +173,19 @@ def clean_given_and_nicknames(
         return "", "", nicknames
 
     return tokens[0], " ".join(tokens[1:]), nicknames
+
+
+def expand_given_variants(first_name: str) -> list[str]:
+    """Return a given name followed by its known spelling variants."""
+    clean = (first_name or "").strip()
+    if not clean:
+        return []
+
+    variants = [clean]
+    for alternate in _GIVEN_VARIANTS.get(clean.casefold(), []):
+        if alternate not in variants:
+            variants.append(alternate)
+    return variants
 
 
 def expand_surname_variants(raw_surnames: list[str]) -> list[str]:

@@ -69,6 +69,15 @@ RESPONSE_MERGE = 1
 # Gramps gender codes and the values WikiTree's searchPerson accepts.
 _WIKITREE_GENDERS: dict[int, str] = {Person.MALE: "Male", Person.FEMALE: "Female"}
 
+# Search result fields used by the dialog, including relatives and locations
+# displayed to distinguish profiles with similar names.
+_DIALOG_SEARCH_FIELDS = (
+    "Id,Name,FirstName,MiddleName,MiddleInitial,RealName,ColloquialName,"
+    "Nicknames,LastNameAtBirth,LastNameBirth,LastNameCurrent,LastNameOther,"
+    "LongName,ShortName,Gender,BirthDate,DeathDate,BirthDateDecade,"
+    "DeathDateDecade,BirthLocation,DeathLocation,Father,Mother,Parents"
+)
+
 # Search terms that start checked. First name, last name and birth year are
 # the most effective WikiTree search terms; the others are filled in from the
 # target person but left out until checked. A WikiTree ID, when known, is an
@@ -348,8 +357,6 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         self.wt_id_entry = self.term_entries["wt_id"]
 
         # Search options, in a third row under the name and date columns.
-        # Each one is left out of the request at its default ("WikiTree
-        # default", unchecked or 0), so WikiTree's own defaults apply.
         term_keys = [key for key, *_rest in self._term_specs()]
 
         # Surname options: which last name to match, and spelling variants.
@@ -902,11 +909,19 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                     expand_surname_variants,
                 )
 
+                from gramps.gen.gwizard.gwizardwikitreenorm import (
+                    expand_given_variants,
+                )
+
                 search_opts = self._search_options()
                 first_only = self._term_value("first_name")
                 first_candidates = list(
                     dict.fromkeys([fn for fn in (first_name, first_only) if fn])
                 ) or [""]
+                exact_first_candidates = list(first_candidates)
+                for fn in exact_first_candidates:
+                    first_candidates.extend(expand_given_variants(fn)[1:])
+                first_candidates = list(dict.fromkeys(first_candidates))
                 last_candidates = (
                     expand_surname_variants([last_name]) if last_name else [""]
                 )
@@ -924,6 +939,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                             DeathLocation=death_location,
                             date_spread=date_spread,
                             limit=WikiTreeInterface.MAX_SEARCH_LIMIT,
+                            fields=_DIALOG_SEARCH_FIELDS,
                             **search_opts,
                         )
                         if found:
