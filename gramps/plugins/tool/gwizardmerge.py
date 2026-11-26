@@ -94,12 +94,12 @@ class GWizardFileMerge(tool.Tool):
         if _addon_dir not in _sys.path:
             _sys.path.insert(0, _addon_dir)
         try:
-            launcher_module = importlib.import_module("gwizardlauncher")
+            launcher_module = importlib.import_module("gwizard_filemerge_launcher")
         except ModuleNotFoundError as err:
-            if err.name != "gwizardlauncher":
+            if err.name != "gwizard_filemerge_launcher":
                 raise
             launcher_module = importlib.import_module(
-                "gramps.gui.gwizard.gwizardlauncher"
+                "gramps.gui.gwizard.gwizard_filemerge_launcher"
             )
 
         run_gwizard_merge_flow = getattr(launcher_module, "run_gwizard_merge_flow")

@@ -148,7 +148,7 @@ class TestTreeHeaderNameFormatting(unittest.TestCase):
     """Tests for shortening compare and merge dialog header names."""
 
     def test_filename_is_shortened_without_losing_extension(self):
-        from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
+        from gramps.gui.gwizard.gwizard_filemerge_launcher import truncate_display_name
 
         filename = "ancestor_export_with_a_long_name.gramps"
         result = truncate_display_name(filename, max_length=20, preserve_extension=True)
@@ -157,7 +157,7 @@ class TestTreeHeaderNameFormatting(unittest.TestCase):
         self.assertTrue(result.endswith(".gramps"))
 
     def test_extension_is_kept_when_it_exceeds_the_limit(self):
-        from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
+        from gramps.gui.gwizard.gwizard_filemerge_launcher import truncate_display_name
 
         result = truncate_display_name(
             "tree.verylongextension", max_length=10, preserve_extension=True
@@ -166,7 +166,7 @@ class TestTreeHeaderNameFormatting(unittest.TestCase):
         self.assertTrue(result.endswith(".verylongextension"))
 
     def test_tree_name_is_shortened(self):
-        from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
+        from gramps.gui.gwizard.gwizard_filemerge_launcher import truncate_display_name
 
         result = truncate_display_name("A very long family tree name", max_length=12)
 

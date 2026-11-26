@@ -81,11 +81,17 @@ class GWizardRecordScan(tool.Tool):
         """Initialize the tool and open the window."""
         uistate = user.uistate
         tool.Tool.__init__(self, dbstate, options_class, name)
-        # As a standalone addon the sibling modules live in the addon
-        # directory, which Gramps removes from sys.path after import.
+        # As a standalone addon this module ships in each record-source addon
+        # (WikiTree, NARA, ...), and the record-scan modules it opens ship in
+        # the sibling GWizardFileMerge addon. Gramps removes addon
+        # directories from sys.path after import, so put both back.
         addon_dir = os.path.dirname(os.path.abspath(__file__))
-        if addon_dir not in sys.path:
-            sys.path.insert(0, addon_dir)
+        for path in (
+            os.path.join(os.path.dirname(addon_dir), "GWizardFileMerge"),
+            addon_dir,
+        ):
+            if os.path.isdir(path) and path not in sys.path:
+                sys.path.insert(0, path)
         if uistate is None:
             LOG.error("GWizard Multi-Archive Record Scan needs the Gramps GUI")
             return
