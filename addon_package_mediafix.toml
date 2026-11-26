@@ -1,0 +1,70 @@
+# GWizard Media Fix addon -- built by package_addon.py (from gramps_devutil).
+# See addon_package.example.toml in gramps_devutil for every option.
+#
+# MediaFix is built only from this repo. CitationFix (gwizard_citationfix,
+# the child branch) depends on it and lists these modules under
+# [[dependencies]]. The shared File Merge modules reach this branch by
+# merging gwizard_filemerge (the parent branch).
+
+package = "MediaFix"
+
+# The branch this config is built from; package_addon.py picks it by this.
+branch = "gwizard_mediafix"
+
+[registration]
+id = "gwizardmediafix"
+name = "GWizard Media Fix"
+description = "Fix media references in a Gramps database."
+fname = "gwizardmediafix.py"
+toolclass = "GWizardMediaFix"
+optionclass = "GWizardMediaFixOptions"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardMediaFix_Tool"
+gramps_versions = ["5.2.0", "6.2"]
+
+[files]
+# Listed explicitly: in the citation-fix tree gw_*.py also matches the
+# citation-fix dialogs. gwizard_mediafix_common.py is owned by this addon; CitationFix
+# uses this copy through its dependency.
+modules = [
+    "gramps/plugins/tool/gwizardmediafix.py",
+    "gramps/plugins/tool/gwizard_mediafix_common.py",
+    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/plugins/tool/gw_mediapreview.py",
+]
+tests = [
+    "gramps/plugins/tool/test/gwizardmediafix*_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
+]
+test_helpers = [
+    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
+]
+
+[check]
+# The branch this feature branch was started from (local name first, then
+# the remote one, whichever exists).
+base = ["functionality_base", "origin/functionality_base"]
+ignore = [
+    "featuredocs/**",
+    # Notes, test data and helper scripts in the repo root, most of them
+    # copied in from gramps_devutil (* stays in the root folder).
+    "*.md",
+    "*.txt",
+    "*.bash",
+    "*.ged",
+    "environment_create*.py",
+    "make_gwizard_testdata_images.py",
+    # File Merge files and tests, inherited from gwizard_filemerge (the parent
+    # branch); the GWizardFileMerge addon ships them.
+    "gramps/gen/gwizard/**",
+    "gramps/gui/gwizard/**",
+    "gramps/plugins/tool/gwizardmerge.py",
+    "gramps/plugins/tool/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/test/gwizardmerge*_test.py",
+    "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
+    "gramps/version.py",
+    "gramps/plugins/tool/tools.gpr.py",
+    "po/POTFILES.in",
+    "po/POTFILES.skip",
+]
