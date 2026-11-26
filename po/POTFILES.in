@@ -656,7 +656,7 @@ gramps/gui/glade/updateaddons.glade
 gramps/gui/grampsgui.py
 gramps/gui/gwizard/gwizardaltcompare.py
 gramps/gui/gwizard/gwizardcompare.py
-gramps/gui/gwizard/gwizardlauncher.py
+gramps/gui/gwizard/gwizard_filemerge_launcher.py
 gramps/gui/gwizard/gwizardmergedialog.py
 gramps/gui/gwizard/gwizardwikitreelauncher.py
 gramps/gui/gwizard/gwizardwikitreemergedialog.py
@@ -914,16 +914,6 @@ gramps/plugins/tool/gwizardcitationmediaengine.py
 gramps/plugins/tool/gwizardcitationrepairengine.py
 gramps/plugins/tool/gwizardcitationreport.py
 gramps/plugins/tool/gwizardcitationshared.py
-gramps/plugins/tool/gw_fixmediareferencesdialog.py
-gramps/plugins/tool/gwizardmediafix.py
-gramps/plugins/tool/gwizardcitationfix.py
-gramps/plugins/tool/gw_goldstandardrepos.py
-gramps/plugins/tool/gw_repomergedialog.py
-gramps/plugins/tool/gw_sourcesfixdialog.py
-gramps/plugins/tool/gw_unpacksourcesdialog.py
-gramps/plugins/tool/gw_unpackcitationsdialog.py
-gramps/plugins/tool/gw_notesfixdialog.py
-gramps/plugins/tool/gw_citationattributesdialog.py
 gramps/plugins/tool/mergecitations.glade
 gramps/plugins/tool/mergecitations.py
 gramps/plugins/tool/notrelated.glade
@@ -1016,7 +1006,4 @@ data/org.gramps_project.Gramps.metainfo.xml.in
 data/org.gramps_project.Gramps.desktop.in
 data/holidays.xml
 data/tips.xml
-gramps/plugins/tool/gw_fixmediareferencesdialog.py
-gramps/plugins/tool/gw_mediapreview.py
 gramps/plugins/tool/gwizard_mediafix_common.py
-gramps/plugins/tool/gwizardmediafix.py

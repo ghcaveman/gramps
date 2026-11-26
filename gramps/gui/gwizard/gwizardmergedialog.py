@@ -85,7 +85,7 @@ from gramps.gen.gwizard.gwizard_base import (
     compare_date_specificity,
     compare_place_specificity,
 )
-from gramps.gui.gwizard.gwizardlauncher import truncate_display_name
+from gramps.gui.gwizard.gwizard_filemerge_launcher import truncate_display_name
 
 try:
     from gramps.gen.fs.utils.attributes import get_fsftid
