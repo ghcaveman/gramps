@@ -1,5 +1,9 @@
 # GWizard File Merge addon -- built by package_addon.py (from gramps_devutil).
-# See addon_package.example.toml in gramps_devutil for every option.
+# addon_package.example.toml (copied in from gramps_devutil) lists every option.
+#
+# This is the base GWizard branch: gwizard_mediafix, gwizard_citationfix and
+# the record-source addons (WikiTree, NARA, FamilySearch) inherit these
+# shared modules and list GWizardFileMerge as a dependency.
 
 package = "GWizardFileMerge"
 
@@ -13,7 +17,7 @@ optionclass = "GWizardFileMergeOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
 help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
-gramps_versions = ["5.2.0", "6.2.0"]
+gramps_versions = ["5.2.0", "6.2"]
 
 [files]
 modules = [
@@ -29,9 +33,10 @@ tests = [
     "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
 ]
 # gwizardmerge.py imports the launcher flat, and falls back to the core
-# location when run from the source tree; keep that fallback as written.
+# location (an importlib string) when run from the source tree; keep that
+# fallback as written.
 keep_unrewritten = [
-    '^\s*from\s+gramps\.gui\.gwizard\.gwizard_filemerge_launcher\s+import\s*\(\s*$',
+    '^\s*"gramps\.gui\.gwizard\.gwizard_filemerge_launcher"\s*$',
 ]
 
 # The GWizard Multi-Archive Record Scan: a second Tools menu entry in the same addon. It
@@ -47,7 +52,7 @@ optionclass = "GWizardRecordScanOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
 help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
-gramps_versions = ["5.2.0", "6.2.0"]
+gramps_versions = ["5.2.0", "6.2"]
 
 [files.test_data]
 source = "gramps/gen/gwizard/test/data"
@@ -60,8 +65,14 @@ required = ["gwizard_mergefrom_sources.ged"]
 base = ["functionality_base", "origin/functionality_base"]
 ignore = [
     "featuredocs/**",
-    "gwizard_filemerge_*.txt",
-    "package_gwizard_filemerge.py",
+    # Notes, test data and helper scripts in the repo root, most of them
+    # copied in from gramps_devutil (* stays in the root folder).
+    "*.md",
+    "*.txt",
+    "*.bash",
+    "*.ged",
+    "environment_create*.py",
+    "make_gwizard_testdata_images.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",
