@@ -418,7 +418,7 @@ class WikiTreeInterface:
             LOG.error("WikiTree getPeople failed: %s", err)
         return results
 
-        def search_person(
+    def search_person(
         self,
         first_name: str = "",
         last_name: str = "",
@@ -437,10 +437,13 @@ class WikiTreeInterface:
         raise_errors: bool = False,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
-            import requests
+        """
+        Fuzzy search for persons across names, dates, and locations.
+        """
+        import requests
 
-            params: dict[str, Any] = {
-                "action": "searchPerson",
+        params: dict[str, Any] = {
+            "action": "searchPerson",
             "limit": max(1, min(limit, self.MAX_SEARCH_LIMIT)),
             "appId": self.app_id,
         }
@@ -472,7 +475,7 @@ class WikiTreeInterface:
         for key, val in kwargs.items():
             if val is not None:
                 params[key] = val
-                
+
         try:
             response = requests.get(
                 self.base_url,

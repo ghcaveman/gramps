@@ -358,7 +358,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         self.last_name_match_combo = Gtk.ComboBoxText()
         for match_id, match_text in self._last_name_match_options():
             self.last_name_match_combo.append(match_id, match_text)
-        self.last_name_match_combo.set_active_id("")
+        self.last_name_match_combo.set_active_id("all")
         self.last_name_match_combo.set_tooltip_text(
             _(
                 "Which WikiTree last name to match: the last name at birth, the "
@@ -386,7 +386,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         self.date_spread_spin = Gtk.SpinButton.new_with_range(
             0, WikiTreeInterface.MAX_DATE_SPREAD, 1
         )
-        self.date_spread_spin.set_value(0)
+        self.date_spread_spin.set_value(3)
         self.date_spread_spin.set_tooltip_text(
             _(
                 "How many years WikiTree may allow around the birth and death "
@@ -723,9 +723,9 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             entry.set_text("")
         self._prefill_entries(default_query=self.default_query)
         self._apply_default_terms()
-        self.date_spread_spin.set_value(0)
+        self.date_spread_spin.set_value(3)
         self.date_include_combo.set_active_id("")
-        self.last_name_match_combo.set_active_id("")
+        self.last_name_match_combo.set_active_id("all")
         self.skip_variants_check.set_active(False)
 
     def _build_tree_columns(self) -> None:
@@ -898,18 +898,39 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                 or birth_location
                 or death_location
             ):
-                search_matches = self.client.search_person(
-                    first_name=first_name,
-                    last_name=last_name,
-                    birth_date=birth_year,
-                    death_date=death_year,
-                    Gender=gender,
-                    BirthLocation=birth_location,
-                    DeathLocation=death_location,
-                    date_spread=date_spread,
-                    limit=WikiTreeInterface.MAX_SEARCH_LIMIT,
-                    **self._search_options(),
+                from gramps.gen.gwizard.gwizardwikitreenorm import (
+                    expand_surname_variants,
                 )
+
+                search_opts = self._search_options()
+                first_only = self._term_value("first_name")
+                first_candidates = list(
+                    dict.fromkeys([fn for fn in (first_name, first_only) if fn])
+                ) or [""]
+                last_candidates = (
+                    expand_surname_variants([last_name]) if last_name else [""]
+                )
+
+                search_matches: list[dict[str, Any]] = []
+                for fn_cand in first_candidates:
+                    for ln_cand in last_candidates:
+                        found = self.client.search_person(
+                            first_name=fn_cand,
+                            last_name=ln_cand,
+                            birth_date=birth_year,
+                            death_date=death_year,
+                            Gender=gender,
+                            BirthLocation=birth_location,
+                            DeathLocation=death_location,
+                            date_spread=date_spread,
+                            limit=WikiTreeInterface.MAX_SEARCH_LIMIT,
+                            **search_opts,
+                        )
+                        if found:
+                            search_matches.extend(found)
+                    if search_matches:
+                        break
+
                 for item in search_matches:
                     m_id = str(item.get("Name") or "")
                     if not m_id or m_id not in seen_ids:

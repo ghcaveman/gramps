@@ -194,6 +194,17 @@ def expand_surname_variants(raw_surnames: list[str]) -> list[str]:
             if prefix.lower() == "o":
                 add_variant(f"O'{rest_first}{tail}")
 
+        # Split unspaced Italian/French particles: "Decristoforo" -> "De Cristoforo"
+        m_split = re.match(r"^(De|Di|Da|Del|Della|La|Le)([a-z]{3,})$", clean, re.I)
+        if m_split:
+            add_variant(f"{m_split.group(1)} {m_split.group(2).capitalize()}")
+
+        # German -dt / -d surname variants: "Schmidt" <-> "Schmid"
+        if clean.lower().endswith("dt"):
+            add_variant(clean[:-1])
+        elif clean.lower().endswith("d"):
+            add_variant(f"{clean}t")
+
     return variants
 
 

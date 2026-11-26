@@ -82,7 +82,7 @@ LOG = logging.getLogger(__name__)
 RECORD_SOURCE_CATEGORY = "GWizardRecordSource"
 
 # Default threshold (percent) for counting a match.
-DEFAULT_THRESHOLD = 80
+DEFAULT_THRESHOLD = 70
 
 # Scan outcomes for one person and source.
 STATUS_OK = "ok"  # searched (or looked up), results stored

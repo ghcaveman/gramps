@@ -134,7 +134,9 @@ class WikiTreeSource(RecordSource):
 
         profiles: list[dict[str, Any]] = []
         primary_surname = plan.surnames[0]
-        full_given = f"{plan.given} {plan.middle}".strip() if plan.middle else plan.given
+        full_given = (
+            f"{plan.given} {plan.middle}".strip() if plan.middle else plan.given
+        )
 
         def _run(
             fn: str,
@@ -202,7 +204,7 @@ class WikiTreeSource(RecordSource):
                 match = self.to_match(profile)
                 matches.setdefault(match.key, match)
         return list(matches.values())
-    
+
     def lookup(self, key: str) -> SourceMatch | None:
         """Return the profile the person is linked to."""
         profile = self.client().get_person(key, raise_errors=True)
