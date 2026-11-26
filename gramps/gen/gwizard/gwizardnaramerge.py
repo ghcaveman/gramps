@@ -81,6 +81,13 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 #
 # -------------------------------------------------------------------------
 from .gwizardgedcom import GedGWizard
+from .gwizardnarausage import (
+    KIND_RECORD,
+    KIND_SEARCH,
+    KIND_VALIDATE,
+    NaraUsage,
+    shared_usage,
+)
 
 LOG = logging.getLogger(__name__)
 _ = glocale.translation.gettext
@@ -139,6 +146,7 @@ class NaraCatalogInterface:
         api_key: str = "",
         base_url: str = DEFAULT_BASE_URL,
         verify_ssl: bool | str | None = None,
+        usage: NaraUsage | None = None,
     ) -> None:
         """Initialize the NARA Catalog interface.
 
@@ -146,6 +154,8 @@ class NaraCatalogInterface:
             variable.
         :param base_url: Base URL for NARA Catalog API v2.
         :param verify_ssl: SSL certificate verification flag or path to CA bundle.
+        :param usage: Where requests are counted (see gwizardnarausage); the
+            counter every NARA window shares when None.
         """
         # An explicit key supports callers that supply credentials directly;
         # the NARA tool itself reads only NARA_API_KEY from the environment.
@@ -159,6 +169,34 @@ class NaraCatalogInterface:
         if self.api_key:
             self.headers["x-api-key"] = self.api_key
         self.verify_ssl = verify_ssl
+        self._usage = usage
+
+    @property
+    def usage(self) -> NaraUsage:
+        """Return the counter this client's requests are added to."""
+        if self._usage is None:
+            self._usage = shared_usage()
+        return self._usage
+
+    def _count(self, kind: str, response: Any) -> None:
+        """
+        Count a request NARA answered (see gwizardnarausage). Only real
+        answers count: a stand-in response in a test is not a
+        requests.Response, so tests never add to the user's count.
+        """
+        if not isinstance(response, requests.Response) and self._usage is None:
+            return
+        try:
+            status = int(getattr(response, "status_code", 0) or 0) or None
+        except (TypeError, ValueError):
+            status = None
+        headers = getattr(response, "headers", None)
+        try:
+            self.usage.record(
+                kind, status, headers if hasattr(headers, "items") else None
+            )
+        except Exception:
+            LOG.warning("Could not count a NARA request", exc_info=True)
 
     def validate_api_key(self) -> str | None:
         """Check the key with a minimal catalog request; return an error if invalid."""
@@ -179,6 +217,7 @@ class NaraCatalogInterface:
             response = requests.get(
                 f"{self.base_url}/records/search", **request_options
             )
+            self._count(KIND_VALIDATE, response)
         except requests.exceptions.RequestException:
             LOG.warning("Could not contact NARA to validate the API key", exc_info=True)
             return _(
@@ -302,6 +341,7 @@ class NaraCatalogInterface:
             response = requests.get(
                 f"{self.base_url}/records/search", **request_options
             )
+            self._count(KIND_SEARCH, response)
         except requests.exceptions.RequestException:
             LOG.exception("NARA catalog search request failed")
             return None
@@ -340,6 +380,7 @@ class NaraCatalogInterface:
             response = requests.get(
                 f"{self.base_url}/records/search", **request_options
             )
+            self._count(KIND_RECORD, response)
         except requests.exceptions.RequestException:
             LOG.exception("NARA page text request failed for %s", naid)
             return None

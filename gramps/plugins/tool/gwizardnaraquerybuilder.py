@@ -271,6 +271,30 @@ def build_nara_queries(ind: Dict[str, Any]) -> List[Dict[str, Any]]:
     return queries
 
 
+def build_primary_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Return the one query to send when only one request per person is
+    allowed, or None when the person is skipped (see build_nara_queries).
+
+    The query is the first given name and the birth surname, with no
+    nickname or initial and no state: a single request has no fallback, so
+    it asks for the form a record is most likely to use and leaves the
+    birth-to-death year range to narrow the results.
+    """
+    if not build_nara_queries(ind):
+        return None
+    given_variants, surnames = _extract_name_parts(
+        ind["names"][:1], ind.get("married_surnames") or set()
+    )
+    raw = ind["names"][0] if ind["names"] else ""
+    given_part = re.sub(r'["\'].*?["\']|\(.*?\)', " ", raw.split("/")[0])
+    tokens = [t.strip(".,") for t in given_part.split() if len(t.strip(".,")) > 1]
+    given = tokens[0] if tokens else (given_variants[0] if given_variants else "")
+    if not given or not surnames:
+        return None
+    return {"q": f"{given} {surnames[0]}", "limit": 20}
+
+
 def build_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Backward-compatible helper returning the primary NARA API query dict, or None."""
     queries = build_nara_queries(ind)

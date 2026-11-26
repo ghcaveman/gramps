@@ -84,10 +84,15 @@ for _path in (
 if TYPE_CHECKING:
     from gramps.plugins.tool.gwizardnaraquerybuilder import (
         build_nara_queries,
+        build_primary_nara_query,
         is_valid_nara_hit,
     )
 else:
-    from gwizardnaraquerybuilder import build_nara_queries, is_valid_nara_hit
+    from gwizardnaraquerybuilder import (
+        build_nara_queries,
+        build_primary_nara_query,
+        is_valid_nara_hit,
+    )
 
 
 def _record_query_to_ind(query: RecordQuery) -> dict[str, Any]:
@@ -115,6 +120,7 @@ def _record_query_to_ind(query: RecordQuery) -> dict[str, Any]:
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.gwizard import gwizard_base
 from gramps.gen.gwizard.gwizard_base import RecordQuery, score_record
 from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     RecordSource,
@@ -127,6 +133,10 @@ LOG = logging.getLogger(__name__)
 NARA_URL = "https://catalog.archives.gov/id/%s"
 # Years after a death that records (pensions, estates) are still searched.
 RECORD_YEARS_AFTER_DEATH = 10
+# The single score column NARA shows in the Multi-Archive Record Scan. Older
+# GWizard File Merge versions have no TIER_SCORE; they show their usual
+# columns and ignore NaraSource.tiers.
+TIER_SCORE = getattr(gwizard_base, "TIER_SCORE", "match")
 
 
 # ------------------------------------------------------------
@@ -145,6 +155,18 @@ class NaraSource(RecordSource):
     # below min_score are dropped, which keeps the saved results small.
     search_limit = 20
     min_score = 50.0
+    # NARA records rarely carry middle names or exact birth years, so the
+    # g/m/s/b and g/s/b columns are mostly "n/a": show one overall score.
+    tiers = (TIER_SCORE,)
+    # Catalog requests sent per person in a scan. NARA allows 10,000 a month
+    # per API key, so the default is one: the primary query only (see
+    # build_primary_nara_query). 0 sends every query build_nara_queries
+    # makes (up to 4 per surname), stopping at the first that finds a record.
+    max_queries_per_person = 1
+    # True skips the search for anyone who already cites a NARA record
+    # (saving a query each); the default searches them too, hiding the
+    # records they already cite.
+    skip_cited = False
 
     def __init__(self, client: Any = None) -> None:
         """Use ``client`` (a NaraCatalogInterface) or create one when needed."""
@@ -164,10 +186,61 @@ class NaraSource(RecordSource):
             return False, _("Set the NARA_API_KEY environment variable to search NARA.")
         return True, ""
 
+    def queries_for(self, ind: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return the catalog queries a scan sends for a person, in order."""
+        if self.max_queries_per_person == 1:
+            primary = build_primary_nara_query(ind)
+            return [primary] if primary else []
+        queries = build_nara_queries(ind)
+        if self.max_queries_per_person > 1:
+            queries = queries[: self.max_queries_per_person]
+        return queries
+
+    def cited_keys(self, db: Any, person: Any) -> list[str]:
+        """
+        Return the NAIDs of the NARA records the person already cites: the
+        NAID attribute on citations of the person, of the person's events,
+        and of events of families the person heads (a marriage record).
+        Citations made by hand without a NAID attribute are not seen.
+        """
+        from gramps.gen.gwizard.gwizardnaramerge import NAID_ATTRIBUTE
+
+        citation_handles: list[str] = list(person.get_citation_list())
+        event_handles = [ref.ref for ref in person.get_event_ref_list()]
+        for family_handle in person.get_family_handle_list():
+            family = db.get_family_from_handle(family_handle)
+            if family is not None:
+                event_handles.extend(ref.ref for ref in family.get_event_ref_list())
+        for event_handle in event_handles:
+            event = db.get_event_from_handle(event_handle)
+            if event is not None:
+                citation_handles.extend(event.get_citation_list())
+        naids: list[str] = []
+        for handle in dict.fromkeys(citation_handles):
+            citation = db.get_citation_from_handle(handle)
+            if citation is None:
+                continue
+            for attribute in citation.get_attribute_list():
+                if str(attribute.get_type()) == NAID_ATTRIBUTE:
+                    naid = str(attribute.get_value() or "").strip()
+                    if naid and naid not in naids:
+                        naids.append(naid)
+        return naids
+
+    def usage_text(self) -> str:
+        """Return how many NARA queries this computer used this month."""
+        from gramps.gen.gwizard.gwizardnarausage import NaraUsage, shared_usage
+
+        usage = getattr(self._client, "usage", None) if self._client else None
+        if not isinstance(usage, NaraUsage):
+            usage = shared_usage()
+        return usage.summary_text()
+
     @staticmethod
     def search_terms(query: RecordQuery) -> tuple[str, str, str]:
         """Return (keywords, first record year, last record year) for a person."""
-        queries = build_nara_queries(_record_query_to_ind(query))
+        primary = build_primary_nara_query(_record_query_to_ind(query))
+        queries = [primary] if primary else []
         if not queries:
             return "", "", ""
         start = str(query.birth_year) if query.birth_year else ""
@@ -182,7 +255,7 @@ class NaraSource(RecordSource):
         from gramps.gen.gwizard.gwizardnaramerge import NaraCatalogInterface
 
         ind = _record_query_to_ind(query)
-        queries = build_nara_queries(ind)
+        queries = self.queries_for(ind)
         if not queries:
             return []
 
