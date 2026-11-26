@@ -61,6 +61,15 @@ ignore = [
     # Media Fix tests come with the dependency; MediaFix ships them.
     "gramps/plugins/tool/test/gwizardmediafix*_test.py",
     "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
+    # File Merge files and tests, inherited from gwizard_filemerge (the parent
+    # branch); the GWizardFileMerge addon ships them.
+    "gramps/gen/gwizard/**",
+    "gramps/gui/gwizard/**",
+    "gramps/plugins/tool/gwizardmerge.py",
+    "gramps/plugins/tool/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/test/gwizardmerge*_test.py",
+    "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
+    "gramps/version.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",
