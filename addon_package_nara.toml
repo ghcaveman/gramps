@@ -2,7 +2,7 @@
 # See addon_package.example.toml in gramps_devutil for every option.
 #
 # Depends on the GWizard File Merge addon, which is built from the
-# gwizard_filemerge branch (its own addon_package.toml). The shared gwizard
+# gwizard_filemerge branch (addon_package_filemerge.toml). The shared gwizard
 # modules reach this branch unchanged through the branch chain
 # gwizard_filemerge -> gwizard_mediafix -> gwizard_citationfix -> this branch;
 # merge gwizard_citationfix into this one before a release so they stay in
@@ -13,6 +13,9 @@
 # as a dependency; its files are ignored in [check] below.
 
 package = "GWizardNaraMerge"
+
+# The branch this config is built from; package_addon.py picks it by this.
+branch = "gwizard_nara_merge"
 
 [registration]
 id = "gwizardnara"
