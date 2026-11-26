@@ -99,12 +99,14 @@ id = "gwizardmerge"
 package = "GWizardFileMerge"
 modules = [
     "gramps/gen/gwizard/gwizard_base.py",
+    "gramps/gen/gwizard/gwizard_filemerge_media.py",
     "gramps/gen/gwizard/gwizard_filemerge_recordscan.py",
     "gramps/gen/gwizard/gwizardaltmatch.py",
     "gramps/gen/gwizard/gwizardgedcom.py",
+    "gramps/gui/gwizard/gwizard_filemerge_launcher.py",
+    "gramps/gui/gwizard/gwizard_filemerge_recordscandialog.py",
     "gramps/gui/gwizard/gwizardaltcompare.py",
     "gramps/gui/gwizard/gwizardcompare.py",
-    "gramps/gui/gwizard/gwizard_filemerge_launcher.py",
     "gramps/gui/gwizard/gwizardmergedialog.py",
     "gramps/plugins/tool/gwizardmerge.py",
 ]
