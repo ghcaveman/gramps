@@ -8,6 +8,9 @@
 
 package = "MediaFix"
 
+# The branch this config is built from; package_addon.py picks it by this.
+branch = "gwizard_mediafix"
+
 [registration]
 id = "gwizardmediafix"
 name = "GWizard Media Fix"
