@@ -1,0 +1,68 @@
+
+Person in Your GEDCOM	WikiTree ID & Link	Why Your Current Defaults Missed Them
+Cuthbert Hayhurst Warner (@I00476@)
+b. 10 Mar 1753, Bucks, PA; d. 1838; m. Ann Smith	Warner-8708
+(Cuthbert Warner, 1753–1838, m. Ann Smith 18 Nov 1777 in Harford, MD)	Middle name & spread: Your GEDCOM stores "Cuthbert Hayhurst" in GIVN (middle_name = "Hayhurst"), while WikiTree indexes him as "Cuthbert Warner" without a middle name.
+William Cuthbert Warner (@I00474@)
+b. 2 Aug 1791, Harford, MD; d. 14 Jan 1872, PA	Warner-13128 (listed as child on Warner-8708)
+(William Cuthbert Warner, abt. 1791–1872)	Exact year vs. abt. 1791: WikiTree lists his birth as abt. 1791 with dateSpread = 0 (WikiTree's default), which filters out profiles marked about unless dateSpread >= 2 is passed.
+Nickolas DeVault (@I00164@)
+b. 1750, Frederick, VA; d. 6 Sep 1832, Ross, OH; m. Elizabeth Strauder	Devault-233 / Devault-247 (father of Nicholas Devault 1781–1854, m. Elizabeth Strader)	Spelling variants & abt. date: Your GEDCOM spells his name Nickolas DeVault (with a k) and Strauder, whereas WikiTree indexes Nicholas Devault (abt. 1750) and Strader.
+
+(Note: Most of your 20th-century Philadelphia/Genoa relatives—such as Newton Cromwell Mead b. 1907 @I00110@ and Luigi Pittaluga b. 1898 @I500124@—are either private/unlisted on WikiTree due to WikiTree's living/recent-death privacy rules or not yet uploaded there, so testing on pre-1850 lines like Warner and DeVault gives reliable public hits.)
+
+
+GEDCOM ID	Name in Your Tree	Dates & Places in Your Tree	WikiTree ID	WikiTree Profile Details
+@I00476@	Cuthbert Hayhurst Warner	b. 10 Mar 1753, Bucks, PA
+d. 1838	Warner-8708	Cuthbert Warner (1753–1838), Bucks, PA to Baltimore, MD
+@I00477@	Ann Smith (wife of Cuthbert Warner)	b. 1753, PA	Smith-174880 (linked on Warner-8708)	Ann Smith (b. 1753, PA), m. Cuthbert Warner 18 Nov 1777
+@I00474@	William Cuthbert Warner	b. 2 Aug 1791, Harford, MD
+d. 14 Jan 1872, PA	Warner-13128	William Cuthbert Warner (abt. 1791–1872)
+@I00164@	Nickolas DeVault	b. 1750, Frederick, VA
+d. 6 Sep 1832, Ross, OH	Devault-233	Nicholas Devault (abt. 1750–6 Sep 1832, Ross Co., OH)
+@I00175@	Elizabeth Strauder (wife of Nickolas DeVault)	b. 1750; d. 1832, Ross, OH	Strader-358 (linked on Devault-233)	Elizabeth Strader (abt. 1751–abt. 1832)
+@I00142@	Thomas Devault	b. 17 Jan 1774, Hampshire, VA
+d. 13 Nov 1848, Fayette, OH	Devault-246 (linked on DeVault-479)	Thomas Devault (10 Jan 1775–13 Nov 1848), m. Nancy Popejoy
+@I00153@	Nancy Popejoy (wife of Thomas Devault)	b. 8 Jan 1785, Ross, OH
+d. 1 Apr 1862, Fayette, OH	Popejoy-81 (linked on DeVault-479)	Nancy Popejoy (abt. 8 Jan 1785–1 Apr 1862, VA/OH)
+@I00501@	Jackson Devault	b. 13 Feb 1828, Holmes, OH
+d. 16 Jun 1908, Doniphan, KS	DeVault-544 (linked on Devault-483)	Jackson DeVault (1828–1908)
+@I500373@	Anderson S. Cameron	b. 31 Dec 1812, TN
+d. 23 Feb 1885, Nodaway, MO	Cameron-6427 (linked on Cameron-6428)	Anderson S. Cameron Sr. (31 Dec 1812–23 Feb 1885, Nodaway, MO)
+@I500374@	Martha Eizabeth Baldwin (wife of Anderson Cameron)	b. 1813, TN
+d. 4 Feb 1873, Nodaway, MO	Baldwin-8988 (linked on Cameron-6428)	Martha Elizabeth Baldwin (1813–4 Feb 1873, Nodaway, MO)
+
+
+• Verified Matches (10 Total): Every confirmed WikiTree profile in your tree sits on three early North American lines:
+	1. Warner / Smith (Warner-8708, Smith-174880, Warner-13128)
+	2. DeVault / Strauder / Popejoy (Devault-233, Strader-358, Devault-246, Popejoy-81, DeVault-544)
+	3. Cameron / Baldwin (Cameron-6427, Baldwin-8988)
+• Branches Checked with No Public WikiTree Profiles:
+	• White & Kingston (Milton White b. 1822 @I00092@, Ann Elizabeth Kingston b. 1821 @I00093@, Milton White b. 1855 @I00195@, Gilbert Warner White b. 1905 @I00434@)
+	• Hellings (Jonathan William Hellings b. 1847 @I00017@—earlier 1700s Bucks County Hellings families like Hellings-46 are on WikiTree, but your 19th-century Philadelphia line has not been connected there yet)
+	• Later Warner / Oat / Pierie (Cuthbert Warner b. 1814 @I00472@, Maria Mathis Oat b. 1816 @I00473@, Maria Pierie b. 1791 @I00475@)
+	• French Deveau / Poupelin (Pierre DeVault b. 1700 @I00186@, Claude Deveau b. 1677 @I00208@—WikiTree's 1700 Pierre Deveau profiles are Acadian rather than your Ille-et-Vilaine/Bretagne line)
+	• Later DeVault / Cameron (Thomas Devault b. 1805 @I00109@, Mary Sparlin b. 1803 @I00120@, Daniel Devault b. 1864 @I00499@, Sarah Ann Cameron b. 1833 @I00502@)
+	• Pennsylvania German & Midwest Lines (Gottlieb Schmidt b. 1856 @I00456@, Walter Scott Daveler b. 1859 @I500379@, Samuel Clifford Mead b. 1875 @I00019@, Edward C. Fuller b. 1856 @M25S-XWS@)
+	• 20th-Century Philadelphia, West Virginia & Italian Lines (Pittaluga, DeCristoforo, Altomari, Di Lauro, Ricciardi, Grime, King, Kinder)
+
+
+
+1. Pittaluga (Genoa / Philadelphia)
+
+• Total public WikiTree profiles: Only a handful exist worldwide (such as Giuseppe Pittaluga (abt. 1700–), married to Maria Pasqua Pollastrini).
+• Your line: None of your Genoa/San Quirico ancestors (Carlo Pittaluga @I500266@, Angelo Pittaluga b. 1825 @I500024@, Agostino Pittaluga b. 1869 @I500028@, Emanuele Pittaluga b. 1874 @I500007@) or Philadelphia immigrants (Luigi / Louis Pittaluga b. 1898 @I500124@) have been uploaded to WikiTree yet.
+• Note for your plugin: In your GEDCOM, @I500010@ is spelled Emanuale while @I500007@ and @I500126@ are spelled Emanuele—keep that spelling variant in mind if you later add or search Italian given names.
+
+2. DeCristoforo / Decristoforo (Naples / Philadelphia)
+
+• Total public WikiTree profiles: Zero profiles exist under either DeCristoforo or Decristoforo.
+• Your line: Neither Sebastian Decristoforo (b. 1889 @I00123@), Josephine Cerino (b. 1890 @I00124@), nor Angelina Decristoforo (b. 1911 @I500131@) is on WikiTree.
+• Note for your plugin: Your GEDCOM stores the surname without a space (Decristoforo), whereas Italian civil records and some online trees write De Cristoforo. Your expand_surname_variants() helper in gwizardwikitreenorm.py (source: 19) currently collapses spaced particles (De Cristoforo → Decristoforo), so if you want to catch spaced Italian surnames on WikiTree later, you can also split ^(De|Di|Da|Del|Della|La|Le)([A-Z][a-z]+) into De Cristoforo!
+
+3. Schmidt / Schmid (Germany / Philadelphia)
+
+• Total public WikiTree profiles: Hundreds of Schmidt profiles exist in Pennsylvania, including an unrelated Philadelphia Ward 19 family (Georg Friedrich Wilhelm Schmidt (1868–1915), son of a different Gottlieb Schmidt).
+• Your line: Your Gottlieb Schmidt (b. 22 Dec 1856 in Germany, d. 10 Jan 1907 in Philadelphia @I00456@), his wife Louise Christine Fritz (b. Sep 1861 @I00457@), and their son John Gottlieb Schmid (b. Dec 1885 @I00452@) are not on WikiTree.
+• Note for your plugin: Your family shifts between Schmidt (@I00456@, @I00458@, @I00460@, @I00461@, @I00462@) and Schmid (@I00452@, @I00454@, @I00468@). Because WikiTree's API treats Schmidt and Schmid as distinct surnames even with variant matching enabled, searching both Schmidt and Schmid (using the surnames list in WikiTreeSearchPlan) ensures you catch both spellings.
+

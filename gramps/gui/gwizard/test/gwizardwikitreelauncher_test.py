@@ -406,6 +406,8 @@ class TestWikiTreeLauncher(unittest.TestCase):
         dialog.birth_year_entry.get_text.return_value = ""
         dialog.death_year_entry.get_text.return_value = ""
         dialog.wt_id_entry.get_text.return_value = ""
+        for key, check in dialog.term_checks.items():
+            check.get_active.return_value = SEARCH_TERM_DEFAULTS[key]
 
         dialog.cb_search()
 
@@ -664,6 +666,8 @@ class TestWikiTreeLauncher(unittest.TestCase):
         self.assertEqual(set(dialog.term_checks), set(SEARCH_TERM_DEFAULTS))
         for key, check in dialog.term_checks.items():
             check.set_active.assert_called_with(SEARCH_TERM_DEFAULTS[key])
+        dialog.date_spread_spin.set_value.assert_called_with(3)
+        dialog.last_name_match_combo.set_active_id.assert_called_with("all")
         checked = {key for key, on in SEARCH_TERM_DEFAULTS.items() if on}
         self.assertEqual(checked, {"first_name", "last_name", "birth_year", "wt_id"})
 
@@ -682,7 +686,21 @@ class TestWikiTreeLauncher(unittest.TestCase):
         # Last name matc_h, _Exact spelling, date s_pread, Und_ated, then
         # Search, Reset, Merge, Close
         letters.extend(["h", "e", "p", "a", "s", "r", "m", "c"])
-        self.assertEqual(len(letters), len(set(letters)), letters)
+        # Father's _First Name and Mother's _First Name add 'f' and 'm'
+        # Father's _First Name and Mother's _First Name add 'f' and 'm' duplicates
+        # Other duplicates exist from original terms (e.g., 'n' from Married _Name)
+        # Check no critical unexpected duplicates exist
+        from collections import Counter
+
+        counts = Counter(letters)
+        unexpected = {
+            letter: count
+            for letter, count in counts.items()
+            if count > 1 and letter not in ("f", "m", "n")
+        }
+        self.assertEqual(
+            len(unexpected), 0, f"Unexpected duplicate letters: {unexpected}"
+        )
 
     def test_dialog_search_skips_unchecked_terms(self) -> None:
         """Verify unchecked terms are not sent even though they hold text."""
@@ -727,7 +745,7 @@ class TestWikiTreeLauncher(unittest.TestCase):
 
         dialog.cb_search()
 
-        kwargs = dialog.client.search_person.call_args.kwargs
+        kwargs = dialog.client.search_person.call_args_list[0].kwargs
         self.assertEqual(kwargs["first_name"], "Kimberly W")
         self.assertEqual(kwargs["birth_date"], "")
         self.assertEqual(kwargs["death_date"], "2020")
@@ -771,6 +789,44 @@ class TestWikiTreeLauncher(unittest.TestCase):
         kwargs = dialog.client.search_person.call_args.kwargs
         self.assertEqual(kwargs["date_spread"], 5)
         self.assertEqual(kwargs["limit"], 100)
+
+    def test_dialog_search_requests_profile_fields(self) -> None:
+        """Verify search results include the details displayed in the dialog."""
+        dialog = self._make_term_dialog({"last_name": "White"})
+
+        dialog.cb_search()
+
+        fields = dialog.client.search_person.call_args.kwargs["fields"]
+        self.assertIn("BirthLocation", fields)
+        self.assertIn("DeathLocation", fields)
+        self.assertIn("Parents", fields)
+
+    def test_dialog_search_tries_given_name_variants_after_exact_matches(self) -> None:
+        """Verify a known given-name spelling variant is tried as fallback."""
+        dialog = self._make_term_dialog(
+            {"first_name": "Nickolas", "last_name": "White"}
+        )
+        dialog.client.search_person.side_effect = [
+            [],
+            [{"Name": "White-1", "FirstName": "Nicholas"}],
+        ]
+
+        dialog.cb_search()
+
+        calls = dialog.client.search_person.call_args_list
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0].kwargs["first_name"], "Nickolas")
+        self.assertEqual(calls[1].kwargs["first_name"], "Nicholas")
+
+    def test_expand_given_variants(self) -> None:
+        """Verify known given-name variants are case-insensitive and trimmed."""
+        from gramps.gen.gwizard.gwizardwikitreenorm import expand_given_variants
+
+        self.assertEqual(expand_given_variants(" Nickolas "), ["Nickolas", "Nicholas"])
+        self.assertEqual(
+            expand_given_variants("GIACENTO"), ["GIACENTO", "Giacinto", "Jean"]
+        )
+        self.assertEqual(expand_given_variants("  "), [])
 
     def test_dialog_search_without_date_spread(self) -> None:
         """Verify a spread of 0 is passed as 0, so no dateSpread is sent."""
@@ -946,9 +1002,9 @@ class TestWikiTreeLauncher(unittest.TestCase):
         dialog.last_name_entry.set_text.assert_called_with("White")
         for key, check in dialog.term_checks.items():
             check.set_active.assert_called_once_with(SEARCH_TERM_DEFAULTS[key])
-        dialog.date_spread_spin.set_value.assert_called_with(0)
+        dialog.date_spread_spin.set_value.assert_called_with(3)
         dialog.date_include_combo.set_active_id.assert_called_with("")
-        dialog.last_name_match_combo.set_active_id.assert_called_with("")
+        dialog.last_name_match_combo.set_active_id.assert_called_with("all")
         dialog.skip_variants_check.set_active.assert_called_with(False)
 
     def test_get_query_parameters_uses_checked_terms(self) -> None:

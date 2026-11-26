@@ -69,6 +69,15 @@ RESPONSE_MERGE = 1
 # Gramps gender codes and the values WikiTree's searchPerson accepts.
 _WIKITREE_GENDERS: dict[int, str] = {Person.MALE: "Male", Person.FEMALE: "Female"}
 
+# Search result fields used by the dialog, including relatives and locations
+# displayed to distinguish profiles with similar names.
+_DIALOG_SEARCH_FIELDS = (
+    "Id,Name,FirstName,MiddleName,MiddleInitial,RealName,ColloquialName,"
+    "Nicknames,LastNameAtBirth,LastNameBirth,LastNameCurrent,LastNameOther,"
+    "LongName,ShortName,Gender,BirthDate,DeathDate,BirthDateDecade,"
+    "DeathDateDecade,BirthLocation,DeathLocation,Father,Mother,Parents"
+)
+
 # Search terms that start checked. First name, last name and birth year are
 # the most effective WikiTree search terms; the others are filled in from the
 # target person but left out until checked. A WikiTree ID, when known, is an
@@ -84,6 +93,8 @@ SEARCH_TERM_DEFAULTS: dict[str, bool] = {
     "death_year": False,
     "death_location": False,
     "wt_id": True,
+    "father_first_name": False,
+    "mother_first_name": False,
 }
 
 
@@ -124,13 +135,22 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
     if not person:
         return defaults
 
+    from gramps.gen.gwizard.gwizardwikitreenorm import (
+        clean_given_and_nicknames,
+        expand_surname_variants,
+        normalize_wikitree_location,
+    )
+
     pname = person.get_primary_name()
     if pname:
-        given_names = str(pname.get_first_name() or "").split()
-        if given_names:
-            defaults["first_name"] = given_names[0]
-            defaults["middle_name"] = " ".join(given_names[1:])
-        defaults["last_name"] = str(surname_text(pname) or "").strip()
+        first, middle, _nicks = clean_given_and_nicknames(
+            str(pname.get_first_name() or ""),
+            str(pname.get_nick_name() or ""),
+        )
+        defaults["first_name"] = first
+        defaults["middle_name"] = middle
+        surn_variants = expand_surname_variants([str(surname_text(pname) or "")])
+        defaults["last_name"] = surn_variants[0] if surn_variants else ""
 
     # Look for existing WikiTree ID in attributes or Internet URLs
     defaults["wt_id"] = get_wikitree_id(person)
@@ -156,12 +176,49 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
             if dplace and db:
                 dplace_obj = db.get_place_from_handle(dplace)
                 if dplace_obj:
-                    defaults["death_location"] = str(
-                        dplace_obj.get_name().get_value() or ""
-                    ).strip()
+                    raw_place = (
+                        dplace_obj.get_title()
+                        or dplace_obj.get_name().get_value()
+                        or ""
+                    )
+                    defaults["death_location"] = normalize_wikitree_location(
+                        str(raw_place)
+                    )
 
     # Gender, as WikiTree spells it (Male or Female); unknown is left blank.
     defaults["gender"] = _WIKITREE_GENDERS.get(person.get_gender(), "")
+
+    # Father's first name
+    father_first_name = ""
+    for family_handle in person.get_family_handle_list():
+        family = db.get_family_from_handle(family_handle) if db else None
+        if family and family.get_father_handle():
+            father = (
+                db.get_person_from_handle(family.get_father_handle()) if db else None
+            )
+            if father:
+                fname = father.get_primary_name().get_first_name() or ""
+                if fname and (
+                    not father_first_name or len(fname) < len(father_first_name)
+                ):
+                    father_first_name = fname
+    defaults["father_first_name"] = father_first_name
+
+    # Mother's first name
+    mother_first_name = ""
+    for family_handle in person.get_family_handle_list():
+        family = db.get_family_from_handle(family_handle) if db else None
+        if family and family.get_mother_handle():
+            mother = (
+                db.get_person_from_handle(family.get_mother_handle()) if db else None
+            )
+            if mother:
+                mname = mother.get_primary_name().get_first_name() or ""
+                if mname and (
+                    not mother_first_name or len(mname) < len(mother_first_name)
+                ):
+                    mother_first_name = mname
+    defaults["mother_first_name"] = mother_first_name
 
     # Birth location
     bref = person.get_birth_ref()
@@ -172,9 +229,14 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
             if bplace and db:
                 bplace_obj = db.get_place_from_handle(bplace)
                 if bplace_obj:
-                    defaults["birth_location"] = str(
-                        bplace_obj.get_name().get_value() or ""
-                    ).strip()
+                    raw_place = (
+                        bplace_obj.get_title()
+                        or bplace_obj.get_name().get_value()
+                        or ""
+                    )
+                    defaults["birth_location"] = normalize_wikitree_location(
+                        str(raw_place)
+                    )
 
     defaults["married_name"] = _married_surname(db, person)
 
@@ -323,14 +385,16 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         self.married_name_entry = self.term_entries["married_name"]
         self.gender_entry = self.term_entries["gender"]
         self.birth_year_entry = self.term_entries["birth_year"]
+        self.father_first_name_entry = self.term_entries["father_first_name"]
+        self.mother_first_name_entry = self.term_entries["mother_first_name"]
+        self.father_first_name_entry = self.term_entries["father_first_name"]
+        self.mother_first_name_entry = self.term_entries["mother_first_name"]
         self.birth_location_entry = self.term_entries["birth_location"]
         self.death_year_entry = self.term_entries["death_year"]
         self.death_location_entry = self.term_entries["death_location"]
         self.wt_id_entry = self.term_entries["wt_id"]
 
         # Search options, in a third row under the name and date columns.
-        # Each one is left out of the request at its default ("WikiTree
-        # default", unchecked or 0), so WikiTree's own defaults apply.
         term_keys = [key for key, *_rest in self._term_specs()]
 
         # Surname options: which last name to match, and spelling variants.
@@ -339,7 +403,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         self.last_name_match_combo = Gtk.ComboBoxText()
         for match_id, match_text in self._last_name_match_options():
             self.last_name_match_combo.append(match_id, match_text)
-        self.last_name_match_combo.set_active_id("")
+        self.last_name_match_combo.set_active_id("all")
         self.last_name_match_combo.set_tooltip_text(
             _(
                 "Which WikiTree last name to match: the last name at birth, the "
@@ -367,7 +431,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         self.date_spread_spin = Gtk.SpinButton.new_with_range(
             0, WikiTreeInterface.MAX_DATE_SPREAD, 1
         )
-        self.date_spread_spin.set_value(0)
+        self.date_spread_spin.set_value(3)
         self.date_spread_spin.set_tooltip_text(
             _(
                 "How many years WikiTree may allow around the birth and death "
@@ -541,6 +605,31 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                 14,
             ),
             (
+                "father_first_name",
+                _("Father's _First Name"),
+                _("Father's first name"),
+                _("Father's first name to search WikiTree by."),
+                10,
+            ),
+            (
+                "mother_first_name",
+                _("Mother's _First Name"),
+                _("Mother's first name"),
+                _("Mother's first name to search WikiTree by."),
+                10,
+            ),
+            (
+                "married_name",
+                _("Married _Name"),
+                _("Current surname"),
+                _(
+                    "Married or other current surname, searched as WikiTree's "
+                    "current last name. Filled from a Married Name alternate "
+                    "name, or for a woman from her husband's surname."
+                ),
+                14,
+            ),
+            (
                 "gender",
                 _("_Gender"),
                 _("Male or Female"),
@@ -673,6 +762,8 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             birth_year=year("birth_year"),
             death_year=year("death_year"),
             gender=text("gender"),
+            father_first_name=text("father_first_name"),
+            mother_first_name=text("mother_first_name"),
         )
 
     def _date_spread(self) -> int:
@@ -704,9 +795,9 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             entry.set_text("")
         self._prefill_entries(default_query=self.default_query)
         self._apply_default_terms()
-        self.date_spread_spin.set_value(0)
+        self.date_spread_spin.set_value(3)
         self.date_include_combo.set_active_id("")
-        self.last_name_match_combo.set_active_id("")
+        self.last_name_match_combo.set_active_id("all")
         self.skip_variants_check.set_active(False)
 
     def _build_tree_columns(self) -> None:
@@ -762,6 +853,8 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             self.gender_entry.set_text(defaults["gender"])
             self.birth_location_entry.set_text(defaults["birth_location"])
             self.death_location_entry.set_text(defaults["death_location"])
+            self.father_first_name_entry.set_text(defaults.get("father_first_name", ""))
+            self.mother_first_name_entry.set_text(defaults.get("mother_first_name", ""))
         elif default_query:
             query = default_query.strip()
             extracted_id = extract_wikitree_id(query)
@@ -819,6 +912,8 @@ class WikiTreeSearchDialog(Gtk.Dialog):
         death_location = self._term_value("death_location")
         date_spread = self._date_spread()
         married_name = self._term_value("married_name")
+        father_first_name = self._term_value("father_first_name")
+        mother_first_name = self._term_value("mother_first_name")
         extracted_wt = extract_wikitree_id(wt_id)
         if extracted_wt:
             wt_id = extracted_wt
@@ -845,6 +940,8 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             or gender
             or birth_location
             or death_location
+            or father_first_name
+            or mother_first_name
         ):
             self.status_label.set_text(
                 _("Please check and fill in a name, year, or WikiTree ID to search.")
@@ -879,18 +976,50 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                 or birth_location
                 or death_location
             ):
-                search_matches = self.client.search_person(
-                    first_name=first_name,
-                    last_name=last_name,
-                    birth_date=birth_year,
-                    death_date=death_year,
-                    Gender=gender,
-                    BirthLocation=birth_location,
-                    DeathLocation=death_location,
-                    date_spread=date_spread,
-                    limit=WikiTreeInterface.MAX_SEARCH_LIMIT,
-                    **self._search_options(),
+                from gramps.gen.gwizard.gwizardwikitreenorm import (
+                    expand_surname_variants,
                 )
+
+                from gramps.gen.gwizard.gwizardwikitreenorm import (
+                    expand_given_variants,
+                )
+
+                search_opts = self._search_options()
+                first_only = self._term_value("first_name")
+                first_candidates = list(
+                    dict.fromkeys([fn for fn in (first_name, first_only) if fn])
+                ) or [""]
+                exact_first_candidates = list(first_candidates)
+                for fn in exact_first_candidates:
+                    first_candidates.extend(expand_given_variants(fn)[1:])
+                first_candidates = list(dict.fromkeys(first_candidates))
+                last_candidates = (
+                    expand_surname_variants([last_name]) if last_name else [""]
+                )
+
+                search_matches: list[dict[str, Any]] = []
+                for fn_cand in first_candidates:
+                    for ln_cand in last_candidates:
+                        found = self.client.search_person(
+                            first_name=fn_cand,
+                            last_name=ln_cand,
+                            birth_date=birth_year,
+                            death_date=death_year,
+                            Gender=gender,
+                            BirthLocation=birth_location,
+                            DeathLocation=death_location,
+                            FatherFirstName=father_first_name,
+                            MotherFirstName=mother_first_name,
+                            date_spread=date_spread,
+                            limit=WikiTreeInterface.MAX_SEARCH_LIMIT,
+                            fields=_DIALOG_SEARCH_FIELDS,
+                            **search_opts,
+                        )
+                        if found:
+                            search_matches.extend(found)
+                    if search_matches:
+                        break
+
                 for item in search_matches:
                     m_id = str(item.get("Name") or "")
                     if not m_id or m_id not in seen_ids:

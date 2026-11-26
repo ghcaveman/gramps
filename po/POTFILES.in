@@ -894,6 +894,7 @@ gramps/plugins/tool/eventnames.py
 gramps/plugins/tool/finddupes.glade
 gramps/plugins/tool/finddupes.py
 gramps/plugins/tool/findloop.py
+gramps/plugins/tool/gwizardaddonutil.py
 gramps/plugins/tool/gwizardmerge.py
 gramps/plugins/tool/gwizardwikitreemerge.py
 gramps/plugins/tool/gwizardwikitreesource.py
