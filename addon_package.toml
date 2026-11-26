@@ -17,7 +17,7 @@ optionclass = "GWizardCitationFixOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
 help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardCitationFix_Tool"
-gramps_versions = ["5.2.0", "6.2.0"]
+gramps_versions = ["5.2.0", "6.2"]
 
 [files]
 modules = [
@@ -53,11 +53,14 @@ modules = [
 base = ["functionality_base", "origin/functionality_base"]
 ignore = [
     "featuredocs/**",
-    # Notes and helper scripts in the repo root (* stays in the root folder).
+    # Notes, test data and helper scripts in the repo root, most of them
+    # copied in from gramps_devutil (* stays in the root folder).
     "*.md",
     "*.txt",
-    "check_banner.bash",
-    "environment_create.py",
+    "*.bash",
+    "*.ged",
+    "environment_create*.py",
+    "make_gwizard_testdata_images.py",
     # Media Fix tests come with the dependency; MediaFix ships them.
     "gramps/plugins/tool/test/gwizardmediafix*_test.py",
     "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
