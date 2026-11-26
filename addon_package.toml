@@ -85,7 +85,7 @@ modules = [
     "gramps/gen/gwizard/gwizardgedcom.py",
     "gramps/gui/gwizard/gwizardaltcompare.py",
     "gramps/gui/gwizard/gwizardcompare.py",
-    "gramps/gui/gwizard/gwizardlauncher.py",
+    "gramps/gui/gwizard/gwizard_filemerge_launcher.py",
     "gramps/gui/gwizard/gwizardmergedialog.py",
     "gramps/plugins/tool/gwizardmerge.py",
 ]
