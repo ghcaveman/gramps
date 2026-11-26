@@ -26,6 +26,7 @@ gramps_versions = ["5.2.0", "6.2"]
 modules = [
     "gramps/gen/gwizard/gwizardwikitree.py",
     "gramps/gen/gwizard/gwizardwikitreematch.py",
+    "gramps/gen/gwizard/gwizardwikitreenorm.py",
     "gramps/gui/gwizard/gwizardwikitreelauncher.py",
     "gramps/gui/gwizard/gwizardwikitreemergedialog.py",
     "gramps/plugins/tool/gwizardwikitreemerge.py",
@@ -118,6 +119,21 @@ ignore = [
     "gramps/gui/gwizard/gwizard_filemerge_*.py",
     "gramps/plugins/tool/gwizard_filemerge_*.py",
     "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
+    # Media Fix and Citation Fix files and tests, inherited through
+    # gwizard_citationfix; the MediaFix and CitationFix addons ship them.
+    "gramps/plugins/tool/gw_*.py",
+    "gramps/plugins/tool/gwizardcitation*.py",
+    "gramps/plugins/tool/gwizardmediafix.py",
+    "gramps/plugins/tool/gwizard_mediafix_common.py",
+    "gramps/plugins/tool/test/gw_*_test.py",
+    "gramps/plugins/tool/test/gwizardmediafix*_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
+    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
+    # Core files changed by the GWizard branches (menu order, version, a
+    # base-branch test), not part of any addon.
+    "gramps/gui/viewmanager.py",
+    "gramps/version.py",
+    "gramps/test/test/gitattributes_test.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",
