@@ -1,0 +1,75 @@
+# GWizard File Merge addon -- built by package_addon.py (from gramps_devutil).
+# addon_package.example.toml (copied in from gramps_devutil) lists every option.
+#
+# This is the base GWizard branch: gwizard_mediafix, gwizard_citationfix and
+# the record-source addons (WikiTree, NARA, FamilySearch) inherit these
+# shared modules and list GWizardFileMerge as a dependency.
+
+package = "GWizardFileMerge"
+
+# The branch this config is built from; package_addon.py picks it by this.
+branch = "gwizard_filemerge"
+
+[registration]
+id = "gwizardmerge"
+name = "GWizard File Merge"
+description = "Family Tree Processing Tool to compare another genealogy file (GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree and merge selected differences person by person."
+fname = "gwizardmerge.py"
+toolclass = "GWizardFileMerge"
+optionclass = "GWizardFileMergeOptions"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
+gramps_versions = ["5.2.0", "6.2"]
+
+[files]
+modules = [
+    "gramps/gen/gwizard/*.py",
+    "gramps/gui/gwizard/*.py",
+    "gramps/plugins/tool/gwizardmerge.py",
+]
+tests = [
+    "gramps/gen/gwizard/test/*_test.py",
+    "gramps/gui/gwizard/test/*_test.py",
+    "gramps/plugins/tool/test/gwizardmerge*_test.py",
+]
+# gwizardmerge.py imports the launcher flat, and falls back to the core
+# location (an importlib string) when run from the source tree; keep that
+# fallback as written.
+keep_unrewritten = [
+    '^\s*"gramps\.gui\.gwizard\.gwizard_filemerge_launcher"\s*$',
+]
+
+# The Multi-Archive Record Scan's modules (gwizard_filemerge_recordscan.py,
+# gwizard_filemerge_recordscandialog.py) ship here, but its menu entry does
+# not: the record-source addons (WikiTree, NARA, FamilySearch) register it
+# and bundle its thin tool module, gwizard_filemerge_scan.py, so the entry
+# only appears once a record source is installed.
+
+[files.test_data]
+source = "gramps/gen/gwizard/test/data"
+target = "data"
+required = ["gwizard_mergefrom_sources.ged"]
+
+[check]
+# The branch this feature branch was started from (local name first, then
+# the remote one, whichever exists).
+base = ["functionality_base", "origin/functionality_base"]
+ignore = [
+    "featuredocs/**",
+    # Notes, test data and helper scripts in the repo root, most of them
+    # copied in from gramps_devutil (* stays in the root folder).
+    "*.md",
+    "*.txt",
+    "*.bash",
+    "*.ged",
+    "environment_create*.py",
+    "make_gwizard_testdata_images.py",
+    # Multi-Archive Record Scan tool module and its test: bundled by the
+    # record-source addons, which register the menu entry.
+    "gramps/plugins/tool/gwizard_filemerge_scan.py",
+    "gramps/plugins/tool/test/gwizard_filemerge_scan_test.py",
+    "gramps/plugins/tool/tools.gpr.py",
+    "po/POTFILES.in",
+    "po/POTFILES.skip",
+]

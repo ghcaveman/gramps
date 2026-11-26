@@ -2,10 +2,13 @@
 # See addon_package.example.toml in gramps_devutil for every option.
 #
 # Depends on the GWizard Media Fix addon, which is built from the
-# gwizard_mediafix branch (its own addon_package.toml). Merge that branch into
+# gwizard_mediafix branch (addon_package_mediafix.toml). Merge that branch into
 # this one before a release so the two stay in step.
 
 package = "CitationFix"
+
+# The branch this config is built from; package_addon.py picks it by this.
+branch = "gwizard_citationfix"
 
 [registration]
 id = "gwizardcitationfix"
