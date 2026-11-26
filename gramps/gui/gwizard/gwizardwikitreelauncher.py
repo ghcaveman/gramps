@@ -193,10 +193,14 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
     for family_handle in person.get_family_handle_list():
         family = db.get_family_from_handle(family_handle) if db else None
         if family and family.get_father_handle():
-            father = db.get_person_from_handle(family.get_father_handle()) if db else None
+            father = (
+                db.get_person_from_handle(family.get_father_handle()) if db else None
+            )
             if father:
                 fname = father.get_primary_name().get_first_name() or ""
-                if fname and (not father_first_name or len(fname) < len(father_first_name)):
+                if fname and (
+                    not father_first_name or len(fname) < len(father_first_name)
+                ):
                     father_first_name = fname
     defaults["father_first_name"] = father_first_name
 
@@ -205,10 +209,14 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
     for family_handle in person.get_family_handle_list():
         family = db.get_family_from_handle(family_handle) if db else None
         if family and family.get_mother_handle():
-            mother = db.get_person_from_handle(family.get_mother_handle()) if db else None
+            mother = (
+                db.get_person_from_handle(family.get_mother_handle()) if db else None
+            )
             if mother:
                 mname = mother.get_primary_name().get_first_name() or ""
-                if mname and (not mother_first_name or len(mname) < len(mother_first_name)):
+                if mname and (
+                    not mother_first_name or len(mname) < len(mother_first_name)
+                ):
                     mother_first_name = mname
     defaults["mother_first_name"] = mother_first_name
 

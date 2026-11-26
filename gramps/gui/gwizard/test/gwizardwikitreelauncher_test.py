@@ -691,9 +691,16 @@ class TestWikiTreeLauncher(unittest.TestCase):
         # Other duplicates exist from original terms (e.g., 'n' from Married _Name)
         # Check no critical unexpected duplicates exist
         from collections import Counter
+
         counts = Counter(letters)
-        unexpected = {letter: count for letter, count in counts.items() if count > 1 and letter not in ("f", "m", "n")}
-        self.assertEqual(len(unexpected), 0, f"Unexpected duplicate letters: {unexpected}")
+        unexpected = {
+            letter: count
+            for letter, count in counts.items()
+            if count > 1 and letter not in ("f", "m", "n")
+        }
+        self.assertEqual(
+            len(unexpected), 0, f"Unexpected duplicate letters: {unexpected}"
+        )
 
     def test_dialog_search_skips_unchecked_terms(self) -> None:
         """Verify unchecked terms are not sent even though they hold text."""
