@@ -82,7 +82,7 @@ LOG = logging.getLogger(__name__)
 RECORD_SOURCE_CATEGORY = "GWizardRecordSource"
 
 # Default threshold (percent) for counting a match.
-DEFAULT_THRESHOLD = 80
+DEFAULT_THRESHOLD = 70
 
 # Scan outcomes for one person and source.
 STATUS_OK = "ok"  # searched (or looked up), results stored
@@ -386,6 +386,12 @@ def _person_places_and_tags(db: Any, person: Person) -> tuple[list[str], set[str
 
 
 def query_for_person(db: Any, person: Person) -> RecordQuery:
+    """
+    Return the details a person is matched on: the first given name, the
+    other given names as middle names, the birth surname followed by any
+    married surnames, the birth and death years, the gender, and the
+    places and event types (as tags) from the person's events.
+    """
     name = person.get_primary_name()
     given_names = str(name.get_first_name() or "").split()
     surnames: list[str] = []
