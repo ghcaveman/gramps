@@ -793,6 +793,8 @@ class RecordQuery:
     gender: str = ""  # "male", "female" or "" (any case)
     father_first_name: str = ""
     mother_first_name: str = ""
+    places: list[str] = field(default_factory=list)
+    tags: set[str] = field(default_factory=set)
 
     def has_name(self) -> bool:
         """Return True when there is a name to match against."""
