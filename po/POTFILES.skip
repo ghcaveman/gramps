@@ -711,7 +711,6 @@ gramps/plugins/tool/test/__init__.py
 gramps/plugins/tool/test/citationsfixdialog_test.py
 gramps/plugins/tool/test/gwizardcitationfix_test.py
 gramps/plugins/tool/test/sourceconsolidatedialog_test.py
-gramps/plugins/tool/gwizard_mediafix_common.py
 gramps/plugins/tool/test/gwizard_mediafix_common_test.py
 gramps/plugins/tool/test/gwizardmediafix_test.py
 gramps/plugins/tool/test/gwizardmediafix_ex_test.py
@@ -748,10 +747,8 @@ gramps/gui/glade/gramps.glade
 gramps/plugins/tool/check.glade
 gramps/plugins/tool/removespaces.glade
 gramps/plugins/tool/test/__init__.py
-gramps/plugins/tool/test/gwizard_mediafix_common_test.py
 gramps/plugins/tool/test/gwizard_gtk_fakes.py
 gramps/plugins/tool/test/gwizardmediafix_fixes_test.py
-gramps/plugins/tool/test/gwizardmediafix_test.py
 gramps/plugins/tool/test/gw_citationattributesdialog_test.py
 gramps/plugins/tool/test/gw_citationmediaengine_test.py
 gramps/plugins/tool/test/gw_citationreport_test.py
