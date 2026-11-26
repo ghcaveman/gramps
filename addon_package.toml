@@ -30,37 +30,15 @@ modules = [
     "gramps/gui/gwizard/gwizardfsmergedialog.py",
     "gramps/plugins/tool/gwizardfsmerge.py",
     "gramps/plugins/tool/gwizardfssource.py",
-    "gramps/plugins/tool/gwizardcitation*.py",
-    "gramps/plugins/tool/gw_*.py",
     "gramps/plugins/tool/gwizard_filemerge_scan.py",
 ]
 tests = [
     "gramps/gen/gwizard/test/gwizardfamilysearch_test.py",
     "gramps/gui/gwizard/test/gwizardfslauncher_test.py",
+    "gramps/plugins/tool/test/gwizardfsmerge_test.py",
     "gramps/plugins/tool/test/gwizardfssource_test.py",
-    "gramps/plugins/tool/test/gw_*_test.py",
     "gramps/plugins/tool/test/gwizard_filemerge_scan_test.py",
 ]
-test_helpers = [
-    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
-]
-exclude = [
-    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
-    "gramps/plugins/tool/gw_mediapreview.py",
-]
-
-# Citation Fix: a second Tools menu entry in the combined addon package.
-[[extra_registrations]]
-id = "gwizardcitationfix"
-name = "GWizard Citation Fix"
-description = "Wizard-style cleanup of repositories, sources, citations and notes in the open Family Tree."
-fname = "gwizardcitationfix.py"
-toolclass = "GWizardCitationFix"
-optionclass = "GWizardCitationFixOptions"
-authors = ["Kevin White"]
-authors_email = ["gocaveman@gmail.com"]
-help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardCitationFix_Tool"
-gramps_versions = ["5.2.0", "6.2"]
 
 # The Multi-Archive Record Scan's menu entry. Its code ships in
 # GWizardFileMerge (gwizard_filemerge); each record-source addon registers
@@ -111,16 +89,6 @@ modules = [
     "gramps/plugins/tool/gwizardmerge.py",
 ]
 
-[[dependencies]]
-id = "gwizardmediafix"
-package = "MediaFix"
-modules = [
-    "gramps/plugins/tool/gwizardmediafix.py",
-    "gramps/plugins/tool/gwizard_mediafix_common.py",
-    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
-    "gramps/plugins/tool/gw_mediapreview.py",
-]
-
 [check]
 base = ["functionality_base", "origin/functionality_base"]
 ignore = [
@@ -149,6 +117,19 @@ ignore = [
     # Media Fix tests come with the dependency; MediaFix ships them.
     "gramps/plugins/tool/test/gwizardmediafix*_test.py",
     "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
+    # Media Fix and Citation Fix files and tests, inherited through
+    # gwizard_citationfix; the MediaFix and CitationFix addons ship them.
+    "gramps/plugins/tool/gw_*.py",
+    "gramps/plugins/tool/gwizardcitation*.py",
+    "gramps/plugins/tool/gwizardmediafix.py",
+    "gramps/plugins/tool/gwizard_mediafix_common.py",
+    "gramps/plugins/tool/test/gw_*_test.py",
+    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
+    # Core files changed by the GWizard branches (menu order, version, a
+    # base-branch test), not part of any addon.
+    "gramps/gui/viewmanager.py",
+    "gramps/version.py",
+    "gramps/test/test/gitattributes_test.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",
