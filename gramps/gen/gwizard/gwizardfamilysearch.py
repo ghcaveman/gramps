@@ -331,18 +331,18 @@ class FamilySearchInterface:
                         sess, "get_json", None
                     )
                     response = get_json(endpoint) if callable(get_json) else None
-                data = _response_data(response, _("profile lookup"))
+                profile = _response_data(response, _("profile lookup"))
             except Exception as err:
                 LOG.warning("FamilySearch profile lookup failed for %s: %s", fsid, err)
                 raise
-            gedcomx = data.get("gedcomx") or data.get("gedcomX") or {}
-            persons = data.get("persons") or gedcomx.get("persons")
+            gedcomx = profile.get("gedcomx") or profile.get("gedcomX") or {}
+            persons = profile.get("persons") or gedcomx.get("persons")
             person_data = (
                 persons[0]
                 if isinstance(persons, list)
                 and persons
                 and isinstance(persons[0], dict)
-                else data
+                else profile
             )
             result = _search_result(fsid, person_data)
             return [result] if result else []
@@ -375,7 +375,7 @@ class FamilySearchInterface:
         headers = {"Accept": "application/x-gedcomx-atom+json"}
         params = {"q": q_str, "count": str(limit)}
 
-        data = None
+        data: dict[str, Any] | None = None
         get_url = getattr(sess, "get_url", None)
         if callable(get_url):
             try:
