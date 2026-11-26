@@ -126,7 +126,7 @@ class WikiTreeSource(RecordSource):
         4. Dateless fallback (first + birth surname) only when birth year is
            missing or Tiers 1-3 returned zero hits.
         """
-        from .gwizardwikitreenorm import build_search_plan
+        from gramps.gen.gwizard.gwizardwikitreenorm import build_search_plan
 
         plan = build_search_plan(query)
         if plan.skip:

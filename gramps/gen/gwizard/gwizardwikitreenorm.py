@@ -21,9 +21,33 @@
 
 from __future__ import annotations
 
+# -------------------------------------------------------------------------
+#
+# Standard Python modules
+#
+# -------------------------------------------------------------------------
+from dataclasses import dataclass, field
 import re
 
+# -------------------------------------------------------------------------
+#
+# Gramps modules
+#
+# -------------------------------------------------------------------------
+from gramps.gen.gwizard.gwizard_base import RecordQuery
+
 _PLACEHOLDER_SURNAMES = {"unknown", "unk", "?", "none", "n/a", "nn"}
+_PLACEHOLDER_GIVENS = (
+    "unknown",
+    "child",
+    "baby",
+    "infant",
+    "son",
+    "daughter",
+    "boy",
+    "girl",
+    "stillborn",
+)
 
 _US_STATES = {
     "al": "Alabama",
@@ -92,6 +116,26 @@ _CITY_ABBREVS = {
 _PARTICLE_RE = re.compile(
     r"^(Mc|Mac|O|Di|De|Da|Del|Della|Van|Von|Le|La)\s+([A-Za-z])", re.I
 )
+
+
+# ------------------------------------------------------------
+#
+# WikiTreeSearchPlan
+#
+# ------------------------------------------------------------
+@dataclass
+class WikiTreeSearchPlan:
+    """Thread-safe normalized search plan built from a RecordQuery."""
+
+    given: str = ""
+    middle: str = ""
+    nicknames: list[str] = field(default_factory=list)
+    surnames: list[str] = field(default_factory=list)
+    birth_year: int | None = None
+    death_year: int | None = None
+    date_spread: int = 2
+    gender: str = ""
+    skip: bool = False
 
 
 def clean_given_and_nicknames(
@@ -209,3 +253,29 @@ def normalize_wikitree_location(raw_place: str) -> str:
             cleaned_parts.append(expanded)
 
     return ", ".join(cleaned_parts[-2:]) if cleaned_parts else ""
+
+
+def build_search_plan(query: RecordQuery) -> WikiTreeSearchPlan:
+    """Build a thread-safe WikiTreeSearchPlan strictly from a RecordQuery."""
+    raw_given = f"{query.given} {query.middle}".strip()
+    given, middle, nicknames = clean_given_and_nicknames(raw_given)
+    surnames = expand_surname_variants(list(query.surnames))
+
+    if not surnames or given.lower().startswith(_PLACEHOLDER_GIVENS):
+        return WikiTreeSearchPlan(skip=True)
+
+    gender_low = (query.gender or "").strip().casefold()
+    wikitree_gender = (
+        "Male" if gender_low == "male" else ("Female" if gender_low == "female" else "")
+    )
+
+    return WikiTreeSearchPlan(
+        given=given,
+        middle=middle,
+        nicknames=nicknames,
+        surnames=surnames,
+        birth_year=query.birth_year,
+        death_year=query.death_year,
+        date_spread=2,
+        gender=wikitree_gender,
+    )
