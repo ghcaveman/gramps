@@ -80,3 +80,4 @@ class FamilySearchMergeDialog(GWizardMergeDialog):
                 "<b>%s</b>"
                 % GLib.markup_escape_text(_("Incoming FamilySearch: %s") % title)
             )
+            label.set_selectable(True)

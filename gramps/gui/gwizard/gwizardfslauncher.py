@@ -64,6 +64,8 @@ from gramps.gui.dialog import ErrorDialog
 # -------------------------------------------------------------------------
 from .gwizardfsmergedialog import FamilySearchMergeDialog
 
+from gramps.gui.fs.manager import get_session
+
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
 
@@ -843,11 +845,14 @@ def run_gwizard_familysearch_flow(
     :rtype: bool
     """
     active_handle = uistate.get_active("Person") if uistate else None
+    # Get the active session to ensure auth state is preserved
+    session = get_session(dbstate=dbstate, uistate=uistate)
     dialog = FamilySearchSearchDialog(
         uistate=uistate,
         dbstate=dbstate,
         target_handle=active_handle,
         parent=parent,
+        client=FamilySearchInterface(session=session),
     )
     try:
         dialog.show_all()
