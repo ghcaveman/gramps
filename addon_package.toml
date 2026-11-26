@@ -31,7 +31,7 @@ tests = [
 # gwizardmerge.py imports the launcher flat, and falls back to the core
 # location when run from the source tree; keep that fallback as written.
 keep_unrewritten = [
-    '^\s*from\s+gramps\.gui\.gwizard\.gwizardlauncher\s+import\s*\(\s*$',
+    '^\s*from\s+gramps\.gui\.gwizard\.gwizard_filemerge_launcher\s+import\s*\(\s*$',
 ]
 
 # The GWizard Multi-Archive Record Scan: a second Tools menu entry in the same addon. It
