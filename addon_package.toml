@@ -46,6 +46,7 @@ tests = [
     "gramps/gui/gwizard/test/gwizardnaralauncher_test.py",
     "gramps/plugins/tool/test/gwizard_filemerge_scan_test.py",
     "gramps/plugins/tool/test/gwizardnarasource_test.py",
+    "gramps/plugins/tool/test/gwizard_nara_query_and_match_test.py",
 ]
 exclude = [
     # Avoid a flattened test-name clash with the gen-level NARA tests.
@@ -124,10 +125,10 @@ ignore = [
     "*.ged",
     "environment_create*.py",
     "make_gwizard_testdata_images.py",
-    "_apply_changes.py",
-    "diagnose_duplicate_sources.py",
-    "test_import.py",
     "nara_sample_*.json",
+    # Raw NARA records for gwizard_nara_query_and_match_test.py; the test
+    # falls back to stubs without it, so the addon does not ship it.
+    "gramps/plugins/tool/test/naid_raw_fixtures.json",
     "gramps/gen/config.py",
     "gramps/gui/viewmanager.py",
     "gramps/version.py",
@@ -156,6 +157,11 @@ ignore = [
     "gramps/plugins/tool/test/gwizardmediafix*_test.py",
     "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
     "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
+    # Citation Fix files and tests, inherited through gwizard_citationfix;
+    # the CitationFix addon ships them.
+    "gramps/plugins/tool/gw_*.py",
+    "gramps/plugins/tool/gwizardcitation*.py",
+    "gramps/plugins/tool/test/gw_*_test.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
     "po/POTFILES.skip",
