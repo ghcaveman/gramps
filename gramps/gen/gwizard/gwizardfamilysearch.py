@@ -119,14 +119,89 @@ def _search_result(
     }
 
 
-def _search_query_term(field: str, value: str) -> str:
-    """Build one FamilySearch query term, quoting values that contain spaces."""
+_YEAR_REGEX = re.compile(r"^\d{1,4}$")
+
+
+def _search_date_value(value: str) -> str:
+    """
+    Return a search date as a GEDCOM X date (a bare year becomes '+1850').
+
+    Values that are not a bare year are passed through unchanged.
+    """
     clean_value = " ".join(value.split())
-    if not clean_value:
+    if _YEAR_REGEX.match(clean_value):
+        return "+" + clean_value.zfill(4)
+    return clean_value
+
+
+def _search_sex_value(value: str) -> str:
+    """Return a search sex term value ('Male', 'Female' or 'Unknown')."""
+    clean_value = value.strip().lower()
+    if clean_value in ("m", "male"):
+        return "Male"
+    if clean_value in ("f", "female"):
+        return "Female"
+    if clean_value in ("u", "unknown"):
+        return "Unknown"
+    return value.strip()
+
+
+def _search_params(
+    query: str = "",
+    first_name: str = "",
+    last_name: str = "",
+    birth_date: str = "",
+    death_date: str = "",
+    gender: str = "",
+    birth_place: str = "",
+    death_place: str = "",
+) -> dict[str, str]:
+    """
+    Build the Tree Person Search query parameters (q.givenName, q.surname, ...).
+
+    FamilySearch rejects the old single 'q=givenName:... surname:...' string
+    with HTTP 400; each search term is now its own 'q.<term>' parameter.
+    Free text with no explicit name is split into given names and a surname
+    (its last word).
+    """
+    params: dict[str, str] = {}
+    given = " ".join(first_name.split())
+    surname = " ".join(last_name.split())
+    words = query.split()
+    if words and not (given or surname):
+        surname = words[-1]
+        given = " ".join(words[:-1])
+    elif words:
+        params["q.miscKeyword"] = " ".join(words)
+
+    for field, value in (
+        ("q.givenName", given),
+        ("q.surname", surname),
+        ("q.sex", _search_sex_value(gender)),
+        ("q.birthLikeDate", _search_date_value(birth_date)),
+        ("q.birthLikePlace", " ".join(birth_place.split())),
+        ("q.deathLikeDate", _search_date_value(death_date)),
+        ("q.deathLikePlace", " ".join(death_place.split())),
+    ):
+        if value:
+            params[field] = value
+    return params
+
+
+def _response_error_detail(response: Any) -> str:
+    """Return the first FamilySearch error message in a response, if any."""
+    try:
+        data = response.json()
+    except Exception:
         return ""
-    if " " in clean_value:
-        clean_value = '"' + clean_value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-    return f"{field}:{clean_value}"
+    if not isinstance(data, dict):
+        return ""
+    for error in data.get("errors") or []:
+        if isinstance(error, dict):
+            message = str(error.get("message") or error.get("label") or "").strip()
+            if message:
+                return message
+    return ""
 
 
 def _response_data(response: Any, operation: str) -> dict[str, Any]:
@@ -143,10 +218,20 @@ def _response_data(response: Any, operation: str) -> dict[str, Any]:
             )
         )
     if isinstance(status_code, int) and status_code >= 400:
-        raise RuntimeError(
-            _("FamilySearch %(operation)s failed (HTTP %(status)s).")
-            % {"operation": operation, "status": status_code}
+        message = _("FamilySearch %(operation)s failed (HTTP %(status)s).") % {
+            "operation": operation,
+            "status": status_code,
+        }
+        detail = _response_error_detail(response)
+        if detail:
+            message += " " + detail
+        LOG.warning(
+            "FamilySearch %s failed (HTTP %s): %s",
+            operation,
+            status_code,
+            str(getattr(response, "text", "") or "")[:500],
         )
+        raise RuntimeError(message)
 
     json_method = getattr(response, "json", None)
     if not callable(json_method):
@@ -347,33 +432,21 @@ class FamilySearchInterface:
             result = _search_result(fsid, person_data)
             return [result] if result else []
 
-        search_fields = (
-            ("givenName", first_name),
-            ("surname", last_name),
-            ("birthDate", birth_date),
-            ("birthPlace", birth_place),
-            ("deathDate", death_date),
-            ("deathPlace", death_place),
-            ("gender", gender),
+        params = _search_params(
+            query=clean_query,
+            first_name=first_name,
+            last_name=last_name,
+            birth_date=birth_date,
+            death_date=death_date,
+            gender=gender,
+            birth_place=birth_place,
+            death_place=death_place,
         )
-        populated_fields = [
-            (field, value) for field, value in search_fields if value.strip()
-        ]
-        parts: list[str] = [clean_query] if clean_query else []
-        if not clean_query and len(populated_fields) == 1:
-            parts.append(" ".join(populated_fields[0][1].split()))
-        else:
-            for field, value in populated_fields:
-                term = _search_query_term(field, value)
-                if term:
-                    parts.append(term)
-
-        q_str = " ".join(parts).strip()
-        if not q_str:
+        if not params:
             return []
+        params["count"] = str(limit)
 
         headers = {"Accept": "application/x-gedcomx-atom+json"}
-        params = {"q": q_str, "count": str(limit)}
 
         data: dict[str, Any] | None = None
         get_url = getattr(sess, "get_url", None)

@@ -453,16 +453,18 @@ class TestFamilySearchGWizardFlow(unittest.TestCase):
             "/platform/tree/search",
             headers={"Accept": "application/x-gedcomx-atom+json"},
             params={
-                "q": (
-                    'givenName:"Mary Jane" surname:Smith birthDate:1900 '
-                    'birthPlace:"Springfield, Illinois" deathDate:1980 '
-                    "deathPlace:Boston gender:Female"
-                ),
+                "q.givenName": "Mary Jane",
+                "q.surname": "Smith",
+                "q.sex": "Female",
+                "q.birthLikeDate": "+1900",
+                "q.birthLikePlace": "Springfield, Illinois",
+                "q.deathLikeDate": "+1980",
+                "q.deathLikePlace": "Boston",
                 "count": "25",
             },
         )
 
-    def test_interface_search_person_by_surname_uses_free_text(self):
+    def test_interface_search_person_by_surname(self):
         mock_session = MagicMock()
         mock_session.get_url.return_value = {"entries": []}
         client = FamilySearchInterface(session=mock_session)
@@ -472,8 +474,40 @@ class TestFamilySearchGWizardFlow(unittest.TestCase):
         mock_session.get_url.assert_called_once_with(
             "/platform/tree/search",
             headers={"Accept": "application/x-gedcomx-atom+json"},
-            params={"q": "Schmidt", "count": "25"},
+            params={"q.surname": "Schmidt", "count": "25"},
         )
+
+    def test_interface_search_person_free_text_splits_name(self):
+        mock_session = MagicMock()
+        mock_session.get_url.return_value = {"entries": []}
+        client = FamilySearchInterface(session=mock_session)
+
+        client.search_person(query="John Henry Smith")
+
+        mock_session.get_url.assert_called_once_with(
+            "/platform/tree/search",
+            headers={"Accept": "application/x-gedcomx-atom+json"},
+            params={
+                "q.givenName": "John Henry",
+                "q.surname": "Smith",
+                "count": "25",
+            },
+        )
+
+    def test_interface_search_person_reports_error_detail(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.json.return_value = {
+            "errors": [{"code": 400, "message": "Unable to parse query."}]
+        }
+        mock_session = MagicMock()
+        mock_session.get_url.return_value = mock_response
+        client = FamilySearchInterface(session=mock_session)
+
+        with self.assertRaisesRegex(
+            RuntimeError, r"HTTP 400\)\. Unable to parse query\."
+        ):
+            client.search_person(last_name="Smith")
 
     def test_interface_search_person_reports_http_errors(self):
         mock_response = MagicMock()
