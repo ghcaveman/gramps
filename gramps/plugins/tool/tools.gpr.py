@@ -533,6 +533,87 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard File Merge
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardmerge",
+    name=_("GWizard File Merge"),
+    description=_(
+        "Family Tree Processing Tool to compare another genealogy file "
+        "(GEDCOM, Gramps XML, ...) side-by-side with the open Family Tree "
+        "and merge selected differences person by person."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizardmerge.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardFileMerge",
+    optionclass="GWizardFileMergeOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
+)
+
+register(
+    TOOL,
+    id="gwizardmergealt",
+    name=_("GWizard File Merge (Alt)"),
+    description=_(
+        "GWizard File Merge with an alternate compare window: match settings "
+        "at the top, every incoming person on the left, and only the similar "
+        "people in the Family Tree on the right, closest first."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizardmerge.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardFileMergeAlt",
+    optionclass="GWizardFileMergeOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
+)
+
+# ------------------------------------------------------------------------
+#
+# GWizard Multi-Archive Record Scan
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardrecordscan",
+    name=_("Multi-Archive Record Scan"),
+    description=_(
+        "Check every person in the Family Tree against the installed GWizard "
+        "record sources (WikiTree, NARA, ...), count the likely matches at "
+        "three match levels, and open a merge window for a match."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizard_filemerge_scan.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardRecordScan",
+    optionclass="GWizardRecordScanOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
+)
+
+# ------------------------------------------------------------------------
+#
 # Find database Loop
 #
 # ------------------------------------------------------------------------
