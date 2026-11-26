@@ -89,25 +89,34 @@ class WikiTreeSourceTest(unittest.TestCase):
             for c in self.client.search_person.call_args_list
         ]
 
-    def test_search_with_and_without_birth_year(self) -> None:
-        """A dated search and a names-only search; results combined once."""
+    def test_dated_hit_skips_names_only_search(self) -> None:
+        """A dated search that finds profiles is the only search made."""
         matches = self.source.search(self.query)
-        self.assertEqual(self._first_names(), [("Benjamin", "1706"), ("Benjamin", "")])
-        first, second = self.client.search_person.call_args_list
+        self.assertEqual(self._first_names(), [("Benjamin", "1706")])
+        (first,) = self.client.search_person.call_args_list
         self.assertEqual(first.kwargs["last_name"], "Franklin")
         self.assertEqual(first.kwargs["date_spread"], 2)
-        self.assertEqual(second.kwargs["date_spread"], 0)
         self.assertTrue(first.kwargs["raise_errors"])
         self.assertIn("MiddleName", first.kwargs["fields"])
         self.assertEqual([m.key for m in matches], ["Franklin-1"])
         self.assertEqual(matches[0].label, "Benjamin Franklin (1706–1790) [Franklin-1]")
         self.assertEqual(matches[0].url, "https://www.wikitree.com/wiki/Franklin-1")
 
-    def test_other_birth_year_still_found(self) -> None:
-        """A name match born years away comes from the names-only search."""
+    def test_names_only_search_when_dated_searches_find_nobody(self) -> None:
+        """
+        When no dated search finds anyone, the names-only search is made
+        last, and can find profiles born years away.
+        """
         other = dict(FRANKLIN, Name="Franklin-9", BirthDate="1650-01-01")
-        self.client.search_person.side_effect = [[FRANKLIN], [FRANKLIN, other]]
+
+        def search_person(**kwargs: object) -> list[dict[str, object]]:
+            return [] if kwargs["birth_date"] else [FRANKLIN, other]
+
+        self.client.search_person.side_effect = search_person
         scored = score_matches(self.query, self.source.search(self.query))
+        last = self.client.search_person.call_args_list[-1]
+        self.assertEqual(last.kwargs["birth_date"], "")
+        self.assertEqual(last.kwargs["date_spread"], 0)
         self.assertEqual({s.match.key for s in scored}, {"Franklin-1", "Franklin-9"})
         self.assertEqual(tier_cell(scored, TIER_GS, 80).count, 2)
         self.assertEqual(tier_cell(scored, TIER_GSB, 80).count, 1)
@@ -119,15 +128,15 @@ class WikiTreeSourceTest(unittest.TestCase):
         self.assertEqual(self._first_names(), [("Benjamin", "")])
 
     def test_middle_name_tried_first(self) -> None:
-        """ "Given Middle" is tried, then "Given", then names only."""
+        """ "Given Middle" is tried, then "Given"; a dated hit ends the search."""
         query = RecordQuery(
             given="Benjamin", middle="Lee", surnames=["Franklin"], birth_year=1706
         )
-        self.client.search_person.side_effect = [[], [FRANKLIN], []]
+        self.client.search_person.side_effect = [[], [FRANKLIN]]
         self.source.search(query)
         self.assertEqual(
             self._first_names(),
-            [("Benjamin Lee", "1706"), ("Benjamin", "1706"), ("Benjamin", "")],
+            [("Benjamin Lee", "1706"), ("Benjamin", "1706")],
         )
 
     def test_middle_name_hit_skips_first_name_retry(self) -> None:
@@ -136,9 +145,7 @@ class WikiTreeSourceTest(unittest.TestCase):
             given="Benjamin", middle="Lee", surnames=["Franklin"], birth_year=1706
         )
         self.source.search(query)
-        self.assertEqual(
-            self._first_names(), [("Benjamin Lee", "1706"), ("Benjamin", "")]
-        )
+        self.assertEqual(self._first_names(), [("Benjamin Lee", "1706")])
 
     def test_middle_initial_counts_as_middle(self) -> None:
         """A profile with only MiddleInitial can be judged at g/m/s/b."""
