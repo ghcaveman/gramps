@@ -65,6 +65,7 @@ __all__ = [
     "MatchQuery",
     "MatchResult",
     "candidate_from_profile",
+    "parent_names",
     "jaro_winkler",
     "match_text",
     "name_similarity",
@@ -97,6 +98,60 @@ def _years(date: Any, decade: Any) -> tuple[int, int] | None:
         start = int(match.group(1)) * 10
         return start, start + 9
     return None
+
+
+def _parent_id(value: Any) -> str:
+    """Return a parent Id as text, or '' when unknown, private or none."""
+    text = str(value or "").strip()
+    return text if text.lstrip("-").isdigit() and int(text) > 0 else ""
+
+
+def parent_profiles(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the parent profiles in a profile's "Parents" field."""
+    parents = profile.get("Parents")
+    if isinstance(parents, dict):
+        parents = list(parents.values())
+    if not isinstance(parents, list):
+        return []
+    return [parent for parent in parents if isinstance(parent, dict)]
+
+
+def parent_names(profile: dict[str, Any]) -> tuple[str, str]:
+    """
+    Return the (father, mother) given names of a profile, from its
+    "Parents" field (profiles keyed by Id). A parent is told apart by the
+    profile's Father and Mother Ids, or else by the parent's gender.
+    """
+    father_id = _parent_id(profile.get("Father"))
+    mother_id = _parent_id(profile.get("Mother"))
+    father = mother = ""
+    for parent in parent_profiles(profile):
+        given = str(
+            parent.get("FirstName")
+            or parent.get("RealName")
+            or parent.get("ColloquialName")
+            or ""
+        ).strip()
+        if not given:
+            continue
+        pid = _parent_id(parent.get("Id"))
+        gender = str(parent.get("Gender") or "").casefold()
+        if (pid and pid == father_id) or (not pid and gender == "male"):
+            father = father or given
+        elif (pid and pid == mother_id) or (not pid and gender == "female"):
+            mother = mother or given
+        elif gender == "male":
+            father = father or given
+        elif gender == "female":
+            mother = mother or given
+    return father, mother
+
+
+def missing_parent_ids(profile: dict[str, Any]) -> list[str]:
+    """Return the Father/Mother Ids whose names the profile does not include."""
+    have = {_parent_id(parent.get("Id")) for parent in parent_profiles(profile)}
+    wanted = [_parent_id(profile.get(key)) for key in ("Father", "Mother")]
+    return [pid for pid in wanted if pid and pid not in have]
 
 
 def candidate_from_profile(profile: dict[str, Any]) -> RecordCandidate:
@@ -139,7 +194,7 @@ def candidate_from_profile(profile: dict[str, Any]) -> RecordCandidate:
     ).strip()
     lnc = str(profile.get("LastNameCurrent") or "").strip()
 
-    return RecordCandidate(
+    candidate = RecordCandidate(
         given=given,
         middle=middle,
         surnames=surnames,
@@ -149,6 +204,11 @@ def candidate_from_profile(profile: dict[str, Any]) -> RecordCandidate:
         # Enable maiden-in-middle fallback when a female profile lacks a distinct LNAB
         maiden_from_middle=(gender == "female" and bool(middle) and lnab == lnc),
     )
+    # Parents' names for the g/m/s/b+f+m and +f|m levels (GWizard File Merge
+    # versions without them have no father_given / mother_given).
+    if hasattr(candidate, "father_given"):
+        candidate.father_given, candidate.mother_given = parent_names(profile)
+    return candidate
 
 
 # ------------------------------------------------------------
