@@ -35,7 +35,7 @@ PLUGIN_DISPLAY_NAME="GWizard Media Fix"
 
 # Branch the feature was started from. Only changes made since this branch
 # are documented.
-PARENT_BRANCH="functionality_base"
+PARENT_BRANCH="gwizard_filemerge"
 # ---------------------------------------------------------------------------
 
 # Resolve the repository root (the directory that contains the top‑level
