@@ -7,6 +7,9 @@
 
 package = "GWizardFileMerge"
 
+# The branch this config is built from; package_addon.py picks it by this.
+branch = "gwizard_filemerge"
+
 [registration]
 id = "gwizardmerge"
 name = "GWizard File Merge"
