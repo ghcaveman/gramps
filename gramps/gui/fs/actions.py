@@ -37,6 +37,7 @@ from gramps.gen.db import DbTxn
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.fs import tags as fs_tags
 from gramps.gen.fs import tree as fs_tree
+from gramps.gen.fs import utils as fs_utilities
 from gramps.gen.lib import Family, Person, EventRef, EventRoleType, EventType
 from gramps.gen.fs.actions import (
     _bind_global_session,
@@ -62,12 +63,14 @@ from gramps.gen.fs.fs_import import deserializer as deserialize
 from gramps.gen.fs.fs_import.notes import add_note
 import gramps.gen.fs.person.mixins.cache as cache_mod
 from gramps.gui.dialog import ErrorDialog, OkDialog, QuestionDialog2
+from gramps.gui.display import display_url
 
 from . import sync_directions
 from . import ui as fs_ui
 from .compare.window import CompareWindow
 from .fs_import.importer import FSToGrampsImporter
 from .person import fsg_sync as FSG_Sync
+from gramps.gui.buttonorder import apply_button_order
 
 _ = glocale.translation.gettext
 
@@ -171,6 +174,7 @@ def link_familysearch_id(dbstate, uistate, track, person, session, parent, edito
     fs_ui.set_headerbar(dlg, _("Link FamilySearch ID"))
     dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     dlg.add_button(_("OK"), Gtk.ResponseType.OK)
+    apply_button_order(dlg)
 
     box = dlg.get_content_area()
     box.set_spacing(8)
@@ -187,7 +191,20 @@ def link_familysearch_id(dbstate, uistate, track, person, session, parent, edito
     dlg.show_all()
     resp = dlg.run()
     if resp == Gtk.ResponseType.OK:
-        _set_fs_id(target_person, entry.get_text())
+        fsid = entry.get_text()
+        _set_fs_id(target_person, fsid)
+
+        # A link, once made, should be durable even if the live person
+        # editor is later cancelled -- persist it onto the database's
+        # own copy of this person, independent of any other unsaved
+        # edits sitting in the editor.
+        handle = getattr(target_person, "handle", None)
+        try:
+            fs_utilities.link_gramps_fs_id_by_handle(
+                dbstate.db, handle, target_person, fsid
+            )
+        except Exception:
+            pass
 
         if editor is not None and hasattr(editor, "attr_list"):
             try:
@@ -228,6 +245,35 @@ def compare_person(dbstate, uistate, track, person, session, parent, editor=None
         CompareWindow(dbstate, uistate, track, person, fsid, session, parent)
 
 
+def _fs_url_lang() -> str:
+    """Return a 2-letter language code for FamilySearch URLs, defaulting to 'en'."""
+    try:
+        lang = (glocale.language[0] or "en")[:2].lower()
+    except Exception:
+        return "en"
+    return lang if lang.isalpha() else "en"
+
+
+def open_person_in_familysearch(
+    dbstate, uistate, track, person, session, parent, editor=None
+):
+    """Open the current person's FamilySearch person page in a web browser."""
+    _bind_global_session(session)
+
+    fsid = _get_fs_id(person)
+    if not fsid:
+        _info(
+            parent,
+            _("FamilySearch"),
+            _("No FamilySearch ID linked.\nClick 'Link FamilySearch ID' first."),
+        )
+        return
+
+    display_url(
+        f"https://www.familysearch.org/{_fs_url_lang()}/tree/person/details/{fsid}"
+    )
+
+
 # --------------------------
 # Relatives chooser dialog
 # --------------------------
@@ -244,6 +290,7 @@ def _pick_fsid_list(parent, title: str, rows: list[tuple[str, str, bool]]) -> li
 
     dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     dlg.add_button(_("Import selected"), Gtk.ResponseType.OK)
+    apply_button_order(dlg)
 
     box = dlg.get_content_area()
     box.get_style_context().add_class("fs-rel-import-wrap")
@@ -498,13 +545,61 @@ def _search_result_from_entry(
     )
 
 
+_SEARCH_YEAR_RE = re.compile(r"^\d{4}$")
+
+
+def _search_params_from_text(query: str) -> dict[str, str]:
+    """
+    Turn the dialog's free-text search into Tree Person Search parameters.
+
+    FamilySearch rejects a single free-text 'q=...' parameter with HTTP 400;
+    each search term must be its own 'q.<term>' parameter. The text is read
+    as 'Given names Surname [birth year][, birth place]': a four-digit word
+    is the birth year, text after the first comma is the birth place, and
+    the last remaining word is the surname.
+    """
+    name_part, _sep, place_part = (query or "").partition(",")
+    words = name_part.split()
+    years = [word for word in words if _SEARCH_YEAR_RE.match(word)]
+    names = [word for word in words if not _SEARCH_YEAR_RE.match(word)]
+
+    params: dict[str, str] = {}
+    if names:
+        params["q.surname"] = names[-1]
+        if len(names) > 1:
+            params["q.givenName"] = " ".join(names[:-1])
+    if years:
+        params["q.birthLikeDate"] = "+" + years[0]
+    place = " ".join(place_part.split())
+    if place:
+        params["q.birthLikePlace"] = place
+    return params
+
+
+def _search_error_detail(response: Any) -> str:
+    """Return the first FamilySearch error message in a response, if any."""
+    try:
+        data = response.json()
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    for error in data.get("errors") or []:
+        if isinstance(error, dict):
+            message = str(error.get("message") or error.get("label") or "").strip()
+            if message:
+                return message
+    return ""
+
+
 def _search_familysearch_people(
     session: Any, query: str
 ) -> list[_FamilySearchSearchResult]:
     """Search FamilySearch Tree and return person choices for the dialog."""
-    query = (query or "").strip()
-    if not query:
+    params = _search_params_from_text(query)
+    if not params:
         return []
+    params["count"] = "25"
 
     data = None
     headers = {"Accept": "application/x-gedcomx-atom+json"}
@@ -513,17 +608,20 @@ def _search_familysearch_people(
         response = get_url(
             "/platform/tree/search",
             headers=headers,
-            params={"q": query, "count": "25"},
+            params=params,
         )
         if isinstance(response, dict):
             data = response
         else:
             status_code = getattr(response, "status_code", 200)
             if status_code and status_code >= 400:
-                raise RuntimeError(
-                    _("FamilySearch search failed (HTTP %(status)s).")
-                    % {"status": status_code}
-                )
+                message = _("FamilySearch search failed (HTTP %(status)s).") % {
+                    "status": status_code
+                }
+                detail = _search_error_detail(response)
+                if detail:
+                    message += " " + detail
+                raise RuntimeError(message)
             try:
                 data = response.json()
             except Exception as err:
@@ -535,7 +633,7 @@ def _search_familysearch_people(
             session, "get_json", None
         )
         if callable(get_json):
-            endpoint = "/platform/tree/search?" + urlencode({"q": query, "count": "25"})
+            endpoint = "/platform/tree/search?" + urlencode(params)
             data = get_json(endpoint, headers=headers)
 
     results: list[_FamilySearchSearchResult] = []
@@ -633,6 +731,7 @@ def _bulk_import_options_dialog(
 
     dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     import_button = dlg.add_button(_("Import"), Gtk.ResponseType.OK)
+    apply_button_order(dlg)
     import_button.get_style_context().add_class("suggested-action")
 
     box = dlg.get_content_area()
@@ -742,6 +841,7 @@ def _empty_tree_start_person_dialog(
 
     dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     import_button = dlg.add_button(_("Continue"), Gtk.ResponseType.OK)
+    apply_button_order(dlg)
     import_button.get_style_context().add_class("suggested-action")
     import_button.set_sensitive(False)
     dlg.set_default_response(Gtk.ResponseType.OK)
@@ -778,7 +878,15 @@ def _empty_tree_start_person_dialog(
     search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     search_entry = Gtk.Entry()
     search_entry.set_hexpand(True)
-    search_entry.set_placeholder_text(_("Name, date, place, or FamilySearch ID"))
+    search_entry.set_placeholder_text(
+        _("Given names Surname birth year, birth place - or FamilySearch ID")
+    )
+    search_entry.set_tooltip_text(
+        _(
+            "Example: John Smith 1850, Ohio. A four-digit number is the birth "
+            "year and text after the first comma is the birth place."
+        )
+    )
     search_button = Gtk.Button(label=_("Search"))
     search_box.pack_start(search_entry, True, True, 0)
     search_box.pack_start(search_button, False, False, 0)
