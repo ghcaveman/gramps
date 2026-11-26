@@ -152,7 +152,7 @@ class CitationAttributesDialogTest(unittest.TestCase):
         """
         with DbTxn("Create sources and citations", self.db) as trans:
             handles = {}
-            for title, conf in (
+            for title, confidence in (
                 ("FamilySearch Family Tree", 3),
                 ("Geni.com", 2),
                 ("Birth Certificate", 2),
@@ -161,7 +161,7 @@ class CitationAttributesDialogTest(unittest.TestCase):
                 src.set_title(title)
                 cit = Citation()
                 cit.set_reference_handle(self.db.add_source(src, trans))
-                cit.set_confidence_level(conf)
+                cit.set_confidence_level(confidence)
                 handles[title] = self.db.add_citation(cit, trans)
 
         auto_citation_attributes(self.db)
