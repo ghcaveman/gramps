@@ -1,0 +1,30 @@
+The best baseline combination is Given Name + Surname + Birth Year (with a ±2-to-5-year buffer), adding Death Year only when the name is common.
+Searching with every exact field (g/m/s/b/d) usually causes false negatives because historical records and user-contributed trees frequently omit middle names, miscalculate exact days/months, or contain transcription typos.
+
+Ranking of the Five Criteria (g/m/s/b/d)
+
+1. Surname (s) — Essential, but use wildcards/phonetics
+	• Why: It is the primary anchor for family grouping.
+	• Best Practice: Always enable Soundex/phonetic matching or use wildcards (* or ?). Before the 20th century, spelling was fluid (e.g., Smyth vs. Smith, Altomari vs. Altomare). For married women, search both maiden and married surnames separately.
+2. Given Name (g) — Essential, with flexibility
+	• Why: Narrows the surname pool immediately.
+	• Best Practice: Watch out for nicknames (Elizabeth vs. Lizzie, William vs. Wm.), swapped first/middle names, and Latin/anglicized variants (e.g., Luigi vs. Louis). If exact searches fail, search by the first initial only.
+3. Birthdate (b) — High value (Year only)
+	• Why: Anchors the person to a specific generation without over-filtering.
+	• Best Practice: Search by year only, never exact day/month. Census takers and informants routinely guessed ages, making birth years drift by 1 to 5 years across different records.
+4. Deathdate (d) — Medium value (Best for disambiguation)
+	• Why: Helpful when searching common names (e.g., John White born 1892), but risky as a primary filter.
+	• Best Practice: Leave it blank on your initial pass. Many records (like censuses or draft cards) were created while the person was alive, and many online tree profiles lack a death date entirely. Add it (±2 years) only if your initial search returns too many hits.
+5. Middle Name (m) — Lowest value (Often causes missed matches)
+	• Why: Middle names were frequently omitted on vital records, listed only as an initial, or used interchangeably as the person's everyday first name.
+	• Best Practice: Leave it out of your initial search. Use it only to visually confirm a match once you are looking at the results list.
+
+Recommended Search Strategy (Broad-to-Narrow)
+
+
+Search Pass	Criteria Used	When to Use
+Pass 1: Standard	Given + Surname + Birth Year (±2 yrs)	Your default starting query for 90% of searches.
+Pass 2: Disambiguate	Given + Surname + Birth Year (±2 yrs) + Death Year (±2 yrs)	When Pass 1 returns dozens of people with common names.
+Pass 3: Catch-All	First Initial + Surname (Phonetic) + Birth Year (±5 yrs)	When Pass 1 fails due to nicknames, swapped middle names, or severe transcription errors.
+
+Tip for automated/database queries: If you are querying an API or local database (like a GEDCOM-derived dataset) programmatically, weighting Surname + Birth Year (±2) + Death Year (±2) while running a fuzzy string match on Given + Middle combined will catch cases where a person went by their middle name.
