@@ -507,6 +507,32 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard Media Fix
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardmediafix",
+    name=_("GWizard Media Fix"),
+    description=_(
+        "Find missing media files, consolidate media locations, and apply filename standards."
+    ),
+    version="1.0",
+    gramps_target_version=MODULE_VERSION,
+    status=STABLE,
+    fname="gwizardmediafix.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardMediaFix",
+    optionclass="GWizardMediaFixOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url=TOOLS_HELP,
+)
+
+# ------------------------------------------------------------------------
+#
 # GWizard File Merge
 #
 # ------------------------------------------------------------------------
@@ -534,12 +560,6 @@ register(
     help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
 )
 
-# ------------------------------------------------------------------------
-#
-# GWizard File Merge ALT
-#
-# ------------------------------------------------------------------------
-
 register(
     TOOL,
     id="gwizardmergealt",
@@ -559,61 +579,6 @@ register(
     category=TOOL_DBPROC,
     toolclass="GWizardFileMergeAlt",
     optionclass="GWizardFileMergeOptions",
-    tool_modes=[TOOL_MODE_GUI],
-    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
-)
-
-# ------------------------------------------------------------------------
-#
-# GWizard Media Fix
-#
-# ------------------------------------------------------------------------
-
-register(
-    TOOL,
-    id="gwizardmediafix",
-    name=_("GWizard Media Fix"),
-    description=_(
-        "Find missing media files, consolidate media locations, and apply filename standards."
-    ),
-    version="1.0",
-    gramps_target_version=MODULE_VERSION,
-    status=STABLE,
-    fname="gwizardmediafix.py",
-    authors=["Kevin White"],
-    authors_email=["gocaveman@gmail.com"],
-    category=TOOL_DBPROC,
-    toolclass="GWizardMediaFix",
-    optionclass="GWizardMediaFixOptions",
-    tool_modes=[TOOL_MODE_GUI],
-    help_url=TOOLS_HELP,
-)
-
-# ------------------------------------------------------------------------
-#
-# GWizard Multi-Archive Record Scan
-#
-# ------------------------------------------------------------------------
-
-register(
-    TOOL,
-    id="gwizardrecordscan",
-    name=_("Multi-Archive Record Scan"),
-    description=_(
-        "Check every person in the Family Tree against the installed GWizard "
-        "record sources (WikiTree, NARA, ...), count the likely matches at "
-        "three match levels, and open a merge window for a match."
-    ),
-    version="0.0.1",
-    gramps_target_version=MODULE_VERSION,
-    status=EXPERIMENTAL,
-    audience=EXPERT,
-    fname="gwizard_filemerge_scan.py",
-    authors=["Kevin White"],
-    authors_email=["gocaveman@gmail.com"],
-    category=TOOL_DBPROC,
-    toolclass="GWizardRecordScan",
-    optionclass="GWizardRecordScanOptions",
     tool_modes=[TOOL_MODE_GUI],
     help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
 )
@@ -674,35 +639,6 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard NARA Merge
-#
-# ------------------------------------------------------------------------
-
-register(
-    TOOL,
-    id="gwizardnara",
-    name=_("GWizard NARA Merge"),
-    description=_(
-        "Family Tree Processing Tool to search the National Archives (NARA) "
-        "catalog and compare/merge archival data side-by-side with the open "
-        "Family Tree."
-    ),
-    version="0.0.1",
-    gramps_target_version=MODULE_VERSION,
-    status=EXPERIMENTAL,
-    audience=EXPERT,
-    fname="gwizardnara.py",
-    authors=["Kevin White"],
-    authors_email=["gocaveman@gmail.com"],
-    category=TOOL_DBPROC,
-    toolclass="GWizardNaraMerge",
-    optionclass="GWizardNaraMergeOptions",
-    tool_modes=[TOOL_MODE_GUI],
-    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardNaraMerge_Tool",
-)
-
-# ------------------------------------------------------------------------
-#
 # GWizard WikiTree record source (for the GWizard Multi-Archive Record Scan)
 #
 # ------------------------------------------------------------------------
@@ -720,6 +656,86 @@ register(
     authors_email=["gocaveman@gmail.com"],
     category="GWizardRecordSource",
     load_on_reg=True,
+)
+
+# ------------------------------------------------------------------------
+#
+# GWizard NARA Merge
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardnara",
+    name=_("GWizard NARA Merge"),
+    description=_(
+        "Family Tree Processing Tool to search the National Archives (NARA) "
+        "catalog and compare/merge archival data side-by-side with the open Family Tree."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizardnara.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardNaraMerge",
+    optionclass="GWizardNaraMergeOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardNaraMerge_Tool",
+)
+
+# ------------------------------------------------------------------------
+#
+# GWizard NARA record source (for the GWizard Multi-Archive Record Scan)
+#
+# ------------------------------------------------------------------------
+
+register(
+    GENERAL,
+    id="gwizardnarasource",
+    name=_("GWizard NARA record source"),
+    description=_(
+        "Lets the GWizard Multi-Archive Record Scan search the NARA catalog."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    fname="gwizardnarasource.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category="GWizardRecordSource",
+    load_on_reg=True,
+)
+
+# ------------------------------------------------------------------------
+#
+# GWizard Multi-Archive Record Scan
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardrecordscan",
+    name=_("Multi-Archive Record Scan"),
+    description=_(
+        "Check every person in the Family Tree against the installed GWizard "
+        "record sources (WikiTree, NARA, ...), count the likely matches at "
+        "three match levels, and open a merge window for a match."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizard_filemerge_scan.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardRecordScan",
+    optionclass="GWizardRecordScanOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
 )
 
 # ------------------------------------------------------------------------
