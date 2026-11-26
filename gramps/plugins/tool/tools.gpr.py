@@ -507,6 +507,32 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard Media Fix
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardmediafix",
+    name=_("GWizard Media Fix"),
+    description=_(
+        "Find missing media files, consolidate media locations, and apply filename standards."
+    ),
+    version="1.0",
+    gramps_target_version=MODULE_VERSION,
+    status=STABLE,
+    fname="gwizardmediafix.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardMediaFix",
+    optionclass="GWizardMediaFixOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url=TOOLS_HELP,
+)
+
+# ------------------------------------------------------------------------
+#
 # GWizard File Merge
 #
 # ------------------------------------------------------------------------
@@ -559,26 +585,26 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard Media Fix
+# GWizard Citation Fix
 #
 # ------------------------------------------------------------------------
 
 register(
     TOOL,
-    id="gwizardmediafix",
-    name=_("GWizard Media Fix"),
+    id="gwizardcitationfix",
+    name=_("GWizard Citation Fix"),
     description=_(
-        "Find missing media files, consolidate media locations, and apply filename standards."
+        "Open the GWizard Citation Fix dialog to generate " "and view citation reports."
     ),
-    version="1.0",
+    version="0.0.1",
     gramps_target_version=MODULE_VERSION,
-    status=STABLE,
-    fname="gwizardmediafix.py",
+    status=EXPERIMENTAL,
+    fname="gwizardcitationfix.py",
     authors=["Kevin White"],
     authors_email=["gocaveman@gmail.com"],
     category=TOOL_DBPROC,
-    toolclass="GWizardMediaFix",
-    optionclass="GWizardMediaFixOptions",
+    toolclass="GWizardCitationFix",
+    optionclass="GWizardCitationFixOptions",
     tool_modes=[TOOL_MODE_GUI],
     help_url=TOOLS_HELP,
 )
@@ -614,7 +640,28 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# Multi-Archive Record Scan
+# GWizard FamilySearch record source (for the GWizard Multi-Archive Record Scan)
+#
+# ------------------------------------------------------------------------
+
+register(
+    GENERAL,
+    id="gwizardfssource",
+    name=_("GWizard FamilySearch record source"),
+    description=_("Lets the GWizard Multi-Archive Record Scan search FamilySearch."),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    fname="gwizardfssource.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category="GWizardRecordSource",
+    load_on_reg=True,
+)
+
+# ------------------------------------------------------------------------
+#
+# GWizard Multi-Archive Record Scan
 #
 # ------------------------------------------------------------------------
 
@@ -638,54 +685,7 @@ register(
     toolclass="GWizardRecordScan",
     optionclass="GWizardRecordScanOptions",
     tool_modes=[TOOL_MODE_GUI],
-    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFamilySearchMerge_Tool",
-)
-
-# ------------------------------------------------------------------------
-#
-# GWizard FamilySearch record source (for the GWizard Multi-Archive Record Scan)
-#
-# ------------------------------------------------------------------------
-
-register(
-    GENERAL,
-    id="gwizardfssource",
-    name=_("GWizard FamilySearch record source"),
-    description=_("Lets the GWizard Multi-Archive Record Scan search FamilySearch."),
-    version="0.0.1",
-    gramps_target_version=MODULE_VERSION,
-    status=EXPERIMENTAL,
-    fname="gwizardfssource.py",
-    authors=["Kevin White"],
-    authors_email=["gocaveman@gmail.com"],
-    category="GWizardRecordSource",
-    load_on_reg=True,
-)
-
-# ------------------------------------------------------------------------
-#
-# GWizard Citation Fix
-#
-# ------------------------------------------------------------------------
-
-register(
-    TOOL,
-    id="gwizardcitationfix",
-    name=_("GWizard Citation Fix"),
-    description=_(
-        "Open the GWizard Citation Fix dialog to generate " "and view citation reports."
-    ),
-    version="0.0.1",
-    gramps_target_version=MODULE_VERSION,
-    status=EXPERIMENTAL,
-    fname="gwizardcitationfix.py",
-    authors=["Kevin White"],
-    authors_email=["gocaveman@gmail.com"],
-    category=TOOL_DBPROC,
-    toolclass="GWizardCitationFix",
-    optionclass="GWizardCitationFixOptions",
-    tool_modes=[TOOL_MODE_GUI],
-    help_url=TOOLS_HELP,
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
 )
 
 # ------------------------------------------------------------------------

@@ -56,9 +56,10 @@ from gramps.gen.utils.db import navigation_label
 from gramps.gen.utils.thumbnails import SIZE_LARGE, get_thumbnail_image
 
 try:
-    from .gwizard_mediafix_common import escape_markup
+    from .gwizard_mediafix_common import SelectableLabel, escape_markup
 except (ImportError, ValueError):
     from gwizard_mediafix_common import (  # type: ignore[import-not-found,no-redef]
+        SelectableLabel,
         escape_markup,
     )
 
@@ -304,13 +305,9 @@ class MediaPreviewPane(Gtk.Box):
         self.event_box.add(self.image)
         self.pack_start(self.event_box, False, False, 0)
 
-        self.info = Gtk.Label()
-        self.info.set_line_wrap(True)
-        self.info.set_selectable(True)
-        self.info.set_can_focus(False)  # selectable, but not a Tab stop
-        self.info.set_xalign(0.0)
+        # Selectable, but not a Tab stop.
+        self.info = SelectableLabel()
         self.info.set_yalign(0.0)
-        self.info.set_halign(Gtk.Align.START)
         self.info.set_valign(Gtk.Align.START)
         self.pack_start(self.info, True, True, 0)
         self.show_nothing(str(_("Select a row to preview its file.")))
