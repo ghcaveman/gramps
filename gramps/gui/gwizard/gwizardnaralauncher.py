@@ -871,6 +871,7 @@ class NaraSearchDialog(Gtk.Dialog):
             return
 
         match_query = self._match_query()
+        rows: list[list[Any]] = []
         for hit in hits:
             parsed = NaraCatalogInterface.parse_record(hit)
             people = parsed["person_creators"]
@@ -883,7 +884,7 @@ class NaraSearchDialog(Gtk.Dialog):
             else:
                 person_text = "-"
 
-            self.results_store.append(
+            rows.append(
                 [
                     parsed["naid"],
                     parsed["title"],
@@ -901,8 +902,17 @@ class NaraSearchDialog(Gtk.Dialog):
                 ]
             )
 
+        # Best match first; equal scores keep the catalog's order.
+        rows.sort(key=lambda row: row[10], reverse=True)
+        for row in rows:
+            self.results_store.append(row)
+
         self.status_label.set_text(
-            _("Found %d matching records in the National Archives Catalog.") % len(hits)
+            _(
+                "Found %d matching records in the National Archives Catalog, "
+                "best match first."
+            )
+            % len(hits)
         )
 
         first_iter = self.results_store.get_iter_first()
