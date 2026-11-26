@@ -171,12 +171,13 @@ CSS_FONT = """
 # GoatGramps: the GWizard tools are listed together in this order instead of
 # alphabetically; every other tool still sorts by name around the group.
 _GWIZARD_TOOL_ORDER = (
-    "gwizardmediafix",  # GWizard Media Fix
-    "gwizardcitationfix",  # GWizard Citation Fix
     "gwizardmerge",  # GWizard File Merge
     "gwizardmergealt",  # GWizard File Merge (Alt)
+    "gwizardmediafix",  # GWizard Media Fix
+    "gwizardcitationfix",  # GWizard Citation Fix
     "gwizardwikitree",  # GWizard WikiTree Merge
     "gwizardnara",  # GWizard NARA Merge
+    "gwizardfsmerge",  # GWizard FamilySearch Merge
     "gwizardrecordscan",  # Multi-Archive Record Scan
 )
 
