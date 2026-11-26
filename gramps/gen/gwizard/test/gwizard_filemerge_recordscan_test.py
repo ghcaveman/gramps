@@ -55,9 +55,13 @@ from gramps.gen.lib import (
     Surname,
 )
 from gramps.gen.gwizard.gwizard_base import (
+    RECORD_TIERS,
     TIER_GMSB,
+    TIER_GMSB_BOTH_PARENTS,
+    TIER_GMSB_ONE_PARENT,
     TIER_GS,
     TIER_GSB,
+    TIER_SCORE,
     RecordCandidate,
     RecordQuery,
     record_match_text,
@@ -66,6 +70,7 @@ from gramps.gen.gwizard.gwizard_base import (
 )
 from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     RECORD_SOURCE_CATEGORY,
+    STATUS_CITED,
     STATUS_ERROR,
     STATUS_LINKED,
     STATUS_OK,
@@ -83,6 +88,8 @@ from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     query_for_person,
     scan_item,
     score_matches,
+    source_tiers,
+    split_cited,
     tier_cell,
 )
 
@@ -223,6 +230,98 @@ class RecordTierTest(unittest.TestCase):
             score_record(query, maiden).score, score_record(query, plain).score
         )
 
+    def _with_parents(self, father: str = "", mother: str = "", **kw):
+        """A g/m/s/b-perfect candidate with the given parents."""
+        values = dict(
+            given="Thomas",
+            middle="Lee",
+            surname="Devault",
+            birth_years=(1842, 1842),
+            gender="male",
+        )
+        values.update(kw)
+        cand = _candidate(**values)
+        cand.father_given = father
+        cand.mother_given = mother
+        return cand
+
+    def _query(self, father: str = "John", mother: str = "Mary") -> RecordQuery:
+        return RecordQuery(
+            given="Thomas",
+            middle="Lee",
+            surnames=["Devault"],
+            birth_year=1842,
+            gender="male",
+            father_first_name=father,
+            mother_first_name=mother,
+        )
+
+    def test_both_parents_tier(self) -> None:
+        """f+m needs both parents on both sides; both count."""
+        both = self._query()
+        perfect = self._with_parents("John", "Mary")
+        result = score_record_tier(both, perfect, TIER_GMSB_BOTH_PARENTS)
+        assert result is not None
+        self.assertEqual(result.score, 100.0)
+        wrong_mother = self._with_parents("John", "Agnes")
+        lower = score_record_tier(both, wrong_mother, TIER_GMSB_BOTH_PARENTS)
+        assert lower is not None
+        self.assertLess(lower.score, 100.0)
+        # One parent missing on either side: cannot be judged.
+        self.assertIsNone(
+            score_record_tier(both, self._with_parents("John"), TIER_GMSB_BOTH_PARENTS)
+        )
+        self.assertIsNone(
+            score_record_tier(self._query(mother=""), perfect, TIER_GMSB_BOTH_PARENTS)
+        )
+
+    def test_one_parent_tier_takes_the_better_parent(self) -> None:
+        """f|m is judged with one parent, and a wrong other parent does not hurt."""
+        query = self._query()
+        father_only = score_record_tier(
+            query, self._with_parents("John"), TIER_GMSB_ONE_PARENT
+        )
+        wrong_mother = score_record_tier(
+            query, self._with_parents("John", "Agnes"), TIER_GMSB_ONE_PARENT
+        )
+        assert father_only is not None and wrong_mother is not None
+        self.assertEqual(father_only.score, 100.0)
+        self.assertEqual(wrong_mother.score, 100.0)
+        self.assertIsNone(
+            score_record_tier(query, self._with_parents(), TIER_GMSB_ONE_PARENT)
+        )
+
+    def test_parent_tiers_need_gmsb_parts(self) -> None:
+        """Parent levels also need what g/m/s/b needs (a middle name here)."""
+        cand = self._with_parents("John", "Mary", middle="")
+        for tier in (TIER_GMSB_BOTH_PARENTS, TIER_GMSB_ONE_PARENT):
+            self.assertIsNone(score_record_tier(self._query(), cand, tier))
+
+    def test_parent_initials_and_gender(self) -> None:
+        """A parent's initial counts 0.85; a differing gender halves the score."""
+        query = self._query()
+        initial = score_record_tier(
+            query, self._with_parents("J.", "Mary"), TIER_GMSB_BOTH_PARENTS
+        )
+        assert initial is not None
+        self.assertLess(initial.score, 100.0)
+        self.assertGreater(initial.score, 90.0)
+        other = score_record_tier(
+            query,
+            self._with_parents("John", "Mary", gender="female"),
+            TIER_GMSB_BOTH_PARENTS,
+        )
+        assert other is not None
+        self.assertEqual(other.score, 50.0)
+
+    def test_full_score_ignores_parents(self) -> None:
+        """The overall score is unchanged by parents' names."""
+        query = self._query()
+        self.assertEqual(
+            score_record(query, self._with_parents("John", "Mary")).score,
+            score_record(query, self._with_parents("Peter", "Agnes")).score,
+        )
+
     def test_unknown_tier(self) -> None:
         """An unknown tier name is an error."""
         with self.assertRaises(ValueError):
@@ -280,6 +379,36 @@ class ScoringHelpersTest(unittest.TestCase):
         )
         self.assertEqual(len(matches_for_tier(scored, TIER_GSB, 101)), 3)
         self.assertEqual(matches_for_tier(scored, None, 80)[0].match.key, "B")
+
+    def test_single_score_tier(self) -> None:
+        """TIER_SCORE is the full score, judged even without a surname."""
+        scored = score_matches(self.query, self.matches, (TIER_SCORE,))
+        self.assertEqual(list(scored[0].tiers), [TIER_SCORE])
+        for item in scored:
+            self.assertEqual(item.tiers[TIER_SCORE].score, item.full.score)
+        cell = tier_cell(scored, TIER_SCORE, 80)
+        self.assertTrue(cell.judged)
+        self.assertEqual(cell.count, 2)
+        given_only = _candidate(given="Kevin")
+        self.assertIsNone(score_record_tier(self.query, given_only, TIER_GS))
+        self.assertIsNotNone(score_record_tier(self.query, given_only, TIER_SCORE))
+
+    def test_source_tiers(self) -> None:
+        """A source shows its own columns; unknown or none gives the default."""
+
+        class OneColumn(FakeSource):
+            tiers = (TIER_SCORE,)
+
+        class Unknown(FakeSource):
+            tiers = ("nonsense",)
+
+        self.assertEqual(source_tiers(FakeSource()), RECORD_TIERS)
+        self.assertEqual(source_tiers(OneColumn()), (TIER_SCORE,))
+        self.assertEqual(source_tiers(Unknown()), RECORD_TIERS)
+
+    def test_usage_text_default(self) -> None:
+        """A source without a request allowance reports nothing."""
+        self.assertEqual(FakeSource().usage_text(), "")
 
 
 # ------------------------------------------------------------
@@ -390,6 +519,24 @@ class QueryForPersonTest(DatabaseTestBase):
         self.assertEqual(query.birth_year, 1842)
         self.assertEqual(query.gender, "male")
 
+    def test_parents_given_names(self) -> None:
+        """The main family's father and mother give the parents' names."""
+        child = self.add_person("Peter", "Smith")
+        father = self.add_person("John Paul", "Smith")
+        mother = self.add_person("Mary", "Jones", Person.FEMALE)
+        family = Family()
+        family.set_father_handle(father.get_handle())
+        family.set_mother_handle(mother.get_handle())
+        with DbTxn("family", self.db) as trans:
+            self.db.add_family(family, trans)
+            child.add_parent_family_handle(family.get_handle())
+            self.db.commit_person(child, trans)
+        query = query_for_person(self.db, child)
+        self.assertEqual(query.father_first_name, "John Paul")
+        self.assertEqual(query.mother_first_name, "Mary")
+        orphan = query_for_person(self.db, father)
+        self.assertEqual((orphan.father_first_name, orphan.mother_first_name), ("", ""))
+
     def test_baptism_fallback(self) -> None:
         """A baptism year stands in for a missing birth."""
         person = self.add_person("Mary", "Smith", Person.FEMALE, baptism=1801)
@@ -443,6 +590,53 @@ class ScanTest(DatabaseTestBase):
                 ]
             }
         )
+
+    def test_cited_keys_read_and_skipped(self) -> None:
+        """Cited records are read up front; skip_cited saves the search."""
+
+        class CitingSource(FakeSource):
+            source_id = "citing"
+            has_links = False
+
+            def cited_keys(self, db: Any, person: Person) -> list[str]:
+                surname = person.get_primary_name().get_surname()
+                return ["Devault-1"] if surname == "Devault" else []
+
+        source = CitingSource(self.source.records)
+        items = {i.surname: i for i in build_scan_items(self.db, sources=[source])}
+        self.assertEqual(items["Devault"].cited, {"citing": ["Devault-1"]})
+        self.assertEqual(items["Abbot"].cited, {})
+        # By default the person is still searched ...
+        self.assertEqual(scan_item(source, items["Devault"]).status, STATUS_OK)
+        # ... and with skip_cited no request is made.
+        source.skip_cited = True
+        source.searches.clear()
+        scan = scan_item(source, items["Devault"])
+        self.assertEqual(scan.status, STATUS_CITED)
+        self.assertEqual(source.searches, [])
+        self.assertEqual(scan_item(source, items["Abbot"]).status, STATUS_OK)
+
+    def test_failing_cited_keys_is_ignored(self) -> None:
+        """A source that cannot read citations does not stop the scan."""
+
+        class BrokenSource(FakeSource):
+            def cited_keys(self, db: Any, person: Person) -> list[str]:
+                raise RuntimeError("broken")
+
+        items = build_scan_items(self.db, sources=[BrokenSource()])
+        self.assertEqual(len(items), 3)
+        self.assertTrue(all(item.cited == {} for item in items))
+
+    def test_split_cited(self) -> None:
+        """Matches split into new and already cited, order kept."""
+        matches = [
+            SourceMatch(key, key, _candidate(given="A", surname="B"))
+            for key in ("1", "2", "3")
+        ]
+        new, old = split_cited(matches, ["2"])
+        self.assertEqual([m.key for m in new], ["1", "3"])
+        self.assertEqual([m.key for m in old], ["2"])
+        self.assertEqual(split_cited(matches, [])[1], [])
 
     def test_items_sorted_by_surname(self) -> None:
         """People come out by surname, with links read from the person."""
