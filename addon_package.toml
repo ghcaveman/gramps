@@ -1,9 +1,10 @@
 # GWizard Media Fix addon -- built by package_addon.py (from gramps_devutil).
 # See addon_package.example.toml in gramps_devutil for every option.
 #
-# The citation-fix repo builds this addon too (CitationFix depends on it):
-# there, save this file as addon_package_mediafix.toml and run
-#   python package_addon.py --config addon_package_mediafix.toml <version>
+# MediaFix is built only from this repo. CitationFix (gwizard_citationfix,
+# the child branch) depends on it and lists these modules under
+# [[dependencies]]. The shared File Merge modules reach this branch by
+# merging gwizard_filemerge (the parent branch).
 
 package = "MediaFix"
 
@@ -17,7 +18,7 @@ optionclass = "GWizardMediaFixOptions"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
 help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardMediaFix_Tool"
-gramps_versions = ["5.2.0", "6.2.0"]
+gramps_versions = ["5.2.0", "6.2"]
 
 [files]
 # Listed explicitly: in the citation-fix tree gw_*.py also matches the
@@ -43,12 +44,14 @@ test_helpers = [
 base = ["functionality_base", "origin/functionality_base"]
 ignore = [
     "featuredocs/**",
-    # Notes and helper scripts in the repo root (* stays in the root folder).
+    # Notes, test data and helper scripts in the repo root, most of them
+    # copied in from gramps_devutil (* stays in the root folder).
     "*.md",
     "*.txt",
-    "check_banner.bash",
-    "environment_create.py",
-    "package_gwizard_mediafix.py",
+    "*.bash",
+    "*.ged",
+    "environment_create*.py",
+    "make_gwizard_testdata_images.py",
     # File Merge files and tests, inherited from gwizard_filemerge (the parent
     # branch); the GWizardFileMerge addon ships them.
     "gramps/gen/gwizard/**",
