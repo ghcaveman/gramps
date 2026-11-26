@@ -717,6 +717,19 @@ TIER_GMSB = "g/m/s/b"  # given, middle, surname and birth year
 TIER_GSB = "g/s/b"  # given, surname and birth year
 TIER_GS = "g/s"  # given and surname
 RECORD_TIERS = (TIER_GMSB, TIER_GSB, TIER_GS)
+# A single overall score: every part both sides have counts, as in
+# score_record. For sources whose records rarely carry middle names or
+# birth years (NARA), where the levels above add columns but no insight.
+TIER_SCORE = "match"
+# g/m/s/b plus the parents' given names: both parents must be on both
+# sides, or (f|m) at least one, the better of the two counting. For sources
+# whose records name the parents (WikiTree).
+TIER_GMSB_BOTH_PARENTS = "g/m/s/b+f+m"
+TIER_GMSB_ONE_PARENT = "g/m/s/b+f|m"
+PARENT_TIERS = (TIER_GMSB_BOTH_PARENTS, TIER_GMSB_ONE_PARENT)
+ALL_TIERS = PARENT_TIERS + RECORD_TIERS + (TIER_SCORE,)
+# Points each parent's given name adds to the g/m/s/b points (35 + 30 + 25).
+_PARENT_WEIGHT = 15.0
 
 
 def jaro_winkler(first: str, second: str, prefix_scale: float = 0.1) -> float:
@@ -825,6 +838,8 @@ class RecordCandidate:
     death_years: tuple[int, int] | None = None
     gender: str = ""
     maiden_from_middle: bool = False
+    father_given: str = ""  # the father's given name(s), when the record has them
+    mother_given: str = ""  # the mother's given name(s)
 
 
 # ------------------------------------------------------------
@@ -905,6 +920,58 @@ def record_surname_similarity(query: RecordQuery, candidate: RecordCandidate) ->
     return best
 
 
+def parent_similarity(wanted: str, found: str) -> float:
+    """
+    Similarity of two parents' given names, on the first given name only
+    (an initial against a name counts 0.85).
+    """
+    first, second = _first_word(wanted), _first_word(found)
+    if not (first and second):
+        return 0.0
+    if len(first) == 1 or len(second) == 1:
+        return 0.85 if first[0] == second[0] else 0.0
+    return name_similarity(first, second)
+
+
+def _parent_pairs(
+    query: RecordQuery, candidate: RecordCandidate
+) -> list[tuple[str, str]]:
+    """Return the (tree, record) parent names both sides have: father, mother."""
+    pairs = []
+    if query.father_first_name.strip() and candidate.father_given.strip():
+        pairs.append((query.father_first_name, candidate.father_given))
+    if query.mother_first_name.strip() and candidate.mother_given.strip():
+        pairs.append((query.mother_first_name, candidate.mother_given))
+    return pairs
+
+
+def _score_with_parents(
+    query: RecordQuery, candidate: RecordCandidate, tier: str
+) -> RecordScore | None:
+    """
+    Score at a parent tier: g/m/s/b, plus both parents' given names
+    (TIER_GMSB_BOTH_PARENTS) or the better of the father's and the
+    mother's (TIER_GMSB_ONE_PARENT).
+    """
+    base = _score_record(query, candidate, TIER_GMSB, with_parts=True)
+    if base is None:
+        return None
+    points, possible, compared_years, gender_factor = base
+    pairs = _parent_pairs(query, candidate)
+    if tier == TIER_GMSB_BOTH_PARENTS:
+        if len(pairs) < 2:
+            return None
+        points += sum(_PARENT_WEIGHT * parent_similarity(*pair) for pair in pairs)
+        possible += _PARENT_WEIGHT * len(pairs)
+    else:
+        if not pairs:
+            return None
+        points += max(_PARENT_WEIGHT * parent_similarity(*pair) for pair in pairs)
+        possible += _PARENT_WEIGHT
+    result = points / possible * 100.0 * gender_factor
+    return RecordScore(round(result, 1), compared_years)
+
+
 def _tier_parts(tier: str | None) -> tuple[bool, bool, bool, bool]:
     """Return (middle, birth required, use birth, use death) for a tier."""
     if tier is None:
@@ -932,18 +999,31 @@ def score_record_tier(
 ) -> RecordScore | None:
     """
     Return how well a candidate matches the person at one match level
-    (TIER_GS, TIER_GSB or TIER_GMSB), from 0 to 100.
+    (TIER_GS, TIER_GSB, TIER_GMSB or a parent tier), from 0 to 100.
 
     Only the tier's parts count, and each must be on both sides: None is
     returned when one is missing, as the tier cannot be judged.
+
+    TIER_SCORE is the overall score (score_record) and is always judged.
     """
+    if tier == TIER_SCORE:
+        return score_record(query, candidate)
+    if tier in PARENT_TIERS:
+        return _score_with_parents(query, candidate, tier)
     return _score_record(query, candidate, tier)
 
 
 def _score_record(
-    query: RecordQuery, candidate: RecordCandidate, tier: str | None
-) -> RecordScore | None:
-    """Score a candidate in full (``tier`` None) or at one tier."""
+    query: RecordQuery,
+    candidate: RecordCandidate,
+    tier: str | None,
+    with_parts: bool = False,
+) -> Any:
+    """
+    Score a candidate in full (``tier`` None) or at one tier. With
+    ``with_parts`` the (points, possible points, compared years, gender
+    factor) are returned instead, for _score_with_parents to add to.
+    """
     need_middle, need_birth, use_birth, use_death = _tier_parts(tier)
     if tier is not None:
         if not (query.given and candidate.given):
@@ -976,14 +1056,17 @@ def _score_record(
         diff = years_apart(query.death_year, candidate.death_years)
         if diff <= 3:
             score += 10.0 * (1.0 - diff * 0.25)
-    if not possible:
-        return RecordScore(0.0, False)
-    result = score / possible * 100.0
+    gender_factor = 1.0
     wanted = query.gender.casefold()
     found = candidate.gender.casefold()
     if wanted in ("male", "female") and found in ("male", "female"):
         if wanted != found:
-            result /= 2
+            gender_factor = 0.5
+    if with_parts:
+        return score, possible, compared_years, gender_factor
+    if not possible:
+        return RecordScore(0.0, False)
+    result = score / possible * 100.0 * gender_factor
     return RecordScore(round(result, 1), compared_years)
 
 
