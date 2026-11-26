@@ -88,9 +88,13 @@ class DummyDialog:
         self.buttons: dict[int, Any] = {}
         self.handlers: dict[str, Any] = {}
         self.destroyed = False
+        self.stopped_signal: str | None = None
 
     def connect(self, signal: str, handler: Any) -> None:
         self.handlers[signal] = handler
+
+    def stop_emission_by_name(self, signal: str) -> None:
+        self.stopped_signal = signal
 
     def get_content_area(self) -> Any:
         return self._content_area
@@ -130,11 +134,20 @@ def _gtk_stub_modules() -> dict[str, Any]:
 
     gtk = MagicMock()
     gtk.Dialog = DummyDialog
+
+    def _check_button(*_args: Any, **_kwargs: Any) -> Any:
+        button = MagicMock()
+        active = {"value": False}
+        button.get_active.side_effect = lambda: active["value"]
+        button.set_active.side_effect = lambda value: active.__setitem__("value", value)
+        return button
+
     gtk.Entry.side_effect = lambda *a, **k: MagicMock(**{"get_text.return_value": ""})
     gtk.Label.side_effect = lambda *a, **k: MagicMock()
     gtk.Button.side_effect = lambda *a, **k: MagicMock(
         get_style_context=lambda: MagicMock()
     )
+    gtk.CheckButton.side_effect = _check_button
     gtk.Box.side_effect = lambda *a, **k: MagicMock()
     gtk.Grid.side_effect = lambda *a, **k: MagicMock()
     gtk.TreeView.side_effect = lambda *a, **k: MagicMock()
@@ -146,6 +159,7 @@ def _gtk_stub_modules() -> dict[str, Any]:
     gtk.ResponseType.CANCEL = 2
     gtk.ResponseType.CLOSE = 3
     gtk.ResponseType.APPLY = 5
+    gtk.SelectionMode.SINGLE = 1
     gtk.PolicyType.AUTOMATIC = 1
     gtk.Orientation.HORIZONTAL = 0
     gtk.Orientation.VERTICAL = 1
@@ -263,6 +277,170 @@ class TestFamilySearchLauncher(unittest.TestCase):
         dlg.cb_search()
         self.assertIn("1", dlg.status_label.set_text.call_args[0][0])
 
+    def test_search_by_id_shows_profile_and_keeps_dialog_open(self):
+        mock_client = MagicMock()
+        mock_client.search_person.return_value = [
+            {"fsid": "GSVF-SGV", "name": "Abraham Lincoln", "life": "1809-1865"}
+        ]
+        dlg = FamilySearchSearchDialog(client=mock_client)
+        dlg.fs_id_entry.get_text.return_value = "GSVF-SGV"
+
+        dlg.cb_search()
+
+        mock_client.search_person.assert_called_once_with(query="GSVF-SGV")
+        dlg.store.append.assert_called_once_with(
+            ["GSVF-SGV", "Abraham Lincoln", "", "", "", "", ""]
+        )
+        self.assertEqual(len(dlg.buttons), 2)
+        dlg.merge_button.set_sensitive.assert_any_call(False)
+
+    def test_search_by_name_still_runs_with_prefilled_id(self):
+        mock_client = MagicMock()
+        mock_client.search_person.side_effect = [
+            [{"fsid": "HENR-SCH", "name": "Henry Schmidt", "life": "1900-1980"}],
+            [{"fsid": "GSVF-SGV", "name": "Abraham Lincoln", "life": "1809-1865"}],
+        ]
+        dlg = FamilySearchSearchDialog(client=mock_client)
+        dlg.fs_id_entry.get_text.return_value = "GSVF-SGV"
+        dlg.given_name_entry.get_text.return_value = "Henry"
+        dlg.surname_entry.get_text.return_value = "Schmidt"
+        dlg.birth_year_entry.get_text.return_value = "1900"
+
+        dlg.cb_search()
+
+        self.assertEqual(mock_client.search_person.call_count, 2)
+        mock_client.search_person.assert_any_call(
+            first_name="Henry",
+            last_name="Schmidt",
+            birth_date="1900",
+            death_date="",
+            gender="",
+            birth_place="",
+            death_place="",
+            limit=25,
+        )
+        mock_client.search_person.assert_any_call(query="GSVF-SGV")
+        self.assertEqual(
+            dlg.store.append.call_args_list[0].args[0],
+            ["HENR-SCH", "Henry Schmidt", "", "", "", "", ""],
+        )
+
+    def test_middle_name_is_included_only_when_checked(self):
+        mock_client = MagicMock()
+        dlg = FamilySearchSearchDialog(client=mock_client)
+        dlg.fs_id_entry.get_text.return_value = ""
+        dlg.given_name_entry.get_text.return_value = "Henry"
+        dlg.middle_name_entry.get_text.return_value = "James"
+        dlg.surname_entry.get_text.return_value = "Schmidt"
+        dlg.birth_year_entry.get_text.return_value = ""
+
+        dlg.cb_search()
+
+        mock_client.search_person.assert_called_once_with(
+            first_name="Henry",
+            last_name="Schmidt",
+            birth_date="",
+            death_date="",
+            gender="",
+            birth_place="",
+            death_place="",
+            limit=25,
+        )
+        mock_client.reset_mock()
+        dlg.term_checks["middle_name"].set_active(True)
+        dlg.cb_search()
+        mock_client.search_person.assert_called_once_with(
+            first_name="Henry James",
+            last_name="Schmidt",
+            birth_date="",
+            death_date="",
+            gender="",
+            birth_place="",
+            death_place="",
+            limit=25,
+        )
+
+    def test_place_only_search_is_sent_to_familysearch(self):
+        mock_client = MagicMock()
+        dlg = FamilySearchSearchDialog(client=mock_client)
+        dlg.fs_id_entry.get_text.return_value = ""
+        dlg.term_checks["death_place"].set_active(True)
+        dlg.term_entries["death_place"].get_text.return_value = "Boston"
+
+        dlg.cb_search()
+
+        mock_client.search_person.assert_called_once_with(
+            first_name="",
+            last_name="",
+            birth_date="",
+            death_date="",
+            gender="",
+            birth_place="",
+            death_place="Boston",
+            limit=25,
+        )
+
+    def test_search_requires_familysearch_login(self):
+        mock_client = MagicMock()
+        mock_client.is_authenticated.return_value = False
+        dlg = FamilySearchSearchDialog(client=mock_client)
+        dlg.fs_id_entry.get_text.return_value = ""
+        dlg.surname_entry.get_text.return_value = "Schmidt"
+
+        with patch("gramps.gui.gwizard.gwizardfslauncher.ErrorDialog") as error_dialog:
+            dlg.cb_search()
+
+        error_dialog.assert_called_once()
+        self.assertIn("Authentication Failed", error_dialog.call_args.args[0])
+        self.assertIn("Failed authentication", error_dialog.call_args.args[1])
+        self.assertIn("Family Trees", error_dialog.call_args.args[1])
+        self.assertIn("FamilySearch Sign in...", error_dialog.call_args.args[1])
+        mock_client.search_person.assert_not_called()
+
+    def test_api_authentication_failure_shows_popup(self):
+        from gramps.gen.gwizard.gwizardfamilysearch import (
+            FamilySearchAuthenticationError,
+        )
+
+        mock_client = MagicMock()
+        mock_client.is_authenticated.return_value = True
+        mock_client.search_person.side_effect = FamilySearchAuthenticationError(
+            "Failed authentication with FamilySearch."
+        )
+        dlg = FamilySearchSearchDialog(client=mock_client)
+        dlg.fs_id_entry.get_text.return_value = ""
+        dlg.surname_entry.get_text.return_value = "Schmidt"
+
+        with patch("gramps.gui.gwizard.gwizardfslauncher.ErrorDialog") as error_dialog:
+            dlg.cb_search()
+
+        error_dialog.assert_called_once()
+        self.assertIn("Authentication Failed", error_dialog.call_args.args[0])
+        self.assertIn("Failed authentication", error_dialog.call_args.args[1])
+        dlg.search_button.set_sensitive.assert_called_with(True)
+
+    def test_compare_without_selection_keeps_dialog_open(self):
+        dlg = FamilySearchSearchDialog()
+        dlg.tree_view.get_selection.return_value.get_selected.return_value = (
+            dlg.store,
+            None,
+        )
+
+        dlg.cb_merge()
+
+        self.assertIn(
+            "select",
+            dlg.status_label.set_text.call_args[0][0].lower(),
+        )
+
+    def test_compare_response_is_intercepted(self):
+        dlg = FamilySearchSearchDialog()
+        with patch.object(dlg, "cb_merge") as merge:
+            dlg.cb_response(dlg, 1)
+
+        self.assertEqual(dlg.stopped_signal, "response")
+        merge.assert_called_once_with()
+
     def test_merge_familysearch_person_invalid_id(self):
         applied, msg = merge_familysearch_person(None, "", None)
         self.assertFalse(applied)
@@ -273,8 +451,16 @@ class TestFamilySearchLauncher(unittest.TestCase):
         mock_uistate.get_active.return_value = "handle_123"
         mock_dbstate = MagicMock()
 
-        success = run_gwizard_familysearch_flow(mock_uistate, mock_dbstate)
+        with patch(
+            "gramps.gui.gwizard.gwizardfslauncher.FamilySearchSearchDialog"
+        ) as dialog_class:
+            success = run_gwizard_familysearch_flow(mock_uistate, mock_dbstate)
+
         self.assertTrue(success)
+        dialog = dialog_class.return_value
+        dialog.show_all.assert_called_once_with()
+        dialog.run.assert_called_once_with()
+        dialog.destroy.assert_called_once_with()
 
 
 if __name__ == "__main__":
