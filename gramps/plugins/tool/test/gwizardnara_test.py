@@ -26,6 +26,7 @@
 #
 # -------------------------------------------------------------------------
 import os
+import re
 import unittest
 
 # -------------------------------------------------------------------------
@@ -66,34 +67,58 @@ class GWizardNaraToolTest(unittest.TestCase):
         self.assertTrue(issubclass(GWizardNaraMerge, object))
         self.assertIn("GWizard NARA Merge", GWizardNaraMerge.__doc__ or "")
 
+    def test_tools_gpr_registration(self) -> None:
+        """
+        Verify the gwizardnara registration: tools.gpr.py in the source
+        tree, or the generated GWizardNaraMerge.gpr.py in the addon.
+        """
+        parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        candidates = [
+            os.path.join(parent, name)
+            for name in ("tools.gpr.py", "GWizardNaraMerge.gpr.py")
+        ]
+        existing = [path for path in candidates if os.path.isfile(path)]
+        self.assertTrue(existing, "No registration file in %s" % parent)
+        with open(existing[0], "r", encoding="utf-8") as handle:
+            content = handle.read()
+
+        self.assertIn('id="gwizardnara"', content)
+        self.assertIn('name=_("GWizard NARA Merge")', content)
+        self.assertIn('fname="gwizardnara.py"', content)
+        self.assertIn('toolclass="GWizardNaraMerge"', content)
+        self.assertIn('optionclass="GWizardNaraMergeOptions"', content)
+
     def test_addon_package_registration(self) -> None:
-        """Verify the NARA tool is registered by the combined addon."""
-        manifest_path = os.path.abspath(
+        """
+        Verify addon_package_nara.toml registers the NARA tool, the
+        Multi-Archive Record Scan and the NARA record source.
+        """
+        path = os.path.abspath(
             os.path.join(
                 os.path.dirname(__file__),
                 "..",
                 "..",
                 "..",
                 "..",
-                "addon_package.toml",
+                "addon_package_nara.toml",
             )
         )
-        self.assertTrue(os.path.isfile(manifest_path))
-
-        with open(manifest_path, "r", encoding="utf-8") as handle:
+        if not os.path.isfile(path):
+            self.skipTest("addon_package_nara.toml is only in the source tree")
+        with open(path, "r", encoding="utf-8") as handle:
             content = handle.read()
 
-        registrations = [
-            section
-            for section in content.split("[[extra_registrations]]")[1:]
-            if section.lstrip().startswith('id = "gwizardnara"')
-        ]
-        self.assertEqual(len(registrations), 1)
-        registration = registrations[0]
-        self.assertIn('name = "GWizard NARA Merge"', registration)
-        self.assertIn('fname = "gwizardnara.py"', registration)
-        self.assertIn('toolclass = "GWizardNaraMerge"', registration)
-        self.assertIn('optionclass = "GWizardNaraMergeOptions"', registration)
+        self.assertIn('id = "gwizardnara"', content)
+        self.assertIn('name = "GWizard NARA Merge"', content)
+        self.assertIn('fname = "gwizardnara.py"', content)
+        self.assertIn('toolclass = "GWizardNaraMerge"', content)
+        self.assertIn('optionclass = "GWizardNaraMergeOptions"', content)
+        ids = []
+        for section in content.split("[[extra_registrations]]")[1:]:
+            match = re.search(r'^id = "([^"]+)"', section, re.MULTILINE)
+            if match:
+                ids.append(match.group(1))
+        self.assertEqual(ids, ["gwizardrecordscan", "gwizardnarasource"])
 
 
 if __name__ == "__main__":
