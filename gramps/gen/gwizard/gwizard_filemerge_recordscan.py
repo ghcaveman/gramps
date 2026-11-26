@@ -67,6 +67,7 @@ from typing import Any, Callable, Iterable
 from gramps.gen.const import USER_DATA
 from gramps.gen.lib import NameType, Person
 from gramps.gen.gwizard.gwizard_base import (
+    ALL_TIERS,
     RECORD_TIERS,
     RecordCandidate,
     RecordQuery,
@@ -89,6 +90,7 @@ STATUS_OK = "ok"  # searched (or looked up), results stored
 STATUS_LINKED = "linked"  # already linked; the linked record was looked up
 STATUS_SKIPPED = "skipped"  # nothing to search with (no name)
 STATUS_ERROR = "error"  # the search failed
+STATUS_CITED = "cited"  # not searched: the person already cites the source
 
 _CACHE_VERSION = 1
 
@@ -163,6 +165,13 @@ class RecordSource(abc.ABC):
     # Whether the source can tell that a person is already linked to one of
     # its records (shows the "Linked" column).
     has_links: bool = False
+    # Skip the search for a person who already cites one of the source's
+    # records (see cited_keys), to save requests on sites with an allowance.
+    skip_cited: bool = False
+    # The score columns the scan shows for this source, from ALL_TIERS
+    # (gwizard_base). A source whose records rarely have middle names or
+    # birth years can show just TIER_SCORE.
+    tiers: tuple[str, ...] = RECORD_TIERS
 
     def available(self) -> tuple[bool, str]:
         """Return (whether the source can be used now, why not)."""
@@ -175,6 +184,15 @@ class RecordSource(abc.ABC):
         """
         return ""
 
+    def cited_keys(self, db: Any, person: Person) -> list[str]:
+        """
+        Return the keys of the source's records the person already cites
+        (NARA NAIDs on the person's citations, say). A person may cite many.
+        The scan hides these records from its results, as they are already
+        in the tree. Runs on the main thread, so it may read the database.
+        """
+        return []
+
     @abc.abstractmethod
     def search(self, query: RecordQuery) -> list[SourceMatch]:
         """Return the records on the site that may be this person."""
@@ -182,6 +200,15 @@ class RecordSource(abc.ABC):
     def lookup(self, key: str) -> SourceMatch | None:
         """Return the linked record with this key, or None."""
         return None
+
+    def usage_text(self) -> str:
+        """
+        Return a short note on how much of the site's request allowance
+        has been used (such as "1,234 of 10,000 queries used in November"),
+        or '' when the source has no allowance to report. Called on the
+        main thread, also while a scan runs, so it must be quick.
+        """
+        return ""
 
     def open_merge(
         self,
@@ -205,6 +232,14 @@ class RecordSource(abc.ABC):
         when the person may have changed.
         """
         raise NotImplementedError
+
+
+def source_tiers(source: RecordSource) -> tuple[str, ...]:
+    """Return the score columns to show for a source (see RecordSource.tiers)."""
+    tiers = tuple(
+        tier for tier in (getattr(source, "tiers", None) or ()) if tier in ALL_TIERS
+    )
+    return tiers or RECORD_TIERS
 
 
 def discover_sources(plugin_manager: Any = None) -> list[RecordSource]:
@@ -259,6 +294,8 @@ class ScanItem:
     change: int
     query: RecordQuery
     links: dict[str, str] = field(default_factory=dict)
+    # source id -> keys of that source's records the person already cites
+    cited: dict[str, list[str]] = field(default_factory=dict)
 
     def sort_key(self) -> tuple[str, str, int]:
         """Surname, then given name, then birth year (unknown last)."""
@@ -385,12 +422,27 @@ def _person_places_and_tags(db: Any, person: Person) -> tuple[list[str], set[str
     return places, tags
 
 
+def _parent_given_names(db: Any, person: Person) -> tuple[str, str]:
+    """Return the given names of the person's father and mother (main family)."""
+    family_handle = person.get_main_parents_family_handle()
+    family = db.get_family_from_handle(family_handle) if family_handle else None
+    if family is None:
+        return "", ""
+    names = []
+    for handle in (family.get_father_handle(), family.get_mother_handle()):
+        parent = db.get_person_from_handle(handle) if handle else None
+        given = parent.get_primary_name().get_first_name() if parent else ""
+        names.append(str(given or "").strip())
+    return names[0], names[1]
+
+
 def query_for_person(db: Any, person: Person) -> RecordQuery:
     """
     Return the details a person is matched on: the first given name, the
     other given names as middle names, the birth surname followed by any
-    married surnames, the birth and death years, the gender, and the
-    places and event types (as tags) from the person's events.
+    married surnames, the birth and death years, the gender, the parents'
+    given names (main family), and the places and event types (as tags)
+    from the person's events.
     """
     name = person.get_primary_name()
     given_names = str(name.get_first_name() or "").split()
@@ -403,6 +455,7 @@ def query_for_person(db: Any, person: Person) -> RecordQuery:
             surnames.append(married)
     gender = {Person.MALE: "male", Person.FEMALE: "female"}.get(person.get_gender(), "")
     places, tags = _person_places_and_tags(db, person)
+    father, mother = _parent_given_names(db, person)
     return RecordQuery(
         given=given_names[0] if given_names else "",
         middle=" ".join(given_names[1:]),
@@ -410,6 +463,8 @@ def query_for_person(db: Any, person: Person) -> RecordQuery:
         birth_year=_vital_year(db, person, "birth"),
         death_year=_vital_year(db, person, "death"),
         gender=gender,
+        father_first_name=father,
+        mother_first_name=mother,
         places=places,
         tags=tags,
     )
@@ -434,15 +489,22 @@ def build_scan_items(
         name = person.get_primary_name()
         query = query_for_person(db, person)
         links: dict[str, str] = {}
+        cited: dict[str, list[str]] = {}
         for source in sources:
-            if not source.has_links:
-                continue
+            if source.has_links:
+                try:
+                    key = source.linked_key(db, person)
+                except Exception:
+                    key = ""
+                if key:
+                    links[source.source_id] = key
             try:
-                key = source.linked_key(db, person)
+                keys = list(source.cited_keys(db, person) or [])
             except Exception:
-                key = ""
-            if key:
-                links[source.source_id] = key
+                LOG.warning("%s: could not read citations", source.title, exc_info=True)
+                keys = []
+            if keys:
+                cited[source.source_id] = keys
         items.append(
             ScanItem(
                 handle=str(handle),
@@ -454,6 +516,7 @@ def build_scan_items(
                 change=int(person.get_change_time() or 0),
                 query=query,
                 links=links,
+                cited=cited,
             )
         )
     items.sort(key=ScanItem.sort_key)
@@ -557,6 +620,14 @@ def scan_item(source: RecordSource, item: ScanItem) -> PersonScan:
                 linked_key=linked,
                 scanned_at=now,
             )
+        if getattr(source, "skip_cited", False) and item.cited.get(source.source_id):
+            return PersonScan(
+                source.source_id,
+                item.handle,
+                STATUS_CITED,
+                item.change,
+                scanned_at=now,
+            )
         if not item.query.has_name():
             return PersonScan(
                 source.source_id,
@@ -584,6 +655,21 @@ def scan_item(source: RecordSource, item: ScanItem) -> PersonScan:
         list(matches),
         scanned_at=now,
     )
+
+
+def split_cited(
+    matches: Iterable[SourceMatch], cited: Iterable[str]
+) -> tuple[list[SourceMatch], list[SourceMatch]]:
+    """
+    Return (new matches, matches the person already cites), keeping the
+    order of ``matches``.
+    """
+    known = {str(key) for key in cited}
+    new: list[SourceMatch] = []
+    old: list[SourceMatch] = []
+    for match in matches:
+        (old if match.key in known else new).append(match)
+    return new, old
 
 
 # ------------------------------------------------------------
@@ -618,17 +704,20 @@ class TierCell:
 
 
 def score_matches(
-    query: RecordQuery, matches: Iterable[SourceMatch]
+    query: RecordQuery,
+    matches: Iterable[SourceMatch],
+    tiers: Iterable[str] = RECORD_TIERS,
 ) -> list[ScoredMatch]:
-    """Score each match in full and at every tier, best full score first."""
+    """
+    Score each match in full and at each of ``tiers`` (the source's score
+    columns), best full score first.
+    """
+    tiers = tuple(tiers)
     scored = [
         ScoredMatch(
             match,
             score_record(query, match.candidate),
-            {
-                tier: score_record_tier(query, match.candidate, tier)
-                for tier in RECORD_TIERS
-            },
+            {tier: score_record_tier(query, match.candidate, tier) for tier in tiers},
         )
         for match in matches
     ]
