@@ -124,13 +124,22 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
     if not person:
         return defaults
 
+    from gramps.gen.gwizard.gwizardwikitreenorm import (
+        clean_given_and_nicknames,
+        expand_surname_variants,
+        normalize_wikitree_location,
+    )
+
     pname = person.get_primary_name()
     if pname:
-        given_names = str(pname.get_first_name() or "").split()
-        if given_names:
-            defaults["first_name"] = given_names[0]
-            defaults["middle_name"] = " ".join(given_names[1:])
-        defaults["last_name"] = str(surname_text(pname) or "").strip()
+        first, middle, _nicks = clean_given_and_nicknames(
+            str(pname.get_first_name() or ""),
+            str(pname.get_nick_name() or ""),
+        )
+        defaults["first_name"] = first
+        defaults["middle_name"] = middle
+        surn_variants = expand_surname_variants([str(surname_text(pname) or "")])
+        defaults["last_name"] = surn_variants[0] if surn_variants else ""
 
     # Look for existing WikiTree ID in attributes or Internet URLs
     defaults["wt_id"] = get_wikitree_id(person)
@@ -156,9 +165,14 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
             if dplace and db:
                 dplace_obj = db.get_place_from_handle(dplace)
                 if dplace_obj:
-                    defaults["death_location"] = str(
-                        dplace_obj.get_name().get_value() or ""
-                    ).strip()
+                    raw_place = (
+                        dplace_obj.get_title()
+                        or dplace_obj.get_name().get_value()
+                        or ""
+                    )
+                    defaults["death_location"] = normalize_wikitree_location(
+                        str(raw_place)
+                    )
 
     # Gender, as WikiTree spells it (Male or Female); unknown is left blank.
     defaults["gender"] = _WIKITREE_GENDERS.get(person.get_gender(), "")
@@ -172,9 +186,14 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
             if bplace and db:
                 bplace_obj = db.get_place_from_handle(bplace)
                 if bplace_obj:
-                    defaults["birth_location"] = str(
-                        bplace_obj.get_name().get_value() or ""
-                    ).strip()
+                    raw_place = (
+                        bplace_obj.get_title()
+                        or bplace_obj.get_name().get_value()
+                        or ""
+                    )
+                    defaults["birth_location"] = normalize_wikitree_location(
+                        str(raw_place)
+                    )
 
     defaults["married_name"] = _married_surname(db, person)
 

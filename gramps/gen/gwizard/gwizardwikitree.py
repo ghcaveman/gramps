@@ -418,37 +418,29 @@ class WikiTreeInterface:
             LOG.error("WikiTree getPeople failed: %s", err)
         return results
 
-    def search_person(
+        def search_person(
         self,
         first_name: str = "",
         last_name: str = "",
         birth_date: str = "",
         death_date: str = "",
+        birth_location: str = "",
+        death_location: str = "",
+        father_first_name: str = "",
+        mother_first_name: str = "",
+        gender: str = "",
+        last_name_match: str = "all",
+        fields: str = "",
         limit: int = 25,
         timeout: int = 30,
         date_spread: int = 0,
         raise_errors: bool = False,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
-        """
-        Fuzzy search for persons across names and dates.
+            import requests
 
-        :param first_name: First/given name.
-        :param last_name: Last/surname.
-        :param birth_date: Birth year or full date.
-        :param death_date: Death year or full date.
-        :param limit: Maximum records to return (WikiTree allows 1-100).
-        :param timeout: HTTP request timeout.
-        :param date_spread: Span of years WikiTree allows when matching
-            dates (1-20); 0 leaves it to WikiTree's default.
-        :param raise_errors: Raise RuntimeError when the request fails,
-            instead of returning an empty list.
-        :returns: List of matching profile dictionaries.
-        """
-        import requests
-
-        params: dict[str, Any] = {
-            "action": "searchPerson",
+            params: dict[str, Any] = {
+                "action": "searchPerson",
             "limit": max(1, min(limit, self.MAX_SEARCH_LIMIT)),
             "appId": self.app_id,
         }
@@ -456,17 +448,31 @@ class WikiTreeInterface:
             params["FirstName"] = first_name
         if last_name:
             params["LastName"] = last_name
+            if last_name_match:
+                params["lastNameMatch"] = last_name_match
         if birth_date:
             params["BirthDate"] = birth_date
         if death_date:
             params["DeathDate"] = death_date
+        if birth_location:
+            params["BirthLocation"] = birth_location
+        if death_location:
+            params["DeathLocation"] = death_location
+        if father_first_name:
+            params["fatherFirstName"] = father_first_name
+        if mother_first_name:
+            params["motherFirstName"] = mother_first_name
+        if gender:
+            params["Gender"] = gender
+        if fields:
+            params["fields"] = fields
         if date_spread > 0:
             params["dateSpread"] = min(date_spread, self.MAX_DATE_SPREAD)
 
         for key, val in kwargs.items():
             if val is not None:
                 params[key] = val
-
+                
         try:
             response = requests.get(
                 self.base_url,

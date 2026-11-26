@@ -110,22 +110,44 @@ def candidate_from_profile(profile: dict[str, Any]) -> RecordCandidate:
         value = value.strip()
         if value and value not in surnames:
             surnames.append(value)
+
     given = str(profile.get("FirstName") or "").strip()
     middle = str(
         profile.get("MiddleName") or profile.get("MiddleInitial") or ""
     ).strip()
+    real_or_colloquial = str(
+        profile.get("ColloquialName") or profile.get("RealName") or ""
+    ).strip()
+
     if not given:
-        # Some results carry only RealName (the preferred first name).
-        given = str(profile.get("RealName") or "").strip()
+        given = real_or_colloquial
+    elif (
+        real_or_colloquial
+        and real_or_colloquial.casefold() != given.casefold()
+        and not middle
+    ):
+        # Lets record_given_similarity's swapped-name check match preferred names
+        # (e.g., FirstName="Giacento", ColloquialName="Jean" or FirstName="Mary", ColloquialName="Mamie")
+        middle = real_or_colloquial
+
     if " " in given and not middle:
         given, middle = given.split(" ", 1)
+
+    gender = str(profile.get("Gender") or "").strip().casefold()
+    lnab = str(
+        profile.get("LastNameAtBirth") or profile.get("LastNameBirth") or ""
+    ).strip()
+    lnc = str(profile.get("LastNameCurrent") or "").strip()
+
     return RecordCandidate(
         given=given,
         middle=middle,
         surnames=surnames,
         birth_years=_years(profile.get("BirthDate"), profile.get("BirthDateDecade")),
         death_years=_years(profile.get("DeathDate"), profile.get("DeathDateDecade")),
-        gender=str(profile.get("Gender") or "").strip().casefold(),
+        gender=gender,
+        # Enable maiden-in-middle fallback when a female profile lacks a distinct LNAB
+        maiden_from_middle=(gender == "female" and bool(middle) and lnab == lnc),
     )
 
 

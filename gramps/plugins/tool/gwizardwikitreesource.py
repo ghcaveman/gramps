@@ -69,9 +69,10 @@ WIKITREE_URL = "https://www.wikitree.com/wiki/%s"
 # Profile fields asked for in searches: everything matching and the result
 # labels use. Without a field list WikiTree leaves some out (MiddleName).
 SEARCH_FIELDS = (
-    "Id,Name,FirstName,MiddleName,MiddleInitial,RealName,LastNameAtBirth,"
-    "LastNameCurrent,LastNameOther,LongName,ShortName,Gender,BirthDate,"
-    "DeathDate,BirthDateDecade,DeathDateDecade"
+    "Id,Name,FirstName,MiddleName,MiddleInitial,RealName,ColloquialName,"
+    "Nicknames,LastNameAtBirth,LastNameBirth,LastNameCurrent,LastNameOther,"
+    "LongName,ShortName,Gender,BirthDate,DeathDate,BirthDateDecade,"
+    "DeathDateDecade,BirthLocation,DeathLocation"
 )
 
 
@@ -117,51 +118,91 @@ class WikiTreeSource(RecordSource):
 
     def search(self, query: RecordQuery) -> list[SourceMatch]:
         """
-        Search WikiTree for a person; the results of up to two searches are
-        combined:
-
-        * by given names, birth surname and birth year (within
-          ``date_spread`` years), when the birth year is known. A person
-          with a middle name is searched with it ("Thomas Lee"), and again
-          with the first name alone when that finds nothing.
-        * by first name and birth surname only, so a profile whose birth
-          year differs (or is missing) is still found. It scores well at
-          g/s and lower at g/s/b.
+        Progressive search cascade for RecordQuery (worker-thread safe):
+        1. Given (+ middle) + birth surname + birth year (±2) + gender
+        2. Given alone + birth surname + birth year (±2) (if middle name missed)
+        3. Alternate surnames (married name, collapsed particles like Dilauro)
+           or inline nicknames (Mamie, King, Buzz) with birth year
+        4. Dateless fallback (first + birth surname) only when birth year is
+           missing or Tiers 1-3 returned zero hits.
         """
+        from .gwizardwikitreenorm import build_search_plan
+
+        plan = build_search_plan(query)
+        if plan.skip:
+            return []
+
         profiles: list[dict[str, Any]] = []
-        if query.birth_year:
-            first_names = [query.given]
-            if query.given and query.middle:
-                first_names.insert(0, f"{query.given} {query.middle}")
-            for first_name in first_names:
-                found = self._search(query, first_name, with_birth=True)
+        primary_surname = plan.surnames[0]
+        full_given = f"{plan.given} {plan.middle}".strip() if plan.middle else plan.given
+
+        def _run(
+            fn: str,
+            ln: str,
+            birth_yr: int | None = None,
+            spread: int = 0,
+            last_name_match: str = "all",
+        ) -> list[dict[str, Any]]:
+            kwargs: dict[str, Any] = {
+                "first_name": fn,
+                "last_name": ln,
+                "birth_date": str(birth_yr) if birth_yr else "",
+                "date_spread": spread if birth_yr else 0,
+                "limit": self.search_limit,
+                "raise_errors": True,
+                "fields": SEARCH_FIELDS,
+                "lastNameMatch": last_name_match,
+            }
+            if plan.gender:
+                kwargs["Gender"] = plan.gender
+            return self.client().search_person(**kwargs)
+
+        # Tier 1 & 2: Birth year search (full given first, then first name alone)
+        if plan.birth_year:
+            for fn in dict.fromkeys([full_given, plan.given]):
+                found = _run(
+                    fn,
+                    primary_surname,
+                    birth_yr=plan.birth_year,
+                    spread=plan.date_spread,
+                )
                 if found:
                     profiles.extend(found)
                     break
-        profiles.extend(self._search(query, query.given, with_birth=False))
+
+        # Tier 3: Alternate surnames (married names / particle variants) & nicknames
+        if not profiles:
+            for alt_ln in plan.surnames[1:]:
+                profiles.extend(
+                    _run(
+                        plan.given,
+                        alt_ln,
+                        birth_yr=plan.birth_year,
+                        spread=plan.date_spread,
+                    )
+                )
+            for nick in plan.nicknames:
+                if nick.casefold() != plan.given.casefold():
+                    profiles.extend(
+                        _run(
+                            nick,
+                            primary_surname,
+                            birth_yr=plan.birth_year,
+                            spread=plan.date_spread,
+                        )
+                    )
+
+        # Tier 4: Dateless fallback ONLY when birth_year is absent or Tiers 1-3 found 0
+        if not profiles:
+            profiles.extend(_run(plan.given, primary_surname))
+
         matches: dict[str, SourceMatch] = {}
         for profile in profiles:
             if isinstance(profile, dict) and profile.get("Name"):
                 match = self.to_match(profile)
                 matches.setdefault(match.key, match)
         return list(matches.values())
-
-    def _search(
-        self, query: RecordQuery, first_name: str, with_birth: bool
-    ) -> list[dict[str, Any]]:
-        """One searchPerson request, with or without the birth year."""
-        surname = query.surnames[0] if query.surnames else ""
-        birth = str(query.birth_year) if with_birth and query.birth_year else ""
-        return self.client().search_person(
-            first_name=first_name,
-            last_name=surname,
-            birth_date=birth,
-            date_spread=self.date_spread if birth else 0,
-            limit=self.search_limit,
-            raise_errors=True,
-            fields=SEARCH_FIELDS,
-        )
-
+    
     def lookup(self, key: str) -> SourceMatch | None:
         """Return the profile the person is linked to."""
         profile = self.client().get_person(key, raise_errors=True)
