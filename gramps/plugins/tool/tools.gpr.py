@@ -559,35 +559,6 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard Multi-Archive Record Scan
-#
-# ------------------------------------------------------------------------
-
-register(
-    TOOL,
-    id="gwizardrecordscan",
-    name=_("Multi-Archive Record Scan"),
-    description=_(
-        "Check every person in the Family Tree against the installed GWizard "
-        "record sources (WikiTree, NARA, ...), count the likely matches at "
-        "three match levels, and open a merge window for a match."
-    ),
-    version="0.0.1",
-    gramps_target_version=MODULE_VERSION,
-    status=EXPERIMENTAL,
-    audience=EXPERT,
-    fname="gwizard_filemerge_scan.py",
-    authors=["Kevin White"],
-    authors_email=["gocaveman@gmail.com"],
-    category=TOOL_DBPROC,
-    toolclass="GWizardRecordScan",
-    optionclass="GWizardRecordScanOptions",
-    tool_modes=[TOOL_MODE_GUI],
-    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
-)
-
-# ------------------------------------------------------------------------
-#
 # Find database Loop
 #
 # ------------------------------------------------------------------------
