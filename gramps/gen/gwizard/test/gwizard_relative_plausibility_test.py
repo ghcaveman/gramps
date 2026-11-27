@@ -47,6 +47,7 @@ from gramps.gen.db.utils import import_as_dict
 from gramps.gen.gwizard.gwizard_base import (
     parent_age_problem,
     relative_match_plausible,
+    relative_match_problem,
 )
 from gramps.gen.gwizard.gwizardgedcom import GedGWizard
 from gramps.gen.lib import Name, Person, Surname
@@ -87,8 +88,8 @@ def person_ged(xref: str, given: str, surname: str, sex: str, year: str) -> str:
     )
 
 
-class RelativePlausibilityMergeTest(unittest.TestCase):
-    """Merging Thomas links his parents only to people who fit."""
+class _MergeFixture(unittest.TestCase):
+    """A tree and an incoming file for one merge (no tests of its own)."""
 
     def setUp(self) -> None:
         self._paths: list[str] = []
@@ -122,6 +123,10 @@ class RelativePlausibilityMergeTest(unittest.TestCase):
             ):
                 return person
         raise AssertionError("no person named %s %s" % (first, surname))
+
+
+class RelativePlausibilityMergeTest(_MergeFixture):
+    """Merging Thomas links his parents only to people who fit."""
 
     def _merge_thomas(self, tree_records: str, father_birth: str) -> Any:
         """Merge the incoming Thomas into the tree's Thomas, linking families."""
@@ -210,6 +215,86 @@ class RelativePlausibilityMergeTest(unittest.TestCase):
         self.assertEqual(family.get_father_handle(), joseph.handle)
 
 
+def spouse_source_ged(wife_birth: str) -> str:
+    """Incoming Thomas Baker, his wife Ann Smith and their son William."""
+    birth = "1 BIRT\n2 DATE %s\n" % wife_birth if wife_birth else ""
+    return (
+        HEADER
+        + "0 @I1@ INDI\n1 NAME Thomas /Baker/\n1 SEX M\n"
+        + "1 BIRT\n2 DATE 10 MAR 1753\n1 FAMS @F1@\n"
+        + "0 @I2@ INDI\n1 NAME Ann /Smith/\n1 SEX F\n"
+        + birth
+        + "1 FAMS @F1@\n"
+        + "0 @I3@ INDI\n1 NAME William /Baker/\n1 SEX M\n"
+        + "1 BIRT\n2 DATE 2 AUG 1791\n1 FAMC @F1@\n"
+        + "0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n1 CHIL @I3@\n"
+        + TRLR
+    )
+
+
+class SpouseBirthYearTest(_MergeFixture):
+    """A wife whose birth years differ: estimated dates get more room."""
+
+    def _merge_with_wife(self, wife_birth: str) -> Any:
+        tree = (
+            THOMAS
+            + person_ged("I2", "Ann", "Smith", "F", "1753")
+            + person_ged("I3", "William", "Baker", "M", "2 AUG 1791")
+        )
+        self.db = import_as_dict(self._write(HEADER + tree + TRLR), User())
+        self.gwizard = GedGWizard(self.db)
+        self.gwizard.run_step(
+            "connect", gedcom_path=self._write(spouse_source_ged(wife_birth))
+        )
+        self.gwizard.run_step("load")
+        source_db = self.gwizard.context["source_db"]
+        target = self._first(self.db, "Thomas", "Baker")
+        self.assertTrue(
+            self.gwizard.run_step(
+                "apply",
+                source_person_handle=self._first(source_db, "Thomas").handle,
+                target_person_handle=target.handle,
+                resolutions={"link_families": "source"},
+            )
+        )
+        (family_handle,) = self.db.get_person_from_handle(
+            target.handle
+        ).get_family_handle_list()
+        return self.db.get_family_from_handle(family_handle)
+
+    def test_estimated_birth_gets_twenty_years(self) -> None:
+        """Ann born "about 1765" is the tree's Ann born 1753."""
+        family = self._merge_with_wife("ABT 1765")
+        ann = self._first(self.db, "Ann", "Smith")
+        self.assertEqual(family.get_mother_handle(), ann.handle)
+
+    def test_exact_birth_too_far_is_reported(self) -> None:
+        """Ann born 1765 is not linked, and the link summary says why."""
+        family = self._merge_with_wife("1765")
+        self.assertIsNone(family.get_mother_handle())
+        self.assertEqual(len(family.get_child_ref_list()), 1)
+        assert self.gwizard is not None
+        details = [
+            entry["detail"]
+            for entry in self.gwizard.context["link_summary"]
+            if entry["status"] == "conflict"
+        ]
+        self.assertEqual(len(details), 1)
+        self.assertIn("born 1753", details[0])
+        self.assertIn("born 1765", details[0])
+        self.assertIn("12 years apart", details[0])
+
+    def test_close_birth_is_linked_without_a_report(self) -> None:
+        family = self._merge_with_wife("1760")
+        ann = self._first(self.db, "Ann", "Smith")
+        self.assertEqual(family.get_mother_handle(), ann.handle)
+        assert self.gwizard is not None
+        self.assertNotIn(
+            "conflict",
+            [entry["status"] for entry in self.gwizard.context["link_summary"]],
+        )
+
+
 class RelativePlausibilityHelperTest(unittest.TestCase):
     """The helpers behind the merge checks."""
 
@@ -262,6 +347,26 @@ class RelativePlausibilityHelperTest(unittest.TestCase):
                 self._person("Ruth", "Baker", "Hale"),
                 None,
             )
+        )
+
+    def test_problem_names_the_reason(self) -> None:
+        self.assertEqual(
+            relative_match_problem(
+                self._person("Joseph", "Baker"),
+                None,
+                self._person("Joseph", "Miller"),
+                None,
+            ),
+            "surname",
+        )
+        self.assertEqual(
+            relative_match_problem(
+                self._person("Joseph", "Baker"),
+                None,
+                self._person("Joseph", "Baker"),
+                None,
+            ),
+            "",
         )
 
     def test_parent_age_problem(self) -> None:

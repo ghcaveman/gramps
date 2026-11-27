@@ -68,6 +68,7 @@ from gramps.gen.gwizard.gwizard_filemerge_citationscan import (
     CITED_CONFIDENCE,
     NO_DATE,
     NO_MEDIA,
+    NO_NOTE,
     NO_PAGE,
     NO_SOURCE,
     NOT_USED,
@@ -113,6 +114,10 @@ class RecordIdSource(CitationSource):
         if keys and not citation.get_media_list():
             return [make_issue(RECORD_NO_MEDIA, PART_RECORD, "record %s" % keys[0])]
         return []
+
+    def waived_issues(self, db: Any, citation: Citation, keys: list[str]) -> set[str]:
+        """A cited record needs no note."""
+        return {NO_NOTE} if keys else set()
 
 
 def _person(db: Any, trans: DbTxn, given: str, surname: str) -> Person:
@@ -348,6 +353,8 @@ class CitationChecksTest(unittest.TestCase):
         codes = self._codes("cited")
         self.assertIn(RECORD_NO_MEDIA, codes)
         self.assertNotIn(NO_MEDIA, codes)
+        self.assertNotIn(NO_NOTE, codes)  # waived by the adapter
+        self.assertIn(NO_NOTE, self._codes("poor"))
         self.assertIn("123456", item.issue_summary())
 
     def test_placeholder_title(self) -> None:
@@ -463,6 +470,31 @@ class ConfidenceTest(unittest.TestCase):
         self.assertIsInstance(found["test"], RecordIdSource)
         self.assertIsInstance(found["other"], GenericCitationSource)
         self.assertIsInstance(found["other"], CitationSource)
+
+    def test_citation_text(self) -> None:
+        """The page, notes and attribute values, for adapters to search."""
+        from gramps.gen.gwizard.gwizard_filemerge_citationscan import (
+            citation_source_title,
+            citation_text,
+        )
+
+        db = make_database("sqlite")
+        db.load(":memory:")
+        self.addCleanup(db.close)
+        with DbTxn("text", db) as trans:
+            note = Note()
+            note.set("See https://example.org/record/7")
+            db.add_note(note, trans)
+            source = _source(db, trans, "Parish Register", None)
+            citation = _citation(db, trans, source, "Folio 3", 1850, "R-7")
+            citation.add_note(note.get_handle())
+            db.commit_citation(citation, trans)
+        text = citation_text(db, citation)
+        self.assertEqual(
+            text.splitlines(), ["Folio 3", "See https://example.org/record/7", "R-7"]
+        )
+        self.assertEqual(citation_source_title(db, citation), "Parish Register")
+        self.assertEqual(citation_source_title(db, Citation()), "")
 
     def test_page_and_title_checks(self) -> None:
         """The checks repeated from the Citation Fix report."""
