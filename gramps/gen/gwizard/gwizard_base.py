@@ -51,6 +51,7 @@ from gramps.gen.errors import HandleError
 from gramps.gen.types import PersonHandle
 from gramps.gen.lib import Person, Event, Name
 from gramps.gen.soundex import soundex
+from gramps.gen.utils.db import get_birth_or_fallback
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 
 # -------------------------------------------------------------------------
@@ -691,6 +692,106 @@ class CandidateMatcher:
                 continue
         results.sort(key=lambda item: item[1], reverse=True)
         return results
+
+
+# ------------------------------------------------------------
+#
+# Relative plausibility
+#
+# ------------------------------------------------------------
+# A relative (father, mother, spouse, child) that the compare window did
+# not pair is linked to the best name match in the tree. A first name on its
+# own can pass the score threshold, so a name match is accepted as the same
+# relative only when the surnames agree and the birth years (when both are
+# known) are close.
+RELATIVE_BIRTH_YEAR_SPREAD = 10
+# A parent is born at least this many, and at most this many, years before
+# the child; a link outside that range is refused as a conflict.
+MIN_PARENT_AGE = 12
+MAX_PARENT_AGE = 80
+
+
+def person_birth_year(db: Any, person: Any) -> int:
+    """Return the year of a person's birth (or birth fallback), or 0."""
+    if db is None or person is None:
+        return 0
+    try:
+        event = get_birth_or_fallback(db, person)
+        if event is not None:
+            year = event.get_date_object().get_year()
+            return year if year and year > 0 else 0
+    except Exception:  # pylint: disable=broad-except
+        pass
+    return 0
+
+
+def _all_surnames(person: Any) -> set[str]:
+    """Return every surname of a person (primary and alternate names)."""
+    found: set[str] = set()
+    names = [person.get_primary_name()] + list(person.get_alternate_names())
+    for name in names:
+        for surname in name.get_surname_list():
+            text = (surname.get_surname() or "").strip().lower()
+            if text:
+                found.add(text)
+    return found
+
+
+def surnames_agree(source: Any, target: Any) -> bool:
+    """
+    Return True when two people share a surname, exactly or by Soundex, in
+    any of their names. A side with no surname at all does not rule a match
+    out (it cannot be checked).
+    """
+    s_names = _all_surnames(source)
+    t_names = _all_surnames(target)
+    if not s_names or not t_names:
+        return True
+    if s_names & t_names:
+        return True
+    for s_name in s_names:
+        for t_name in t_names:
+            try:
+                s_code = soundex(s_name)
+                if s_code and s_code != "Z000" and s_code == soundex(t_name):
+                    return True
+            except Exception:  # pylint: disable=broad-except
+                continue
+    return False
+
+
+def relative_match_plausible(
+    source: Any, source_db: Any, target: Any, target_db: Any
+) -> bool:
+    """
+    Return True when a tree person found by name scoring can stand for an
+    incoming relative: the surnames agree and, when both birth years are
+    known, they are at most RELATIVE_BIRTH_YEAR_SPREAD years apart.
+    """
+    if source is None or target is None:
+        return False
+    if not surnames_agree(source, target):
+        return False
+    s_year = person_birth_year(source_db, source)
+    t_year = person_birth_year(target_db, target)
+    if s_year and t_year and abs(s_year - t_year) > RELATIVE_BIRTH_YEAR_SPREAD:
+        return False
+    return True
+
+
+def parent_age_problem(parent_year: int, child_year: int) -> str:
+    """
+    Return why a parent born in parent_year cannot be the parent of a child
+    born in child_year ("" when the years fit, or either is unknown).
+    """
+    if not parent_year or not child_year:
+        return ""
+    gap = child_year - parent_year
+    if gap < MIN_PARENT_AGE:
+        return "too_young"
+    if gap > MAX_PARENT_AGE:
+        return "too_old"
+    return ""
 
 
 # ------------------------------------------------------------
