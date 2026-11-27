@@ -19,9 +19,9 @@
 #
 
 """
-What the NARA record source knows about citations, for the GWizard Citation
-Improvement Scan (see gramps/gen/gwizard/gwizard_filemerge_citationscan.py, in
-gwizard_filemerge).
+What the NARA record source knows about citations, for the GWizard Multi-Archive
+Citation Scan (see gramps/gen/gwizard/gwizard_filemerge_citationscan.py,
+in gwizard_filemerge).
 
 Registered as a GENERAL plugin in category "GWizardCitationSource". It
 reads the NAID attribute the NARA Merge puts on its citations, flags a
@@ -84,7 +84,7 @@ _YEAR_RE = re.compile(r"\b(1[5-9]\d\d|20[0-4]\d)\b")
 #
 # ------------------------------------------------------------
 class NaraCitationSource(CitationSource):
-    """NARA's side of the Citation Improvement Scan."""
+    """NARA's side of the Multi-Archive Citation Scan."""
 
     source_id = "nara"
 
@@ -185,5 +185,5 @@ class NaraCitationSource(CitationSource):
 
 
 def load_on_reg(dbstate: Any, uistate: Any, plugin: Any) -> list[CitationSource]:
-    """Offer NARA's citation checks to the GWizard Citation Improvement Scan."""
+    """Offer NARA's citation checks to the GWizard Multi-Archive Citation Scan."""
     return [NaraCitationSource()]
