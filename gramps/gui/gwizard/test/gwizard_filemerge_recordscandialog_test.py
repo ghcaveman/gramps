@@ -494,6 +494,60 @@ class RecordScanDialogTest(unittest.TestCase):
         self.assertIn("Fake g/s", rows[0])
         self.assertEqual(rows[1][0], "Abbot")
 
+    def test_show_check_boxes(self) -> None:
+        """
+        Each source has a "show" check box, on by default; unchecking one
+        hides its columns and leaves it out of Scan All, the summary and
+        the CSV.
+        """
+        from gramps.gui.gwizard.gwizard_filemerge_recordscandialog import (
+            RecordScanDialog,
+        )
+
+        class OtherSource(FakeSource):
+            source_id = "other"
+            title = "Other"
+
+        other = OtherSource()
+        dialog = RecordScanDialog(
+            self.dbstate,
+            sources=[self.source, other],
+            cache=ScanCache(self.cache_path),
+        )
+        self.addCleanup(dialog.destroy)
+        self.assertTrue(all(c.get_active() for c in dialog.show_checks.values()))
+        dialog.run_scan(
+            [self.source, other], list(dialog.items.values()), True, FakeMeter
+        )
+        self.assertIn("Other:", dialog.summary_label.get_text())
+
+        dialog.show_checks["other"].set_active(False)
+        self.assertFalse(
+            any(c.get_visible() for c in dialog.source_view_columns["other"])
+        )
+        self.assertTrue(
+            all(c.get_visible() for c in dialog.source_view_columns["fake"])
+        )
+        self.assertNotIn("Other:", dialog.summary_label.get_text())
+        self.assertFalse(dialog.scan_buttons["other"].get_sensitive())
+        from unittest import mock
+
+        with mock.patch.object(dialog, "run_scan") as run_scan:
+            dialog.cb_scan(None, None)
+        self.assertEqual([s.source_id for s in run_scan.call_args.args[0]], ["fake"])
+        path = os.path.join(self.tmp.name, "shown.csv")
+        dialog.export_csv(path)
+        with open(path, encoding="utf-8") as handle:
+            header = next(csv.reader(handle))
+        self.assertIn("Fake g/s", header)
+        self.assertFalse(any(name.startswith("Other") for name in header))
+
+        dialog.show_checks["other"].set_active(True)
+        self.assertTrue(
+            all(c.get_visible() for c in dialog.source_view_columns["other"])
+        )
+        self.assertIn("Other:", dialog.summary_label.get_text())
+
 
 if __name__ == "__main__":
     unittest.main()
