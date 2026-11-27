@@ -79,13 +79,13 @@ category = "GWizardRecordSource"
 load_on_reg = true
 gramps_versions = ["5.2.0", "6.2"]
 
-# The Citation Improvement Scan's menu entry: every citation, worst first,
+# The Multi-Archive Citation Scan's menu entry: every citation, worst first,
 # with records the record sources found that could improve it. Like the
 # Multi-Archive Record Scan, its code ships in GWizardFileMerge and each
 # record-source addon registers the entry and bundles the thin tool module.
 [[extra_registrations]]
 id = "gwizardcitescan"
-name = "Citation Improvement Scan"
+name = "Multi-Archive Citation Scan"
 description = "List every citation in the Family Tree from the most work needed to the least (missing page, date, image, repository, ...), with the person it is about and the confidence of records the installed GWizard record sources (NARA, WikiTree, ...) found that could improve it."
 fname = "gwizard_filemerge_citescan.py"
 toolclass = "GWizardCitationScan"
@@ -95,13 +95,13 @@ authors_email = ["gocaveman@gmail.com"]
 help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
 gramps_versions = ["5.2.0", "6.2"]
 
-# FamilySearch's side of the Citation Improvement Scan: finds the FamilySearch
+# FamilySearch's side of the Multi-Archive Citation Scan: finds the FamilySearch
 # records a citation cites, adds and waives checks, opens a cited record.
 [[extra_registrations]]
 type = "GENERAL"
 id = "gwizardfscitesource"
 name = "GWizard FamilySearch citation source"
-description = "Lets the GWizard Citation Improvement Scan read citations of FamilySearch Family Tree persons and historical records, and open a cited person."
+description = "Lets the GWizard Multi-Archive Citation Scan read citations of FamilySearch Family Tree persons and historical records, and open a cited person."
 fname = "gwizardfscitesource.py"
 authors = ["Kevin White"]
 authors_email = ["gocaveman@gmail.com"]
