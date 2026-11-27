@@ -47,6 +47,7 @@ from gi.repository import Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.gwizard.gwizard_base import surname_text
+from gramps.gen.gwizard.gwizardgedcom import format_link_summary
 from gramps.gen.lib import NameType, Person
 from gramps.gen.gwizard.gwizardwikitree import (
     WikiTreeGWizard,
@@ -1289,6 +1290,13 @@ def merge_wikitree_profile(
 
     if response != Gtk.ResponseType.OK:
         return False, ""
+    # Relatives the merge could not link (for example a name match refused
+    # for its birth year), so the user can link them by hand.
+    problems = format_link_summary(gwizard.context.get("link_summary", []))
+    if problems:
+        from gramps.gui.dialog import WarningDialog
+
+        WarningDialog(_("Some relationships were not linked"), problems, parent=parent)
     photos = photo_message(gwizard.context.get("media_download"))
     target_name = ""
     if target_handle:
@@ -1331,6 +1339,22 @@ def photo_message(result: dict[str, Any] | None) -> str:
                 len(result["failed"]),
             )
             % len(result["failed"])
+        )
+    if result.get("no_base_path"):
+        parts.append(
+            ngettext(
+                "%d photo was not downloaded because this family tree has no "
+                "base media path; it is linked by its web address.",
+                "%d photos were not downloaded because this family tree has no "
+                "base media path; they are linked by their web address.",
+                result["no_base_path"],
+            )
+            % result["no_base_path"]
+            + " "
+            + _(
+                'Set "Base media path" in Edit > Preferences > Family Tree, '
+                "then merge the profile again to download them."
+            )
         )
     return (" " + " ".join(parts)) if parts else ""
 

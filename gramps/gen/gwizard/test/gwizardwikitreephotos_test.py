@@ -229,6 +229,44 @@ class WikiTreePhotoTest(unittest.TestCase):
         self.assertEqual(self.db.get_number_of_media(), 2)
         self.assertEqual(gw2.context["media_download"]["downloaded"], 0)
 
+    def test_no_base_path_keeps_web_addresses_until_set(self) -> None:
+        """Without a base media path nothing is downloaded; merging again
+        after setting one downloads the photos without duplicating them."""
+        self.db.set_mediapath("")
+        gw, _source_db, person = self._load()
+        self._merge(gw, person)
+        self.assertEqual(gw.context["media_download"]["no_base_path"], 2)
+        self.client.download_image.assert_not_called()
+        self.assertIn(PHOTO_URL, [m.get_path() for m in self._tree_media()])
+
+        self.db.set_mediapath(self.media_dir)
+        gw2, _source_db2, person2 = self._load()
+        self._merge(gw2, person2)
+        self.assertEqual(gw2.context["media_download"]["downloaded"], 2)
+        self.assertEqual(self.db.get_number_of_media(), 2)
+
+    def test_description_uses_the_tree_name(self) -> None:
+        """The tree's "Thomas Edward" is used, not WikiTree's "Thomas"."""
+        with DbTxn("rename", self.db) as trans:
+            person = self.db.get_person_from_handle(self.target.handle)
+            person.get_primary_name().set_first_name("Thomas Edward")
+            self.db.commit_person(person, trans)
+        gw, _source_db, person = self._load()
+        self._merge(gw, person)
+        descriptions = sorted(m.get_description() for m in self._tree_media())
+        self.assertEqual(
+            descriptions,
+            [
+                "Baker, Thomas Edward - Mill on the creek",
+                "Baker, Thomas Edward - Photo",
+            ],
+        )
+        ref_id = self.db.get_person_from_handle(self.target.handle).get_gramps_id()
+        self.assertIn(
+            "%s_Baker_Thomas_Edward-Photo-1753.jpg" % ref_id,
+            [m.get_path() for m in self._tree_media()],
+        )
+
     def test_offline_profile_data_does_not_download(self) -> None:
         gw = WikiTreeGWizard(self.db)
         gw.run_step("connect", query="Baker-101", people_data=[_profile()])

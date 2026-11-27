@@ -87,6 +87,7 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 # Local imports
 #
 # -------------------------------------------------------------------------
+from .gwizard_filemerge_media import base_path_configured
 from .gwizardgedcom import GedGWizard
 
 LOG = logging.getLogger(__name__)
@@ -3022,13 +3023,29 @@ class WikiTreeGWizard(GedGWizard):
         object is pointed at the file. A photo that cannot be downloaded
         keeps its web address.
 
+        Nothing is downloaded when the tree has no base media path (Gramps
+        would then put the files in the user's Pictures folder); the photos
+        stay linked by web address and are counted in no_base_path.
+
         :param person_handle: The person in the family tree.
-        :returns: Counts: downloaded, failed (addresses).
+        :returns: Counts: downloaded, failed (addresses), no_base_path.
         """
-        found: dict[str, Any] = {"downloaded": 0, "failed": []}
+        found: dict[str, Any] = {"downloaded": 0, "failed": [], "no_base_path": 0}
         person = self.db.get_person_from_handle(person_handle)
         if person is None:
             return found
+        if not base_path_configured(self.db):
+            found["no_base_path"] = sum(
+                1
+                for media_ref in person.get_media_list()
+                if is_wikitree_url(
+                    (self.db.get_media_from_handle(media_ref.ref) or Media()).get_path()
+                )
+            )
+            return found
+        t_name = person.get_primary_name()
+        t_given = str(t_name.get_first_name() or "")
+        t_surname = str(t_name.get_surname() or "")
         client = self.context.get("client") or WikiTreeInterface(
             app_id=str(self.context.get("app_id") or WikiTreeInterface.DEFAULT_APP_ID)
         )
@@ -3044,6 +3061,15 @@ class WikiTreeGWizard(GedGWizard):
                 found["failed"].append(url)
                 continue
             ext = os.path.splitext(file_name)[1] or ".jpg"
+            # The description names the person as the tree does, not as
+            # WikiTree does ("Cuthbert Hayhurst", not "Cuthbert").
+            caption = str(media.get_description() or "")
+            caption_m = re.match(r"^[^,]*,[^-]*-\s*(.+)$", caption)
+            media.set_description(
+                wikitree_media_description(
+                    t_given, t_surname, caption_m.group(1) if caption_m else ""
+                )
+            )
             final = place_file(
                 cache,
                 os.path.join(base, media_fix_filename(self.db, person, media, ext)),
