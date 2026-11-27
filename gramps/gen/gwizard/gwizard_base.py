@@ -703,26 +703,47 @@ class CandidateMatcher:
 # not pair is linked to the best name match in the tree. A first name on its
 # own can pass the score threshold, so a name match is accepted as the same
 # relative only when the surnames agree and the birth years (when both are
-# known) are close.
+# known) are close: within RELATIVE_BIRTH_YEAR_SPREAD years, or within
+# RELATIVE_ESTIMATED_YEAR_SPREAD when either date is an estimate ("about",
+# "before", "after", a range or span, or estimated/calculated quality).
 RELATIVE_BIRTH_YEAR_SPREAD = 10
+RELATIVE_ESTIMATED_YEAR_SPREAD = 20
 # A parent is born at least this many, and at most this many, years before
 # the child; a link outside that range is refused as a conflict.
 MIN_PARENT_AGE = 12
 MAX_PARENT_AGE = 80
 
 
-def person_birth_year(db: Any, person: Any) -> int:
-    """Return the year of a person's birth (or birth fallback), or 0."""
+def person_birth_date(db: Any, person: Any) -> Any:
+    """Return the date of a person's birth (or birth fallback), or None."""
     if db is None or person is None:
-        return 0
+        return None
     try:
         event = get_birth_or_fallback(db, person)
         if event is not None:
-            year = event.get_date_object().get_year()
-            return year if year and year > 0 else 0
+            return event.get_date_object()
     except Exception:  # pylint: disable=broad-except
         pass
-    return 0
+    return None
+
+
+def person_birth_year(db: Any, person: Any) -> int:
+    """Return the year of a person's birth (or birth fallback), or 0."""
+    date = person_birth_date(db, person)
+    if date is None:
+        return 0
+    year = date.get_year()
+    return year if year and year > 0 else 0
+
+
+def is_estimated_date(date: Any) -> bool:
+    """
+    Return True for a date that is only an estimate: about, before, after,
+    a range or span, or of estimated or calculated quality.
+    """
+    if date is None:
+        return False
+    return date.get_modifier() != date.MOD_NONE or date.get_quality() != date.QUAL_NONE
 
 
 def _all_surnames(person: Any) -> set[str]:
@@ -760,23 +781,43 @@ def surnames_agree(source: Any, target: Any) -> bool:
     return False
 
 
+def relative_match_problem(
+    source: Any, source_db: Any, target: Any, target_db: Any
+) -> str:
+    """
+    Return why a tree person found by name scoring cannot stand for an
+    incoming relative: "missing", "surname" (no surname agrees) or
+    "birth_year" (the birth years are further apart than
+    RELATIVE_BIRTH_YEAR_SPREAD, or RELATIVE_ESTIMATED_YEAR_SPREAD when either
+    date is an estimate). '' when the match fits.
+    """
+    if source is None or target is None:
+        return "missing"
+    if not surnames_agree(source, target):
+        return "surname"
+    s_date = person_birth_date(source_db, source)
+    t_date = person_birth_date(target_db, target)
+    s_year = person_birth_year(source_db, source)
+    t_year = person_birth_year(target_db, target)
+    if s_year and t_year:
+        spread = (
+            RELATIVE_ESTIMATED_YEAR_SPREAD
+            if is_estimated_date(s_date) or is_estimated_date(t_date)
+            else RELATIVE_BIRTH_YEAR_SPREAD
+        )
+        if abs(s_year - t_year) > spread:
+            return "birth_year"
+    return ""
+
+
 def relative_match_plausible(
     source: Any, source_db: Any, target: Any, target_db: Any
 ) -> bool:
     """
     Return True when a tree person found by name scoring can stand for an
-    incoming relative: the surnames agree and, when both birth years are
-    known, they are at most RELATIVE_BIRTH_YEAR_SPREAD years apart.
+    incoming relative (see relative_match_problem).
     """
-    if source is None or target is None:
-        return False
-    if not surnames_agree(source, target):
-        return False
-    s_year = person_birth_year(source_db, source)
-    t_year = person_birth_year(target_db, target)
-    if s_year and t_year and abs(s_year - t_year) > RELATIVE_BIRTH_YEAR_SPREAD:
-        return False
-    return True
+    return not relative_match_problem(source, source_db, target, target_db)
 
 
 def parent_age_problem(parent_year: int, child_year: int) -> str:
