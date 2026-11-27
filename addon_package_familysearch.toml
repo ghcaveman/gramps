@@ -1,0 +1,191 @@
+# GWizard FamilySearch Merge addon -- built by package_addon.py (from gramps_devutil).
+# See addon_package.example.toml in gramps_devutil for every option.
+#
+# Depends on the GWizard File Merge addon, which is built from the
+# gwizard_filemerge branch (addon_package_filemerge.toml). The shared gwizard
+# modules reach this branch unchanged through the branch chain
+# gwizard_filemerge -> gwizard_mediafix -> gwizard_citationfix -> this branch;
+# merge gwizard_citationfix into this one before a release so they stay in
+# step.
+
+package = "GWizardFamilySearchMerge"
+
+# The branch this config is built from; package_addon.py picks it by this.
+branch = "gwizard_familysearch"
+
+[registration]
+id = "gwizardfsmerge"
+name = "GWizard FamilySearch Merge"
+description = "Family Tree Processing Tool to search FamilySearch profiles and relatives and compare/merge data side-by-side with the open Family Tree."
+fname = "gwizardfsmerge.py"
+toolclass = "GWizardFamilySearchMerge"
+optionclass = "GWizardFamilySearchMergeOptions"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFamilySearchMerge_Tool"
+gramps_versions = ["5.2.0", "6.2"]
+
+[files]
+modules = [
+    "gramps/gen/gwizard/gwizardfamilysearch.py",
+    "gramps/gen/gwizard/gwizardfsmatch.py",
+    "gramps/gen/gwizard/gwizardfsprovenance.py",
+    "gramps/gui/gwizard/gwizardfslauncher.py",
+    "gramps/gui/gwizard/gwizardfsmergedialog.py",
+    "gramps/plugins/tool/gwizardfsmerge.py",
+    "gramps/plugins/tool/gwizardfssource.py",
+    "gramps/plugins/tool/gwizardfscitesource.py",
+    "gramps/plugins/tool/gwizard_filemerge_citescan.py",
+    "gramps/plugins/tool/gwizard_filemerge_scan.py",
+]
+tests = [
+    "gramps/gen/gwizard/test/gwizardfamilysearch_test.py",
+    "gramps/gen/gwizard/test/gwizardfsmatch_test.py",
+    "gramps/gui/gwizard/test/gwizardfslauncher_test.py",
+    "gramps/plugins/tool/test/gwizardfsmerge_test.py",
+    "gramps/plugins/tool/test/gwizardfssource_test.py",
+    "gramps/plugins/tool/test/gwizardfscitesource_test.py",
+    "gramps/plugins/tool/test/gwizard_filemerge_scan_test.py",
+]
+
+# The Multi-Archive Record Scan's menu entry. Its code ships in
+# GWizardFileMerge (gwizard_filemerge); each record-source addon registers
+# the entry and bundles the thin tool module, so it only appears once a
+# record source is installed. Installing several record-source addons is
+# fine: Gramps keeps one registration per id.
+[[extra_registrations]]
+id = "gwizardrecordscan"
+name = "Multi-Archive Record Scan"
+description = "Check every person in the Family Tree against the installed GWizard record sources (WikiTree, NARA, ...), count the likely matches at three match levels, and open a merge window for a match."
+fname = "gwizard_filemerge_scan.py"
+toolclass = "GWizardRecordScan"
+optionclass = "GWizardRecordScanOptions"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
+gramps_versions = ["5.2.0", "6.2"]
+
+# The FamilySearch record source: a GENERAL plugin, loaded at start-up, that
+# lets the Multi-Archive Record Scan search FamilySearch.
+[[extra_registrations]]
+type = "GENERAL"
+id = "gwizardfssource"
+name = "GWizard FamilySearch record source"
+description = "Lets the GWizard Multi-Archive Record Scan search FamilySearch."
+fname = "gwizardfssource.py"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+category = "GWizardRecordSource"
+load_on_reg = true
+gramps_versions = ["5.2.0", "6.2"]
+
+# The Multi-Archive Citation Scan's menu entry: every citation, worst first,
+# with records the record sources found that could improve it. Like the
+# Multi-Archive Record Scan, its code ships in GWizardFileMerge and each
+# record-source addon registers the entry and bundles the thin tool module.
+[[extra_registrations]]
+id = "gwizardcitescan"
+name = "Multi-Archive Citation Scan"
+description = "List every citation in the Family Tree from the most work needed to the least (missing page, date, image, repository, ...), with the person it is about and the confidence of records the installed GWizard record sources (NARA, WikiTree, ...) found that could improve it."
+fname = "gwizard_filemerge_citescan.py"
+toolclass = "GWizardCitationScan"
+optionclass = "GWizardCitationScanOptions"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
+gramps_versions = ["5.2.0", "6.2"]
+
+# FamilySearch's side of the Multi-Archive Citation Scan: finds the FamilySearch
+# records a citation cites, adds and waives checks, opens a cited record.
+[[extra_registrations]]
+type = "GENERAL"
+id = "gwizardfscitesource"
+name = "GWizard FamilySearch citation source"
+description = "Lets the GWizard Multi-Archive Citation Scan read citations of FamilySearch Family Tree persons and historical records, and open a cited person."
+fname = "gwizardfscitesource.py"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+category = "GWizardCitationSource"
+load_on_reg = true
+gramps_versions = ["5.2.0", "6.2"]
+
+# The shared gwizard modules ship in GWizardFileMerge.
+[[dependencies]]
+id = "gwizardmerge"
+package = "GWizardFileMerge"
+modules = [
+    "gramps/gen/gwizard/gwizard_base.py",
+    "gramps/gen/gwizard/gwizard_filemerge_citationscan.py",
+    "gramps/gen/gwizard/gwizard_filemerge_media.py",
+    "gramps/gen/gwizard/gwizard_filemerge_medianaming.py",
+    "gramps/gen/gwizard/gwizard_filemerge_recordscan.py",
+    "gramps/gen/gwizard/gwizardaltmatch.py",
+    "gramps/gen/gwizard/gwizardgedcom.py",
+    "gramps/gui/gwizard/gwizard_filemerge_citationscandialog.py",
+    "gramps/gui/gwizard/gwizard_filemerge_launcher.py",
+    "gramps/gui/gwizard/gwizard_filemerge_recordscandialog.py",
+    "gramps/gui/gwizard/gwizardaltcompare.py",
+    "gramps/gui/gwizard/gwizardcompare.py",
+    "gramps/gui/gwizard/gwizardmergedialog.py",
+    "gramps/plugins/tool/gwizardmerge.py",
+]
+
+# The question each tool asks before it opens when the family tree has no
+# base media path (gwizard_mediafix_basepath.py) ships in MediaFix.
+[[dependencies]]
+id = "gwizardmediafix"
+package = "MediaFix"
+modules = [
+    "gramps/plugins/tool/gwizardmediafix.py",
+    "gramps/plugins/tool/gwizard_mediafix_common.py",
+    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/plugins/tool/gw_mediapreview.py",
+    "gramps/plugins/tool/gwizard_mediafix_basepath.py",
+]
+
+[check]
+base = ["functionality_base", "origin/functionality_base"]
+ignore = [
+    "featuredocs/**",
+    # Notes, test data and helper scripts in the repo root, most of them
+    # copied in from gramps_devutil (* stays in the root folder).
+    "*.md",
+    "*.txt",
+    "*.bash",
+    "*.ged",
+    "environment_create*.py",
+    "make_gwizard_testdata_images.py",
+    "gramps/gen/gwizard/__init__.py",
+    "gramps/gui/gwizard/__init__.py",
+    "gramps/gen/gwizard/test/__init__.py",
+    "gramps/gui/gwizard/test/__init__.py",
+    "gramps/gen/gwizard/test/gwizard_test.py",
+    "gramps/gen/gwizard/test/gwizard_*_test.py",
+    "gramps/gen/gwizard/test/data/**",
+    "gramps/gui/gwizard/test/gwizard_*_test.py",
+    "gramps/plugins/tool/test/gwizardmerge*_test.py",
+    "gramps/gen/gwizard/gwizard_filemerge_*.py",
+    "gramps/gui/gwizard/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/gwizard_filemerge_*.py",
+    "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
+    # Media Fix tests come with the dependency; MediaFix ships them.
+    "gramps/plugins/tool/test/gwizardmediafix*_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_basepath_test.py",
+    # Media Fix and Citation Fix files and tests, inherited through
+    # gwizard_citationfix; the MediaFix and CitationFix addons ship them.
+    "gramps/plugins/tool/gw_*.py",
+    "gramps/plugins/tool/gwizardcitation*.py",
+    "gramps/plugins/tool/gwizardmediafix.py",
+    "gramps/plugins/tool/gwizard_mediafix_common.py",
+    "gramps/plugins/tool/test/gw_*_test.py",
+    "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
+    # Core files changed by the GWizard branches (menu order, version, a
+    # base-branch test), not part of any addon.
+    "gramps/gui/viewmanager.py",
+    "gramps/version.py",
+    "gramps/test/test/gitattributes_test.py",
+    "gramps/plugins/tool/tools.gpr.py",
+    "po/POTFILES.in",
+    "po/POTFILES.skip",
+]

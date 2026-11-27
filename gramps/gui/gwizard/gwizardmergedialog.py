@@ -237,6 +237,7 @@ def create_diff_cell(markup: str, differs: bool, xalign: float) -> Gtk.Label:
     cell.set_halign(Gtk.Align.FILL)
     cell.set_hexpand(True)
     cell.set_line_wrap(True)
+    cell.set_selectable(True)
     if differs:
         cell.get_style_context().add_class(DIFF_STYLE_CLASS)
     return cell

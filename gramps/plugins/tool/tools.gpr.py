@@ -711,6 +711,56 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard FamilySearch Merge
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardfsmerge",
+    name=_("GWizard FamilySearch Merge"),
+    description=_(
+        "Check every person in the Family Tree against the installed GWizard "
+        "record sources (WikiTree, NARA, ...), count the likely matches at "
+        "three match levels, and open a merge window for a match."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizardfsmerge.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardFamilySearchMerge",
+    optionclass="GWizardFamilySearchMergeOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
+)
+
+# ------------------------------------------------------------------------
+#
+# GWizard FamilySearch record source (for the GWizard Multi-Archive Record Scan)
+#
+# ------------------------------------------------------------------------
+
+register(
+    GENERAL,
+    id="gwizardfssource",
+    name=_("GWizard FamilySearch record source"),
+    description=_("Lets the GWizard Multi-Archive Record Scan search FamilySearch."),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    fname="gwizardfssource.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category="GWizardRecordSource",
+    load_on_reg=True,
+)
+
+# ------------------------------------------------------------------------
+#
 # GWizard Multi-Archive Record Scan
 #
 # ------------------------------------------------------------------------
@@ -812,6 +862,31 @@ register(
     gramps_target_version=MODULE_VERSION,
     status=EXPERIMENTAL,
     fname="gwizardnaracitesource.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category="GWizardCitationSource",
+    load_on_reg=True,
+)
+
+# ------------------------------------------------------------------------
+#
+# GWizard FamilySearch citation source (for the GWizard Multi-Archive Citation Scan)
+#
+# ------------------------------------------------------------------------
+
+register(
+    GENERAL,
+    id="gwizardfscitesource",
+    name=_("GWizard FamilySearch citation source"),
+    description=_(
+        "Lets the GWizard Multi-Archive Citation Scan read citations of "
+        "FamilySearch Family Tree persons and historical records, and open "
+        "a cited person."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    fname="gwizardfscitesource.py",
     authors=["Kevin White"],
     authors_email=["gocaveman@gmail.com"],
     category="GWizardCitationSource",
