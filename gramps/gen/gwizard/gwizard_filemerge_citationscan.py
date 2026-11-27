@@ -51,9 +51,10 @@ A record source can be given a citation adapter (a CitationSource with the
 same ``source_id``), registered as a GENERAL plugin with
 ``category="GWizardCitationSource"``, the same way record sources are. An
 adapter knows which of its records a citation already points at (a NARA
-NAID, say), adds its own checks (a cited NARA record whose images are not
-attached), judges how well a record fits a citation, and can open a cited
-record. A record source without an adapter still works: GenericCitationSource
+NAID, a WikiTree ID), adds its own checks (a cited NARA record whose images
+are not attached), waives checks that do not apply (no image is needed for
+a citation of a WikiTree profile), judges how well a record fits a
+citation, and can open a cited record. A record source without an adapter still works: GenericCitationSource
 judges records from their titles and years.
 
 Confidence
@@ -559,10 +560,43 @@ def read_citation(
             item.issues.extend(adapter.extra_issues(db, citation, keys) or [])
         except Exception:
             LOG.warning("%s: extra checks failed", source_id, exc_info=True)
+        try:
+            waived = set(adapter.waived_issues(db, citation, keys) or ())
+        except Exception:
+            LOG.warning("%s: waived checks failed", source_id, exc_info=True)
+            waived = set()
+        if waived:
+            item.issues = [i for i in item.issues if i.code not in waived]
     # An adapter's more specific "record has images" replaces "no image".
     if any(issue.code == RECORD_NO_MEDIA for issue in item.issues):
         item.issues = [issue for issue in item.issues if issue.code != NO_MEDIA]
     return item
+
+
+def citation_text(db: Any, citation: Citation) -> str:
+    """
+    Return a citation's page, the text of its notes and its attribute
+    values, one per line: where a record source's adapter looks for record
+    IDs and web addresses.
+    """
+    lines = [str(citation.get_page() or "")]
+    for note_handle in citation.get_note_list():
+        try:
+            note = db.get_note_from_handle(note_handle)
+        except Exception:
+            note = None
+        if note is not None:
+            lines.append(str(note.get() or ""))
+    for attribute in citation.get_attribute_list():
+        lines.append(str(attribute.get_value() or ""))
+    return "\n".join(line for line in lines if line)
+
+
+def citation_source_title(db: Any, citation: Citation) -> str:
+    """Return the title of a citation's source ('' when it has none)."""
+    handle = citation.get_reference_handle()
+    source = db.get_source_from_handle(handle) if handle else None
+    return str(source.get_title() or "") if source is not None else ""
 
 
 def _is_cited_elsewhere(db: Any, handle: str) -> bool:
@@ -665,6 +699,13 @@ class CitationSource(abc.ABC):
     def extra_issues(self, db: Any, citation: Citation, keys: list[str]) -> list[Issue]:
         """Return this source's own checks of a citation."""
         return []
+
+    def waived_issues(self, db: Any, citation: Citation, keys: list[str]) -> set[str]:
+        """
+        Return the codes of the usual checks that do not apply to this
+        citation (NO_MEDIA for a citation of an online tree profile, say).
+        """
+        return set()
 
     def relevance(self, item: CitationItem, match: SourceMatch) -> float:
         """Return how well a record fits a citation, from -1 to 1."""
