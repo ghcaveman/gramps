@@ -820,6 +820,34 @@ def relative_match_plausible(
     return not relative_match_problem(source, source_db, target, target_db)
 
 
+def _name_word_matches(source_word: str, target_word: str) -> bool:
+    """A word matches the same word, or an initial ("H", "H.") its word."""
+    s_word = source_word.casefold().rstrip(".")
+    t_word = target_word.casefold().rstrip(".")
+    if not s_word:
+        return True
+    if s_word == t_word:
+        return True
+    return len(s_word) == 1 and t_word.startswith(s_word)
+
+
+def name_covers(fuller: str, other: str) -> bool:
+    """
+    Return True when the name text *fuller* already holds everything in
+    *other*: each of other's words appears in fuller, in order, an initial
+    matching a whole word ("Cuthbert H." is covered by "Cuthbert Hayhurst",
+    and "Cuthbert" by either). An empty *other* is always covered. Taking
+    *other* in place of *fuller* would then lose detail.
+    """
+    o_words = (other or "").split()
+    f_words = (fuller or "").split()
+    index = 0
+    for word in f_words:
+        if index < len(o_words) and _name_word_matches(o_words[index], word):
+            index += 1
+    return index == len(o_words)
+
+
 def parent_age_problem(parent_year: int, child_year: int) -> str:
     """
     Return why a parent born in parent_year cannot be the parent of a child

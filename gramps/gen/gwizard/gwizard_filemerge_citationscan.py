@@ -19,7 +19,7 @@
 #
 
 """
-GWizard Citation Improvement Scan engine: the Multi-Archive Record Scan seen from
+GWizard Multi-Archive Citation Scan engine: the Multi-Archive Record Scan seen from
 the citations' side.
 
 Every citation in the Family Tree is checked for missing or poor data (no
