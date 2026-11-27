@@ -3833,6 +3833,335 @@ class FindMissingMediaDialog(PreviewRowsMixin, Gtk.Dialog):
 
 # ------------------------------------------------------------
 #
+# Naming template help (Consolidate Media Location)
+#
+# ------------------------------------------------------------
+# Invented sample used for the worked examples in the help text.  The
+# examples are rendered with format_standard_filename itself, so the help
+# always shows exactly what the current code produces.
+_HELP_SAMPLE_CONTEXT: dict[str, str] = {
+    "id": "O0012",
+    "desc": "Census 1900",
+    "orig": "IMG 0001",
+    "ext": "JPG",
+    "ref_id": "I0034",
+    "surname": "Smith",
+    "given": "John",
+    "doc_type": "Census",
+    "year": "1900",
+    "assoc": "Person: Smith, John [I0034]",
+    "hash": "3f9a1c",
+}
+
+
+def naming_template_help_text(base_dir: str = "") -> str:
+    """
+    Return the plain-text help for the naming template.
+
+    :param base_dir: The base media path, shown in the text when known.
+    :returns: The help text.
+    """
+
+    def example(template: str, context: dict[str, str] | None = None) -> str:
+        """Render *template* against the sample (or the given) context."""
+        return format_standard_filename(template, context or _HELP_SAMPLE_CONTEXT)
+
+    folder = base_dir or str(_("(not set - set it in 'Find missing media' or in Gramps Preferences)"))
+    no_year = dict(_HELP_SAMPLE_CONTEXT, year="")
+    odd_names = dict(_HELP_SAMPLE_CONTEXT, surname="O'Brien-Smith", given="Mary Ann")
+
+    parts: list[str] = []
+    parts.append(
+        str(
+            _(
+                "NAMING TEMPLATE HELP\n"
+                "====================\n"
+                "\n"
+                "WHAT THE TEMPLATE DOES\n"
+                "\n"
+                "When 'Use naming standard' is selected, the naming template builds "
+                "the new file name shown in the Hint column. The file is placed "
+                "directly in the base media folder:\n"
+                "    %(folder)s\n"
+                "The template only names the file. It cannot create or choose "
+                "sub-folders: a '/' or '\\' in the template becomes '_'.\n"
+                "\n"
+                "Pick a preset from the list or type your own template. The Hint "
+                "column updates as you type. The template is saved, and 'Accept all "
+                "hints' on the main GWizard Media Fix window uses the same template. "
+                "Nothing is renamed or moved until you press 'Accept hints' and then "
+                "'Apply'."
+            )
+        )
+        % {"folder": folder}
+    )
+
+    parts.append(
+        str(
+            _(
+                "VARIABLES\n"
+                "\n"
+                "Write each variable in curly braces, in lower case, exactly as shown. "
+                "Names are case sensitive: {Surname} is not recognised.\n"
+                "\n"
+                "Most values come from what the media object is attached to, checked in "
+                "this order: person, event, family, citation, source. Where several "
+                "people are linked (for example a shared census event), the person "
+                "whose name matches the media description is used.\n"
+                "\n"
+                "{ref_id}    Gramps ID of the person the media is filed under (e.g. "
+                "I0034). If no person is found: the ID of the event, family, citation "
+                "or source; otherwise the media object's own ID.\n"
+                "{surname}   Surname from that person's primary name. For a family, "
+                "the father's surname. If no surname is found that way, it is taken "
+                "from a description written as 'Surname, Given - Rest'.\n"
+                "{given}     Given (first) name(s) from that person's primary name.\n"
+                "{doc_type}  What the document is: the media description with the "
+                "person's name and any year removed. If the description is empty: the "
+                "event type (e.g. Census, Birth), the citation page or the source "
+                "title. Last resort: 'Photo' when a person is known, else 'Media'.\n"
+                "{year}      A 4-digit year. A year from 1500 to 2099 written in the "
+                "description wins; otherwise the linked event's date; otherwise the "
+                "media object's own date; otherwise the person's birth, death or "
+                "first dated event.\n"
+                "{id}        The media object's own Gramps ID (e.g. O0012).\n"
+                "{orig}      The current file name, without its extension.\n"
+                "{desc}      The full media description.\n"
+                "{assoc}     A summary of what the media is attached to, e.g. "
+                "'Person: Smith, John [I0034]'. Long; rarely useful in a name.\n"
+                "{hash}      The first 6 characters of the file's SHA-1 content hash, "
+                "so files with different content (almost) never get the same name. "
+                "Write it exactly as {hash} (no options), or it stays empty.\n"
+                "{ext}       The file's extension, in lower case (see EXTENSION below).\n"
+                "\n"
+                "A variable with no value is simply left out, and the separators "
+                "around it collapse. For example, with no year:\n"
+                "    {ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}  ->  %(noyear)s"
+            )
+        )
+        % {
+            "noyear": example(
+                "{ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}", no_year
+            )
+        }
+    )
+
+    preset_lines = [
+        "    %s\n        ->  %s" % (tmpl, example(tmpl)) for tmpl, _desc in FILENAME_PRESETS
+    ]
+    parts.append(
+        str(
+            _(
+                "PRESETS\n"
+                "\n"
+                "Examples for an invented record: media O0012 'Census 1900', file "
+                "'IMG 0001.JPG', attached to John Smith (I0034):\n"
+                "%(presets)s"
+            )
+        )
+        % {"presets": "\n".join(preset_lines)}
+    )
+
+    parts.append(
+        str(
+            _(
+                "SPACES AND OTHER CHARACTERS\n"
+                "\n"
+                "Spaces are NOT allowed in names made from the template. Every space, "
+                "whether typed in the template or part of a value such as the given "
+                "name 'Mary Ann', becomes an underscore.\n"
+                "\n"
+                "Kept as they are:\n"
+                "  - letters, including accented and non-Latin letters (e, é, ü, "
+                "ñ ...)\n"
+                "  - digits 0-9\n"
+                "  - underscore _ and hyphen -\n"
+                "\n"
+                "Changed to an underscore: everything else, i.e. spaces, apostrophes, "
+                "commas, dots, brackets, slashes, &, #, !, and dashes other than the "
+                "plain hyphen (such as an en dash).\n"
+                "\n"
+                "Then the name is tidied:\n"
+                "  - several underscores in a row become one\n"
+                "  - a hyphen with underscores or spaces around it becomes a single "
+                "hyphen, and repeated hyphens become one\n"
+                "  - underscores and hyphens at the start or end are removed\n"
+                "  - the name (without the extension) is cut to 85 characters\n"
+                "\n"
+                "Example: surname O'Brien-Smith, given names Mary Ann:\n"
+                "    {surname}_{given}-{year}.{ext}  ->  %(odd)s\n"
+                "\n"
+                "Fixed text is allowed and follows the same rules:\n"
+                "    Scan {surname} {year}.{ext}  ->  %(fixed)s"
+            )
+        )
+        % {
+            "odd": example("{surname}_{given}-{year}.{ext}", odd_names),
+            "fixed": example("Scan {surname} {year}.{ext}"),
+        }
+    )
+
+    parts.append(
+        str(
+            _(
+                "EXTENSION\n"
+                "\n"
+                "The extension is always the file's current extension in lower case "
+                "(.JPG becomes .jpg). The file type is never changed: typing a fixed "
+                "extension such as .pdf in the template has no effect.\n"
+                "\n"
+                "Everything after the LAST dot in the template is treated as the "
+                "extension and thrown away, so end the template with .{ext}, or use no "
+                "dot at all. Any other dot becomes an underscore, so dots are no use "
+                "as separators:\n"
+                "    {surname}.{given}.{ext}  ->  %(dots2)s\n"
+                "    {surname}.{given}        ->  %(dots)s   (given name lost)\n"
+                "\n"
+                "A file that has no extension is given .jpg."
+            )
+        )
+        % {
+            "dots": example("{surname}.{given}"),
+            "dots2": example("{surname}.{given}.{ext}"),
+        }
+    )
+
+    parts.append(
+        str(
+            _(
+                "WHAT IS NOT SUPPORTED\n"
+                "\n"
+                "  - Unknown variable names (e.g. {name}, {Surname}), empty braces {}, "
+                "or a single unmatched { or }. Any of these makes the whole template "
+                "invalid, and every file gets the fallback name {ref_id}_{orig}.{ext} "
+                "instead, e.g. %(fallback)s. If every hint looks like that, check the "
+                "spelling of the template.\n"
+                "  - Literal braces: {{ and }} are accepted but become underscores, so "
+                "they cannot appear in a file name.\n"
+                "  - Python format options such as {surname:.3} happen to work but are "
+                "not supported and may stop working.\n"
+                "  - Sub-folders (see WHAT THE TEMPLATE DOES).\n"
+                "\n"
+                "If a template produces an empty name (e.g. {year}.{ext} for a file "
+                "with no year), the cleaned-up original file name is used. A blank "
+                "template is ignored and the previous one is kept."
+            )
+        )
+        % {"fallback": example("{name}_{year}.{ext}")}
+    )
+
+    parts.append(
+        str(
+            _(
+                "WHICH FILES ARE LISTED\n"
+                "\n"
+                "Every media object with a file path is checked, whatever the file "
+                "type: photos, scans, PDFs, documents, audio, video and so on. A row "
+                "is listed when the stored path is absolute, or is not yet the "
+                "standard name in the base media folder. Records that share one file "
+                "are shown as one row: the file is moved once and every record is "
+                "updated.\n"
+                "\n"
+                "The file must exist to be moved. A missing file is reported as "
+                "'source file not found'; use 'Find missing media' first."
+            )
+        )
+    )
+
+    parts.append(
+        str(
+            _(
+                "WHEN TWO FILES GET THE SAME NAME\n"
+                "\n"
+                "The Hint column shows the name before clashes are checked. When you "
+                "press Apply:\n"
+                "  - If a file with exactly the same content already has the name, "
+                "that file is used and the original is left where it is.\n"
+                "  - If a different file already has the name, or another row in the "
+                "same run produces it, _2, _3 ... is added (e.g. Smith_John-Photo_2.jpg). "
+                "These are listed in the result so you can check them.\n"
+                "Include {hash} or {id} in the template to avoid clashes altogether.\n"
+                "Existing files are never overwritten, and 'Undo last file moves' on "
+                "the main window reverses the last run."
+            )
+        )
+    )
+
+    parts.append(
+        str(
+            _(
+                "KEEPING NAMES OR TYPING YOUR OWN PATH\n"
+                "\n"
+                "  - 'Keep original filename' ignores the template. The file keeps its "
+                "name exactly, including spaces, punctuation and the case of the "
+                "extension; it is only moved into the base media folder.\n"
+                "  - You can type or edit a path in the 'Consolidated Path' column. A "
+                "typed path is used exactly as typed (no clean-up), so spaces are "
+                "allowed there. A relative path is relative to the base media folder "
+                "and may include sub-folders, which are created. Quotes around the "
+                "path are removed. A path outside the base media folder is stored as "
+                "an absolute path."
+            )
+        )
+    )
+
+    return "\n\n\n".join(parts) + "\n"
+
+
+class NamingTemplateHelpDialog(Gtk.Dialog):
+    """Help for the naming template, in a read-only text view so it can be
+    selected and copied with the mouse."""
+
+    def __init__(
+        self, base_dir: str = "", transient_for: Gtk.Window | None = None
+    ) -> None:
+        """
+        Build the help window.
+
+        :param base_dir: The base media path, shown in the text.
+        :param transient_for: Parent window.
+        """
+        super().__init__(
+            title=str(_("Naming Template Help")),
+            transient_for=transient_for,
+            modal=True,
+            destroy_with_parent=True,
+        )
+        self.help_text = naming_template_help_text(base_dir)
+        self.set_default_size(820, 640)
+        self.add_button(str(_("_Close")), Gtk.ResponseType.CLOSE)
+
+        content = self.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(6)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+
+        # Read-only but selectable: drag to select, then Ctrl+C or right-click
+        # > Copy.  Monospace keeps the variable list and examples aligned.
+        self.textview = Gtk.TextView()
+        self.textview.set_editable(False)
+        self.textview.set_cursor_visible(False)
+        self.textview.set_monospace(True)
+        self.textview.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.textview.set_left_margin(6)
+        self.textview.set_right_margin(6)
+        self.textview.get_buffer().set_text(self.help_text)
+        scrolled.add(self.textview)
+        content.pack_start(scrolled, True, True, 0)
+
+    def show_dialog(self) -> None:
+        """Show the help and run it until it is closed."""
+        self.show_all()
+        self.run()
+        self.destroy()
+
+
+# ------------------------------------------------------------
+#
 # ConsolidateMediaLocationDialog
 #
 # ------------------------------------------------------------
@@ -3998,6 +4327,13 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
                 % self.shared_count,
             )
             content.add(info_label)
+
+        self.help_button = Gtk.Button(label=str(_("_Help")), use_underline=True)
+        self.help_button.set_tooltip_text(
+            str(_("What the naming template can and cannot contain"))
+        )
+        self.help_button.connect("clicked", self.cb_help)
+        self.add_action_widget(self.help_button, Gtk.ResponseType.NONE)
 
         n_hints = sum(1 for r in self.rows if r.get("suggested_path"))
         self.accept_button = Gtk.Button(label=str(_("Accept hints (%d)")) % n_hints)
@@ -4245,6 +4581,16 @@ class ConsolidateMediaLocationDialog(Gtk.Dialog):
         if hasattr(self, "accept_button"):
             self.accept_button.set_label(str(_("Accept hints (%d)")) % n_hints)
             self.accept_button.set_sensitive(n_hints > 0)
+
+    def cb_help(self, _button: Gtk.Button) -> None:
+        """
+        Show the naming template help.
+
+        :param _button: The button that was clicked.
+        """
+        NamingTemplateHelpDialog(
+            base_dir=getattr(self, "base_dir", ""), transient_for=self
+        ).show_dialog()
 
     def cb_accept_hints(self, _button: Gtk.Button) -> None:
         """

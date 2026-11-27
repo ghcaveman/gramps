@@ -103,6 +103,7 @@ from gramps.gen.lib import (
 from gramps.gen.types import MediaHandle
 from gramps.plugins.tool import gwizard_mediafix_common as gc
 from gramps.plugins.tool import gwizardmediafix as mf
+from gramps.plugins.tool import gwizard_mediafix_basepath as bp
 from gramps.plugins.tool.gw_fixmediareferencesdialog import (
     FixMediaReferencesDialog,
     find_duplicate_media_groups,
@@ -823,9 +824,10 @@ class AcceptAllMatchesStepThreeTest(_NotedMediaTestCase):
         with (
             patch.object(mf, "confirm_plan", return_value=True) as confirm,
             patch.object(mf, "AcceptAllHintsReportDialog") as report,
-            patch.object(mf, "QuestionDialog2", question),
-            patch.object(mf.Gtk, "FileChooserDialog", return_value=chooser),
+            patch.object(bp, "QuestionDialog2", question),
+            patch.object(bp.Gtk, "FileChooserDialog", return_value=chooser),
             patch.object(mf, "OkDialog"),
+            patch.object(bp, "OkDialog"),
         ):
             tool.cb_auto_all()
         self.asked = question.called
