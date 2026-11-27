@@ -33,7 +33,14 @@ from unittest.mock import Mock, patch
 # Gramps modules
 #
 # -------------------------------------------------------------------------
-from gramps.gen.gwizard.gwizard_base import TIER_GMSB, TIER_GS, TIER_GSB, RecordQuery
+from gramps.gen.gwizard.gwizard_base import (
+    TIER_GMSB,
+    TIER_GMSB_BOTH_PARENTS,
+    TIER_GMSB_ONE_PARENT,
+    TIER_GS,
+    TIER_GSB,
+    RecordQuery,
+)
 from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     STATUS_ERROR,
     STATUS_LINKED,
@@ -226,6 +233,118 @@ class WikiTreeRaiseErrorsTest(unittest.TestCase):
             client.search_person(last_name="Franklin", raise_errors=True)
         with self.assertRaises(RuntimeError):
             client.get_person("Franklin-1", raise_errors=True)
+
+
+# ------------------------------------------------------------------
+#
+# WikiTreeParentsTest
+#
+# ------------------------------------------------------------------
+class WikiTreeParentsTest(unittest.TestCase):
+    """The parent score columns and reading parents' names."""
+
+    PETER = {
+        "Id": 501,
+        "Name": "Smith-501",
+        "FirstName": "Peter",
+        "MiddleName": "James",
+        "LastNameAtBirth": "Smith",
+        "BirthDate": "1850-03-01",
+        "Gender": "Male",
+        "Father": 601,
+        "Mother": 602,
+    }
+
+    def setUp(self) -> None:
+        self.client = Mock()
+        self.source = WikiTreeSource(client=self.client)
+        self.query = RecordQuery(
+            given="Peter",
+            middle="James",
+            surnames=["Smith"],
+            birth_year=1850,
+            gender="male",
+            father_first_name="John",
+            mother_first_name="Mary Ann",
+        )
+
+    def test_parent_columns_first(self) -> None:
+        """WikiTree shows both-parents, then either-parent, then the usual levels."""
+        self.assertEqual(
+            WikiTreeSource.tiers,
+            (
+                TIER_GMSB_BOTH_PARENTS,
+                TIER_GMSB_ONE_PARENT,
+                TIER_GMSB,
+                TIER_GSB,
+                TIER_GS,
+            ),
+        )
+
+    def test_parents_asked_for_in_search(self) -> None:
+        """The search asks WikiTree for parent Ids and profiles."""
+        self.client.search_person.return_value = []
+        self.source.search(self.query)
+        fields = self.client.search_person.call_args.kwargs["fields"]
+        for field in ("Father", "Mother", "Parents"):
+            self.assertIn(field, fields.split(","))
+
+    def test_parents_in_search_result_need_no_lookup(self) -> None:
+        """Parents included in the result are used directly."""
+        peter = dict(
+            self.PETER,
+            Parents={
+                "601": {"Id": 601, "FirstName": "John"},
+                "602": {"Id": 602, "FirstName": "Mary"},
+            },
+        )
+        self.client.search_person.return_value = [peter]
+        (match,) = self.source.search(self.query)
+        self.client.get_people.assert_not_called()
+        self.assertEqual(match.candidate.father_given, "John")
+        self.assertEqual(match.candidate.mother_given, "Mary")
+        scored = score_matches(self.query, [match], WikiTreeSource.tiers)
+        self.assertEqual(tier_cell(scored, TIER_GMSB_BOTH_PARENTS, 80).count, 1)
+        self.assertEqual(tier_cell(scored, TIER_GMSB_ONE_PARENT, 80).count, 1)
+
+    def test_missing_parents_looked_up_once(self) -> None:
+        """Parents given only by Id are read with one getPeople request."""
+        other = dict(self.PETER, Id=502, Name="Smith-502", Father=601, Mother=0)
+        self.client.search_person.return_value = [dict(self.PETER), other]
+        self.client.get_people.return_value = {
+            "601": {"Id": 601, "FirstName": "John", "Gender": "Male"},
+            "602": {"Id": 602, "FirstName": "Mary", "Gender": "Female"},
+        }
+        matches = {m.key: m for m in self.source.search(self.query)}
+        self.client.get_people.assert_called_once()
+        self.assertEqual(self.client.get_people.call_args.args[0], ["601", "602"])
+        peter = matches["Smith-501"].candidate
+        self.assertEqual((peter.father_given, peter.mother_given), ("John", "Mary"))
+        lone = matches["Smith-502"].candidate
+        self.assertEqual((lone.father_given, lone.mother_given), ("John", ""))
+        scored = {
+            s.match.key: s
+            for s in score_matches(self.query, matches.values(), WikiTreeSource.tiers)
+        }
+        self.assertIsNone(scored["Smith-502"].tiers[TIER_GMSB_BOTH_PARENTS])
+        self.assertIsNotNone(scored["Smith-502"].tiers[TIER_GMSB_ONE_PARENT])
+
+    def test_failed_lookup_leaves_parents_out(self) -> None:
+        """When the parents cannot be read, the search still returns matches."""
+        self.client.search_person.return_value = [dict(self.PETER)]
+        self.client.get_people.side_effect = RuntimeError("down")
+        (match,) = self.source.search(self.query)
+        self.assertEqual(match.candidate.father_given, "")
+
+    def test_linked_lookup_reads_parents(self) -> None:
+        """A linked profile gets its parents' names too."""
+        self.client.get_person.return_value = dict(self.PETER)
+        self.client.get_people.return_value = {
+            "601": {"Id": 601, "FirstName": "John"},
+        }
+        match = self.source.lookup("Smith-501")
+        assert match is not None
+        self.assertEqual(match.candidate.father_given, "John")
 
 
 if __name__ == "__main__":

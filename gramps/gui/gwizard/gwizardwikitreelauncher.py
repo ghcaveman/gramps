@@ -47,6 +47,7 @@ from gi.repository import Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.gwizard.gwizard_base import surname_text
+from gramps.gen.gwizard.gwizardgedcom import format_link_summary
 from gramps.gen.lib import NameType, Person
 from gramps.gen.gwizard.gwizardwikitree import (
     WikiTreeGWizard,
@@ -61,10 +62,15 @@ from gramps.gen.gwizard.gwizardwikitreematch import (
 )
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 # Response id of the Merge button (a non-closing action button).
 RESPONSE_MERGE = 1
+
+# The sort value of the profile looked up by its WikiTree ID: above any
+# scored result (at most 100), so it stays first when sorted by Match.
+ID_MATCH_SORT_SCORE = 101.0
 
 # Gramps gender codes and the values WikiTree's searchPerson accepts.
 _WIKITREE_GENDERS: dict[int, str] = {Person.MALE: "Male", Person.FEMALE: "Female"}
@@ -954,6 +960,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
 
         matches: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
+        id_profile = ""
 
         try:
             # 1. Direct ID lookup if WikiTree ID was provided
@@ -964,6 +971,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                     p_name = str(pdata.get("Name") or "")
                     if p_name:
                         seen_ids.add(p_name)
+                        id_profile = p_name
 
             # 2. Search by name, dates, gender, and locations if provided
             if (
@@ -1044,6 +1052,7 @@ class WikiTreeSearchDialog(Gtk.Dialog):
             return
 
         match_query = self._match_query()
+        rows: list[list[Any]] = []
         for match in matches:
             item_wt_id = str(match.get("Name") or match.get("Id") or "")
             item_name = (
@@ -1070,13 +1079,16 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                         if pname:
                             parent_names.append(str(pname))
             parents_str = ", ".join(parent_names)
-            if match_query.has_name():
+            if id_profile and item_wt_id == id_profile:
+                # The profile looked up by its WikiTree ID is the person.
+                item_match, item_score = _("100% (WikiTree ID)"), ID_MATCH_SORT_SCORE
+            elif match_query.has_name():
                 result = score_profile(match_query, match)
                 item_match, item_score = match_text(result), result.score
             else:
                 item_match, item_score = "-", 0.0
 
-            self.results_store.append(
+            rows.append(
                 [
                     item_wt_id,
                     item_name,
@@ -1092,9 +1104,15 @@ class WikiTreeSearchDialog(Gtk.Dialog):
                 ]
             )
 
+        # Best match first; equal scores keep WikiTree's order.
+        rows.sort(key=lambda row: row[10], reverse=True)
+        for row in rows:
+            self.results_store.append(row)
+
         self.status_label.set_text(
             _(
-                "Found %d matching profiles on WikiTree. Select a profile and click Merge."
+                "Found %d matching profiles on WikiTree, best match first. "
+                "Select a profile and click Merge."
             )
             % len(matches)
         )
@@ -1272,17 +1290,90 @@ def merge_wikitree_profile(
 
     if response != Gtk.ResponseType.OK:
         return False, ""
+    # Relatives the merge could not link (for example a name match refused
+    # for its birth year), so the user can link them by hand.
+    problems = format_link_summary(gwizard.context.get("link_summary", []))
+    if problems:
+        from gramps.gui.dialog import WarningDialog
+
+        WarningDialog(_("Some relationships were not linked"), problems, parent=parent)
+    photos = relatives_message(gwizard.context.get("link_summary", [])) + photo_message(
+        gwizard.context.get("media_download")
+    )
     target_name = ""
     if target_handle:
         tp = db.get_person_from_handle(target_handle)
         if tp:
             target_name = tp.get_primary_name().get_name()
     if target_name:
-        return True, _("Successfully merged '%(wt_id)s' into '%(target)s'.") % {
-            "wt_id": wt_id,
-            "target": target_name,
-        }
-    return True, _("Successfully imported '%s' as a new person.") % wt_id
+        return True, (
+            _("Successfully merged '%(wt_id)s' into '%(target)s'.")
+            % {
+                "wt_id": wt_id,
+                "target": target_name,
+            }
+            + photos
+        )
+    return True, _("Successfully imported '%s' as a new person.") % wt_id + photos
+
+
+def relatives_message(summary: list[dict[str, str]]) -> str:
+    """
+    Return the part of the merge message about relatives added as new
+    people (with a leading space), or '' when none were added.
+    """
+    added = [entry for entry in summary if entry.get("status") == "added"]
+    if not added:
+        return ""
+    return " " + ngettext(
+        "%d relative who was not in your tree was added as a new person.",
+        "%d relatives who were not in your tree were added as new people.",
+        len(added),
+    ) % len(added)
+
+
+def photo_message(result: dict[str, Any] | None) -> str:
+    """
+    Return the part of the merge message about downloaded photos (with a
+    leading space), or '' when no photo was downloaded or failed.
+    """
+    if not result:
+        return ""
+    parts = []
+    if result.get("downloaded"):
+        parts.append(
+            ngettext(
+                "%d photo downloaded.", "%d photos downloaded.", result["downloaded"]
+            )
+            % result["downloaded"]
+        )
+    if result.get("failed"):
+        parts.append(
+            ngettext(
+                "%d photo could not be downloaded and is linked by its web address.",
+                "%d photos could not be downloaded and are linked by their web "
+                "address.",
+                len(result["failed"]),
+            )
+            % len(result["failed"])
+        )
+    if result.get("no_base_path"):
+        parts.append(
+            ngettext(
+                "%d photo was not downloaded because this family tree has no "
+                "base media path; it is linked by its web address.",
+                "%d photos were not downloaded because this family tree has no "
+                "base media path; they are linked by their web address.",
+                result["no_base_path"],
+            )
+            % result["no_base_path"]
+            + " "
+            + _(
+                'Set "Base media path" in Edit > Preferences > Family Tree, '
+                "then merge the profile again to download them."
+            )
+        )
+    return (" " + " ".join(parts)) if parts else ""
 
 
 def ask_wikitree_parameters(

@@ -140,5 +140,52 @@ class TestWikiTreeMatch(unittest.TestCase):
         self.assertFalse(MatchQuery().has_name())
 
 
+class ParentNamesTest(unittest.TestCase):
+    """Reading the parents' given names from a profile."""
+
+    def test_parents_by_id(self) -> None:
+        """Father and Mother Ids tell the parents apart."""
+        from ..gwizardwikitreematch import candidate_from_profile, parent_names
+
+        profile = {
+            "FirstName": "Peter",
+            "Father": 11,
+            "Mother": 12,
+            "Parents": {
+                "12": {"Id": 12, "FirstName": "Mary"},
+                "11": {"Id": 11, "FirstName": "John"},
+            },
+        }
+        self.assertEqual(parent_names(profile), ("John", "Mary"))
+        cand = candidate_from_profile(profile)
+        self.assertEqual((cand.father_given, cand.mother_given), ("John", "Mary"))
+
+    def test_parents_by_gender_and_list(self) -> None:
+        """Without Ids the parent's gender decides; a list works too."""
+        from ..gwizardwikitreematch import parent_names
+
+        profile = {
+            "Parents": [
+                {"FirstName": "Mary", "Gender": "Female"},
+                {"RealName": "Jack", "Gender": "Male"},
+            ]
+        }
+        self.assertEqual(parent_names(profile), ("Jack", "Mary"))
+
+    def test_no_parents(self) -> None:
+        """Private (null) or absent parents give no names."""
+        from ..gwizardwikitreematch import missing_parent_ids, parent_names
+
+        self.assertEqual(parent_names({"Father": None, "Mother": 0}), ("", ""))
+        self.assertEqual(missing_parent_ids({"Father": None, "Mother": 0}), [])
+
+    def test_missing_parent_ids(self) -> None:
+        """Ids whose profiles are not included still need looking up."""
+        from ..gwizardwikitreematch import missing_parent_ids
+
+        profile = {"Father": 11, "Mother": 12, "Parents": {"11": {"Id": 11}}}
+        self.assertEqual(missing_parent_ids(profile), ["12"])
+
+
 if __name__ == "__main__":
     unittest.main()

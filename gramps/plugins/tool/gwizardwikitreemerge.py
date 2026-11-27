@@ -29,6 +29,7 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+import logging
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -53,6 +54,36 @@ else:
 run_flow = getattr(_addon_util, "run_flow")
 
 _ = glocale.translation.sgettext
+LOG = logging.getLogger(__name__)
+
+
+def _ask_for_base_media_path(uistate: Any, dbstate: Any, tool_name: str) -> None:
+    """
+    Before the tool opens: offer to set the family tree's base media path
+    when none is set (GWizard Media Fix's question). The tool opens whatever
+    the answer; without GWizard Media Fix nothing is asked.
+    """
+    # As an addon, Media Fix's modules are in the sibling MediaFix folder,
+    # which Gramps removes from sys.path after loading it.
+    media_fix_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "MediaFix"
+    )
+    if os.path.isdir(media_fix_dir) and media_fix_dir not in sys.path:
+        sys.path.insert(0, media_fix_dir)
+    # pylint: disable=import-outside-toplevel
+    try:
+        from gramps.plugins.tool.gwizard_mediafix_basepath import (
+            ensure_base_media_path_for,
+        )
+    except ImportError:
+        try:
+            from gwizard_mediafix_basepath import (  # type: ignore[import-not-found]
+                ensure_base_media_path_for,
+            )
+        except ImportError:
+            LOG.info("GWizard Media Fix not found; the base media path is not checked")
+            return
+    ensure_base_media_path_for(uistate, dbstate, tool_name)
 
 
 # ------------------------------------------------------------
@@ -95,6 +126,9 @@ class GWizardWikiTreeMerge(tool.Tool):
     ) -> None:
         """Initialize the tool and run the shared flow."""
         tool.Tool.__init__(self, dbstate, options_class, name)
+        _ask_for_base_media_path(
+            getattr(user, "uistate", None), dbstate, _("GWizard WikiTree Merge")
+        )
         run_flow(
             getattr(user, "uistate", None),
             dbstate,

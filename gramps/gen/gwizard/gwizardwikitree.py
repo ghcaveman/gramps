@@ -28,11 +28,14 @@ WikiTree implementation of the GWizard import and merge framework.
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import copy
+import hashlib
 import logging
 import mimetypes
 import os
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 # -------------------------------------------------------------------------
 #
@@ -75,6 +78,7 @@ from gramps.gen.lib import (
     NameType,
 )
 from gramps.gen.lib.date import Today
+from gramps.gen.utils.file import create_checksum, media_path, relative_path
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 
 # -------------------------------------------------------------------------
@@ -82,6 +86,8 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 # Local imports
 #
 # -------------------------------------------------------------------------
+from .gwizard_filemerge_media import base_path_configured
+from .gwizard_filemerge_medianaming import person_media_filename, place_file
 from .gwizardgedcom import GedGWizard
 
 LOG = logging.getLogger(__name__)
@@ -96,6 +102,288 @@ _ = glocale.translation.gettext
 # Kept here rather than in gwizard_base so the shared file-merge modules
 # stay identical to the gwizard_filemerge branch.
 _WT_ID_REGEX = re.compile(r"^[A-Za-z]+(?:[_-][A-Za-z]+)*-\d+$")
+
+# ------------------------------------------------------------
+#
+# Biography source parsing
+#
+# ------------------------------------------------------------
+# Name of the WikiTree repository and collection-level source. One source
+# serves every WikiTree profile; the profile ID goes in the citation page.
+WIKITREE_REPOSITORY_NAME = "WikiTree (Free Family Tree)"
+WIKITREE_SOURCE_TITLE = "WikiTree"
+
+# Repositories recognised from a source's web address: (domain part,
+# repository name, other names the same repository goes by in a tree).
+# A biography source with no recognised address is filed under WikiTree,
+# where it was found.
+_KNOWN_REPOSITORIES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("familysearch.org", "FamilySearch", ()),
+    ("ancestry.", "Ancestry.com", ("Ancestry",)),
+    ("newspapers.com", "Newspapers.com", ()),
+    ("findagrave.com", "Find a Grave", ()),
+    ("books.google.", "Google Books", ()),
+    ("archive.org", "Internet Archive", ()),
+    (
+        "dar.org",
+        "Daughters of the American Revolution (DAR)",
+        ("Daughters of the American Revolution", "DAR"),
+    ),
+    (
+        "archives.gov",
+        "National Archives and Records Administration (NARA)",
+        ("National Archives", "NARA"),
+    ),
+    ("wikitree.com", WIKITREE_REPOSITORY_NAME, ("WikiTree",)),
+)
+
+_URL_RE = re.compile(r"https?://[^\s()<>\"'\[\]{}|]+")
+# Punctuation that ends a sentence or closes wiki markup, not the address.
+_URL_TRAILING = ".,;:!?)]}'\""
+# "p. 187", "pp. 54-55", "Pg. 42", "Pgs. xxi & 88-90", "page 12", "image 3"
+_PAGE_RE = re.compile(
+    r"\b(?:pp?|pgs?|pages?|image)\.?\s*"
+    r"((?:\d+|[ivxlcdm]+)(?:\s*(?:[-–,&]|and)\s*(?:\d+|[ivxlcdm]+))*)\b",
+    re.IGNORECASE,
+)
+_ACCESSED_RE = re.compile(
+    r"\baccessed\s+(\d{1,2}\s+[A-Za-z]+\.?\s+\d{4}|[A-Za-z]+\.?\s+\d{1,2},?\s+\d{4})",
+    re.IGNORECASE,
+)
+_QUOTED_TITLE_RE = re.compile(r"^\s*[\"“]([^\"”]{3,}?)[\s,.;:]*[\"”]")
+_FS_TREE_RE = re.compile(
+    r"familysearch\.org/tree/person/(?:details/)?([A-Z0-9]{4}-[A-Z0-9]{3,4})",
+    re.IGNORECASE,
+)
+_DAR_RE = re.compile(r"\bDAR\s+Ancestor\s*#?\s*:?\s*([A-Z]?\d+)", re.IGNORECASE)
+_NAME_CONNECTORS = {"and", "&", "with", "de", "van", "von", "der", "la", "le", "du"}
+_TITLE_STARTERS = {"the", "a", "an"}
+# Longest source title kept whole; longer ones are cut at a word.
+_MAX_TITLE_LEN = 200
+
+
+def repository_norm(name: str) -> str:
+    """Return a repository name reduced to lower-case letters and digits."""
+    return re.sub(r"[^a-z0-9]", "", (name or "").casefold())
+
+
+def extract_url(text: str) -> str:
+    """Return the first web address in text, without trailing punctuation."""
+    match = _URL_RE.search(text or "")
+    if not match:
+        return ""
+    return match.group(0).rstrip(_URL_TRAILING)
+
+
+def extract_page(text: str) -> str:
+    """Return the page/image part of a citation text ("p. 187"), or ''."""
+    match = _PAGE_RE.search(_URL_RE.sub(" ", text or ""))
+    return match.group(0).strip() if match else ""
+
+
+def extract_accessed_date(text: str) -> str:
+    """Return the "accessed ..." date text of a citation, or ''."""
+    match = _ACCESSED_RE.search(text or "")
+    return match.group(1) if match else ""
+
+
+def repository_for_url(url: str) -> tuple[str, tuple[str, ...]]:
+    """Return (repository name, other names) for a source web address."""
+    host = (url or "").casefold()
+    for domain, name, aliases in _KNOWN_REPOSITORIES:
+        if domain in host:
+            return name, aliases
+    return WIKITREE_REPOSITORY_NAME, ("WikiTree",)
+
+
+def _is_initial(token: str) -> bool:
+    return bool(re.fullmatch(r"(?:[A-Z]\.)+", token))
+
+
+def _is_name_token(token: str) -> bool:
+    if token.casefold() in _NAME_CONNECTORS:
+        return True
+    core = token.rstrip(".,")
+    return bool(core) and core[0].isupper() and not any(c.isdigit() for c in core)
+
+
+def split_author(text: str) -> tuple[str, str]:
+    """
+    Split a leading author list ("Warner, Ralph F. Warner, R. David.") from
+    a bibliographic citation. Returns (author, rest); author is '' when the
+    text does not start with a "Surname, Given" author.
+    """
+    tokens = (text or "").split()
+    if len(tokens) < 3 or not tokens[0].endswith(","):
+        return "", text
+    for index, token in enumerate(tokens[:12]):
+        if not _is_name_token(token):
+            return "", text
+        if not token.endswith("."):
+            continue
+        following = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if _is_initial(token):
+            # "Ralph F. Warner," and "R. David." go on with the author list;
+            # "Scott S. The ..." starts the title.
+            if (
+                following.endswith((",", "."))
+                or following.casefold() in _NAME_CONNECTORS
+                or _is_initial(following)
+            ) and following.casefold() not in _TITLE_STARTERS:
+                continue
+        author = " ".join(tokens[: index + 1])
+        if not _is_initial(tokens[index]):
+            author = author.rstrip(".")
+        rest = " ".join(tokens[index + 1 :])
+        return (author, rest) if rest else ("", text)
+    return "", text
+
+
+def first_sentence(text: str) -> str:
+    """Return text up to the first full stop that ends a word (not an initial)."""
+    match = re.search(r"(?<![\s.][A-Z])(?<!^[A-Z])[.?!](?=\s|$)", text or "")
+    sentence = text[: match.start()] if match else text
+    return sentence.strip().rstrip(".,;:")
+
+
+def shorten_title(title: str) -> str:
+    """Cut a very long title at a word boundary."""
+    title = " ".join((title or "").split()).rstrip(".,;:")
+    if len(title) <= _MAX_TITLE_LEN:
+        return title
+    cut = title[: _MAX_TITLE_LEN - 3]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(".,;:-") + "..."
+
+
+def describe_bio_source(cleaned: str, raw: str = "") -> dict[str, str]:
+    """
+    Work out the Source and Citation fields of one biography source.
+
+    :returns: dict with title, author, url, page, accessed (date text),
+        fs_id (a FamilySearch tree person ID), and repository (name) plus
+        repository_aliases (a tuple, as text joined by '|').
+    """
+    cleaned = (cleaned or "").strip()
+    url = extract_url(raw or cleaned) or extract_url(cleaned)
+    info = {
+        "title": "",
+        "author": "",
+        "url": url,
+        "page": extract_page(cleaned),
+        "accessed": extract_accessed_date(cleaned),
+        "fs_id": "",
+    }
+    fs_match = _FS_TREE_RE.search(raw or cleaned) or _FS_TREE_RE.search(cleaned)
+    dar_match = _DAR_RE.search(cleaned)
+    without_url = _URL_RE.sub("", cleaned).strip(" ;,.")
+    quoted = _QUOTED_TITLE_RE.match(cleaned)
+    if fs_match and not without_url:
+        info["title"] = "FamilySearch Family Tree"
+        info["fs_id"] = fs_match.group(1).upper()
+    elif dar_match:
+        info["title"] = "DAR Genealogical Research System, Ancestor Database"
+        info["page"] = "Ancestor #%s" % dar_match.group(1).upper()
+    elif quoted:
+        info["title"] = quoted.group(1).strip()
+    elif without_url:
+        # The page clause ("..., page 12") is citation detail, not title.
+        page_match = _PAGE_RE.search(without_url)
+        if page_match and page_match.start() > 0:
+            without_url = without_url[: page_match.start()].rstrip(" ,;:(")
+        author, rest = split_author(without_url)
+        info["author"] = author
+        info["title"] = first_sentence(rest) or first_sentence(without_url)
+    else:
+        info["title"] = url
+    info["title"] = shorten_title(info["title"]) or _("WikiTree Cited Source")
+    name, aliases = repository_for_url(info["url"])
+    if dar_match:
+        name, aliases = repository_for_url("dar.org")
+    info["repository"] = name
+    info["repository_aliases"] = "|".join(aliases)
+    return info
+
+
+_REF_TAG_RE = re.compile(
+    r"<ref\b[^>]*/>|<ref\b[^>]*>.*?</ref>", re.DOTALL | re.IGNORECASE
+)
+_SENTENCE_END_RE = re.compile(r"[.!?](?=\s)|\n|==")
+_YEAR_RE = re.compile(r"(?<!\d)(1[0-9]{3}|20[0-9]{2})(?!\d)")
+_YEAR_SPAN_RE = re.compile(
+    r"(?<!\d)(1[0-9]{3}|20[0-9]{2})\s*[-\u2013\u2014]\s*(1[0-9]{3}|20[0-9]{2})(?!\d)"
+)
+# Words in the sentence a reference footnotes that make it a source for the
+# birth or the death; matched as words, so "will" is not found in "William".
+_BIRTH_WORDS_RE = re.compile(r"\b(?:born|birth|baptism|baptized|christen)", re.I)
+_DEATH_WORDS_RE = re.compile(
+    r"\b(?:died|death|burial|buried|cemetery|grave|killed|probate|will\b)", re.I
+)
+# How far a source's own year may be from an event's year for the source to
+# be about that event (a baptism or burial a little after the fact, a
+# record dated by its registration year).
+EVENT_YEAR_SLACK = 5
+
+
+def ref_sentence(bio: str, ref_start: int) -> str:
+    """
+    Return the sentence a <ref> tag at ``ref_start`` footnotes: the text
+    before it back to the previous sentence end, line break or heading,
+    with other references taken out.
+
+    A reference follows the sentence it supports ("He was born in
+    1753.<ref>...</ref>"), so only that sentence says what it is about. A
+    wider window reaches into the sentences around it, so a census cited for
+    where someone lived would be read as a birth record because the
+    sentence before it says when they were born.
+    """
+    before = _REF_TAG_RE.sub("", bio[:ref_start]).rstrip()
+    if before[-1:] in ".!?":
+        before = before[:-1]
+    ends = list(_SENTENCE_END_RE.finditer(before))
+    start = 0
+    # A fragment of a few words was cut at an abbreviation ("born in Bucks
+    # Co. Pa."), so it takes in the sentence before it, on the same line.
+    while ends:
+        end = ends.pop()
+        start = end.end()
+        if len(before[start:].split()) >= 4 or end.group() in ("\n", "=="):
+            break
+    else:
+        start = 0 if len(before[start:].split()) < 4 else start
+    return " ".join(before[start:].split())
+
+
+def source_years(title: str) -> list[tuple[int, int]]:
+    """
+    Return the years a source's title names, as (first, last) spans: a
+    "1682-1988" span as one, every other year on its own.
+    """
+    text = title or ""
+    spans = []
+    for match in _YEAR_SPAN_RE.finditer(text):
+        first, last = sorted((int(match.group(1)), int(match.group(2))))
+        spans.append((first, last))
+    text = _YEAR_SPAN_RE.sub(" ", text)
+    spans.extend((int(year), int(year)) for year in _YEAR_RE.findall(text))
+    return spans
+
+
+def source_fits_year(title: str, event_year: int) -> bool:
+    """
+    Return False when a source's title names years and none of them is
+    within EVENT_YEAR_SLACK years of ``event_year``: "United States Census,
+    1820" is not a record of a birth in 1753. A title without a year, or an
+    event without one, fits.
+    """
+    spans = source_years(title)
+    if not spans or not event_year:
+        return True
+    return any(
+        first - EVENT_YEAR_SLACK <= event_year <= last + EVENT_YEAR_SLACK
+        for first, last in spans
+    )
 
 
 def is_wikitree_id(value: str | None) -> bool:
@@ -250,12 +538,99 @@ def store_wikitree_id(person: Any, wt_id: str) -> bool:
 
 
 _DEFAULT_FIELDS = (
-    "Id,Name,FirstName,MiddleName,MiddleInitial,LastNameBirth,LastNameCurrent,LastNameOther,"
+    "Id,Name,FirstName,MiddleName,MiddleInitial,LastNameAtBirth,LastNameCurrent,LastNameOther,"
     "RealName,ColloquialName,Prefix,Suffix,Nicknames,Gender,BirthDate,DeathDate,BirthDateDecade,"
     "DeathDateDecade,BirthLocation,DeathLocation,BirthDateStatus,DeathDateStatus,"
     "IsLiving,Privacy,Touched,Manager,Created,Photo,PhotoData,Father,Mother,Parents,"
     "Children,Spouses,DataStatus,Templates,Categories,Bio"
 )
+
+
+# ------------------------------------------------------------
+#
+# Photos
+#
+# ------------------------------------------------------------
+# WikiTree keeps full-size images MediaWiki-style, under two folders named
+# from the MD5 of the file name: /photo.php/a/a6/Warner-1.jpg. The "/photo/
+# jpg/<name>" address is the image's web page, not the image.
+WIKITREE_IMAGE_BASE = "https://www.wikitree.com/photo.php"
+# Folder under the media base path that photos are downloaded into first;
+# a photo merged into the tree is then moved to the base media path and
+# named with Media Fix's filename template.
+WIKITREE_MEDIA_FOLDER = "WikiTree"
+# Media attribute that records the address a photo came from, so a later
+# merge of the same profile reuses the photo already in the tree.
+WIKITREE_URL_ATTRIBUTE = "WikiTree URL"
+
+
+def wikitree_image_url(file_name: str) -> str:
+    """Return the address of the full-size WikiTree image named file_name."""
+    name = (file_name or "").strip().replace(" ", "_")
+    if not name:
+        return ""
+    name = name[0].upper() + name[1:]
+    digest = hashlib.md5(name.encode("utf-8")).hexdigest()
+    return "%s/%s/%s/%s" % (WIKITREE_IMAGE_BASE, digest[0], digest[:2], name)
+
+
+def is_wikitree_url(path: str) -> bool:
+    """Return True for a web address on wikitree.com."""
+    host = urlparse(path or "").netloc.casefold()
+    return host == "wikitree.com" or host.endswith(".wikitree.com")
+
+
+def wikitree_media_description(given: str, surname: str, caption: str = "") -> str:
+    """
+    Return a media description Media Fix reads ("Surname, Given - Photo",
+    or the caption in place of "Photo").
+    """
+    caption = " ".join((caption or "").split()) or "Photo"
+    if surname or given:
+        return "%s, %s - %s" % (surname, given, caption)
+    return caption
+
+
+def media_fix_filename(
+    db: Any, person: Any, media: Any, ext: str, file_path: str = ""
+) -> str:
+    """
+    Return the file name Media Fix gives a person's media object (its
+    person-backlink naming): the year comes from the description, else the
+    media date, else the person.
+
+    :param file_path: The downloaded file, for a template that uses {hash}.
+    """
+    media_year = media.get_date_object().get_year()
+    return person_media_filename(
+        db,
+        person,
+        str(media.get_description() or ""),
+        ext,
+        year=media_year if media_year > 0 else "",
+        media_id=str(media.get_gramps_id() or ""),
+        orig=os.path.splitext(os.path.basename(urlparse(media.get_path()).path))[0],
+        file_path=file_path,
+    )
+
+
+def relative_items(value: Any) -> list[dict[str, Any]]:
+    """
+    Return a profile's Parents, Children or Spouses as a list of profile
+    dicts. The WikiTree API returns them as an object keyed by Id; a list
+    (as some callers and tests pass) is accepted too.
+    """
+    if isinstance(value, dict):
+        items = []
+        for key, item in value.items():
+            if isinstance(item, dict):
+                if not item.get("Id") and str(key).isdigit():
+                    item = dict(item, Id=int(key))
+                items.append(item)
+        return items
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    return []
 
 
 # ------------------------------------------------------------
@@ -504,6 +879,59 @@ class WikiTreeInterface:
                 raise RuntimeError(str(err)) from err
         return []
 
+    def download_image(self, url: str, path: str, timeout: int = 60) -> bool:
+        """
+        Download the image at url to path and return True on success.
+
+        Only an image reply is saved: an HTML page (such as a photo's web
+        page, or an error page) is refused, so it never becomes a media
+        file. The file is written beside path first and renamed when
+        complete.
+
+        :param url: Address of the image.
+        :param path: Absolute file path to save it to.
+        :param timeout: HTTP request timeout in seconds.
+        """
+        import requests
+
+        try:
+            response = requests.get(
+                url,
+                headers={"User-Agent": self.headers["User-Agent"]},
+                verify=self.verify_ssl,
+                timeout=timeout,
+            )
+        except requests.RequestException as err:
+            LOG.warning("WikiTree photo %s could not be downloaded: %s", url, err)
+            return False
+        content_type = str(response.headers.get("Content-Type") or "").lower()
+        if (
+            response.status_code != 200
+            or not content_type.startswith("image/")
+            or not response.content
+        ):
+            LOG.warning(
+                "WikiTree photo %s not downloaded (HTTP %s, %s)",
+                url,
+                response.status_code,
+                content_type or "no content type",
+            )
+            return False
+        partial = path + ".part"
+        try:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(partial, "wb") as out:
+                out.write(response.content)
+            os.replace(partial, path)
+        except OSError as err:
+            LOG.warning("WikiTree photo %s could not be saved: %s", path, err)
+            try:
+                os.remove(partial)
+            except OSError:
+                pass
+            return False
+        return True
+
     def get_bio(self, key: str, timeout: int = 30) -> str:
         """
         Retrieve biography markdown text for a person.
@@ -579,6 +1007,8 @@ class WikiTreeGWizard(GedGWizard):
         :param app_id: Custom WikiTree App ID.
         :param client: Optional pre-configured WikiTreeInterface instance.
         :param people_data: Optional pre-fetched list/dict of profile data for tests.
+        :param download_media: Download the merged person's WikiTree photos
+            after a merge (default: yes, unless people_data is given).
         :returns: True if query or people_data is configured.
         """
         query = kwargs.get("query", "").strip()
@@ -596,6 +1026,9 @@ class WikiTreeGWizard(GedGWizard):
         self.context["app_id"] = kwargs.get("app_id", WikiTreeInterface.DEFAULT_APP_ID)
         self.context["client"] = kwargs.get("client")
         self.context["people_data"] = people_data
+        self.context["download_media"] = bool(
+            kwargs.get("download_media", people_data is None)
+        )
         return True
 
     @staticmethod
@@ -759,17 +1192,7 @@ class WikiTreeGWizard(GedGWizard):
         cleaned = (cleaned_text or "").strip()
         if not cleaned:
             return _("WikiTree Cited Source")
-        if len(cleaned) <= 90:
-            return cleaned.rstrip(".,;")
-        # Look for sentence boundary after at least 30 characters
-        m = re.search(r"^(.{30,90}?[.?!])\s+", cleaned)
-        if m:
-            return m.group(1).rstrip(".,;")
-        # Truncate at word boundary
-        cut = cleaned[:87]
-        if " " in cut:
-            cut = cut.rsplit(" ", 1)[0]
-        return cut.rstrip(".,;:-") + "..."
+        return describe_bio_source(cleaned)["title"]
 
     @staticmethod
     def parse_bio_sources(bio_text: str) -> list[dict[str, str]]:
@@ -798,10 +1221,9 @@ class WikiTreeGWizard(GedGWizard):
                 norm = " ".join(content.split()).lower()
                 if norm not in seen_texts:
                     seen_texts.add(norm)
-                    # Extract surrounding context (100 chars before, 50 chars after)
-                    start_pos = max(0, m.start() - 100)
-                    end_pos = min(len(bio), m.end() + 50)
-                    context_snippet = bio[start_pos:end_pos]
+                    # The sentence the reference footnotes says what it
+                    # is a source for (see ref_sentence).
+                    context_snippet = ref_sentence(bio, m.start())
                     sources.append(
                         {
                             "name": name,
@@ -1251,12 +1673,19 @@ class WikiTreeGWizard(GedGWizard):
     def check_profile_drift(
         target_person: Person | None,
         remote_touched: str | None,
+        db: Any = None,
     ) -> dict[str, Any]:
         """
         Check whether a remote WikiTree profile has been modified since it was merged.
 
+        The local time is the newest "Last Modified:" line in the notes of
+        the person's citations (each WikiTree merge writes one), or, for a
+        person merged before those were kept there, a "WikiTree Touched"
+        attribute.
+
         :param target_person: Person in local Gramps database.
         :param remote_touched: Touched timestamp from WikiTree profile.
+        :param db: The database holding the person (for the citation notes).
         :returns: Dictionary with 'has_drift', 'local_touched', 'remote_touched',
             and 'message'.
         """
@@ -1270,10 +1699,26 @@ class WikiTreeGWizard(GedGWizard):
             return result
 
         local_ts = ""
-        for attr in target_person.get_attribute_list():
-            if str(attr.get_type()) == "WikiTree Touched":
-                local_ts = str(attr.get_value() or "").strip()
-                break
+        if db is not None:
+            for cit_handle in target_person.get_citation_list():
+                try:
+                    citation = db.get_citation_from_handle(cit_handle)
+                except Exception:  # pylint: disable=broad-except
+                    continue
+                for note_handle in citation.get_note_list():
+                    try:
+                        text = db.get_note_from_handle(note_handle).get()
+                    except Exception:  # pylint: disable=broad-except
+                        continue
+                    for found in re.findall(r"^Last Modified:\s*(.+)$", text, re.M):
+                        found = found.strip()
+                        if re.sub(r"\D", "", found) > re.sub(r"\D", "", local_ts):
+                            local_ts = found
+        if not local_ts:
+            for attr in target_person.get_attribute_list():
+                if str(attr.get_type()) == "WikiTree Touched":
+                    local_ts = str(attr.get_value() or "").strip()
+                    break
 
         result["local_touched"] = local_ts
         rem_ts = (remote_touched or "").strip()
@@ -1405,18 +1850,16 @@ class WikiTreeGWizard(GedGWizard):
         if self.context.get("include_relatives") and client:
             missing_keys: list[str] = []
             for p in list(raw_people):
-                spouses = p.get("Spouses")
-                if isinstance(spouses, list):
-                    for sp in spouses:
-                        if isinstance(sp, dict):
-                            sp_id = str(sp.get("Id") or sp.get("Name") or "")
-                            if (
-                                sp_id
-                                and sp_id not in existing_ids
-                                and sp_id not in existing_names
-                                and sp_id not in missing_keys
-                            ):
-                                missing_keys.append(sp_id)
+                for sp in relative_items(p.get("Spouses")):
+                    sp_id = str(sp.get("Name") or sp.get("Id") or "")
+                    if (
+                        sp_id
+                        and str(sp.get("Id") or "") not in existing_ids
+                        and sp_id not in existing_ids
+                        and sp_id not in existing_names
+                        and sp_id not in missing_keys
+                    ):
+                        missing_keys.append(sp_id)
                 children = p.get("Children")
                 if isinstance(children, dict):
                     for ch_id, ch_data in children.items():
@@ -1529,22 +1972,135 @@ class WikiTreeGWizard(GedGWizard):
             return parent_handle
 
         with DbTxn(_("Load WikiTree Records"), source_db) as trans:
-            # 1. Create Repository
-            repo = Repository()
-            repo.set_name(_("WikiTree (Free Family Tree)"))
-            repo.set_type(RepositoryType(RepositoryType.WEBSITE))
-            repo_handle = source_db.add_repository(repo, trans)
+            repo_cache: dict[str, str] = {}
 
-            # 2. Create Source
-            source = Source()
-            source_title = _("WikiTree - %s") % query if query else _("WikiTree")
-            source.set_title(source_title)
-            source.set_author(_("WikiTree Community"))
-            source.set_publication_info("https://www.wikitree.com")
-            repo_ref = RepoRef()
-            repo_ref.ref = repo_handle
-            source.add_repo_reference(repo_ref)
-            source_handle = source_db.add_source(source, trans)
+            def bare_tree_copy(obj: Any) -> Any:
+                """
+                Copy a tree object, keeping its handle, for the incoming
+                database, so the merge reuses the tree's object instead of
+                adding a duplicate. Its notes, media and tags stay behind.
+                """
+                duplicate = copy.deepcopy(obj)
+                for setter in ("set_note_list", "set_media_list", "set_tag_list"):
+                    if hasattr(duplicate, setter):
+                        getattr(duplicate, setter)([])
+                if hasattr(duplicate, "set_reporef_list"):
+                    duplicate.set_reporef_list([])
+                return duplicate
+
+            def tree_repository(
+                name: str, aliases: tuple[str, ...], trans: DbTxn
+            ) -> str:
+                """Return the repository handle for name, reusing the tree's."""
+                key = repository_norm(name)
+                if key in repo_cache:
+                    return repo_cache[key]
+                wanted = {repository_norm(n) for n in (name,) + tuple(aliases) if n}
+                found = None
+                for t_repo in self.db.iter_repositories():
+                    if repository_norm(str(t_repo.get_name() or "")) in wanted:
+                        found = t_repo
+                        break
+                if found is not None:
+                    reused = bare_tree_copy(found)
+                    source_db.add_repository(reused, trans)
+                    handle = reused.get_handle()
+                else:
+                    new_repo = Repository()
+                    new_repo.set_name(name)
+                    new_repo.set_type(RepositoryType(RepositoryType.WEBSITE))
+                    handle = source_db.add_repository(new_repo, trans)
+                repo_cache[key] = handle
+                return handle
+
+            def tree_source(
+                title: str, author: str, pubinfo: str, repo_h: str, trans: DbTxn
+            ) -> str:
+                """
+                Return the source handle for title, reusing the tree's
+                source when exactly one has that title.
+                """
+                key = " ".join(title.split()).casefold()
+                if key in source_cache:
+                    return source_cache[key]
+                same = [
+                    t_src
+                    for t_src in self.db.iter_sources()
+                    if " ".join(str(t_src.get_title() or "").split()).casefold() == key
+                ]
+                if len(same) == 1:
+                    reused = bare_tree_copy(same[0])
+                    source_db.add_source(reused, trans)
+                    handle = reused.get_handle()
+                else:
+                    new_src = Source()
+                    new_src.set_title(title)
+                    if author:
+                        new_src.set_author(author)
+                    if pubinfo:
+                        new_src.set_publication_info(pubinfo)
+                    if repo_h:
+                        r_ref = RepoRef()
+                        r_ref.ref = repo_h
+                        new_src.add_repo_reference(r_ref)
+                    handle = source_db.add_source(new_src, trans)
+                source_cache[key] = handle
+                return handle
+
+            def wikitree_media(
+                url: str,
+                description: str,
+                trans: DbTxn,
+                dimensions: str = "",
+            ) -> str:
+                """
+                Return the media handle for a WikiTree photo address: the
+                tree's copy when a tree photo came from that address
+                (WIKITREE_URL_ATTRIBUTE), otherwise a new media object
+                linked by the address (downloaded after the merge).
+                """
+                cached = media_cache.get(url)
+                if cached:
+                    return cached
+                for t_media in self.db.iter_media():
+                    if any(
+                        str(a.get_type()) == WIKITREE_URL_ATTRIBUTE
+                        and a.get_value() == url
+                        for a in t_media.get_attribute_list()
+                    ):
+                        reused = bare_tree_copy(t_media)
+                        source_db.add_media(reused, trans)
+                        media_cache[url] = reused.get_handle()
+                        return media_cache[url]
+                new_media = Media()
+                new_media.set_path(url)
+                new_media.set_description(description)
+                mime = mimetypes.guess_type(urlparse(url).path)[0]
+                new_media.set_mime_type(mime or "image/jpeg")
+                url_attr = Attribute()
+                url_attr.set_type(AttributeType(WIKITREE_URL_ATTRIBUTE))
+                url_attr.set_value(url)
+                new_media.add_attribute(url_attr)
+                if dimensions:
+                    dim_attr = Attribute()
+                    dim_attr.set_type(AttributeType(_("Dimensions")))
+                    dim_attr.set_value(dimensions)
+                    new_media.add_attribute(dim_attr)
+                media_cache[url] = source_db.add_media(new_media, trans)
+                return media_cache[url]
+
+            # 1. The WikiTree repository and one collection-level source for
+            # every profile (the profile ID goes in the citation page).
+            repo_handle = tree_repository(
+                WIKITREE_REPOSITORY_NAME, ("WikiTree",), trans
+            )
+            source_handle = tree_source(
+                WIKITREE_SOURCE_TITLE,
+                _("WikiTree Community"),
+                "https://www.wikitree.com",
+                repo_handle,
+                trans,
+            )
 
             # 3. Create Person records
             for pdata in raw_people:
@@ -1713,21 +2269,11 @@ class WikiTreeGWizard(GedGWizard):
                     wt_url.set_description(_("WikiTree Profile"))
                     person.add_url(wt_url)
 
-                # Synchronization metadata attributes
-                if touched_raw:
-                    touched_formatted = self.format_wikitree_timestamp(touched_raw)
-                    touch_attr = Attribute()
-                    touch_attr.set_type(AttributeType("WikiTree Touched"))
-                    touch_attr.set_value(touched_formatted)
-                    person.add_attribute(touch_attr)
-
-                if manager_raw:
-                    mgr_attr = Attribute()
-                    mgr_attr.set_type(AttributeType("WikiTree Manager"))
-                    mgr_attr.set_value(manager_raw)
-                    person.add_attribute(mgr_attr)
-
-                # Citation
+                # Citation. When the profile was last changed and who
+                # manages it go in its note, not in person attributes: they
+                # describe the WikiTree record, they change with every edit
+                # there (so each merge would offer them again), and the note
+                # is where check_profile_drift reads them.
                 citation = Citation()
                 citation.set_reference_handle(source_handle)
                 citation.set_page(f"WikiTree: {wt_key}" if wt_key else f"ID: {num_id}")
@@ -1748,18 +2294,18 @@ class WikiTreeGWizard(GedGWizard):
                     cit_note_handle = source_db.add_note(cit_note, trans)
                     citation.add_note(cit_note_handle)
 
-                # Primary Photo / Media
+                # Primary Photo / Media. PhotoData's "path" is the
+                # full-size image ("url" and "file" are the 75px thumbnail);
+                # without it the full-size address is worked out from the
+                # Photo file name.
                 photo_file = str(pdata.get("Photo") or "").strip()
                 photo_data = pdata.get("PhotoData")
                 primary_media_url = ""
-                primary_media_desc = ""
                 orig_w = ""
                 orig_h = ""
 
                 if isinstance(photo_data, dict):
-                    photo_path = str(
-                        photo_data.get("path") or photo_data.get("url") or ""
-                    ).strip()
+                    photo_path = str(photo_data.get("path") or "").strip()
                     if photo_path:
                         primary_media_url = (
                             f"https://www.wikitree.com{photo_path}"
@@ -1772,45 +2318,17 @@ class WikiTreeGWizard(GedGWizard):
                     orig_h = str(
                         photo_data.get("orig_height") or photo_data.get("height") or ""
                     )
-                    file_name = str(photo_data.get("file") or photo_file or "")
-                    if file_name:
-                        primary_media_desc = (
-                            f"{given} {surname_val} ({file_name})".strip()
-                        )
 
                 if not primary_media_url and photo_file:
-                    ext = (
-                        photo_file.rsplit(".", 1)[-1].lower()
-                        if "." in photo_file
-                        else "jpg"
-                    )
-                    primary_media_url = (
-                        f"https://www.wikitree.com/photo/{ext}/{photo_file}"
-                    )
-                    primary_media_desc = f"{given} {surname_val} ({photo_file})".strip()
-
-                if not primary_media_desc:
-                    primary_media_desc = (
-                        f"WikiTree photo for {given} {surname_val}".strip()
-                    )
+                    primary_media_url = wikitree_image_url(photo_file)
 
                 if primary_media_url:
-                    primary_media_h = media_cache.get(primary_media_url)
-                    if not primary_media_h:
-                        media = Media()
-                        media.set_path(primary_media_url)
-                        media.set_description(primary_media_desc)
-                        mime = mimetypes.guess_type(primary_media_url)[0]
-                        media.set_mime_type(mime or "image/jpeg")
-
-                        if orig_w and orig_h:
-                            dim_attr = Attribute()
-                            dim_attr.set_type(AttributeType(_("Dimensions")))
-                            dim_attr.set_value(f"{orig_w}x{orig_h}")
-                            media.add_attribute(dim_attr)
-
-                        primary_media_h = source_db.add_media(media, trans)
-                        media_cache[primary_media_url] = primary_media_h
+                    primary_media_h = wikitree_media(
+                        primary_media_url,
+                        wikitree_media_description(given, surname_val),
+                        trans,
+                        f"{orig_w}x{orig_h}" if orig_w and orig_h else "",
+                    )
 
                     # Attach directly to Person (primary photo / avatar)
                     p_mref = MediaRef()
@@ -1937,33 +2455,50 @@ class WikiTreeGWizard(GedGWizard):
                         s_cleaned = self.clean_source_text(s_raw)
                         if not s_cleaned:
                             continue
-                        s_title = self.extract_source_title(s_cleaned)
-
-                        cache_key = s_title.lower()
-                        s_h = source_cache.get(cache_key)
-                        if not s_h:
-                            new_src = Source()
-                            new_src.set_title(s_title)
-                            url_m = re.search(r"https?://[^\s()<>\"']+", s_raw)
-                            if url_m:
-                                new_src.set_publication_info(url_m.group(0))
-                            r_ref = RepoRef()
-                            r_ref.ref = repo_handle
-                            new_src.add_repo_reference(r_ref)
-                            s_h = source_db.add_source(new_src, trans)
-                            source_cache[cache_key] = s_h
+                        s_info = describe_bio_source(s_cleaned, s_raw)
+                        s_repo_h = tree_repository(
+                            s_info["repository"],
+                            tuple(
+                                a for a in s_info["repository_aliases"].split("|") if a
+                            ),
+                            trans,
+                        )
+                        s_h = tree_source(
+                            s_info["title"],
+                            s_info["author"],
+                            s_info["url"],
+                            s_repo_h,
+                            trans,
+                        )
 
                         cit_obj = Citation()
                         cit_obj.set_reference_handle(s_h)
-                        cit_obj.set_date_object(Today())
+                        # The citation date is when the record was seen
+                        # ("accessed ..."), not the day of this merge.
+                        if s_info["accessed"]:
+                            try:
+                                acc_date = dateparser.parse(s_info["accessed"])
+                                if acc_date.get_year() > 0:
+                                    cit_obj.set_date_object(acc_date)
+                            except Exception:  # pylint: disable=broad-except
+                                pass
 
-                        m_page = re.search(
-                            r"(?:pp?\.\s*|pages?\s*|image\s*)(\d+(?:[-–]\d+)?)",
-                            s_cleaned,
-                            re.I,
-                        )
-                        if m_page:
-                            cit_obj.set_page(m_page.group(0))
+                        s_page = s_info["page"]
+                        if s_info["fs_id"]:
+                            s_page = _("entry for %(name)s, person ID %(id)s") % {
+                                "name": f"{given} {surname_val}".strip(),
+                                "id": s_info["fs_id"],
+                            }
+                            if not any(
+                                str(a.get_type()) == "_FSFTID"
+                                for a in person.get_attribute_list()
+                            ):
+                                fs_attr = Attribute()
+                                fs_attr.set_type(AttributeType("_FSFTID"))
+                                fs_attr.set_value(s_info["fs_id"])
+                                person.add_attribute(fs_attr)
+                        if s_page:
+                            cit_obj.set_page(s_page)
 
                         c_note = Note()
                         c_note.set_type(NoteType(NoteType.CITATION))
@@ -1975,35 +2510,20 @@ class WikiTreeGWizard(GedGWizard):
                         person.add_citation(ext_cit_h)
 
                         ctx = (src_info.get("context") or "").lower()
-                        if b_ref and any(
-                            kw in ctx
-                            for kw in (
-                                "born",
-                                "birth",
-                                "baptism",
-                                "christen",
-                                "baptized",
-                            )
-                        ):
+
+                        def fits(event_ref: Any) -> bool:
+                            """Whether the source's own year fits the event."""
+                            event = source_db.get_event_from_handle(event_ref.ref)
+                            year = event.get_date_object().get_year() if event else 0
+                            return source_fits_year(s_info["title"], year)
+
+                        if b_ref and fits(b_ref) and _BIRTH_WORDS_RE.search(ctx):
                             b_ev = source_db.get_event_from_handle(b_ref.ref)
                             if b_ev and ext_cit_h not in b_ev.get_citation_list():
                                 b_ev.add_citation(ext_cit_h)
                                 source_db.commit_event(b_ev, trans)
 
-                        if d_ref and any(
-                            kw in ctx
-                            for kw in (
-                                "died",
-                                "death",
-                                "burial",
-                                "buried",
-                                "cemetery",
-                                "grave",
-                                "killed",
-                                "probate",
-                                "will",
-                            )
-                        ):
+                        if d_ref and fits(d_ref) and _DEATH_WORDS_RE.search(ctx):
                             d_ev = source_db.get_event_from_handle(d_ref.ref)
                             if d_ev and ext_cit_h not in d_ev.get_citation_list():
                                 d_ev.add_citation(ext_cit_h)
@@ -2043,30 +2563,15 @@ class WikiTreeGWizard(GedGWizard):
                                 re.IGNORECASE,
                             )
                         ]
-                        img_desc = (
-                            " - ".join(clean_parts)
-                            if clean_parts
-                            else f"{img_file} ({given} {surname_val})"
+                        img_desc = wikitree_media_description(
+                            given, surname_val, " - ".join(clean_parts)
                         )
-                        ext = (
-                            img_file.rsplit(".", 1)[-1].lower()
-                            if "." in img_file
-                            else "jpg"
-                        )
-                        img_url = f"https://www.wikitree.com/photo/{ext}/{img_file}"
+                        img_url = wikitree_image_url(img_file)
 
-                        if img_url == primary_media_url:
+                        if not img_url or img_url == primary_media_url:
                             continue
 
-                        g_media_h = media_cache.get(img_url)
-                        if not g_media_h:
-                            g_media = Media()
-                            g_media.set_path(img_url)
-                            g_media.set_description(img_desc)
-                            mime = mimetypes.guess_type(img_url)[0]
-                            g_media.set_mime_type(mime or "image/jpeg")
-                            g_media_h = source_db.add_media(g_media, trans)
-                            media_cache[img_url] = g_media_h
+                        g_media_h = wikitree_media(img_url, img_desc, trans)
 
                         if not any(r.ref == g_media_h for r in person.get_media_list()):
                             g_mref = MediaRef()
@@ -2145,11 +2650,9 @@ class WikiTreeGWizard(GedGWizard):
                 if not p_handle:
                     continue
 
-                spouses = pdata.get("Spouses")
-                if isinstance(spouses, list):
+                spouses = relative_items(pdata.get("Spouses"))
+                if spouses:
                     for spouse_item in spouses:
-                        if not isinstance(spouse_item, dict):
-                            continue
                         s_key = str(spouse_item.get("Name") or "")
                         s_id = str(spouse_item.get("Id") or "")
                         s_handle = person_handle_map.get(
@@ -2417,6 +2920,90 @@ class WikiTreeGWizard(GedGWizard):
 
         return people
 
+    def download_person_media(self, person_handle: str) -> dict[str, Any]:
+        """
+        Download a person's WikiTree photos (media still linked by a
+        wikitree.com address) and name them like Media Fix does.
+
+        Each photo is downloaded into <media base path>/WikiTree/, then moved
+        to the base media path under its Media Fix name (a different file
+        already there is never replaced; see place_file) and its media
+        object is pointed at the file. A photo that cannot be downloaded
+        keeps its web address.
+
+        Nothing is downloaded when the tree has no base media path (Gramps
+        would then put the files in the user's Pictures folder); the photos
+        stay linked by web address and are counted in no_base_path.
+
+        :param person_handle: The person in the family tree.
+        :returns: Counts: downloaded, failed (addresses), no_base_path.
+        """
+        found: dict[str, Any] = {"downloaded": 0, "failed": [], "no_base_path": 0}
+        person = self.db.get_person_from_handle(person_handle)
+        if person is None:
+            return found
+        if not base_path_configured(self.db):
+            found["no_base_path"] = sum(
+                1
+                for media_ref in person.get_media_list()
+                if is_wikitree_url(
+                    (self.db.get_media_from_handle(media_ref.ref) or Media()).get_path()
+                )
+            )
+            return found
+        t_name = person.get_primary_name()
+        t_given = str(t_name.get_first_name() or "")
+        t_surname = str(t_name.get_surname() or "")
+        client = self.context.get("client") or WikiTreeInterface(
+            app_id=str(self.context.get("app_id") or WikiTreeInterface.DEFAULT_APP_ID)
+        )
+        base = media_path(self.db)
+        for media_ref in person.get_media_list():
+            media = self.db.get_media_from_handle(media_ref.ref)
+            if media is None or not is_wikitree_url(media.get_path()):
+                continue
+            url = media.get_path()
+            file_name = os.path.basename(urlparse(url).path) or "photo.jpg"
+            cache = os.path.join(base, WIKITREE_MEDIA_FOLDER, file_name)
+            if not client.download_image(url, cache):
+                found["failed"].append(url)
+                continue
+            ext = os.path.splitext(file_name)[1] or ".jpg"
+            # The description names the person as the tree does, not as
+            # WikiTree does ("Cuthbert Hayhurst", not "Cuthbert").
+            caption = str(media.get_description() or "")
+            caption_m = re.match(r"^[^,]*,[^-]*-\s*(.+)$", caption)
+            media.set_description(
+                wikitree_media_description(
+                    t_given, t_surname, caption_m.group(1) if caption_m else ""
+                )
+            )
+            final = place_file(
+                cache,
+                os.path.join(
+                    base, media_fix_filename(self.db, person, media, ext, cache)
+                ),
+            )
+            with DbTxn(_("Download WikiTree photo"), self.db) as trans:
+                media.set_path(relative_path(final, base))
+                media.set_mime_type(
+                    mimetypes.guess_type(final)[0]
+                    or media.get_mime_type()
+                    or "image/jpeg"
+                )
+                media.set_checksum(create_checksum(final))
+                if not any(
+                    str(a.get_type()) == WIKITREE_URL_ATTRIBUTE
+                    for a in media.get_attribute_list()
+                ):
+                    url_attr = Attribute()
+                    url_attr.set_type(AttributeType(WIKITREE_URL_ATTRIBUTE))
+                    url_attr.set_value(url)
+                    media.add_attribute(url_attr)
+                self.db.commit_media(media, trans)
+            found["downloaded"] += 1
+        return found
+
     def _apply(self, **kwargs: Any) -> bool:
         """
         Apply resolutions for WikiTree merge, ensuring WikiTree ID is stored
@@ -2439,6 +3026,20 @@ class WikiTreeGWizard(GedGWizard):
 
         applied = super()._apply(**kwargs)
 
+        if applied and self.context.get("download_media"):
+            merged_handle = target_person_handle or self.context.get(
+                "person_map", {}
+            ).get(source_person_handle)
+            if merged_handle:
+                found = self.download_person_media(merged_handle)
+                # Relatives the merge added as new people bring their photos too.
+                for handle in self.context.get("added_relatives") or []:
+                    more = self.download_person_media(handle)
+                    found["downloaded"] += more["downloaded"]
+                    found["failed"] += more["failed"]
+                    found["no_base_path"] += more["no_base_path"]
+                self.context["media_download"] = found
+
         if applied and target_person_handle and source_person_handle:
             source_db = self.context.get("source_db")
             if source_db:
@@ -2450,33 +3051,5 @@ class WikiTreeGWizard(GedGWizard):
                         with DbTxn(_("Store WikiTree ID"), self.db) as trans:
                             if store_wikitree_id(t_p, wt_id):
                                 self.db.commit_person(t_p, trans)
-                        t_p = self.db.get_person_from_handle(target_person_handle)
-                if s_p and t_p:
-                    metadata_attrs = {}
-                    for a in s_p.get_attribute_list():
-                        if str(a.get_type()) in (
-                            "WikiTree Touched",
-                            "WikiTree Manager",
-                        ):
-                            metadata_attrs[str(a.get_type())] = str(a.get_value())
-
-                    if metadata_attrs:
-                        with DbTxn(
-                            _("Update WikiTree Synchronization Metadata"),
-                            self.db,
-                        ) as trans:
-                            for m_type, m_val in metadata_attrs.items():
-                                found = False
-                                for ta in t_p.get_attribute_list():
-                                    if str(ta.get_type()) == m_type:
-                                        ta.set_value(m_val)
-                                        found = True
-                                        break
-                                if not found:
-                                    new_attr = Attribute()
-                                    new_attr.set_type(AttributeType(m_type))
-                                    new_attr.set_value(m_val)
-                                    t_p.add_attribute(new_attr)
-                            self.db.commit_person(t_p, trans)
 
         return applied

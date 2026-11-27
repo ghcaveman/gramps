@@ -56,6 +56,7 @@ for _path in (
 #
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
+from gramps.gen.gwizard import gwizard_base
 from gramps.gen.gwizard.gwizard_base import RecordQuery
 from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     RecordSource,
@@ -72,7 +73,18 @@ SEARCH_FIELDS = (
     "Id,Name,FirstName,MiddleName,MiddleInitial,RealName,ColloquialName,"
     "Nicknames,LastNameAtBirth,LastNameBirth,LastNameCurrent,LastNameOther,"
     "LongName,ShortName,Gender,BirthDate,DeathDate,BirthDateDecade,"
-    "DeathDateDecade,BirthLocation,DeathLocation"
+    "DeathDateDecade,BirthLocation,DeathLocation,Father,Mother,Parents"
+)
+# Fields read for parents whose names a search result does not include.
+PARENT_FIELDS = "Id,FirstName,RealName,ColloquialName,Gender"
+# Most profiles one getPeople request may ask for.
+PEOPLE_PER_REQUEST = 100
+
+# Score columns in the Multi-Archive Record Scan: g/m/s/b with both parents,
+# with either parent, then the usual levels. GWizard File Merge versions
+# without parent levels show their usual columns.
+SCAN_TIERS = tuple(getattr(gwizard_base, "PARENT_TIERS", ())) + tuple(
+    gwizard_base.RECORD_TIERS
 )
 
 
@@ -91,6 +103,7 @@ class WikiTreeSource(RecordSource):
     # Profiles asked for per person, and the birth-year spread allowed.
     search_limit = 20
     date_spread = 2
+    tiers = SCAN_TIERS
 
     def __init__(self, client: Any = None) -> None:
         """Use ``client`` (a WikiTreeInterface) or create one when needed."""
@@ -198,6 +211,7 @@ class WikiTreeSource(RecordSource):
         if not profiles:
             profiles.extend(_run(plan.given, primary_surname))
 
+        self.fill_parents(profiles)
         matches: dict[str, SourceMatch] = {}
         for profile in profiles:
             if isinstance(profile, dict) and profile.get("Name"):
@@ -208,7 +222,56 @@ class WikiTreeSource(RecordSource):
     def lookup(self, key: str) -> SourceMatch | None:
         """Return the profile the person is linked to."""
         profile = self.client().get_person(key, raise_errors=True)
-        return self.to_match(profile) if profile else None
+        if not profile:
+            return None
+        self.fill_parents([profile])
+        return self.to_match(profile)
+
+    def fill_parents(self, profiles: list[Any]) -> None:
+        """
+        Add the parents' names to profiles whose search result has the
+        Father/Mother Ids but not the parents themselves: one getPeople
+        request (per 100 parents) for all of them. When the request fails
+        the profiles are left as they are, and the parent score columns
+        show "n/a" for them.
+        """
+        from gramps.gen.gwizard.gwizardwikitreematch import (
+            missing_parent_ids,
+            parent_profiles,
+        )
+
+        wanted: list[str] = []
+        for profile in profiles:
+            if isinstance(profile, dict):
+                for pid in missing_parent_ids(profile):
+                    if pid not in wanted:
+                        wanted.append(pid)
+        if not wanted:
+            return
+        found: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(wanted), PEOPLE_PER_REQUEST):
+            keys = wanted[start : start + PEOPLE_PER_REQUEST]
+            try:
+                people = self.client().get_people(keys, fields=PARENT_FIELDS)
+            except Exception:
+                LOG.warning("WikiTree parents could not be read", exc_info=True)
+                return
+            if not isinstance(people, dict):
+                return
+            for person in people.values():
+                if isinstance(person, dict) and person.get("Id") is not None:
+                    found[str(person["Id"])] = person
+        for profile in profiles:
+            if not isinstance(profile, dict):
+                continue
+            parents = {
+                str(parent.get("Id")): parent for parent in parent_profiles(profile)
+            }
+            for pid in missing_parent_ids(profile):
+                if pid in found:
+                    parents[pid] = found[pid]
+            if parents:
+                profile["Parents"] = parents
 
     @staticmethod
     def to_match(profile: dict[str, Any]) -> SourceMatch:

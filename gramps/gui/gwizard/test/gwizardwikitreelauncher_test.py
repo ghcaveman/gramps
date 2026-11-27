@@ -474,6 +474,60 @@ class TestWikiTreeLauncher(unittest.TestCase):
         dialog.btn_merge.set_sensitive.assert_called_with(True)
         self.assertIn("Found 1 matching", dialog.status_label.set_text.call_args[0][0])
 
+    def test_results_listed_best_match_first(self) -> None:
+        """
+        Verify the profile looked up by WikiTree ID comes first at 100%, then
+        the search results by Match score rather than WikiTree's order.
+        """
+        mock_client = Mock()
+        mock_client.get_person.return_value = {
+            "Id": 9,
+            "Name": "Smith-9",
+            "FirstName": "Jack",
+            "LastNameCurrent": "Smith",
+            "BirthDate": "1850-01-01",
+        }
+        mock_client.search_person.return_value = [
+            {
+                "Id": 1,
+                "Name": "Smith-1",
+                "FirstName": "John",
+                "LastNameCurrent": "Smith",
+                "BirthDate": "1904-01-01",
+            },
+            {
+                "Id": 2,
+                "Name": "Smith-2",
+                "FirstName": "John",
+                "LastNameCurrent": "Smith",
+                "BirthDate": "1900-05-01",
+            },
+            {
+                "Id": 9,
+                "Name": "Smith-9",
+                "FirstName": "Jack",
+                "LastNameCurrent": "Smith",
+                "BirthDate": "1850-01-01",
+            },
+        ]
+        dialog = WikiTreeSearchDialog(client=mock_client)
+        for key in dialog.term_entries:
+            dialog.term_entries[key].get_text.return_value = ""
+        dialog.first_name_entry.get_text.return_value = "John"
+        dialog.last_name_entry.get_text.return_value = "Smith"
+        dialog.birth_year_entry.get_text.return_value = "1900"
+        dialog.wt_id_entry.get_text.return_value = "Smith-9"
+        rows: list[list[Any]] = []
+        dialog.results_store.append.side_effect = rows.append
+
+        dialog.cb_search()
+
+        self.assertEqual([row[0] for row in rows], ["Smith-9", "Smith-2", "Smith-1"])
+        self.assertEqual(rows[0][9], "100% (WikiTree ID)")
+        scores = [row[10] for row in rows]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+        self.assertIn("best match first", dialog.status_label.set_text.call_args[0][0])
+
     def test_match_column_without_target_name(self) -> None:
         """Verify the Match column shows "-" when there is no name to match."""
         mock_client = Mock()

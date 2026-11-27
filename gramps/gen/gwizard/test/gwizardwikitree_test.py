@@ -107,6 +107,8 @@ from gramps.gen.lib import (
     Attribute,
     AttributeType,
     ChildRefType,
+    Citation,
+    Note,
     Date,
     EventType,
     NameType,
@@ -1052,7 +1054,9 @@ He passed away and was buried in Christ Church.<ref>Christ Church Burial Registe
         self.assertTrue(len(sources) >= 3)
         titles = [s.get_title() for s in sources]
         self.assertTrue(any("Old South Church" in t for t in titles))
-        self.assertTrue(any("Wright" in t for t in titles))
+        # "Wright, E." is the author; the book title is the source title.
+        self.assertTrue(any("Franklin of Philadelphia" in t for t in titles))
+        self.assertTrue(any(s.get_author() == "Wright, E." for s in sources))
 
         # Check URL was populated on the source
         church_src = [s for s in sources if "Old South Church" in s.get_title()][0]
@@ -1479,8 +1483,9 @@ Sample was born and lived a quiet life.
         self.assertEqual(len(p_media_refs), 1)
         assert source_db is not None
         media_obj = source_db.get_media_from_handle(p_media_refs[0].ref)
+        # The full-size image (photo.php/<md5 folders>/), not its web page.
         self.assertEqual(
-            media_obj.get_path(), "https://www.wikitree.com/photo/gif/Deborah.gif"
+            media_obj.get_path(), "https://www.wikitree.com/photo.php/c/c5/Deborah.gif"
         )
         self.assertEqual(media_obj.get_mime_type(), "image/gif")
 
@@ -1665,8 +1670,30 @@ Here is the gravestone: [[Image:Franklin-2-2.jpg|thumb|Josiah gravestone marker]
         res_empty = WikiTreeGWizard.check_profile_drift(p_empty, "20260926230118")
         self.assertTrue(res_empty["has_drift"])
 
+    def test_check_profile_drift_reads_the_citation_note(self) -> None:
+        """The merged person's WikiTree citation note holds the local time."""
+        with DbTxn("Add", self.db) as trans:
+            person = Person()
+            for stamp in ("2024-01-01 00:00:00", "2025-06-01 12:00:00"):
+                note = Note()
+                note.set(
+                    "URL: https://www.wikitree.com/wiki/Baker-1\n"
+                    "Last Modified: %s\nProfile Manager ID: 1" % stamp
+                )
+                self.db.add_note(note, trans)
+                citation = Citation()
+                citation.add_note(note.handle)
+                self.db.add_citation(citation, trans)
+                person.add_citation(citation.handle)
+            self.db.add_person(person, trans)
+        newer = WikiTreeGWizard.check_profile_drift(person, "20260101000000", self.db)
+        self.assertTrue(newer["has_drift"])
+        self.assertEqual(newer["local_touched"], "2025-06-01 12:00:00")
+        same = WikiTreeGWizard.check_profile_drift(person, "20250601120000", self.db)
+        self.assertFalse(same["has_drift"])
+
     def test_load_and_apply_drift_metadata(self) -> None:
-        """Verify Touched and Manager metadata are stored and synced on apply."""
+        """Touched and Manager go in the citation note, not person attributes."""
         # Setup target person in self.db
         target_p = Person()
         pname = Name()
@@ -1695,12 +1722,10 @@ Here is the gravestone: [[Image:Franklin-2-2.jpg|thumb|Josiah gravestone marker]
         s_handle = person.get_handle()
         source_db = gw.context.get("source_db")
 
-        # Verify source person has WikiTree Touched and WikiTree Manager attributes
-        attrs = {
-            str(a.get_type()): str(a.get_value()) for a in person.get_attribute_list()
-        }
-        self.assertEqual(attrs.get("WikiTree Touched"), "2026-09-26 23:01:18")
-        self.assertEqual(attrs.get("WikiTree Manager"), "10988142")
+        # The incoming person has no WikiTree Touched or Manager attributes.
+        attrs = {str(a.get_type()) for a in person.get_attribute_list()}
+        self.assertNotIn("WikiTree Touched", attrs)
+        self.assertNotIn("WikiTree Manager", attrs)
 
         # Verify Citation note contains synchronization metadata
         assert source_db is not None
@@ -1720,14 +1745,11 @@ Here is the gravestone: [[Image:Franklin-2-2.jpg|thumb|Josiah gravestone marker]
         )
         self.assertTrue(success)
 
-        # Target person should now have WikiTree Touched and Manager attributes
+        # Nor does the tree person after the merge.
         updated_target = self.db.get_person_from_handle(t_handle)
-        t_attrs = {
-            str(a.get_type()): str(a.get_value())
-            for a in updated_target.get_attribute_list()
-        }
-        self.assertEqual(t_attrs.get("WikiTree Touched"), "2026-09-26 23:01:18")
-        self.assertEqual(t_attrs.get("WikiTree Manager"), "10988142")
+        t_attrs = {str(a.get_type()) for a in updated_target.get_attribute_list()}
+        self.assertNotIn("WikiTree Touched", t_attrs)
+        self.assertNotIn("WikiTree Manager", t_attrs)
 
 
 if __name__ == "__main__":
