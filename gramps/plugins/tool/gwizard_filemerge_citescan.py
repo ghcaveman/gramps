@@ -19,7 +19,7 @@
 #
 
 """
-Tools/Family Tree Processing/Citation Improvement Scan.
+Tools/Family Tree Processing/Multi-Archive Citation Scan.
 
 The scan's code ships in GWizardFileMerge (gwizard_filemerge); the
 record-source addons (WikiTree, NARA, FamilySearch) register the menu entry
@@ -101,7 +101,7 @@ class GWizardCitationScanOptions(tool.ToolOptions):
 # ------------------------------------------------------------
 class GWizardCitationScan(tool.Tool):
     """
-    Open the GWizard Citation Improvement Scan window: every citation in
+    Open the GWizard Multi-Archive Citation Scan window: every citation in
     the Family Tree, worst first, with records the installed record sources
     (NARA, WikiTree, ...) found that could improve it.
     """
@@ -129,19 +129,19 @@ class GWizardCitationScan(tool.Tool):
             if os.path.isdir(path) and path not in sys.path:
                 sys.path.insert(0, path)
         if uistate is None:
-            LOG.error("GWizard Citation Improvement Scan needs the Gramps GUI")
+            LOG.error("GWizard Multi-Archive Citation Scan needs the Gramps GUI")
             return
         from gramps.gui.dialog import ErrorDialog
 
         if not dbstate.is_open():
             ErrorDialog(
-                _("GWizard Citation Improvement Scan"),
+                _("GWizard Multi-Archive Citation Scan"),
                 _("Open a Family Tree before running this tool."),
                 parent=uistate.window,
             )
             return
         _ask_for_base_media_path(
-            uistate, dbstate, _("GWizard Citation Improvement Scan")
+            uistate, dbstate, _("GWizard Multi-Archive Citation Scan")
         )
         from gramps.gui.gwizard.gwizard_filemerge_citationscandialog import (
             run_gwizard_citation_scan,
