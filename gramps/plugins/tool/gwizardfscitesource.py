@@ -20,7 +20,7 @@
 
 """
 What the FamilySearch record source knows about citations, for the GWizard
-Citation Improvement Scan (see gramps/gen/gwizard/gwizard_filemerge_citationscan.py,
+Multi-Archive Citation Scan (see gramps/gen/gwizard/gwizard_filemerge_citationscan.py,
 in gwizard_filemerge).
 
 Registered as a GENERAL plugin in category "GWizardCitationSource".
@@ -146,7 +146,7 @@ def record_arks(db: Any, citation: Citation) -> list[str]:
 #
 # ------------------------------------------------------------
 class FamilySearchCitationSource(CitationSource):
-    """FamilySearch's side of the Citation Improvement Scan."""
+    """FamilySearch's side of the Multi-Archive Citation Scan."""
 
     source_id = "familysearch"
 
@@ -225,5 +225,5 @@ class FamilySearchCitationSource(CitationSource):
 
 
 def load_on_reg(dbstate: Any, uistate: Any, plugin: Any) -> list[CitationSource]:
-    """Offer FamilySearch's citation checks to the GWizard Citation Improvement Scan."""
+    """Offer FamilySearch's citation checks to the Multi-Archive Citation Scan."""
     return [FamilySearchCitationSource()]
