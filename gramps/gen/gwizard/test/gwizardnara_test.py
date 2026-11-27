@@ -117,6 +117,13 @@ from ..gwizardnaramerge import (
     NaraCatalogInterface,
     NaraGWizard,
     NaraRecordAttacher,
+    ImageStatus,
+    media_fix_filename,
+    nara_date_text,
+    parse_nara_date,
+    record_date,
+    record_doc_type,
+    record_year,
 )
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
@@ -818,13 +825,17 @@ class TestNaraRecordAttacher(unittest.TestCase):
             self.db.get_media_from_handle(r.ref) for r in citation.get_media_list()
         ]
         paths = sorted(m.get_path() for m in media)
+        # Named with Media Fix's template in the base media path; the
+        # download cache folder is removed once it is empty.
         self.assertEqual(
             paths,
             [
-                os.path.join("NARA", "90361620", "2480.jpg"),
-                os.path.join("NARA", "90361620", "2481.jpg"),
+                "I00000_MacDonald_Lyman_Angus-Naturalization_image_1_of_2-1942.jpg",
+                "I00000_MacDonald_Lyman_Angus-Naturalization_image_2_of_2-1942.jpg",
             ],
         )
+        self.assertFalse(os.path.exists(os.path.join(self.media_dir, "NARA")))
+        self.assertEqual(citation.get_date_object().get_year(), 1942)
         for item in media:
             self.assertEqual(item.get_mime_type(), "image/jpeg")
             self.assertTrue(item.get_checksum())
@@ -1039,11 +1050,13 @@ class TestNaraRecordAttacher(unittest.TestCase):
         media = sorted(self.db.iter_media(), key=lambda m: m.get_path())
         self.assertEqual(
             media[0].get_description(),
-            "MacDonald, Lyman Angus - 1942, page 1: Cover or jacket",
+            "MacDonald, Lyman Angus - Naturalization 1942, page 1: Cover or jacket",
         )
         self.assertEqual(
-            media[1].get_description(), "MacDonald, Lyman Angus - 1942, image 2 of 2"
+            media[1].get_description(),
+            "MacDonald, Lyman Angus - Naturalization 1942, image 2 of 2",
         )
+        self.assertEqual(media[0].get_date_object().get_year(), 1942)
         notes = [self.db.get_note_from_handle(h) for h in media[0].get_note_list()]
         self.assertEqual(len(notes), 1)
         self.assertEqual(notes[0].get_type(), NoteType.TRANSCRIPT)
@@ -1115,7 +1128,10 @@ class TestNaraMergeWindowFlow(unittest.TestCase):
             ]
             self.assertEqual(len(media), 2)
             self.assertTrue(media[0].get_path().startswith("https://"))
-            self.assertEqual(media[0].get_description(), "Page one")
+            self.assertEqual(
+                media[0].get_description(),
+                "MacDonald, Lyman Angus - Naturalization 1942, Page one",
+            )
             self.assertEqual(
                 str(media[0].get_attribute_list()[0].get_type()), OBJECT_ID_ATTRIBUTE
             )
@@ -1142,7 +1158,10 @@ class TestNaraMergeWindowFlow(unittest.TestCase):
         self.assertEqual(result.downloaded, 1)
         self.assertEqual(result.media_linked, 1)
         media = self.db.get_media_from_handle(person.get_media_list()[0].ref)
-        self.assertEqual(media.get_path(), os.path.join("NARA", "90361620", "2480.jpg"))
+        self.assertEqual(
+            media.get_path(),
+            "I00000_MacDonald_Lyman_Angus-Naturalization_image_1_of_2-1942.jpg",
+        )
         self.assertTrue(media.get_checksum())
         citation = self.db.get_citation_from_handle(person.get_citation_list()[0])
         self.assertEqual([r.ref for r in citation.get_media_list()], [media.handle])
@@ -1224,3 +1243,182 @@ class TestNaraRecordText(unittest.TestCase):
             }
         ]
         self.assertEqual(NaraCatalogInterface.texts_from_hits(hits), {"9": ""})
+
+
+# ------------------------------------------------------------
+#
+# Media Fix naming of NARA images
+#
+# ------------------------------------------------------------
+def _card_record() -> dict[str, Any]:
+    """A one-image NARA index card record (invented person)."""
+    return {
+        "naid": "100000001",
+        "title": "[Ohio] Doe, John Q - 99th Infantry, Company A",
+        "series_title": (
+            "Indexes to the Carded Records of Soldiers Who Served in "
+            "Volunteer Organizations During the Civil War"
+        ),
+        "series_naid": "100000000",
+        "date_str": "1899-1927",
+        "creators": ["War Department"],
+        "web_url": "https://catalog.archives.gov/id/100000001",
+        "scope_note": "",
+        "digital_objects": [
+            {
+                "object_id": "200000001",
+                "filename": "1234.jpg",
+                "size": 100,
+                "url": "https://example.org/1234.jpg",
+                "mime_type": "image/jpeg",
+            }
+        ],
+    }
+
+
+class TestNaraMediaFixNaming(unittest.TestCase):
+    """NARA images, dates and repository references follow Media Fix."""
+
+    def setUp(self) -> None:
+        self.media_dir = tempfile.mkdtemp(prefix="nara-media-")
+        self.db: DbWriteBase = make_database("sqlite")
+        self.db.load(":memory:")
+        self.db.set_mediapath(self.media_dir)
+        person = Person()
+        name = Name()
+        name.set_first_name("John Quincy")
+        surname = Surname()
+        surname.set_surname("Doe")
+        name.add_surname(surname)
+        person.set_primary_name(name)
+        with DbTxn("Add person", self.db) as trans:
+            self.person_handle = self.db.add_person(person, trans)
+        self.parsed = _card_record()
+        self.session = Mock()
+        self.session.get.return_value = _FakeReply(content=b"card image")
+
+    def tearDown(self) -> None:
+        self.db.close()
+        shutil.rmtree(self.media_dir, ignore_errors=True)
+
+    def test_record_helpers(self) -> None:
+        self.assertEqual(record_doc_type(self.parsed), "Military")
+        self.assertEqual(record_year(self.parsed), 1899)
+        self.assertEqual(nara_date_text("1899-1927"), "from 1899 to 1927")
+        span = parse_nara_date("1899-1927")
+        assert span is not None
+        self.assertTrue(span.is_valid())
+        self.assertEqual(span.get_year(), 1899)
+        self.assertEqual(span.get_stop_year(), 1927)
+        dated = dict(self.parsed, title="Doe, John Q - 1942")
+        self.assertEqual(record_year(dated), 1942)
+        dated_date = record_date(dated)
+        assert dated_date is not None
+        self.assertEqual(dated_date.get_year(), 1942)
+
+    def test_media_fix_filename(self) -> None:
+        person = self.db.get_person_from_handle(self.person_handle)
+        self.assertEqual(
+            media_fix_filename(person, "Doe, John Quincy - Military 1899", 0, ".jpg"),
+            "I00000_Doe_John_Quincy-Military-1899.jpg",
+        )
+
+    def test_single_image_is_named_and_dated(self) -> None:
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        result = attacher.attach(
+            self.person_handle,
+            self.parsed,
+            descriptions={0: self.parsed["title"] + ", page 1"},
+        )
+        self.assertEqual(result.downloaded, 1)
+        (media,) = list(self.db.iter_media())
+        self.assertEqual(media.get_path(), "I00000_Doe_John_Quincy-Military-1899.jpg")
+        self.assertEqual(media.get_description(), "Doe, John Quincy - Military 1899")
+        self.assertEqual(media.get_date_object().get_year(), 1899)
+        self.assertTrue(os.path.isfile(os.path.join(self.media_dir, media.get_path())))
+        citation = self.db.get_citation_from_handle(result.citation_handle)
+        self.assertTrue(citation.get_date_object().is_valid())
+        self.assertEqual(citation.get_date_object().get_stop_year(), 1927)
+        (source,) = list(self.db.iter_sources())
+        from gramps.gen.lib import SourceMediaType
+
+        self.assertEqual(
+            source.get_reporef_list()[0].get_media_type(), SourceMediaType.CARD
+        )
+
+    def test_different_file_with_same_name_is_kept(self) -> None:
+        with open(
+            os.path.join(self.media_dir, "I00000_Doe_John_Quincy-Military-1899.jpg"),
+            "wb",
+        ) as out:
+            out.write(b"another card")
+        NaraRecordAttacher(self.db, session=self.session).attach(
+            self.person_handle, self.parsed
+        )
+        (media,) = list(self.db.iter_media())
+        self.assertEqual(media.get_path(), "I00000_Doe_John_Quincy-Military-1899-2.jpg")
+        with open(
+            os.path.join(self.media_dir, "I00000_Doe_John_Quincy-Military-1899.jpg"),
+            "rb",
+        ) as kept:
+            self.assertEqual(kept.read(), b"another card")
+
+    def test_identical_file_with_same_name_is_reused(self) -> None:
+        with open(
+            os.path.join(self.media_dir, "I00000_Doe_John_Quincy-Military-1899.jpg"),
+            "wb",
+        ) as out:
+            out.write(b"card image")
+        NaraRecordAttacher(self.db, session=self.session).attach(
+            self.person_handle, self.parsed
+        )
+        (media,) = list(self.db.iter_media())
+        self.assertEqual(media.get_path(), "I00000_Doe_John_Quincy-Military-1899.jpg")
+        self.assertEqual(os.listdir(self.media_dir), [media.get_path()])
+
+    def test_merge_window_names_download_and_cites_transcript(self) -> None:
+        from gramps.gen.lib import NoteType
+
+        gwizard = NaraGWizard(self.db)
+        handle = gwizard.load_for_person(
+            self.person_handle,
+            self.parsed,
+            {0: self.parsed["title"] + ", page 1"},
+            {0: "Co. A, 99 Ohio Inf."},
+        )
+        try:
+            source_db = gwizard.context["source_db"]
+            incoming = source_db.get_person_from_handle(handle)
+            citation = source_db.get_citation_from_handle(
+                incoming.get_citation_list()[0]
+            )
+            notes = [
+                source_db.get_note_from_handle(h) for h in citation.get_note_list()
+            ]
+            self.assertTrue(any(n.get_type() == NoteType.TRANSCRIPT for n in notes))
+            self.assertTrue(
+                gwizard.run_step(
+                    "apply",
+                    source_person_handle=handle,
+                    target_person_handle=self.person_handle,
+                    resolutions={"person_sources": "source", "media:0": "source"},
+                )
+            )
+        finally:
+            gwizard.context["source_db"].close()
+        result = NaraRecordAttacher(self.db, session=self.session).finish_merge(
+            self.person_handle, self.parsed, download=True
+        )
+        self.assertEqual(result.downloaded, 1)
+        (media,) = list(self.db.iter_media())
+        self.assertEqual(media.get_path(), "I00000_Doe_John_Quincy-Military-1899.jpg")
+        self.assertTrue(media.get_checksum())
+
+    def test_final_path_uses_media_base_path(self) -> None:
+        attacher = NaraRecordAttacher(self.db)
+        person = self.db.get_person_from_handle(self.person_handle)
+        image = ImageStatus(0, "1", "1234.jpg", 1, "https://example.org/1234.jpg", "")
+        self.assertEqual(
+            attacher.final_path(person, self.parsed, image, ""),
+            os.path.join(self.media_dir, "I00000_Doe_John_Quincy-Military-1899.jpg"),
+        )

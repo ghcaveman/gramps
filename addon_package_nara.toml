@@ -11,6 +11,10 @@
 # Media Fix is merged in for the planned image downloads, which will name
 # files with its template. Until the NARA code imports it, it is not listed
 # as a dependency; its files are ignored in [check] below.
+#
+# The Citation Improvement Scan reuses the Citation Fix report's checks, so
+# this addon also depends on the CitationFix addon (gwizard_citationfix),
+# which itself needs MediaFix.
 
 package = "GWizardNaraMerge"
 
@@ -38,7 +42,11 @@ modules = [
     "gramps/gui/gwizard/gwizardnaraattachdialog.py",
     "gramps/gui/gwizard/gwizardnaralauncher.py",
     "gramps/plugins/tool/gwizard_filemerge_scan.py",
+    "gramps/plugins/tool/gwizardcitescan.py",
+    "gramps/plugins/tool/gwizardcitescandialog.py",
+    "gramps/plugins/tool/gwizardcitescanengine.py",
     "gramps/plugins/tool/gwizardnara.py",
+    "gramps/plugins/tool/gwizardnaracitesource.py",
     "gramps/plugins/tool/gwizardnaraquerybuilder.py",
     "gramps/plugins/tool/gwizardnarasource.py",
 ]
@@ -50,6 +58,8 @@ tests = [
     "gramps/gui/gwizard/test/gwizardnaraattachdialog_test.py",
     "gramps/gui/gwizard/test/gwizardnaralauncher_test.py",
     "gramps/plugins/tool/test/gwizard_filemerge_scan_test.py",
+    "gramps/plugins/tool/test/gwizardcitescandialog_test.py",
+    "gramps/plugins/tool/test/gwizardcitescanengine_test.py",
     "gramps/plugins/tool/test/gwizardnarasource_test.py",
     "gramps/plugins/tool/test/gwizard_nara_query_and_match_test.py",
 ]
@@ -89,6 +99,34 @@ category = "GWizardRecordSource"
 load_on_reg = true
 gramps_versions = ["5.2.0", "6.2"]
 
+# The Citation Improvement Scan: every citation, worst first, with records
+# the record sources found that could improve it.
+[[extra_registrations]]
+id = "gwizardcitescan"
+name = "Citation Improvement Scan"
+description = "List every citation in the Family Tree from the most work needed to the least (missing page, date, image, repository, ...), with the person it is about and the confidence of records the installed GWizard record sources (NARA, WikiTree, ...) found that could improve it."
+fname = "gwizardcitescan.py"
+toolclass = "GWizardCitationScan"
+optionclass = "GWizardCitationScanOptions"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardNaraMerge_Tool"
+gramps_versions = ["5.2.0", "6.2"]
+
+# NARA's side of the Citation Improvement Scan: reads NAIDs on citations,
+# judges NARA records for a citation, opens a cited record.
+[[extra_registrations]]
+type = "GENERAL"
+id = "gwizardnaracitesource"
+name = "GWizard NARA citation source"
+description = "Lets the GWizard Citation Improvement Scan read NARA citations (NAIDs) and judge NARA records for a citation."
+fname = "gwizardnaracitesource.py"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+category = "GWizardCitationSource"
+load_on_reg = true
+gramps_versions = ["5.2.0", "6.2"]
+
 # Real NARA Catalog API v2 responses the tests read. The folder is shared
 # with File Merge's fixtures, so those are copied too.
 [files.test_data]
@@ -117,6 +155,17 @@ modules = [
     "gramps/gui/gwizard/gwizardmergedialog.py",
     "gramps/plugins/tool/gwizardmerge.py",
 ]
+
+# The Citation Fix checks the Citation Improvement Scan reuses ship in
+# CitationFix (built from gwizard_citationfix).
+[[dependencies]]
+id = "gwizardcitationfix"
+package = "CitationFix"
+modules = [
+    "gramps/plugins/tool/gwizardcitationreport.py",
+    "gramps/plugins/tool/gwizardcitationshared.py",
+]
+
 [check]
 # The branch this feature branch was started from (local name first, then
 # the remote one, whichever exists).

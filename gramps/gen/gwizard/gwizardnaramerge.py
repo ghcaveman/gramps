@@ -62,6 +62,7 @@ from gramps.gen.lib import (
     Repository,
     RepositoryType,
     RepoRef,
+    SourceMediaType,
     Attribute,
     Media,
     MediaRef,
@@ -395,6 +396,43 @@ class NaraCatalogInterface:
             LOG.warning("NARA page text for %s was not valid JSON", naid)
             return None
         return self.texts_from_hits(hits)
+
+    def fetch_record(self, naid: str) -> dict[str, Any] | None:
+        """
+        Fetch one record by its NAID, in the shape a search hit has (so
+        parse_record and the NARA window accept it). One API call.
+
+        :param naid: The record's National Archives Identifier.
+        :returns: The record's hit, or None when the call fails or NARA has
+            no record with that NAID.
+        """
+        request_options: dict[str, Any] = {
+            "params": {"naId": naid},
+            "headers": self.headers,
+            "timeout": 30,
+        }
+        if self.verify_ssl is not None:
+            request_options["verify"] = self.verify_ssl
+        try:
+            response = requests.get(
+                f"{self.base_url}/records/search", **request_options
+            )
+            self._count(KIND_RECORD, response)
+        except requests.exceptions.RequestException:
+            LOG.exception("NARA record request failed for %s", naid)
+            return None
+        if response.status_code != 200:
+            LOG.warning("NARA record %s returned HTTP %s", naid, response.status_code)
+            return None
+        try:
+            hits = self.extract_hits(response.json())
+        except ValueError:
+            LOG.warning("NARA record %s was not valid JSON", naid)
+            return None
+        for hit in hits:
+            if str(self.parse_record(hit).get("naid") or "") == str(naid):
+                return hit
+        return hits[0] if len(hits) == 1 else None
 
     @staticmethod
     def texts_from_hits(hits: list[dict[str, Any]]) -> dict[str, str]:
@@ -839,10 +877,274 @@ def format_size(size: int) -> str:
 NARA_REPOSITORY_NAME = "National Archives and Records Administration (NARA)"
 NARA_REPOSITORY_URL = "https://www.archives.gov"
 
-# Folder under the media base path that downloaded images go in, one
-# subfolder per record (by NAID). A stopgap until downloads are named with
-# Media Fix's template.
+# Folder under the media base path that images are downloaded into first,
+# one subfolder per record (by NAID). It is a cache (the record window's
+# preview reuses it): an image merged into the tree is then moved to the
+# base media path and named with Media Fix's filename template.
 NARA_MEDIA_FOLDER = "NARA"
+
+# Media Fix's filename template setting and its default (gwizardmediafix.py).
+MEDIAFIX_TEMPLATE_KEY = "preferences.gwizardmediafix-filename-template"
+MEDIAFIX_DEFAULT_TEMPLATE = "{ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}"
+
+# Document type for Media Fix names and media descriptions, from the
+# record's title, series and description; the first match wins.
+_DOC_TYPES: tuple[tuple[str, str], ...] = (
+    (r"naturaliz|citizenship|declaration\s+of\s+intent", "Naturalization"),
+    (r"\bpension\b|widow'?s\s+claim", "Pension"),
+    (r"\bdraft\b|selective\s+service|registration\s+card", "Draft"),
+    (
+        r"military|service\s+record|confederate|union\s+army|civil\s+war|"
+        r"enlist|muster|soldier|regiment|infantry|volunteer\s+organization",
+        "Military",
+    ),
+    (r"\bcensus\b|population\s+schedule", "Census"),
+    (r"passenger|manifest|immigra|arrival", "Immigration"),
+    (r"certificate\s+of\s+death|death\s+certificate|death\s+record", "Death"),
+    (r"marriage", "Marriage"),
+    (r"\bbirth\b", "Birth"),
+    (r"homestead|land\s+entry|land\s+patent|bounty\s+land", "Land"),
+    (r"passport", "Passport"),
+)
+
+
+def record_doc_type(parsed: dict[str, Any]) -> str:
+    """Return the record's document type ("Military", "Pension", ...)."""
+    text = " ".join(
+        str(parsed.get(key) or "") for key in ("title", "series_title", "scope_note")
+    )
+    for pattern, label in _DOC_TYPES:
+        if re.search(pattern, text, re.IGNORECASE):
+            return label
+    return "Record"
+
+
+_YEAR_RE = re.compile(r"\b(1[5-9]\d{2}|20\d{2})\b")
+
+
+def record_year(parsed: dict[str, Any]) -> int:
+    """
+    Return the record's own year: a year in its title ("MacDonald, Lyman
+    Angus - 1942"), otherwise the first year of its date, which is often
+    the span of the whole series. 0 when there is none.
+    """
+    for key in ("title", "date_str"):
+        match = _YEAR_RE.search(str(parsed.get(key) or ""))
+        if match:
+            return int(match.group(1))
+    return 0
+
+
+def record_date(parsed: dict[str, Any]) -> Date | None:
+    """
+    Return the record's date for its citation and event: the year in its
+    title when it has one, otherwise its date (a span such as "from 1899
+    to 1927"), or None.
+    """
+    match = _YEAR_RE.search(str(parsed.get("title") or ""))
+    if match:
+        date_obj = Date()
+        date_obj.set_yr_mon_day(int(match.group(1)), 0, 0)
+        return date_obj
+    return parse_nara_date(str(parsed.get("date_str") or ""))
+
+
+def nara_date_text(date_str: str) -> str:
+    """
+    Return NARA date text in a form the Gramps date parser reads: a year
+    range such as "1899-1927" becomes "from 1899 to 1927".
+    """
+    text = (date_str or "").strip()
+    match = re.fullmatch(r"(\d{4})\s*[-–]\s*(\d{4})", text)
+    if match:
+        return "from %s to %s" % (match.group(1), match.group(2))
+    return text
+
+
+def parse_nara_date(date_str: str) -> Date | None:
+    """Return a valid Gramps date for NARA date text, or None."""
+    text = nara_date_text(date_str)
+    if not text:
+        return None
+    try:
+        date_obj = dateparser.parse(text)
+    except Exception:  # pylint: disable=broad-except
+        return None
+    if date_obj.is_empty() or not date_obj.is_valid():
+        return None
+    return date_obj
+
+
+def page_label(description: str, title: str) -> str:
+    """
+    Return the page part of a description such as "<title>, page 3: Claim
+    brief" ("page 3: Claim brief"), or the whole text when it does not start
+    with the title.
+    """
+    text = (description or "").strip()
+    if title and text.startswith(title):
+        text = text[len(title) :]
+    return text.strip(" ,;:-")
+
+
+def media_description(
+    person: Person | None, parsed: dict[str, Any], label: str = ""
+) -> str:
+    """
+    Return a media description Media Fix reads ("Surname, Given - DocType
+    Year, page 3: Claim brief"), so its file name follows Media Fix's
+    template now and after any later Media Fix run.
+    """
+    surname = given = ""
+    if person is not None:
+        name = person.get_primary_name()
+        surname = str(name.get_surname() or "")
+        given = str(name.get_first_name() or "")
+    year = record_year(parsed)
+    head = record_doc_type(parsed) + (" %d" % year if year else "")
+    if surname or given:
+        head = "%s, %s - %s" % (surname, given, head)
+    return "%s, %s" % (head, label) if label else head
+
+
+# Media Fix's naming helpers, used when Media Fix is not installed. Kept the
+# same as clean_token, extract_year_and_clean_doctype and
+# format_standard_filename in gwizardmediafix.py; when Media Fix is
+# installed its own functions are used instead.
+def _clean_token(val: Any) -> str:
+    if not val:
+        return ""
+    s = re.sub(r"[\s_]*-+[\s_]*", "-", str(val))
+    clean = re.sub(r"[^\w\-]+", "_", s)
+    clean = re.sub(r"_+", "_", clean)
+    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
+    clean = re.sub(r"-+", "-", clean)
+    return clean.strip("_-")
+
+
+def _extract_year_and_clean_doctype(
+    doc_type: str, surname: str = "", given: str = ""
+) -> tuple[str, str]:
+    if not doc_type:
+        return "", ""
+    year = ""
+    y_match = re.search(r"(?:^|[^\d])(1[5-9]\d{2}|20\d{2})(?:[^\d]|$)", doc_type)
+    if y_match:
+        year = y_match.group(1)
+        doc_type = doc_type[: y_match.start(1)] + " " + doc_type[y_match.end(1) :]
+    sur_giv_m = re.match(
+        r"^\s*(?:[^\W\d_]|[\s'\-])+?,\s*(?:[^\W\d_]|[\s'\-])+?\s*[-_:]+\s*(.+)$",
+        doc_type,
+    )
+    if sur_giv_m:
+        doc_type = sur_giv_m.group(1)
+    if surname:
+        pats = (
+            [
+                rf"(?i)^\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*[-_:]*\s*",
+                rf"(?i)^\s*{re.escape(given)}\s+{re.escape(surname)}\s*[-_:]*\s*",
+                rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*",
+                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*$",
+                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*$",
+            ]
+            if given
+            else [rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*"]
+        )
+        for pat in pats:
+            doc_type = re.sub(pat, "", doc_type)
+    clean = re.sub(r"[^\w\-]+", "_", doc_type)
+    clean = re.sub(r"[\s_]*-+[\s_]*", "-", clean)
+    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
+    clean = re.sub(r"_+", "_", clean).strip("_-")
+    return clean, year
+
+
+def _format_standard_filename(
+    template: str, context: dict[str, str], max_stem_len: int = 85
+) -> str:
+    ext = _clean_token(context.get("ext", "jpg")).lower() or "jpg"
+    safe_context = {k: _clean_token(v) for k, v in context.items() if k != "ext"}
+    safe_context["ext"] = ext
+    try:
+        rendered = template.format(**safe_context)
+    except (KeyError, ValueError, IndexError):
+        rendered = f"{safe_context.get('ref_id', '')}_{safe_context.get('orig', 'media')}.{ext}"
+    base = rendered.rsplit(".", 1)[0] if "." in rendered else rendered
+    base = re.sub(r"[\s_]*-+[\s_]*", "-", base)
+    base = re.sub(r"[^\w\-]+", "_", base)
+    base = re.sub(r"_+", "_", base)
+    base = re.sub(r"[-_]*-[_\s-]*", "-", base)
+    base = re.sub(r"-+", "-", base)
+    base = base.strip("_-")
+    if not base:
+        base = (
+            _clean_token(safe_context.get("orig") or safe_context.get("id")) or "media"
+        )
+    if len(base) > max_stem_len:
+        base = base[:max_stem_len].rstrip("_-")
+    return f"{base}.{ext}"
+
+
+def _mediafix_naming() -> tuple[Callable[..., Any], Callable[..., Any], str]:
+    """
+    Return Media Fix's (extract_year_and_clean_doctype,
+    format_standard_filename, template), from Media Fix itself when it is
+    installed, otherwise from the copies above.
+    """
+    template = MEDIAFIX_DEFAULT_TEMPLATE
+    try:
+        from gramps.gen.config import config
+
+        template = str(config.get(MEDIAFIX_TEMPLATE_KEY) or template)
+    except Exception:  # pylint: disable=broad-except
+        pass
+    try:
+        # pylint: disable=import-outside-toplevel
+        from gramps.plugins.tool.gwizardmediafix import (
+            extract_year_and_clean_doctype,
+            format_standard_filename,
+        )
+
+        return extract_year_and_clean_doctype, format_standard_filename, template
+    except Exception:  # pylint: disable=broad-except
+        return _extract_year_and_clean_doctype, _format_standard_filename, template
+
+
+def media_fix_filename(
+    person: Person | None,
+    description: str,
+    year: int,
+    ext: str,
+    media_id: str = "",
+    orig: str = "",
+    checksum: str = "",
+) -> str:
+    """
+    Return the file name Media Fix gives a person's media object with this
+    description and year (its person-backlink naming).
+    """
+    extract, format_name, template = _mediafix_naming()
+    surname = given = ref_id = ""
+    if person is not None:
+        name = person.get_primary_name()
+        surname = str(name.get_surname() or "")
+        given = str(name.get_first_name() or "")
+        ref_id = str(person.get_gramps_id() or "")
+    doc_type, found_year = extract(description or "Photo", surname, given)
+    context = {
+        "id": media_id,
+        "desc": description,
+        "orig": orig,
+        "ext": (ext or "jpg").lstrip(".").lower(),
+        "ref_id": ref_id or media_id,
+        "surname": surname,
+        "given": given,
+        "doc_type": doc_type or ("Photo" if surname else "Media"),
+        "year": found_year or (str(year) if year else ""),
+        "assoc": "",
+        "hash": (checksum or "")[:8],
+    }
+    return format_name(template, context)
 
 
 # Attributes this tool puts on what it creates, so a record or image can be
@@ -932,8 +1234,9 @@ class NaraRecordAttacher:
       already has a citation for that NAID.
     - Media: one object per chosen image, with a "NARA Object ID" attribute,
       linked to the citation. Images the tree already has (same object ID,
-      path or web address) are linked, not added again. Downloaded images
-      are stored under <media base path>/NARA/<NAID>/; an image that is not
+      path or web address) are linked, not added again. Images are
+      downloaded to <media base path>/NARA/<NAID>/ and then moved to the
+      base media path under Media Fix's file name; an image that is not
       downloaded, or fails to download, is linked by its web address.
 
     Images are downloaded before the family tree is changed, so a slow or
@@ -1134,9 +1437,11 @@ class NaraRecordAttacher:
                 images = images[:max_images]
 
         result = AttachResult()
-        paths = self._fetch_images(parsed, images, download, progress, result)
-
         title = parsed.get("title") or parsed.get("naid") or _("NARA record")
+        names = self._descriptions(person, parsed, review.images, descriptions)
+        paths = self._fetch_images(
+            parsed, images, download, progress, result, person, names
+        )
         with DbTxn(
             _("Attach NARA record %s") % parsed.get("naid", ""), self.db
         ) as trans:
@@ -1155,15 +1460,10 @@ class NaraRecordAttacher:
                         trans,
                         image,
                         paths[image.index],
-                        (descriptions or {}).get(image.index)
-                        or _("%(title)s, image %(number)d of %(total)d")
-                        % {
-                            "title": title,
-                            "number": image.index + 1,
-                            "total": len(review.images),
-                        },
+                        names[image.index],
                         (page_texts or {}).get(image.index, ""),
                         citation=citation,
+                        year=record_year(parsed),
                     )
                     result.media_added += 1
                 if handle not in linked:
@@ -1254,12 +1554,14 @@ class NaraRecordAttacher:
                     if review.citation_handle
                     else None
                 )
+                new_citation = citation is None
                 if citation is not None:
                     citation = self._bare_copy(citation)
                     citation.set_reference_handle(source.get_handle())
                     source_db.add_citation(citation, trans)
                 else:
                     citation = staging._citation(trans, parsed, source, title, result)
+                names = self._descriptions(person, parsed, review.images, descriptions)
 
                 incoming = Person()
                 name = copy.deepcopy(person.get_primary_name())
@@ -1282,18 +1584,17 @@ class NaraRecordAttacher:
                             trans,
                             image,
                             image.url,
-                            (descriptions or {}).get(image.index)
-                            or _("%(title)s, image %(number)d of %(total)d")
-                            % {
-                                "title": title,
-                                "number": image.index + 1,
-                                "total": len(review.images),
-                            },
+                            names[image.index],
                             (page_texts or {}).get(image.index, ""),
+                            citation=citation if new_citation else None,
+                            year=record_year(parsed),
                         )
                     media_ref = MediaRef()
                     media_ref.set_reference_handle(handle)
                     incoming.add_media_reference(media_ref)
+                if new_citation:
+                    # Transcript notes were cross-referenced on it.
+                    source_db.commit_citation(citation, trans)
                 source_db.add_person(incoming, trans)
         except Exception:
             source_db.close()
@@ -1361,6 +1662,7 @@ class NaraRecordAttacher:
             result.citation_handle = citation.get_handle()
 
         base = media_path(self.db)
+        person = self.db.get_person_from_handle(person_handle)
         new_paths: dict[str, str] = {}
         if download:
             for done, image in enumerate(online, start=1):
@@ -1375,6 +1677,12 @@ class NaraRecordAttacher:
                     result.failed.append(image.url)
                     full_path = ""
                 if full_path:
+                    media = self.db.get_media_from_handle(image.media_handle)
+                    description = str(media.get_description() or "") if media else ""
+                    full_path = self._place_file(
+                        full_path,
+                        self.final_path(person, parsed, image, description),
+                    )
                     new_paths[image.media_handle] = full_path
                 if progress is not None and progress(done, len(online)) is False:
                     result.cancelled = True
@@ -1410,15 +1718,22 @@ class NaraRecordAttacher:
         description: str,
         page_text: str = "",
         citation: Citation | None = None,
+        year: int = 0,
     ) -> str:
         """
         Add a media object for an image and return its handle; a page text
         becomes a Transcript note on it and is cross-referenced on the citation.
+        The record's year, when known, is the media date (Media Fix's
+        {year}).
         """
         media = Media()
         media.set_path(path)
         media.set_mime_type(image.mime_type)
         media.set_description(description)
+        if year:
+            media_date = Date()
+            media_date.set_yr_mon_day(year, 0, 0)
+            media.set_date_object(media_date)
         if page_text.strip():
             note = Note(
                 _(
@@ -1451,11 +1766,15 @@ class NaraRecordAttacher:
         download: bool,
         progress: Callable[[int, int], bool] | None,
         result: AttachResult,
+        person: Person | None = None,
+        names: dict[int, str] | None = None,
     ) -> dict[int, str]:
         """
         Download the new images (when asked) and return each usable image's
         media path by index: a path relative to the media base path, or the
         web address. Images already in the tree keep their own path.
+        A downloaded image is moved from the download cache to its Media Fix
+        name (from its description in names) in the base media path.
         """
         paths: dict[int, str] = {}
         base = media_path(self.db)
@@ -1472,11 +1791,16 @@ class NaraRecordAttacher:
             if result.cancelled or not image.url:
                 continue
             full_path = self.download_path(parsed, image)
+            wanted = self.final_path(
+                person, parsed, image, (names or {}).get(image.index, "")
+            )
             if os.path.isfile(full_path) and os.path.getsize(full_path) > 0:
                 result.already_downloaded += 1
+                full_path = self._place_file(full_path, wanted)
                 paths[image.index] = relative_path(full_path, base)
             elif self._download(image.url, full_path):
                 result.downloaded += 1
+                full_path = self._place_file(full_path, wanted)
                 paths[image.index] = relative_path(full_path, base)
             else:
                 result.failed.append(image.url)
@@ -1484,6 +1808,104 @@ class NaraRecordAttacher:
             if progress is not None and progress(done, len(to_download)) is False:
                 result.cancelled = True
         return paths
+
+    def _descriptions(
+        self,
+        person: Person | None,
+        parsed: dict[str, Any],
+        images: list[ImageStatus],
+        descriptions: dict[int, str] | None,
+    ) -> dict[int, str]:
+        """
+        Return the media description of every image of the record, by
+        index, in Media Fix's form (see media_description). The page part
+        comes from descriptions ("<title>, page 3: Claim brief"); a record
+        with several images and no description says which image it is.
+        """
+        title = str(parsed.get("title") or parsed.get("naid") or "")
+        total = len(images)
+        found: dict[int, str] = {}
+        for image in images:
+            label = page_label((descriptions or {}).get(image.index, ""), title)
+            if total == 1 and re.fullmatch(r"page\s+1", label, re.IGNORECASE):
+                label = ""
+            if not label and total > 1:
+                label = _("image %(number)d of %(total)d") % {
+                    "number": image.index + 1,
+                    "total": total,
+                }
+            found[image.index] = media_description(person, parsed, label)
+        return found
+
+    def final_path(
+        self,
+        person: Person | None,
+        parsed: dict[str, Any],
+        image: ImageStatus,
+        description: str,
+    ) -> str:
+        """
+        Return the absolute path an image is kept at once it is in the
+        tree: its Media Fix name in the base media path.
+        """
+        orig, ext = os.path.splitext(image.filename or "")
+        if not ext:
+            ext = mimetypes.guess_extension(image.mime_type or "") or ".jpg"
+        name = media_fix_filename(
+            person,
+            description or media_description(person, parsed),
+            record_year(parsed),
+            ext,
+            orig=orig,
+        )
+        return os.path.join(media_path(self.db), name)
+
+    @staticmethod
+    def _place_file(cache_path: str, wanted_path: str) -> str:
+        """
+        Move a downloaded image from the download cache to wanted_path and
+        return where it ended up. A different file already there is never
+        replaced: the image gets the next free "-2", "-3", ... name. An
+        identical file already there is reused. If the move fails the image
+        stays in the cache, which is still a valid media path.
+        """
+        if not wanted_path or os.path.normcase(
+            os.path.abspath(cache_path)
+        ) == os.path.normcase(os.path.abspath(wanted_path)):
+            return cache_path
+        stem, ext = os.path.splitext(wanted_path)
+        candidate = wanted_path
+        number = 1
+        try:
+            new_sum = create_checksum(cache_path)
+            while os.path.exists(candidate):
+                if new_sum and create_checksum(candidate) == new_sum:
+                    os.remove(cache_path)
+                    NaraRecordAttacher._remove_empty_dirs(cache_path, wanted_path)
+                    return candidate
+                number += 1
+                candidate = "%s-%d%s" % (stem, number, ext)
+            os.makedirs(os.path.dirname(candidate) or ".", exist_ok=True)
+            os.replace(cache_path, candidate)
+        except OSError as err:
+            LOG.warning("NARA image %s could not be moved: %s", cache_path, err)
+            return cache_path
+        NaraRecordAttacher._remove_empty_dirs(cache_path, wanted_path)
+        return candidate
+
+    @staticmethod
+    def _remove_empty_dirs(cache_path: str, wanted_path: str) -> None:
+        """Remove the record's cache folder (and NARA/) once they are empty."""
+        base = os.path.dirname(os.path.abspath(wanted_path))
+        folder = os.path.dirname(os.path.abspath(cache_path))
+        for _level in range(2):
+            if os.path.normcase(folder) == os.path.normcase(base):
+                return
+            try:
+                os.rmdir(folder)
+            except OSError:
+                return
+            folder = os.path.dirname(folder)
 
     def download_one(self, parsed: dict[str, Any], image: ImageStatus) -> str:
         """
@@ -1589,12 +2011,33 @@ class NaraRecordAttacher:
             )
         repo_ref = RepoRef()
         repo_ref.set_reference_handle(repo_handle)
+        repo_ref.set_media_type(self._media_type(parsed))
         if series_naid:
             repo_ref.set_call_number(_("NAID %s") % series_naid)
         source.add_repo_reference(repo_ref)
         self.db.add_source(source, trans)
         result.source_created = True
         return source
+
+    @staticmethod
+    def _media_type(parsed: dict[str, Any]) -> SourceMediaType:
+        """
+        Return the medium of the record's series: card, microfilm,
+        photograph or map when its title says so, otherwise electronic (the
+        catalog's digital copy), not Gramps' default of Book.
+        """
+        text = " ".join(
+            str(parsed.get(key) or "") for key in ("series_title", "title")
+        ).casefold()
+        for pattern, medium in (
+            (r"\bcard", SourceMediaType.CARD),
+            (r"microfilm", SourceMediaType.FILM),
+            (r"photograph", SourceMediaType.PHOTO),
+            (r"\bmaps?\b", SourceMediaType.MAP),
+        ):
+            if re.search(pattern, text):
+                return SourceMediaType(medium)
+        return SourceMediaType(SourceMediaType.ELECTRONIC)
 
     @staticmethod
     def _page(parsed: dict[str, Any]) -> str:
@@ -1628,14 +2071,9 @@ class NaraRecordAttacher:
             attribute.set_value(naid)
             citation.add_attribute(attribute)
 
-        date_str = str(parsed.get("date_str") or "").strip()
-        if date_str:
-            try:
-                date_obj = dateparser.parse(date_str)
-                if not date_obj.is_empty():
-                    citation.set_date_object(date_obj)
-            except Exception:
-                pass
+        date_obj = record_date(parsed)
+        if date_obj is not None:
+            citation.set_date_object(date_obj)
 
         lines = [
             value
@@ -1745,14 +2183,9 @@ class NaraRecordAttacher:
         # No existing event found: create a new one
         new_event = Event()
         new_event.set_type(event_type)
-        date_str = str(parsed.get("date_str") or "").strip()
-        if date_str:
-            try:
-                date_obj = dateparser.parse(date_str)
-                if not date_obj.is_empty():
-                    new_event.set_date_object(date_obj)
-            except Exception:
-                pass
+        date_obj = record_date(parsed)
+        if date_obj is not None:
+            new_event.set_date_object(date_obj)
 
         title = str(parsed.get("title") or parsed.get("naid") or "")
         if title:
