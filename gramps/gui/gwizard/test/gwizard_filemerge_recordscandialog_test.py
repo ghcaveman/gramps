@@ -48,6 +48,7 @@ from gramps.gen.gwizard.gwizard_base import (
     TIER_GMSB,
     TIER_GS,
     TIER_GSB,
+    TIER_SCORE,
     RecordCandidate,
     RecordQuery,
 )
@@ -220,6 +221,28 @@ class CellValuesTest(unittest.TestCase):
         query.birth_year = None
         self.assertIn("no birth year in the tree", tier_gap(query, scored, TIER_GSB))
 
+    def test_tier_gap_parents(self) -> None:
+        """Parent levels name missing parents, in the tree or the records."""
+        from gramps.gen.gwizard.gwizard_base import (
+            TIER_GMSB_BOTH_PARENTS,
+            TIER_GMSB_ONE_PARENT,
+        )
+        from gramps.gui.gwizard.gwizard_filemerge_recordscandialog import tier_gap
+
+        query = RecordQuery(
+            given="John", middle="Paul", surnames=["Smith"], birth_year=1850
+        )
+        match = _match("S1", "John", "Smith", 1850)
+        match.candidate.middle = "Paul"
+        scored = score_matches(query, [match])
+        both, one = TIER_GMSB_BOTH_PARENTS, TIER_GMSB_ONE_PARENT
+        self.assertIn("both parents in the tree", tier_gap(query, scored, both))
+        self.assertIn("no parents in the tree", tier_gap(query, scored, one))
+        query.father_first_name = "Peter"
+        query.mother_first_name = "Mary"
+        self.assertIn("names both parents", tier_gap(query, scored, both))
+        self.assertIn("names a parent", tier_gap(query, scored, one))
+
 
 # ------------------------------------------------------------
 #
@@ -300,6 +323,75 @@ class RecordScanDialogTest(unittest.TestCase):
         self.assertEqual(self._cell(dialog, "White", TIER_GMSB), "n/a")
         self.assertIn("3 of 3 scanned", dialog.summary_label.get_text())
         self.assertIn("2 g/s", dialog.summary_label.get_text())
+
+    def test_source_with_one_score_column(self) -> None:
+        """A source can show one overall score column and a usage note."""
+
+        class OneColumnSource(FakeSource):
+            tiers = (TIER_SCORE,)
+
+            def usage_text(self) -> str:
+                return "7 of 10 queries used"
+
+        self.source = OneColumnSource()
+        dialog = self._dialog()
+        self.assertEqual(list(dialog.columns[0].tiers), [TIER_SCORE])
+        self.assertEqual(
+            dialog.usage_labels["fake"].get_text(), "(7 of 10 queries used)"
+        )
+        dialog.run_scan([self.source], list(dialog.items.values()), True, FakeMeter)
+        self.assertEqual(self._cell(dialog, "White", TIER_SCORE), "2 · 100%")
+        self.assertEqual(self._cell(dialog, "Abbot", TIER_SCORE), "–")
+        self.assertIn("2 Match", dialog.summary_label.get_text())
+        path = os.path.join(self.tmp.name, "scan.csv")
+        dialog.export_csv(path)
+        with open(path, encoding="utf-8") as handle:
+            self.assertIn("Fake Match", handle.readline())
+
+    def test_cited_records_hidden(self) -> None:
+        """Records the person already cites are not counted or offered."""
+
+        class CitingSource(FakeSource):
+            def cited_keys(self, db: Any, person: Any) -> list[str]:
+                surname = person.get_primary_name().get_surname()
+                return {"White": ["W1"], "Devault": ["D1"]}.get(surname, [])
+
+        self.source = CitingSource()
+        dialog = self._dialog()
+        group = dialog.columns[0]
+        row = dialog.rows[self.handles["White"]]
+        self.assertEqual(dialog.store.get_value(row, group.linked), "1 cited")
+        dialog.run_scan([self.source], list(dialog.items.values()), True, FakeMeter)
+        # White: W2 is new, W1 is already cited.
+        self.assertEqual(self._cell(dialog, "White", TIER_GS), "1 · 100%")
+        # Devault: the only record found is already cited.
+        self.assertEqual(self._cell(dialog, "Devault", TIER_GS), "cited")
+        self.assertEqual(self._cell(dialog, "Abbot", TIER_GS), "–")
+        dialog.offer_matches(self.handles["White"], self.source, TIER_GS)
+        self.assertEqual(self.source.opened, [(self.handles["White"], "W2")])
+        dialog.offer_matches(self.handles["Devault"], self.source, TIER_GS)
+        self.assertIn("already cited", dialog.status_label.get_text())
+
+    def test_skip_cited_people(self) -> None:
+        """With skip_cited, people who cite the source are not searched."""
+
+        class SkippingSource(FakeSource):
+            skip_cited = True
+
+            def cited_keys(self, db: Any, person: Any) -> list[str]:
+                surname = person.get_primary_name().get_surname()
+                return ["D1"] if surname == "Devault" else []
+
+            def search(self, query: RecordQuery) -> list[SourceMatch]:
+                self.searched_names = getattr(self, "searched_names", [])
+                self.searched_names.append(query.surnames[0])
+                return super().search(query)
+
+        self.source = SkippingSource()
+        dialog = self._dialog()
+        dialog.run_scan([self.source], list(dialog.items.values()), True, FakeMeter)
+        self.assertNotIn("Devault", self.source.searched_names)
+        self.assertEqual(self._cell(dialog, "Devault", TIER_GS), "cited")
 
     def test_saved_results_shown_on_open(self) -> None:
         """Results saved by one window are shown by the next."""
@@ -401,6 +493,60 @@ class RecordScanDialogTest(unittest.TestCase):
         self.assertEqual(len(rows), 4)
         self.assertIn("Fake g/s", rows[0])
         self.assertEqual(rows[1][0], "Abbot")
+
+    def test_show_check_boxes(self) -> None:
+        """
+        Each source has a "show" check box, on by default; unchecking one
+        hides its columns and leaves it out of Scan All, the summary and
+        the CSV.
+        """
+        from gramps.gui.gwizard.gwizard_filemerge_recordscandialog import (
+            RecordScanDialog,
+        )
+
+        class OtherSource(FakeSource):
+            source_id = "other"
+            title = "Other"
+
+        other = OtherSource()
+        dialog = RecordScanDialog(
+            self.dbstate,
+            sources=[self.source, other],
+            cache=ScanCache(self.cache_path),
+        )
+        self.addCleanup(dialog.destroy)
+        self.assertTrue(all(c.get_active() for c in dialog.show_checks.values()))
+        dialog.run_scan(
+            [self.source, other], list(dialog.items.values()), True, FakeMeter
+        )
+        self.assertIn("Other:", dialog.summary_label.get_text())
+
+        dialog.show_checks["other"].set_active(False)
+        self.assertFalse(
+            any(c.get_visible() for c in dialog.source_view_columns["other"])
+        )
+        self.assertTrue(
+            all(c.get_visible() for c in dialog.source_view_columns["fake"])
+        )
+        self.assertNotIn("Other:", dialog.summary_label.get_text())
+        self.assertFalse(dialog.scan_buttons["other"].get_sensitive())
+        from unittest import mock
+
+        with mock.patch.object(dialog, "run_scan") as run_scan:
+            dialog.cb_scan(None, None)
+        self.assertEqual([s.source_id for s in run_scan.call_args.args[0]], ["fake"])
+        path = os.path.join(self.tmp.name, "shown.csv")
+        dialog.export_csv(path)
+        with open(path, encoding="utf-8") as handle:
+            header = next(csv.reader(handle))
+        self.assertIn("Fake g/s", header)
+        self.assertFalse(any(name.startswith("Other") for name in header))
+
+        dialog.show_checks["other"].set_active(True)
+        self.assertTrue(
+            all(c.get_visible() for c in dialog.source_view_columns["other"])
+        )
+        self.assertIn("Other:", dialog.summary_label.get_text())
 
 
 if __name__ == "__main__":

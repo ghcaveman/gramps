@@ -51,6 +51,7 @@ from gramps.gen.lib import (
     EventRef,
     Place,
     Name,
+    NameType,
     Family,
     FamilyRelType,
     ChildRef,
@@ -90,6 +91,10 @@ from .gwizard_base import (
     SourceMatcher,
     normalize_source_text,
     source_signature,
+    name_covers,
+    parent_age_problem,
+    person_birth_year,
+    relative_match_problem,
 )
 from .gwizard_filemerge_media import (
     TargetMediaIndex,
@@ -131,6 +136,30 @@ def format_link_preview(entries: list[dict[str, Any]]) -> str:
             lines.append("    " + _("Nothing to link yet."))
         lines.append("")
     return "\n".join(lines).rstrip()
+
+
+def keep_replaced_name(person: Any, old_name: Any) -> bool:
+    """
+    After a merge changed a person's primary name, keep the name it had as
+    an "Also Known As" alternate name, unless the new name (or an alternate
+    name already there) holds everything the old one did.
+
+    :returns: True when the old name was added.
+    """
+    new_name = person.get_primary_name()
+    old_given = str(old_name.get_first_name() or "")
+    old_surname = surname_text(old_name)
+    if not (old_given or old_surname):
+        return False
+    for name in [new_name] + list(person.get_alternate_names()):
+        if name_covers(str(name.get_first_name() or ""), old_given) and name_covers(
+            surname_text(name), old_surname
+        ):
+            return False
+    kept = copy.deepcopy(old_name)
+    kept.set_type(NameType(NameType.AKA))
+    person.add_alternate_name(kept)
+    return True
 
 
 def format_link_summary(
@@ -1200,7 +1229,21 @@ class GedGWizard(GWizardBase):
         if not matches:
             return None
         matches.sort(key=lambda m: m[1], reverse=True)
-        return matches[0][0]
+        # A score can pass on a first name alone, so the best match is used
+        # only when its surname and birth year also fit the relative. A
+        # match refused only for its birth year is remembered, so the link
+        # summary can say who it was and the user can link them by hand.
+        refused: tuple[str, str] | None = None
+        for handle, _score in matches:
+            target = safe_get_person(self.db, handle)
+            problem = relative_match_problem(rel, source_db, target, self.db)
+            if not problem:
+                return handle
+            if problem == "birth_year" and refused is None:
+                refused = (handle, problem)
+        if refused is not None:
+            self.context.setdefault("refused_matches", {})[s_handle] = refused[0]
+        return None
 
     def _find_target_family(
         self,
@@ -1359,6 +1402,42 @@ class GedGWizard(GWizardBase):
             )
         return entries
 
+    def missing_relatives(self, source_person_handle: str) -> list[str]:
+        """
+        Return the handles of the incoming person's parents, spouses and
+        children who have nobody in the tree: the people the
+        ``add_missing_relatives`` option of the apply step would add.
+
+        A relative whose name matched someone in the tree but was refused
+        only for the birth year is not listed: they are not added.
+        """
+        source_db = self.context.get("source_db")
+        s_person = (
+            safe_get_person(source_db, source_person_handle) if source_db else None
+        )
+        if s_person is None:
+            return []
+        handles: list[str] = []
+        for sf_handle in s_person.get_parent_family_handle_list():
+            s_family = safe_get_family(source_db, sf_handle)
+            if s_family is not None:
+                handles += [s_family.get_father_handle(), s_family.get_mother_handle()]
+        for sf_handle in s_person.get_family_handle_list():
+            s_family = safe_get_family(source_db, sf_handle)
+            if s_family is not None:
+                handles += [s_family.get_father_handle(), s_family.get_mother_handle()]
+                handles += [ref.ref for ref in s_family.get_child_ref_list()]
+        missing: list[str] = []
+        for handle in handles:
+            if not handle or handle == source_person_handle or handle in missing:
+                continue
+            if self._best_target_person(handle) is not None:
+                continue
+            if handle in (self.context.get("refused_matches") or {}):
+                continue
+            missing.append(handle)
+        return missing
+
     def link_preview(self, source_person_handle: str) -> list[dict[str, Any]]:
         """
         Describe, without changing anything, how the families of an
@@ -1446,10 +1525,19 @@ class GedGWizard(GWizardBase):
         source_matcher = SourceMatcher(self.db)
         # Link a new person's families into the tree (on by default).
         link_families = bool(kwargs.get("link_families", True))
+        # Add the incoming person's parents, spouses and children who are
+        # not in the tree as new people, instead of leaving them out (off
+        # by default). A relative who matches someone in the tree is linked
+        # to that person as always, and nobody is added twice.
+        add_missing_relatives = bool(kwargs.get("add_missing_relatives", False))
         # Who the merge has already added or merged, and what linking did.
         person_map: dict[str, str] = self.context.setdefault("person_map", {})
         link_summary: list[dict[str, str]] = []
         self.context["link_summary"] = link_summary
+        self.context["refused_matches"] = {}
+        # Tree handles of the relatives this apply added as new people.
+        added_relatives: list[str] = []
+        self.context["added_relatives"] = added_relatives
         best_target_person = self._best_target_person
         family_keys: list[str] = []
 
@@ -2133,6 +2221,83 @@ class GedGWizard(GWizardBase):
                     waiting.append(source_name(s_child_ref.ref))
 
             label = family_label(s_family)
+
+            # Name matches refused for their birth year: say who they were.
+            refused_matches = self.context.get("refused_matches") or {}
+            linked_children = {ref.ref for ref, _t in t_children}
+            not_found = [
+                handle
+                for handle, found in ((s_father, t_father), (s_mother, t_mother))
+                if handle and not found
+            ] + [
+                ref.ref
+                for ref in s_family.get_child_ref_list()
+                if ref.ref not in linked_children
+            ]
+            for s_rel in not_found:
+                t_rel = refused_matches.get(s_rel)
+                if not t_rel or t_rel in claimed:
+                    continue
+                s_year = person_birth_year(source_db, safe_get_person(source_db, s_rel))
+                t_year = person_birth_year(self.db, safe_get_person(self.db, t_rel))
+                link_summary.append(
+                    {
+                        "status": "conflict",
+                        "family": label,
+                        "detail": _(
+                            "%(tree)s (born %(tyear)d) may be %(incoming)s "
+                            "(born %(syear)d), but their birth years are "
+                            "%(gap)d years apart; not linked"
+                        )
+                        % {
+                            "tree": target_name(t_rel),
+                            "tyear": t_year,
+                            "incoming": source_name(s_rel),
+                            "syear": s_year,
+                            "gap": abs(s_year - t_year),
+                        },
+                    }
+                )
+
+            # A parent born too short or too long a time before a child is
+            # not that child's parent, whoever the match says it is.
+            age_conflicts: list[str] = []
+            child_years = [
+                (t_child, person_birth_year(self.db, safe_get_person(self.db, t_child)))
+                for _ref, t_child in t_children
+            ]
+            for role in ("father", "mother"):
+                t_parent = t_father if role == "father" else t_mother
+                if not t_parent:
+                    continue
+                parent_year = person_birth_year(
+                    self.db, safe_get_person(self.db, t_parent)
+                )
+                for t_child, child_year in child_years:
+                    if parent_age_problem(parent_year, child_year):
+                        age_conflicts.append(
+                            _(
+                                "%(parent)s (born %(pyear)d) cannot be a parent "
+                                "of %(child)s (born %(cyear)d); not linked"
+                            )
+                            % {
+                                "parent": target_name(t_parent),
+                                "pyear": parent_year,
+                                "child": target_name(t_child),
+                                "cyear": child_year,
+                            }
+                        )
+                        if role == "father":
+                            t_father = None
+                        else:
+                            t_mother = None
+                        break
+            for text in age_conflicts:
+                link_summary.append(
+                    {"status": "conflict", "family": label, "detail": text}
+                )
+            claimed = {handle for handle in (t_father, t_mother) if handle}
+            claimed.update(t_child for _ref, t_child in t_children)
             if len(claimed) < 2:
                 # Nobody to link to yet; the family is built when more of
                 # its members are in the tree.
@@ -2336,65 +2501,196 @@ class GedGWizard(GWizardBase):
             else:
                 t_person_obj.add_address(new_item)
 
+        def copy_new_person(s_obj: Person, trans: Any) -> str:
+            """
+            Add a copy of the incoming person ``s_obj`` to the tree: its
+            events, names, attributes and the objects they refer to, but no
+            family links (linking its families makes those).
+
+            :returns: The new person's handle.
+            """
+            new_person = copy.deepcopy(s_obj)
+            if new_person.handle and self.db.has_person_handle(new_person.handle):
+                new_person.set_handle(None)
+            if new_person.gramps_id and self.db.has_person_gramps_id(
+                new_person.gramps_id
+            ):
+                new_person.set_gramps_id("")
+            resolve_references_for_person(new_person, trans)
+
+            birth_idx = new_person.birth_ref_index
+            death_idx = new_person.death_ref_index
+            new_event_refs: list[Any] = []
+            new_birth_idx = new_death_idx = -1
+            for idx, event_ref in enumerate(new_person.get_event_ref_list()):
+                target_event_handle = copy_event(event_ref.ref, trans)
+                if not target_event_handle:
+                    continue
+                event_ref.ref = target_event_handle
+                remap_citations_notes(event_ref)
+                for attribute in event_ref.get_attribute_list():
+                    remap_citations_notes(attribute)
+                if idx == birth_idx:
+                    new_birth_idx = len(new_event_refs)
+                if idx == death_idx:
+                    new_death_idx = len(new_event_refs)
+                new_event_refs.append(event_ref)
+            new_person.set_event_ref_list(new_event_refs)
+            new_person.birth_ref_index = new_birth_idx
+            new_person.death_ref_index = new_death_idx
+
+            for name in [
+                new_person.get_primary_name()
+            ] + new_person.get_alternate_names():
+                remap_citations_notes(name)
+            for attribute in new_person.get_attribute_list():
+                remap_citations_notes(attribute)
+            for address in new_person.get_address_list():
+                remap_citations_notes(address)
+            # Media references and their citations were copied by
+            # resolve_references_for_person.
+            for ordinance in new_person.get_lds_ord_list():
+                remap_citations_notes(ordinance)
+                ordinance.set_place_handle(
+                    get_or_create_place(ordinance.get_place_handle(), trans) or ""
+                )
+                ordinance.set_family_handle(None)
+
+            new_person.set_family_handle_list([])
+            new_person.set_parent_family_handle_list([])
+            new_person.set_person_ref_list([])
+            new_person.set_tag_list([])
+
+            self.db.add_person(new_person, trans)
+            LOG.info("Added new person: %s", new_person.handle)
+            return new_person.handle
+
+        # ------------------------------------------------------------------
+        # Adding relatives the tree lacks (``add_missing_relatives``).
+        #
+        # Only the incoming person's own parents, spouses and children are
+        # added, never their relatives in turn. Someone the matcher refused
+        # only for a birth year is not added either: they may well be the
+        # tree's person, and the link summary names them so the user can
+        # decide.
+        # ------------------------------------------------------------------
+        added_families: list[str] = []
+
+        def source_family_with(s_obj: Person, s_rel: str) -> Family | None:
+            """Return the incoming family that holds both people, if any."""
+            for sf_handle in list(s_obj.get_parent_family_handle_list()) + list(
+                s_obj.get_family_handle_list()
+            ):
+                s_family = safe_get_family(source_db, sf_handle)
+                if s_family is None:
+                    continue
+                members = {
+                    s_family.get_father_handle(),
+                    s_family.get_mother_handle(),
+                } | {ref.ref for ref in s_family.get_child_ref_list()}
+                if s_rel in members:
+                    return s_family
+            return None
+
+        def add_missing_relative(
+            s_rel: str | None, role: str, s_obj: Person, trans: Any
+        ) -> str | None:
+            """
+            Return the tree person for the relative ``s_rel`` of ``s_obj``,
+            adding them as a new person when the tree has nobody for them.
+
+            :param role: "parent", "spouse" or "child", from ``s_obj``'s
+                point of view.
+            :returns: The tree person's handle, or None when the relative is
+                not in the tree and was not added.
+            """
+            if not s_rel or s_rel == s_obj.handle:
+                return None
+            found = best_target_person(s_rel)
+            if found or not add_missing_relatives:
+                return found
+            if s_rel in (self.context.get("refused_matches") or {}):
+                return None
+            s_rel_obj = safe_get_person(source_db, s_rel)
+            if s_rel_obj is None:
+                return None
+            s_family = source_family_with(s_obj, s_rel)
+            label = family_label(s_family) if s_family else source_name(s_rel)
+            rel_year = person_birth_year(source_db, s_rel_obj)
+            own_year = person_birth_year(source_db, s_obj)
+            if role == "parent":
+                problem = parent_age_problem(rel_year, own_year)
+            elif role == "child":
+                problem = parent_age_problem(own_year, rel_year)
+            else:
+                problem = ""
+            if problem:
+                link_summary.append(
+                    {
+                        "status": "conflict",
+                        "family": label,
+                        "detail": _(
+                            "%(name)s (born %(year)d) was not added: born too "
+                            "far from %(other)s (born %(other_year)d) to be "
+                            "their %(role)s"
+                        )
+                        % {
+                            "name": source_name(s_rel),
+                            "year": rel_year,
+                            "other": source_name(s_obj.handle),
+                            "other_year": own_year,
+                            "role": _("parent") if role == "parent" else _("child"),
+                        },
+                    }
+                )
+                return None
+            new_handle = copy_new_person(s_rel_obj, trans)
+            person_map[s_rel] = new_handle
+            added_relatives.append(new_handle)
+            link_summary.append(
+                {
+                    "status": "added",
+                    "family": label,
+                    "detail": _("%s added as a new person") % source_name(s_rel),
+                }
+            )
+            if s_family is not None and s_family.handle not in added_families:
+                added_families.append(s_family.handle)
+            return new_handle
+
+        def add_missing_family_members(
+            sf_handle: str, s_obj: Person, trans: Any
+        ) -> None:
+            """Add the missing spouse and children of a family ``s_obj`` heads."""
+            s_family = safe_get_family(source_db, sf_handle)
+            if s_family is None:
+                return
+            for handle in (s_family.get_father_handle(), s_family.get_mother_handle()):
+                add_missing_relative(handle, "spouse", s_obj, trans)
+            for ref in s_family.get_child_ref_list():
+                add_missing_relative(ref.ref, "child", s_obj, trans)
+
+        def add_missing_members(s_obj: Person, trans: Any) -> None:
+            """Add the missing parents, spouses and children of ``s_obj``."""
+            for sf_handle in s_obj.get_parent_family_handle_list():
+                s_family = safe_get_family(source_db, sf_handle)
+                if s_family is None:
+                    continue
+                for handle in (
+                    s_family.get_father_handle(),
+                    s_family.get_mother_handle(),
+                ):
+                    add_missing_relative(handle, "parent", s_obj, trans)
+            for sf_handle in s_obj.get_family_handle_list():
+                add_missing_family_members(sf_handle, s_obj, trans)
+
         with DbTxn(_("GWizard Data Merge"), self.db) as trans:
             if target_person_handle is None:
                 # Add as entirely new person
-                new_person = copy.deepcopy(s_person)
-                if new_person.handle and self.db.has_person_handle(new_person.handle):
-                    new_person.set_handle(None)
-                if new_person.gramps_id and self.db.has_person_gramps_id(
-                    new_person.gramps_id
-                ):
-                    new_person.set_gramps_id("")
-                resolve_references_for_person(new_person, trans)
-
-                birth_idx = new_person.birth_ref_index
-                death_idx = new_person.death_ref_index
-                new_event_refs: list[Any] = []
-                new_birth_idx = new_death_idx = -1
-                for idx, event_ref in enumerate(new_person.get_event_ref_list()):
-                    target_event_handle = copy_event(event_ref.ref, trans)
-                    if not target_event_handle:
-                        continue
-                    event_ref.ref = target_event_handle
-                    remap_citations_notes(event_ref)
-                    for attribute in event_ref.get_attribute_list():
-                        remap_citations_notes(attribute)
-                    if idx == birth_idx:
-                        new_birth_idx = len(new_event_refs)
-                    if idx == death_idx:
-                        new_death_idx = len(new_event_refs)
-                    new_event_refs.append(event_ref)
-                new_person.set_event_ref_list(new_event_refs)
-                new_person.birth_ref_index = new_birth_idx
-                new_person.death_ref_index = new_death_idx
-
-                for name in [
-                    new_person.get_primary_name()
-                ] + new_person.get_alternate_names():
-                    remap_citations_notes(name)
-                for attribute in new_person.get_attribute_list():
-                    remap_citations_notes(attribute)
-                for address in new_person.get_address_list():
-                    remap_citations_notes(address)
-                # Media references and their citations were copied by
-                # resolve_references_for_person.
-                for ordinance in new_person.get_lds_ord_list():
-                    remap_citations_notes(ordinance)
-                    ordinance.set_place_handle(
-                        get_or_create_place(ordinance.get_place_handle(), trans) or ""
-                    )
-                    ordinance.set_family_handle(None)
-
-                new_person.set_family_handle_list([])
-                new_person.set_parent_family_handle_list([])
-                new_person.set_person_ref_list([])
-                new_person.set_tag_list([])
-
-                self.db.add_person(new_person, trans)
-                LOG.info("Added new person: %s", new_person.handle)
-                person_map[s_person.handle] = new_person.handle
+                person_map[s_person.handle] = copy_new_person(s_person, trans)
                 if link_families:
+                    if add_missing_relatives:
+                        add_missing_members(s_person, trans)
                     link_families_for(s_person, trans)
             else:
                 # Merge into existing target person
@@ -2402,31 +2698,29 @@ class GedGWizard(GWizardBase):
                 if not t_person:
                     return False
 
-                # Apply choices
+                # Apply choices. A merge never loses name detail: an incoming
+                # given name or surname that the tree's already holds (the
+                # same words, initials matching whole words) leaves it as it
+                # is, and a name that is replaced is kept as an "Also Known
+                # As" name.
+                old_name = copy.deepcopy(t_person.get_primary_name())
                 # 1. Given Name
                 if resolutions.get("given_name") == "source":
                     s_given = str(s_person.get_primary_name().first_name or "").strip()
                     t_given = str(t_person.get_primary_name().first_name or "").strip()
-                    s_toks = s_given.split()
-                    t_toks = t_given.split()
-                    # Preserve richer detail: if target has middle names and source is merely
-                    # a prefix or subset (e.g. target 'John Fitzgerald' vs source 'John'),
-                    # keep the fuller target name instead of truncating.
-                    if (
-                        len(t_toks) > len(s_toks)
-                        and s_toks
-                        and t_toks[: len(s_toks)] == s_toks
-                    ):
-                        pass
-                    else:
+                    if not name_covers(t_given, s_given):
                         t_person.get_primary_name().first_name = s_given
 
                 # 2. Surname
                 if resolutions.get("surname") == "source":
-                    # Clear target surname list and copy source list
-                    t_person.get_primary_name().surname_list = copy.deepcopy(
-                        s_person.get_primary_name().surname_list
-                    )
+                    s_surname = surname_text(s_person.get_primary_name())
+                    t_surname = surname_text(t_person.get_primary_name())
+                    if not name_covers(t_surname, s_surname):
+                        # Clear target surname list and copy source list
+                        t_person.get_primary_name().surname_list = copy.deepcopy(
+                            s_person.get_primary_name().surname_list
+                        )
+                keep_replaced_name(t_person, old_name)
 
                 # 2b. Surname Prefix (a GEDCOM SPFX value lives on the
                 # Surname itself, so only the prefixes of the surnames
@@ -2649,7 +2943,9 @@ class GedGWizard(GWizardBase):
                     # linked through their best-matching target person.
                     if key.startswith(("father:", "mother:")):
                         role, s_handle = key.split(":", 1)
-                        t_rel_h = best_target_person(s_handle)
+                        t_rel_h = add_missing_relative(
+                            s_handle, "parent", s_person, trans
+                        )
                         if not t_rel_h:
                             LOG.warning("No target match for %s; skipped", key)
                             continue
@@ -2676,7 +2972,9 @@ class GedGWizard(GWizardBase):
                     # 9. Spouse, key is "spouse:<source person handle>".
                     if key.startswith("spouse:"):
                         s_handle = key.split(":", 1)[1]
-                        t_rel_h = best_target_person(s_handle)
+                        t_rel_h = add_missing_relative(
+                            s_handle, "spouse", s_person, trans
+                        )
                         t_rel = safe_get_person(self.db, t_rel_h) if t_rel_h else None
                         if not t_rel:
                             LOG.warning("No target match for spouse; skipped")
@@ -2725,7 +3023,9 @@ class GedGWizard(GWizardBase):
                     # 10. Child, key is "child:<source person handle>".
                     if key.startswith("child:"):
                         s_handle = key.split(":", 1)[1]
-                        t_rel_h = best_target_person(s_handle)
+                        t_rel_h = add_missing_relative(
+                            s_handle, "child", s_person, trans
+                        )
                         if not t_rel_h:
                             LOG.warning("No target match for child; skipped")
                             continue
@@ -2774,10 +3074,14 @@ class GedGWizard(GWizardBase):
                 LOG.info("Merged changes into person: %s", t_person.handle)
                 person_map[s_person.handle] = t_person.handle
                 if resolutions.get("link_families") == "source":
+                    if add_missing_relatives:
+                        add_missing_members(s_person, trans)
                     link_families_for(s_person, trans)
                 # Families chosen one by one in the merge dialog; the person
                 # is saved first so the families see their current record.
                 for sf_handle in family_keys:
+                    if add_missing_relatives:
+                        add_missing_family_members(sf_handle, s_person, trans)
                     try:
                         reconcile_family(sf_handle, trans, override=True)
                     except Exception:  # pylint: disable=broad-except
@@ -2791,5 +3095,17 @@ class GedGWizard(GWizardBase):
                                 "detail": _("could not be merged (see the log)"),
                             }
                         )
+
+            # Families of relatives added on their own (a parent or spouse
+            # chosen in the merge dialog): link them in full, so the
+            # family's events and the other members already in the tree
+            # come along too.
+            for sf_handle in added_families:
+                if sf_handle in family_keys:
+                    continue
+                try:
+                    reconcile_family(sf_handle, trans)
+                except Exception:  # pylint: disable=broad-except
+                    LOG.warning("Could not link family %s", sf_handle, exc_info=True)
 
         return True

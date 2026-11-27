@@ -44,7 +44,10 @@ keep_unrewritten = [
 # gwizard_filemerge_recordscandialog.py) ship here, but its menu entry does
 # not: the record-source addons (WikiTree, NARA, FamilySearch) register it
 # and bundle its thin tool module, gwizard_filemerge_scan.py, so the entry
-# only appears once a record source is installed.
+# only appears once a record source is installed. The Multi-Archive
+# Citation Scan works the same way: gwizard_filemerge_citationscan.py and
+# gwizard_filemerge_citationscandialog.py ship here; its tool module is
+# gwizard_filemerge_citescan.py.
 
 [files.test_data]
 source = "gramps/gen/gwizard/test/data"
@@ -65,9 +68,11 @@ ignore = [
     "*.ged",
     "environment_create*.py",
     "make_gwizard_testdata_images.py",
-    # Multi-Archive Record Scan tool module and its test: bundled by the
-    # record-source addons, which register the menu entry.
+    # Multi-Archive Record Scan and Multi-Archive Citation Scan tool modules
+    # (and the record scan's test): bundled by the record-source addons,
+    # which register the menu entries.
     "gramps/plugins/tool/gwizard_filemerge_scan.py",
+    "gramps/plugins/tool/gwizard_filemerge_citescan.py",
     "gramps/plugins/tool/test/gwizard_filemerge_scan_test.py",
     "gramps/plugins/tool/tools.gpr.py",
     "po/POTFILES.in",
