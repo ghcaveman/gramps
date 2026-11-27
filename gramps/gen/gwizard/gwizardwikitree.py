@@ -458,7 +458,7 @@ def store_wikitree_id(person: Any, wt_id: str) -> bool:
 
 
 _DEFAULT_FIELDS = (
-    "Id,Name,FirstName,MiddleName,MiddleInitial,LastNameBirth,LastNameCurrent,LastNameOther,"
+    "Id,Name,FirstName,MiddleName,MiddleInitial,LastNameAtBirth,LastNameCurrent,LastNameOther,"
     "RealName,ColloquialName,Prefix,Suffix,Nicknames,Gender,BirthDate,DeathDate,BirthDateDecade,"
     "DeathDateDecade,BirthLocation,DeathLocation,BirthDateStatus,DeathDateStatus,"
     "IsLiving,Privacy,Touched,Manager,Created,Photo,PhotoData,Father,Mother,Parents,"
@@ -716,6 +716,25 @@ def _remove_empty_dir(cache_path: str, wanted_path: str) -> None:
             os.rmdir(folder)
         except OSError:
             pass
+
+
+def relative_items(value: Any) -> list[dict[str, Any]]:
+    """
+    Return a profile's Parents, Children or Spouses as a list of profile
+    dicts. The WikiTree API returns them as an object keyed by Id; a list
+    (as some callers and tests pass) is accepted too.
+    """
+    if isinstance(value, dict):
+        items = []
+        for key, item in value.items():
+            if isinstance(item, dict):
+                if not item.get("Id") and str(key).isdigit():
+                    item = dict(item, Id=int(key))
+                items.append(item)
+        return items
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    return []
 
 
 # ------------------------------------------------------------
@@ -1913,18 +1932,16 @@ class WikiTreeGWizard(GedGWizard):
         if self.context.get("include_relatives") and client:
             missing_keys: list[str] = []
             for p in list(raw_people):
-                spouses = p.get("Spouses")
-                if isinstance(spouses, list):
-                    for sp in spouses:
-                        if isinstance(sp, dict):
-                            sp_id = str(sp.get("Id") or sp.get("Name") or "")
-                            if (
-                                sp_id
-                                and sp_id not in existing_ids
-                                and sp_id not in existing_names
-                                and sp_id not in missing_keys
-                            ):
-                                missing_keys.append(sp_id)
+                for sp in relative_items(p.get("Spouses")):
+                    sp_id = str(sp.get("Name") or sp.get("Id") or "")
+                    if (
+                        sp_id
+                        and str(sp.get("Id") or "") not in existing_ids
+                        and sp_id not in existing_ids
+                        and sp_id not in existing_names
+                        and sp_id not in missing_keys
+                    ):
+                        missing_keys.append(sp_id)
                 children = p.get("Children")
                 if isinstance(children, dict):
                     for ch_id, ch_data in children.items():
@@ -2740,11 +2757,9 @@ class WikiTreeGWizard(GedGWizard):
                 if not p_handle:
                     continue
 
-                spouses = pdata.get("Spouses")
-                if isinstance(spouses, list):
+                spouses = relative_items(pdata.get("Spouses"))
+                if spouses:
                     for spouse_item in spouses:
-                        if not isinstance(spouse_item, dict):
-                            continue
                         s_key = str(spouse_item.get("Name") or "")
                         s_id = str(spouse_item.get("Id") or "")
                         s_handle = person_handle_map.get(
