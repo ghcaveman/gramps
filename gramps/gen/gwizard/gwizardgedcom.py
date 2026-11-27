@@ -92,7 +92,7 @@ from .gwizard_base import (
     source_signature,
     parent_age_problem,
     person_birth_year,
-    relative_match_plausible,
+    relative_match_problem,
 )
 from .gwizard_filemerge_media import (
     TargetMediaIndex,
@@ -1204,11 +1204,19 @@ class GedGWizard(GWizardBase):
             return None
         matches.sort(key=lambda m: m[1], reverse=True)
         # A score can pass on a first name alone, so the best match is used
-        # only when its surname and birth year also fit the relative.
+        # only when its surname and birth year also fit the relative. A
+        # match refused only for its birth year is remembered, so the link
+        # summary can say who it was and the user can link them by hand.
+        refused: tuple[str, str] | None = None
         for handle, _score in matches:
             target = safe_get_person(self.db, handle)
-            if relative_match_plausible(rel, source_db, target, self.db):
+            problem = relative_match_problem(rel, source_db, target, self.db)
+            if not problem:
                 return handle
+            if problem == "birth_year" and refused is None:
+                refused = (handle, problem)
+        if refused is not None:
+            self.context.setdefault("refused_matches", {})[s_handle] = refused[0]
         return None
 
     def _find_target_family(
@@ -1459,6 +1467,7 @@ class GedGWizard(GWizardBase):
         person_map: dict[str, str] = self.context.setdefault("person_map", {})
         link_summary: list[dict[str, str]] = []
         self.context["link_summary"] = link_summary
+        self.context["refused_matches"] = {}
         best_target_person = self._best_target_person
         family_keys: list[str] = []
 
@@ -2142,6 +2151,43 @@ class GedGWizard(GWizardBase):
                     waiting.append(source_name(s_child_ref.ref))
 
             label = family_label(s_family)
+
+            # Name matches refused for their birth year: say who they were.
+            refused_matches = self.context.get("refused_matches") or {}
+            linked_children = {ref.ref for ref, _t in t_children}
+            not_found = [
+                handle
+                for handle, found in ((s_father, t_father), (s_mother, t_mother))
+                if handle and not found
+            ] + [
+                ref.ref
+                for ref in s_family.get_child_ref_list()
+                if ref.ref not in linked_children
+            ]
+            for s_rel in not_found:
+                t_rel = refused_matches.get(s_rel)
+                if not t_rel or t_rel in claimed:
+                    continue
+                s_year = person_birth_year(source_db, safe_get_person(source_db, s_rel))
+                t_year = person_birth_year(self.db, safe_get_person(self.db, t_rel))
+                link_summary.append(
+                    {
+                        "status": "conflict",
+                        "family": label,
+                        "detail": _(
+                            "%(tree)s (born %(tyear)d) may be %(incoming)s "
+                            "(born %(syear)d), but their birth years are "
+                            "%(gap)d years apart; not linked"
+                        )
+                        % {
+                            "tree": target_name(t_rel),
+                            "tyear": t_year,
+                            "incoming": source_name(s_rel),
+                            "syear": s_year,
+                            "gap": abs(s_year - t_year),
+                        },
+                    }
+                )
 
             # A parent born too short or too long a time before a child is
             # not that child's parent, whoever the match says it is.

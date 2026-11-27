@@ -48,6 +48,7 @@ modules = [
     "gramps/plugins/tool/gwizard_mediafix_common.py",
     "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
     "gramps/plugins/tool/gw_mediapreview.py",
+    "gramps/plugins/tool/gwizard_mediafix_basepath.py",
 ]
 
 [check]
@@ -67,6 +68,7 @@ ignore = [
     # Media Fix tests come with the dependency; MediaFix ships them.
     "gramps/plugins/tool/test/gwizardmediafix*_test.py",
     "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_basepath_test.py",
     # File Merge files and tests, inherited from gwizard_filemerge (the parent
     # branch); the GWizardFileMerge addon ships them.
     "gramps/gen/gwizard/**",

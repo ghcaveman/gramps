@@ -387,6 +387,33 @@ class GWizardMediaFixTest(unittest.TestCase):
             self.assertNotIn("__", formatted)
             self.assertLessEqual(len(formatted), 90)
 
+    def test_format_standard_filename_without_extension(self) -> None:
+        """A file with no extension gets none (no '.jpg' or trailing dot)."""
+        context = {
+            "ref_id": "I0042",
+            "surname": "Smith",
+            "given": "John",
+            "doc_type": "Census",
+            "year": "1920",
+            "id": "O0001",
+            "orig": "scan 1",
+            "ext": "",
+        }
+        for tmpl, _desc in FILENAME_PRESETS:
+            with self.subTest(template=tmpl):
+                formatted = format_standard_filename(tmpl, context)
+                self.assertNotIn(".", formatted)
+        self.assertEqual(
+            format_standard_filename(
+                "{ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}", context
+            ),
+            "I0042_Smith_John-Census-1920",
+        )
+        self.assertEqual(
+            sanitize_standard_filename("/pics/scan 1", template="{orig}.{ext}"),
+            os.path.join("/pics", "scan_1"),
+        )
+
     def test_gwizard_media_fix_window_buttons(self) -> None:
         """GWizardMediaFix controller initializes with the required buttons."""
         mock_user = MagicMock()
