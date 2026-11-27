@@ -34,7 +34,7 @@ import logging
 import mimetypes
 import os
 import re
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import urlparse
 
 # -------------------------------------------------------------------------
@@ -78,7 +78,6 @@ from gramps.gen.lib import (
     NameType,
 )
 from gramps.gen.lib.date import Today
-from gramps.gen.utils.db import get_birth_or_fallback, get_death_or_fallback
 from gramps.gen.utils.file import create_checksum, media_path, relative_path
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 
@@ -88,6 +87,7 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 #
 # -------------------------------------------------------------------------
 from .gwizard_filemerge_media import base_path_configured
+from .gwizard_filemerge_medianaming import person_media_filename, place_file
 from .gwizardgedcom import GedGWizard
 
 LOG = logging.getLogger(__name__)
@@ -306,6 +306,86 @@ def describe_bio_source(cleaned: str, raw: str = "") -> dict[str, str]:
     return info
 
 
+_REF_TAG_RE = re.compile(
+    r"<ref\b[^>]*/>|<ref\b[^>]*>.*?</ref>", re.DOTALL | re.IGNORECASE
+)
+_SENTENCE_END_RE = re.compile(r"[.!?](?=\s)|\n|==")
+_YEAR_RE = re.compile(r"(?<!\d)(1[0-9]{3}|20[0-9]{2})(?!\d)")
+_YEAR_SPAN_RE = re.compile(
+    r"(?<!\d)(1[0-9]{3}|20[0-9]{2})\s*[-\u2013\u2014]\s*(1[0-9]{3}|20[0-9]{2})(?!\d)"
+)
+# Words in the sentence a reference footnotes that make it a source for the
+# birth or the death; matched as words, so "will" is not found in "William".
+_BIRTH_WORDS_RE = re.compile(r"\b(?:born|birth|baptism|baptized|christen)", re.I)
+_DEATH_WORDS_RE = re.compile(
+    r"\b(?:died|death|burial|buried|cemetery|grave|killed|probate|will\b)", re.I
+)
+# How far a source's own year may be from an event's year for the source to
+# be about that event (a baptism or burial a little after the fact, a
+# record dated by its registration year).
+EVENT_YEAR_SLACK = 5
+
+
+def ref_sentence(bio: str, ref_start: int) -> str:
+    """
+    Return the sentence a <ref> tag at ``ref_start`` footnotes: the text
+    before it back to the previous sentence end, line break or heading,
+    with other references taken out.
+
+    A reference follows the sentence it supports ("He was born in
+    1753.<ref>...</ref>"), so only that sentence says what it is about. A
+    wider window reaches into the sentences around it, so a census cited for
+    where someone lived would be read as a birth record because the
+    sentence before it says when they were born.
+    """
+    before = _REF_TAG_RE.sub("", bio[:ref_start]).rstrip()
+    if before[-1:] in ".!?":
+        before = before[:-1]
+    ends = list(_SENTENCE_END_RE.finditer(before))
+    start = 0
+    # A fragment of a few words was cut at an abbreviation ("born in Bucks
+    # Co. Pa."), so it takes in the sentence before it, on the same line.
+    while ends:
+        end = ends.pop()
+        start = end.end()
+        if len(before[start:].split()) >= 4 or end.group() in ("\n", "=="):
+            break
+    else:
+        start = 0 if len(before[start:].split()) < 4 else start
+    return " ".join(before[start:].split())
+
+
+def source_years(title: str) -> list[tuple[int, int]]:
+    """
+    Return the years a source's title names, as (first, last) spans: a
+    "1682-1988" span as one, every other year on its own.
+    """
+    text = title or ""
+    spans = []
+    for match in _YEAR_SPAN_RE.finditer(text):
+        first, last = sorted((int(match.group(1)), int(match.group(2))))
+        spans.append((first, last))
+    text = _YEAR_SPAN_RE.sub(" ", text)
+    spans.extend((int(year), int(year)) for year in _YEAR_RE.findall(text))
+    return spans
+
+
+def source_fits_year(title: str, event_year: int) -> bool:
+    """
+    Return False when a source's title names years and none of them is
+    within EVENT_YEAR_SLACK years of ``event_year``: "United States Census,
+    1820" is not a record of a birth in 1753. A title without a year, or an
+    event without one, fits.
+    """
+    spans = source_years(title)
+    if not spans or not event_year:
+        return True
+    return any(
+        first - EVENT_YEAR_SLACK <= event_year <= last + EVENT_YEAR_SLACK
+        for first, last in spans
+    )
+
+
 def is_wikitree_id(value: str | None) -> bool:
     """
     Check if a string matches the standard WikiTree ID pattern.
@@ -483,10 +563,6 @@ WIKITREE_MEDIA_FOLDER = "WikiTree"
 # merge of the same profile reuses the photo already in the tree.
 WIKITREE_URL_ATTRIBUTE = "WikiTree URL"
 
-# Media Fix's filename template setting and its default (gwizardmediafix.py).
-MEDIAFIX_TEMPLATE_KEY = "preferences.gwizardmediafix-filename-template"
-MEDIAFIX_DEFAULT_TEMPLATE = "{ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}"
-
 
 def wikitree_image_url(file_name: str) -> str:
     """Return the address of the full-size WikiTree image named file_name."""
@@ -515,207 +591,27 @@ def wikitree_media_description(given: str, surname: str, caption: str = "") -> s
     return caption
 
 
-# Media Fix's naming helpers, used when Media Fix is not installed. Kept the
-# same as clean_token, extract_year_and_clean_doctype and
-# format_standard_filename in gwizardmediafix.py; when Media Fix is
-# installed its own functions are used instead.
-def _clean_token(val: Any) -> str:
-    if not val:
-        return ""
-    s = re.sub(r"[\s_]*-+[\s_]*", "-", str(val))
-    clean = re.sub(r"[^\w\-]+", "_", s)
-    clean = re.sub(r"_+", "_", clean)
-    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
-    clean = re.sub(r"-+", "-", clean)
-    return clean.strip("_-")
-
-
-def _extract_year_and_clean_doctype(
-    doc_type: str, surname: str = "", given: str = ""
-) -> tuple[str, str]:
-    if not doc_type:
-        return "", ""
-    year = ""
-    y_match = re.search(r"(?:^|[^\d])(1[5-9]\d{2}|20\d{2})(?:[^\d]|$)", doc_type)
-    if y_match:
-        year = y_match.group(1)
-        doc_type = doc_type[: y_match.start(1)] + " " + doc_type[y_match.end(1) :]
-    sur_giv_m = re.match(
-        r"^\s*(?:[^\W\d_]|[\s'\-])+?,\s*(?:[^\W\d_]|[\s'\-])+?\s*[-_:]+\s*(.+)$",
-        doc_type,
-    )
-    if sur_giv_m:
-        doc_type = sur_giv_m.group(1)
-    if surname:
-        pats = (
-            [
-                rf"(?i)^\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*[-_:]*\s*",
-                rf"(?i)^\s*{re.escape(given)}\s+{re.escape(surname)}\s*[-_:]*\s*",
-                rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*",
-                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*$",
-                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*$",
-            ]
-            if given
-            else [rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*"]
-        )
-        for pat in pats:
-            doc_type = re.sub(pat, "", doc_type)
-    clean = re.sub(r"[^\w\-]+", "_", doc_type)
-    clean = re.sub(r"[\s_]*-+[\s_]*", "-", clean)
-    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
-    clean = re.sub(r"_+", "_", clean).strip("_-")
-    return clean, year
-
-
-def _format_standard_filename(
-    template: str, context: dict[str, str], max_stem_len: int = 85
+def media_fix_filename(
+    db: Any, person: Any, media: Any, ext: str, file_path: str = ""
 ) -> str:
-    ext = _clean_token(context.get("ext", "jpg")).lower() or "jpg"
-    safe_context = {k: _clean_token(v) for k, v in context.items() if k != "ext"}
-    safe_context["ext"] = ext
-    try:
-        rendered = template.format(**safe_context)
-    except (KeyError, ValueError, IndexError):
-        rendered = f"{safe_context.get('ref_id', '')}_{safe_context.get('orig', 'media')}.{ext}"
-    base = rendered.rsplit(".", 1)[0] if "." in rendered else rendered
-    base = re.sub(r"[\s_]*-+[\s_]*", "-", base)
-    base = re.sub(r"[^\w\-]+", "_", base)
-    base = re.sub(r"_+", "_", base)
-    base = re.sub(r"[-_]*-[_\s-]*", "-", base)
-    base = re.sub(r"-+", "-", base)
-    base = base.strip("_-")
-    if not base:
-        base = (
-            _clean_token(safe_context.get("orig") or safe_context.get("id")) or "media"
-        )
-    if len(base) > max_stem_len:
-        base = base[:max_stem_len].rstrip("_-")
-    return f"{base}.{ext}"
-
-
-def _mediafix_naming() -> tuple[Callable[..., Any], Callable[..., Any], str]:
-    """
-    Return Media Fix's (extract_year_and_clean_doctype,
-    format_standard_filename, template), from Media Fix itself when it is
-    installed, otherwise from the copies above.
-    """
-    template = MEDIAFIX_DEFAULT_TEMPLATE
-    try:
-        template = str(config.get(MEDIAFIX_TEMPLATE_KEY) or template)
-    except Exception:  # pylint: disable=broad-except
-        pass
-    try:
-        # pylint: disable=import-outside-toplevel
-        from gramps.plugins.tool.gwizardmediafix import (
-            extract_year_and_clean_doctype,
-            format_standard_filename,
-        )
-
-        return extract_year_and_clean_doctype, format_standard_filename, template
-    except Exception:  # pylint: disable=broad-except
-        return _extract_year_and_clean_doctype, _format_standard_filename, template
-
-
-def person_year(db: Any, person: Any) -> str:
-    """
-    Return the year Media Fix uses for a person's media without a date:
-    birth (or fallback), else death (or fallback), else the first dated
-    event. '' when there is none.
-    """
-    if db is None or person is None:
-        return ""
-    try:
-        for event in (
-            get_birth_or_fallback(db, person),
-            get_death_or_fallback(db, person),
-        ):
-            if event is not None and event.get_date_object().get_year() > 0:
-                return str(event.get_date_object().get_year())
-        for event_ref in person.get_event_ref_list():
-            event = db.get_event_from_handle(event_ref.ref)
-            if event is not None and event.get_date_object().get_year() > 0:
-                return str(event.get_date_object().get_year())
-    except Exception:  # pylint: disable=broad-except
-        pass
-    return ""
-
-
-def media_fix_filename(db: Any, person: Any, media: Any, ext: str) -> str:
     """
     Return the file name Media Fix gives a person's media object (its
     person-backlink naming): the year comes from the description, else the
     media date, else the person.
+
+    :param file_path: The downloaded file, for a template that uses {hash}.
     """
-    extract, format_name, template = _mediafix_naming()
-    name = person.get_primary_name()
-    surname = str(name.get_surname() or "")
-    given = str(name.get_first_name() or "")
-    description = str(media.get_description() or "")
-    doc_type, found_year = extract(description or "Photo", surname, given)
-    year = found_year
-    if not year:
-        media_year = media.get_date_object().get_year()
-        year = str(media_year) if media_year > 0 else person_year(db, person)
-    orig = os.path.splitext(os.path.basename(urlparse(media.get_path()).path))[0]
-    context = {
-        "id": str(media.get_gramps_id() or ""),
-        "desc": description,
-        "orig": orig,
-        "ext": (ext or "jpg").lstrip(".").lower(),
-        "ref_id": str(person.get_gramps_id() or ""),
-        "surname": surname,
-        "given": given,
-        "doc_type": doc_type or "Photo",
-        "year": year,
-        "assoc": "",
-        "hash": str(media.get_checksum() or "")[:8],
-    }
-    return format_name(template, context)
-
-
-def place_file(cache_path: str, wanted_path: str) -> str:
-    """
-    Move a downloaded file from the download cache to wanted_path and
-    return where it ended up. A different file already there is never
-    replaced: the file gets the next free "-2", "-3", ... name. An identical
-    file already there is reused. If the move fails the file stays in the
-    cache, which is still a valid media path.
-    """
-    if not wanted_path or os.path.normcase(
-        os.path.abspath(cache_path)
-    ) == os.path.normcase(os.path.abspath(wanted_path)):
-        return cache_path
-    stem, ext = os.path.splitext(wanted_path)
-    candidate = wanted_path
-    number = 1
-    try:
-        new_sum = create_checksum(cache_path)
-        while os.path.exists(candidate):
-            if new_sum and create_checksum(candidate) == new_sum:
-                os.remove(cache_path)
-                _remove_empty_dir(cache_path, wanted_path)
-                return candidate
-            number += 1
-            candidate = "%s-%d%s" % (stem, number, ext)
-        os.makedirs(os.path.dirname(candidate) or ".", exist_ok=True)
-        os.replace(cache_path, candidate)
-    except OSError as err:
-        LOG.warning("WikiTree photo %s could not be moved: %s", cache_path, err)
-        return cache_path
-    _remove_empty_dir(cache_path, wanted_path)
-    return candidate
-
-
-def _remove_empty_dir(cache_path: str, wanted_path: str) -> None:
-    """Remove the download cache folder once it is empty."""
-    folder = os.path.dirname(os.path.abspath(cache_path))
-    if os.path.normcase(folder) != os.path.normcase(
-        os.path.dirname(os.path.abspath(wanted_path))
-    ):
-        try:
-            os.rmdir(folder)
-        except OSError:
-            pass
+    media_year = media.get_date_object().get_year()
+    return person_media_filename(
+        db,
+        person,
+        str(media.get_description() or ""),
+        ext,
+        year=media_year if media_year > 0 else "",
+        media_id=str(media.get_gramps_id() or ""),
+        orig=os.path.splitext(os.path.basename(urlparse(media.get_path()).path))[0],
+        file_path=file_path,
+    )
 
 
 def relative_items(value: Any) -> list[dict[str, Any]]:
@@ -1325,10 +1221,9 @@ class WikiTreeGWizard(GedGWizard):
                 norm = " ".join(content.split()).lower()
                 if norm not in seen_texts:
                     seen_texts.add(norm)
-                    # Extract surrounding context (100 chars before, 50 chars after)
-                    start_pos = max(0, m.start() - 100)
-                    end_pos = min(len(bio), m.end() + 50)
-                    context_snippet = bio[start_pos:end_pos]
+                    # The sentence the reference footnotes says what it
+                    # is a source for (see ref_sentence).
+                    context_snippet = ref_sentence(bio, m.start())
                     sources.append(
                         {
                             "name": name,
@@ -1778,12 +1673,19 @@ class WikiTreeGWizard(GedGWizard):
     def check_profile_drift(
         target_person: Person | None,
         remote_touched: str | None,
+        db: Any = None,
     ) -> dict[str, Any]:
         """
         Check whether a remote WikiTree profile has been modified since it was merged.
 
+        The local time is the newest "Last Modified:" line in the notes of
+        the person's citations (each WikiTree merge writes one), or, for a
+        person merged before those were kept there, a "WikiTree Touched"
+        attribute.
+
         :param target_person: Person in local Gramps database.
         :param remote_touched: Touched timestamp from WikiTree profile.
+        :param db: The database holding the person (for the citation notes).
         :returns: Dictionary with 'has_drift', 'local_touched', 'remote_touched',
             and 'message'.
         """
@@ -1797,10 +1699,26 @@ class WikiTreeGWizard(GedGWizard):
             return result
 
         local_ts = ""
-        for attr in target_person.get_attribute_list():
-            if str(attr.get_type()) == "WikiTree Touched":
-                local_ts = str(attr.get_value() or "").strip()
-                break
+        if db is not None:
+            for cit_handle in target_person.get_citation_list():
+                try:
+                    citation = db.get_citation_from_handle(cit_handle)
+                except Exception:  # pylint: disable=broad-except
+                    continue
+                for note_handle in citation.get_note_list():
+                    try:
+                        text = db.get_note_from_handle(note_handle).get()
+                    except Exception:  # pylint: disable=broad-except
+                        continue
+                    for found in re.findall(r"^Last Modified:\s*(.+)$", text, re.M):
+                        found = found.strip()
+                        if re.sub(r"\D", "", found) > re.sub(r"\D", "", local_ts):
+                            local_ts = found
+        if not local_ts:
+            for attr in target_person.get_attribute_list():
+                if str(attr.get_type()) == "WikiTree Touched":
+                    local_ts = str(attr.get_value() or "").strip()
+                    break
 
         result["local_touched"] = local_ts
         rem_ts = (remote_touched or "").strip()
@@ -2351,21 +2269,11 @@ class WikiTreeGWizard(GedGWizard):
                     wt_url.set_description(_("WikiTree Profile"))
                     person.add_url(wt_url)
 
-                # Synchronization metadata attributes
-                if touched_raw:
-                    touched_formatted = self.format_wikitree_timestamp(touched_raw)
-                    touch_attr = Attribute()
-                    touch_attr.set_type(AttributeType("WikiTree Touched"))
-                    touch_attr.set_value(touched_formatted)
-                    person.add_attribute(touch_attr)
-
-                if manager_raw:
-                    mgr_attr = Attribute()
-                    mgr_attr.set_type(AttributeType("WikiTree Manager"))
-                    mgr_attr.set_value(manager_raw)
-                    person.add_attribute(mgr_attr)
-
-                # Citation
+                # Citation. When the profile was last changed and who
+                # manages it go in its note, not in person attributes: they
+                # describe the WikiTree record, they change with every edit
+                # there (so each merge would offer them again), and the note
+                # is where check_profile_drift reads them.
                 citation = Citation()
                 citation.set_reference_handle(source_handle)
                 citation.set_page(f"WikiTree: {wt_key}" if wt_key else f"ID: {num_id}")
@@ -2602,35 +2510,20 @@ class WikiTreeGWizard(GedGWizard):
                         person.add_citation(ext_cit_h)
 
                         ctx = (src_info.get("context") or "").lower()
-                        if b_ref and any(
-                            kw in ctx
-                            for kw in (
-                                "born",
-                                "birth",
-                                "baptism",
-                                "christen",
-                                "baptized",
-                            )
-                        ):
+
+                        def fits(event_ref: Any) -> bool:
+                            """Whether the source's own year fits the event."""
+                            event = source_db.get_event_from_handle(event_ref.ref)
+                            year = event.get_date_object().get_year() if event else 0
+                            return source_fits_year(s_info["title"], year)
+
+                        if b_ref and fits(b_ref) and _BIRTH_WORDS_RE.search(ctx):
                             b_ev = source_db.get_event_from_handle(b_ref.ref)
                             if b_ev and ext_cit_h not in b_ev.get_citation_list():
                                 b_ev.add_citation(ext_cit_h)
                                 source_db.commit_event(b_ev, trans)
 
-                        if d_ref and any(
-                            kw in ctx
-                            for kw in (
-                                "died",
-                                "death",
-                                "burial",
-                                "buried",
-                                "cemetery",
-                                "grave",
-                                "killed",
-                                "probate",
-                                "will",
-                            )
-                        ):
+                        if d_ref and fits(d_ref) and _DEATH_WORDS_RE.search(ctx):
                             d_ev = source_db.get_event_from_handle(d_ref.ref)
                             if d_ev and ext_cit_h not in d_ev.get_citation_list():
                                 d_ev.add_citation(ext_cit_h)
@@ -3087,7 +2980,9 @@ class WikiTreeGWizard(GedGWizard):
             )
             final = place_file(
                 cache,
-                os.path.join(base, media_fix_filename(self.db, person, media, ext)),
+                os.path.join(
+                    base, media_fix_filename(self.db, person, media, ext, cache)
+                ),
             )
             with DbTxn(_("Download WikiTree photo"), self.db) as trans:
                 media.set_path(relative_path(final, base))
@@ -3156,33 +3051,5 @@ class WikiTreeGWizard(GedGWizard):
                         with DbTxn(_("Store WikiTree ID"), self.db) as trans:
                             if store_wikitree_id(t_p, wt_id):
                                 self.db.commit_person(t_p, trans)
-                        t_p = self.db.get_person_from_handle(target_person_handle)
-                if s_p and t_p:
-                    metadata_attrs = {}
-                    for a in s_p.get_attribute_list():
-                        if str(a.get_type()) in (
-                            "WikiTree Touched",
-                            "WikiTree Manager",
-                        ):
-                            metadata_attrs[str(a.get_type())] = str(a.get_value())
-
-                    if metadata_attrs:
-                        with DbTxn(
-                            _("Update WikiTree Synchronization Metadata"),
-                            self.db,
-                        ) as trans:
-                            for m_type, m_val in metadata_attrs.items():
-                                found = False
-                                for ta in t_p.get_attribute_list():
-                                    if str(ta.get_type()) == m_type:
-                                        ta.set_value(m_val)
-                                        found = True
-                                        break
-                                if not found:
-                                    new_attr = Attribute()
-                                    new_attr.set_type(AttributeType(m_type))
-                                    new_attr.set_value(m_val)
-                                    t_p.add_attribute(new_attr)
-                            self.db.commit_person(t_p, trans)
 
         return applied

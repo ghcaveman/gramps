@@ -116,6 +116,7 @@ modules = [
     "gramps/gen/gwizard/gwizard_base.py",
     "gramps/gen/gwizard/gwizard_filemerge_citationscan.py",
     "gramps/gen/gwizard/gwizard_filemerge_media.py",
+    "gramps/gen/gwizard/gwizard_filemerge_medianaming.py",
     "gramps/gen/gwizard/gwizard_filemerge_recordscan.py",
     "gramps/gen/gwizard/gwizardaltmatch.py",
     "gramps/gen/gwizard/gwizardgedcom.py",

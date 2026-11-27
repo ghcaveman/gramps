@@ -58,11 +58,15 @@ from gramps.gen.lib import (
 #
 # -------------------------------------------------------------------------
 from ..gwizardwikitree import (
+    _BIRTH_WORDS_RE,
+    _DEATH_WORDS_RE,
     WIKITREE_REPOSITORY_NAME,
     WIKITREE_SOURCE_TITLE,
     WikiTreeGWizard,
     describe_bio_source,
     extract_page,
+    ref_sentence,
+    source_fits_year,
     extract_url,
     split_author,
 )
@@ -262,6 +266,149 @@ class BioSourceLoadTest(unittest.TestCase):
         self.assertEqual(self.db.get_number_of_repositories(), repos_before + 1)
         titles = [s.get_title() for s in self.db.iter_sources()]
         self.assertEqual(titles.count(WIKITREE_SOURCE_TITLE), 1)
+
+
+CENSUS_1820 = (
+    '"United States Census, 1820," database with images, FamilySearch '
+    "(https://familysearch.org/ark:/61903/1:1:EFGH-XYZ : accessed 25 December "
+    "2021), Thomas Baker, Baltimore Ward 4, Baltimore, Maryland, United States; "
+    "citing p. 187, NARA microfilm publication M33, roll 42."
+)
+BAPTISMS = (
+    '"Pennsylvania, Church Baptisms, 1709-1950," database, FamilySearch '
+    "(https://familysearch.org/ark:/61903/1:1:IJKL-XYZ : accessed 3 March 2022), "
+    "Thomas Baker, 1753."
+)
+GRAVE = (
+    "Find a Grave, database and images (https://www.findagrave.com/memorial/1 "
+    ": accessed 4 April 2022), memorial page for Thomas Baker (1753-1838)."
+)
+
+
+class RefSentenceTest(unittest.TestCase):
+    """The sentence a reference footnotes."""
+
+    def test_only_the_sentence_before_the_reference(self) -> None:
+        bio = (
+            "Thomas was born in 1753.<ref>a</ref>\n\n=== Research Notes ===\n"
+            "The 1820 Census lists him in Baltimore.<ref>b</ref> More text."
+        )
+        self.assertEqual(
+            ref_sentence(bio, bio.index("<ref>b")),
+            "The 1820 Census lists him in Baltimore",
+        )
+        self.assertEqual(
+            ref_sentence(bio, bio.index("<ref>a")), "Thomas was born in 1753"
+        )
+
+    def test_an_abbreviation_does_not_cut_the_sentence(self) -> None:
+        bio = "He married Mary.\nHe was born in Bucks Co. Pa.<ref>a</ref>"
+        self.assertEqual(
+            ref_sentence(bio, bio.index("<ref>")), "He was born in Bucks Co. Pa"
+        )
+
+    def test_other_references_are_left_out(self) -> None:
+        bio = 'He was born in 1753.<ref name="x">a</ref><ref>b</ref>'
+        self.assertEqual(ref_sentence(bio, bio.index("<ref>b")), "He was born in 1753")
+
+
+class SourceYearTest(unittest.TestCase):
+    """A source's own year decides whether it can be about an event."""
+
+    def test_a_census_far_from_the_birth(self) -> None:
+        self.assertFalse(source_fits_year("United States Census, 1820", 1753))
+
+    def test_a_span_that_holds_the_year(self) -> None:
+        self.assertTrue(
+            source_fits_year("Pennsylvania, Church Baptisms, 1709-1950", 1753)
+        )
+
+    def test_a_year_close_to_the_event(self) -> None:
+        self.assertTrue(source_fits_year("Births, 1755", 1753))
+
+    def test_no_year_on_either_side(self) -> None:
+        self.assertTrue(source_fits_year("Find a Grave", 1753))
+        self.assertTrue(source_fits_year("United States Census, 1820", 0))
+
+
+class EventWordsTest(unittest.TestCase):
+    """Words that make a reference a source for the birth or the death."""
+
+    def test_will_is_a_word_not_part_of_a_name(self) -> None:
+        self.assertIsNone(_DEATH_WORDS_RE.search("his son william was a smith"))
+        self.assertIsNotNone(_DEATH_WORDS_RE.search("named in his will"))
+
+    def test_word_forms(self) -> None:
+        self.assertIsNotNone(_BIRTH_WORDS_RE.search("he was christened in 1753"))
+        self.assertIsNotNone(_DEATH_WORDS_RE.search("he was buried at the church"))
+        self.assertIsNone(_BIRTH_WORDS_RE.search("the reborn church"))
+
+
+class BioSourceEventTest(unittest.TestCase):
+    """Which events a biography's references are attached to."""
+
+    def setUp(self) -> None:
+        self.db: DbWriteBase = make_database("sqlite")
+        self.db.load(":memory:")
+
+    def tearDown(self) -> None:
+        self.db.close()
+
+    def _event_sources(self, bio: str) -> dict[str, list[str]]:
+        """Load the profile; return source titles by event type, and "person"."""
+        profile = {
+            "Id": 101,
+            "Name": "Baker-101",
+            "FirstName": "Thomas",
+            "LastNameAtBirth": "Baker",
+            "Gender": "Male",
+            "BirthDate": "1753-03-10",
+            "DeathDate": "1838-00-00",
+            "Bio": bio,
+        }
+        gw = WikiTreeGWizard(self.db)
+        gw.run_step("connect", query="Baker-101", people_data=[profile])
+        (person,) = gw.run_step("load")
+        source_db = gw.context["source_db"]
+
+        def titles(citations: list[str]) -> list[str]:
+            found = []
+            for handle in citations:
+                citation = source_db.get_citation_from_handle(handle)
+                source = source_db.get_source_from_handle(
+                    citation.get_reference_handle()
+                )
+                found.append(source.get_title())
+            return sorted(found)
+
+        result = {"person": titles(person.get_citation_list())}
+        for ref in person.get_event_ref_list():
+            event = source_db.get_event_from_handle(ref.ref)
+            result[str(event.get_type())] = titles(event.get_citation_list())
+        return result
+
+    def test_census_after_a_birth_sentence_stays_off_the_birth(self) -> None:
+        """The 1820 census follows "born in 1753" but is not a birth record."""
+        found = self._event_sources(
+            "== Biography ==\nThomas was born in 1753.<ref>%s</ref>\n\n"
+            "=== Research Notes ===\nThe 1820 Census lists Thomas in "
+            "Baltimore with a large family.<ref>%s</ref>\n"
+            "He died in 1838 and was buried in Baltimore.<ref>%s</ref>\n"
+            "== Sources ==\n<references />\n" % (BAPTISMS, CENSUS_1820, GRAVE)
+        )
+        self.assertIn("Pennsylvania, Church Baptisms, 1709-1950", found["Birth"])
+        self.assertNotIn("United States Census, 1820", found["Birth"])
+        self.assertNotIn("United States Census, 1820", found["Death"])
+        self.assertIn("United States Census, 1820", found["person"])
+        self.assertIn("Find a Grave", " ".join(found["Death"]))
+
+    def test_a_birth_sentence_citing_a_census_keeps_it_off_the_birth(self) -> None:
+        """The year check still holds when the sentence speaks of the birth."""
+        found = self._event_sources(
+            "Thomas was born about 1753.<ref>%s</ref>\n" % CENSUS_1820
+        )
+        self.assertNotIn("United States Census, 1820", found["Birth"])
+        self.assertIn("United States Census, 1820", found["person"])
 
 
 if __name__ == "__main__":
