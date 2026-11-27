@@ -20,7 +20,8 @@
 
 """
 What the NARA record source knows about citations, for the GWizard Citation
-Improvement Scan (see gwizardcitescanengine).
+Improvement Scan (see gramps/gen/gwizard/gwizard_filemerge_citationscan.py, in
+gwizard_filemerge).
 
 Registered as a GENERAL plugin in category "GWizardCitationSource". It
 reads the NAID attribute the NARA Merge puts on its citations, flags a
@@ -41,12 +42,11 @@ import re
 import sys
 from typing import Any
 
-# As a standalone addon the sibling modules live in the addon directory,
-# the shared GWizard modules in the GWizard File Merge addon, and the
-# Citation Fix checks in the CitationFix addon (which needs MediaFix);
-# Gramps removes the addon directory from sys.path after import.
+# As a standalone addon the sibling modules live in the addon directory and
+# the shared GWizard modules (the scan engine included) in the GWizard File
+# Merge addon; Gramps removes the addon directory from sys.path after import.
 _ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
-for _name in ("MediaFix", "CitationFix", "GWizardFileMerge", ""):
+for _name in ("GWizardFileMerge", ""):
     _path = os.path.join(os.path.dirname(_ADDON_DIR), _name) if _name else _ADDON_DIR
     if os.path.isdir(_path) and _path not in sys.path:
         sys.path.insert(0, _path)
@@ -59,7 +59,7 @@ for _name in ("MediaFix", "CitationFix", "GWizardFileMerge", ""):
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.gwizard.gwizard_filemerge_recordscan import SourceMatch
 from gramps.gen.lib import Citation
-from gramps.plugins.tool.gwizardcitescanengine import (
+from gramps.gen.gwizard.gwizard_filemerge_citationscan import (
     PART_RECORD,
     RECORD_NO_MEDIA,
     CitationItem,

@@ -691,7 +691,8 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard Citation Improvement Scan
+# GWizard Citation Improvement Scan (code in gwizard_filemerge; the record-
+# source branches register the menu entry, like the Multi-Archive Record Scan)
 #
 # ------------------------------------------------------------------------
 
@@ -710,14 +711,14 @@ register(
     gramps_target_version=MODULE_VERSION,
     status=EXPERIMENTAL,
     audience=EXPERT,
-    fname="gwizardcitescan.py",
+    fname="gwizard_filemerge_citescan.py",
     authors=["Kevin White"],
     authors_email=["gocaveman@gmail.com"],
     category=TOOL_DBPROC,
     toolclass="GWizardCitationScan",
     optionclass="GWizardCitationScanOptions",
     tool_modes=[TOOL_MODE_GUI],
-    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardNaraMerge_Tool",
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
 )
 
 # ------------------------------------------------------------------------
