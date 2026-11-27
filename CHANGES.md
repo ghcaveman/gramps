@@ -133,20 +133,126 @@ User-visible features
   the base media folder, and NARA's machine-read page text is kept as a
   Transcript note on each image. Needs a NARA API key in the
   `NARA_API_KEY` environment variable.
+  * **Getting a key.** NARA issues keys free of charge by email. Send your
+    name and the email address the key should be tied to to
+    `Catalog_API@nara.gov` and ask for a read-only Catalog API v2 key
+    (read-only is all this tool needs). Each key is limited to 10,000
+    requests a month. Keep the key private: do not commit it to a
+    repository, and if it is ever published, email the same address to
+    have it replaced.
+  * **Setting the key.** Gramps reads `NARA_API_KEY` from its environment
+    when it starts, so set the variable and then restart Gramps.
+    * Windows: run `setx NARA_API_KEY "your-key"` in a Command Prompt, or
+      add it as a user variable under *System Properties > Environment
+      Variables*. Programs started afterwards (including Gramps from the
+      Start menu) see it. For one session from an MSYS2 or Git Bash shell,
+      `export NARA_API_KEY="your-key"` and start Gramps from that shell.
+    * Linux: add `export NARA_API_KEY="your-key"` to `~/.profile` (or your
+      shell's start-up file) and log in again, or export it in a terminal
+      and start Gramps from there.
+    * macOS: export it in `~/.zprofile` for Gramps started from a terminal.
+      For Gramps started from the Dock or Finder, run
+      `launchctl setenv NARA_API_KEY "your-key"` (repeat after each
+      restart of the Mac).
+  * **Checking the key.** When the tool opens it makes one small catalog
+    request to test the key. If the variable is missing it asks you to set
+    it and restart Gramps; if NARA rejects the key it says so. The
+    Multi-Archive Record Scan skips NARA while no key is set.
 
-* **Multi-Archive Record Scan.** Checks every person in the Family Tree
-  against each installed GWizard record source (WikiTree, NARA, ...),
-  shows a progress meter, and counts likely matches at three match levels
-  (given/middle/surname/birth, given/surname/birth, and given/surname
-  above a score threshold). A merge window can be opened straight from a
-  match. Record sources register themselves, so new archives can be added
-  without changing the scan.
+* **GWizard FamilySearch Merge tool.** Search the FamilySearch Family
+  Tree for a person, by first, middle and last name, gender, birth and
+  death year and place, or FamilySearch ID or profile URL, with a check box
+  beside each search term to leave it out without clearing it. Results are
+  listed best match first, and a profile looked up by its ID, or the one
+  the person is already linked to, counts as a 100% match. **Compare /
+  Merge...** loads the profile, with spouses, notes and sources, into the
+  File Merge compare and merge window. Merged data is cited to a shared
+  FamilySearch repository and "FamilySearch Family Tree" source, with one
+  dated citation per profile, and the person keeps the FamilySearch ID
+  (`_FSFTID` attribute) and a link to the profile; merging the same profile
+  again adds nothing twice. Searching needs a FamilySearch sign-in: in the
+  Family Trees menu choose *FamilySearch Sign in...*. It installs as an
+  addon that depends on GWizard File Merge and GWizard Media Fix.
+
+* **Multi-Archive Record Scan.** Lists every person in the Family Tree
+  with a group of columns for each installed GWizard record source
+  (WikiTree, NARA, FamilySearch, ...), and searches those sources for
+  each person. Its menu entry appears once at least one record-source
+  addon is installed. Record sources register themselves, so new archives
+  can be added without changing the scan.
+  * **Scanning.** A **Scan** button per source and **Scan All** search
+    every person in scope, with a progress meter that can be cancelled.
+    *People* chooses the scope: everyone, the active person only, or a
+    person filter (the list always shows everyone). A source that cannot
+    be used, such as NARA without an API key, has its button greyed out
+    with the reason in its tooltip, and NARA shows how many of its monthly
+    requests have been used.
+  * **Match columns.** By default each source counts its likely matches at
+    three match levels (given/middle/surname/birth, given/surname/birth,
+    and given/surname); a record counts when it scores at least the *Match
+    threshold* (70% unless changed), and changing the threshold rescores
+    without searching again. A source can show its own columns instead:
+    NARA shows a single Match column and sends one query per person. A
+    *Linked* column shows the record a person is already linked to (for
+    example their WikiTree or FamilySearch ID), which is looked up rather
+    than searched, and a *Cited* column shows the records the person
+    already cites (NARA NAIDs), which count as already found. Hovering
+    over a cell shows its best matches, or why that level cannot be
+    compared (no birth year, no middle name, ...).
+  * **Check boxes.** *Reuse saved results* (on by default) skips people
+    already scanned and unchanged since, so a scan does not spend requests
+    again; uncheck it to search everyone again. Results are kept between
+    sessions in the Gramps user folder, one file per Family Tree, and can
+    be forgotten for one person and source from the right-click menu.
+    *Show only people with matches* hides everyone else. *Show:* has one
+    check box per record source, all on; unchecking one hides its columns
+    and leaves it out of **Scan All**, the match filter, the summary, the
+    merge choices and the CSV export, while keeping its saved results.
+  * **Acting on a match.** Double-click a source's cell, or use **Open
+    Merge...**, to open that source's merge window for the person; the
+    right-click menu lists the matches to choose from. **Open Search...**
+    opens the source's own search window for the person, and **Export
+    CSV...** saves the list with its scores.
+
+* **Multi-Archive Citation Scan.** The Multi-Archive Record Scan seen
+  from the citations' side. Every citation in the Family Tree is checked
+  for missing or poor data (no page, no date, no image or a missing image
+  file, a page that is cut off or just repeats the source, a source title
+  that is a web address or file name, a source with no repository or
+  author, low confidence, ...), and the problems add up to a *Work* score
+  from 0 to 100. Citations are listed worst first with the person they
+  are about, the source, page, date, confidence, images and what each
+  needs. Its menu entry appears once at least one record-source addon is
+  installed, and record sources can add their own citation checks.
+  * **Finding better records.** The **Scan** buttons and **Scan All**
+    search the installed record sources for the people the worst
+    citations are about, and each source's *Confidence* column shows how
+    well the best record found fits the citation: the person's match
+    score, moved up or down by how well the record's title and years fit
+    the citation. A record the citation already cites is shown as
+    *cited*. Searches share saved results with the Multi-Archive Record
+    Scan, so a person searched in either window costs no second request.
+  * **Options.** *Work at least* (20 unless changed) sets which citations
+    count, and *Hide the rest* hides the others. *Confidence threshold*
+    sets which records are offered. *Citations* chooses all citations or
+    the active person's, and *Only with records found* hides citations
+    with no record. *New people per scan* (25 unless changed, 0 for no
+    limit) caps how many unsearched people one scan click searches, so it
+    does not use up a monthly request allowance such as NARA's; people
+    with saved results are always included. *Reuse saved results* and the
+    per-source *Show:* check boxes work as in the Multi-Archive Record
+    Scan.
+  * **Acting on a citation.** **Edit Citation...** opens the citation
+    editor, **Open Record...** opens a found record in that source's
+    merge window or a cited record directly, **Open Search...** opens a
+    source's search window for the citation's person, the right-click
+    menu offers the same, and **Export CSV...** saves the list.
 
 * **GWizard tools in a fixed menu order.** Under Tools > Family Tree
   Processing the GWizard tools are listed together, in the order they are
-  meant to be used: GWizard Media Fix, GWizard Citation Fix, GWizard File
-  Merge, GWizard File Merge (Alt), GWizard WikiTree Merge, GWizard NARA
-  Merge, then Multi-Archive Record Scan.
+  meant to be used: GWizard File Merge, GWizard File Merge (Alt), GWizard
+  Media Fix, GWizard Citation Fix, GWizard WikiTree Merge, GWizard NARA
+  Merge, GWizard FamilySearch Merge, then Multi-Archive Record Scan.
 
 * **Extra columns in the main views.** New columns, which can be turned on
   in Configure View:
