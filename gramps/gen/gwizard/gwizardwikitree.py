@@ -28,6 +28,7 @@ WikiTree implementation of the GWizard import and merge framework.
 #
 # -------------------------------------------------------------------------
 from __future__ import annotations
+import copy
 import logging
 import mimetypes
 import os
@@ -96,6 +97,208 @@ _ = glocale.translation.gettext
 # Kept here rather than in gwizard_base so the shared file-merge modules
 # stay identical to the gwizard_filemerge branch.
 _WT_ID_REGEX = re.compile(r"^[A-Za-z]+(?:[_-][A-Za-z]+)*-\d+$")
+
+# ------------------------------------------------------------
+#
+# Biography source parsing
+#
+# ------------------------------------------------------------
+# Name of the WikiTree repository and collection-level source. One source
+# serves every WikiTree profile; the profile ID goes in the citation page.
+WIKITREE_REPOSITORY_NAME = "WikiTree (Free Family Tree)"
+WIKITREE_SOURCE_TITLE = "WikiTree"
+
+# Repositories recognised from a source's web address: (domain part,
+# repository name, other names the same repository goes by in a tree).
+# A biography source with no recognised address is filed under WikiTree,
+# where it was found.
+_KNOWN_REPOSITORIES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("familysearch.org", "FamilySearch", ()),
+    ("ancestry.", "Ancestry.com", ("Ancestry",)),
+    ("newspapers.com", "Newspapers.com", ()),
+    ("findagrave.com", "Find a Grave", ()),
+    ("books.google.", "Google Books", ()),
+    ("archive.org", "Internet Archive", ()),
+    (
+        "dar.org",
+        "Daughters of the American Revolution (DAR)",
+        ("Daughters of the American Revolution", "DAR"),
+    ),
+    (
+        "archives.gov",
+        "National Archives and Records Administration (NARA)",
+        ("National Archives", "NARA"),
+    ),
+    ("wikitree.com", WIKITREE_REPOSITORY_NAME, ("WikiTree",)),
+)
+
+_URL_RE = re.compile(r"https?://[^\s()<>\"'\[\]{}|]+")
+# Punctuation that ends a sentence or closes wiki markup, not the address.
+_URL_TRAILING = ".,;:!?)]}'\""
+# "p. 187", "pp. 54-55", "Pg. 42", "Pgs. xxi & 88-90", "page 12", "image 3"
+_PAGE_RE = re.compile(
+    r"\b(?:pp?|pgs?|pages?|image)\.?\s*"
+    r"((?:\d+|[ivxlcdm]+)(?:\s*(?:[-–,&]|and)\s*(?:\d+|[ivxlcdm]+))*)\b",
+    re.IGNORECASE,
+)
+_ACCESSED_RE = re.compile(
+    r"\baccessed\s+(\d{1,2}\s+[A-Za-z]+\.?\s+\d{4}|[A-Za-z]+\.?\s+\d{1,2},?\s+\d{4})",
+    re.IGNORECASE,
+)
+_QUOTED_TITLE_RE = re.compile(r"^\s*[\"“]([^\"”]{3,}?)[\s,.;:]*[\"”]")
+_FS_TREE_RE = re.compile(
+    r"familysearch\.org/tree/person/(?:details/)?([A-Z0-9]{4}-[A-Z0-9]{3,4})",
+    re.IGNORECASE,
+)
+_DAR_RE = re.compile(r"\bDAR\s+Ancestor\s*#?\s*:?\s*([A-Z]?\d+)", re.IGNORECASE)
+_NAME_CONNECTORS = {"and", "&", "with", "de", "van", "von", "der", "la", "le", "du"}
+_TITLE_STARTERS = {"the", "a", "an"}
+# Longest source title kept whole; longer ones are cut at a word.
+_MAX_TITLE_LEN = 200
+
+
+def repository_norm(name: str) -> str:
+    """Return a repository name reduced to lower-case letters and digits."""
+    return re.sub(r"[^a-z0-9]", "", (name or "").casefold())
+
+
+def extract_url(text: str) -> str:
+    """Return the first web address in text, without trailing punctuation."""
+    match = _URL_RE.search(text or "")
+    if not match:
+        return ""
+    return match.group(0).rstrip(_URL_TRAILING)
+
+
+def extract_page(text: str) -> str:
+    """Return the page/image part of a citation text ("p. 187"), or ''."""
+    match = _PAGE_RE.search(_URL_RE.sub(" ", text or ""))
+    return match.group(0).strip() if match else ""
+
+
+def extract_accessed_date(text: str) -> str:
+    """Return the "accessed ..." date text of a citation, or ''."""
+    match = _ACCESSED_RE.search(text or "")
+    return match.group(1) if match else ""
+
+
+def repository_for_url(url: str) -> tuple[str, tuple[str, ...]]:
+    """Return (repository name, other names) for a source web address."""
+    host = (url or "").casefold()
+    for domain, name, aliases in _KNOWN_REPOSITORIES:
+        if domain in host:
+            return name, aliases
+    return WIKITREE_REPOSITORY_NAME, ("WikiTree",)
+
+
+def _is_initial(token: str) -> bool:
+    return bool(re.fullmatch(r"(?:[A-Z]\.)+", token))
+
+
+def _is_name_token(token: str) -> bool:
+    if token.casefold() in _NAME_CONNECTORS:
+        return True
+    core = token.rstrip(".,")
+    return bool(core) and core[0].isupper() and not any(c.isdigit() for c in core)
+
+
+def split_author(text: str) -> tuple[str, str]:
+    """
+    Split a leading author list ("Warner, Ralph F. Warner, R. David.") from
+    a bibliographic citation. Returns (author, rest); author is '' when the
+    text does not start with a "Surname, Given" author.
+    """
+    tokens = (text or "").split()
+    if len(tokens) < 3 or not tokens[0].endswith(","):
+        return "", text
+    for index, token in enumerate(tokens[:12]):
+        if not _is_name_token(token):
+            return "", text
+        if not token.endswith("."):
+            continue
+        following = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if _is_initial(token):
+            # "Ralph F. Warner," and "R. David." go on with the author list;
+            # "Scott S. The ..." starts the title.
+            if (
+                following.endswith((",", "."))
+                or following.casefold() in _NAME_CONNECTORS
+                or _is_initial(following)
+            ) and following.casefold() not in _TITLE_STARTERS:
+                continue
+        author = " ".join(tokens[: index + 1])
+        if not _is_initial(tokens[index]):
+            author = author.rstrip(".")
+        rest = " ".join(tokens[index + 1 :])
+        return (author, rest) if rest else ("", text)
+    return "", text
+
+
+def first_sentence(text: str) -> str:
+    """Return text up to the first full stop that ends a word (not an initial)."""
+    match = re.search(r"(?<![\s.][A-Z])(?<!^[A-Z])[.?!](?=\s|$)", text or "")
+    sentence = text[: match.start()] if match else text
+    return sentence.strip().rstrip(".,;:")
+
+
+def shorten_title(title: str) -> str:
+    """Cut a very long title at a word boundary."""
+    title = " ".join((title or "").split()).rstrip(".,;:")
+    if len(title) <= _MAX_TITLE_LEN:
+        return title
+    cut = title[: _MAX_TITLE_LEN - 3]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(".,;:-") + "..."
+
+
+def describe_bio_source(cleaned: str, raw: str = "") -> dict[str, str]:
+    """
+    Work out the Source and Citation fields of one biography source.
+
+    :returns: dict with title, author, url, page, accessed (date text),
+        fs_id (a FamilySearch tree person ID), and repository (name) plus
+        repository_aliases (a tuple, as text joined by '|').
+    """
+    cleaned = (cleaned or "").strip()
+    url = extract_url(raw or cleaned) or extract_url(cleaned)
+    info = {
+        "title": "",
+        "author": "",
+        "url": url,
+        "page": extract_page(cleaned),
+        "accessed": extract_accessed_date(cleaned),
+        "fs_id": "",
+    }
+    fs_match = _FS_TREE_RE.search(raw or cleaned) or _FS_TREE_RE.search(cleaned)
+    dar_match = _DAR_RE.search(cleaned)
+    without_url = _URL_RE.sub("", cleaned).strip(" ;,.")
+    quoted = _QUOTED_TITLE_RE.match(cleaned)
+    if fs_match and not without_url:
+        info["title"] = "FamilySearch Family Tree"
+        info["fs_id"] = fs_match.group(1).upper()
+    elif dar_match:
+        info["title"] = "DAR Genealogical Research System, Ancestor Database"
+        info["page"] = "Ancestor #%s" % dar_match.group(1).upper()
+    elif quoted:
+        info["title"] = quoted.group(1).strip()
+    elif without_url:
+        # The page clause ("..., page 12") is citation detail, not title.
+        page_match = _PAGE_RE.search(without_url)
+        if page_match and page_match.start() > 0:
+            without_url = without_url[: page_match.start()].rstrip(" ,;:(")
+        author, rest = split_author(without_url)
+        info["author"] = author
+        info["title"] = first_sentence(rest) or first_sentence(without_url)
+    else:
+        info["title"] = url
+    info["title"] = shorten_title(info["title"]) or _("WikiTree Cited Source")
+    name, aliases = repository_for_url(info["url"])
+    if dar_match:
+        name, aliases = repository_for_url("dar.org")
+    info["repository"] = name
+    info["repository_aliases"] = "|".join(aliases)
+    return info
 
 
 def is_wikitree_id(value: str | None) -> bool:
@@ -759,17 +962,7 @@ class WikiTreeGWizard(GedGWizard):
         cleaned = (cleaned_text or "").strip()
         if not cleaned:
             return _("WikiTree Cited Source")
-        if len(cleaned) <= 90:
-            return cleaned.rstrip(".,;")
-        # Look for sentence boundary after at least 30 characters
-        m = re.search(r"^(.{30,90}?[.?!])\s+", cleaned)
-        if m:
-            return m.group(1).rstrip(".,;")
-        # Truncate at word boundary
-        cut = cleaned[:87]
-        if " " in cut:
-            cut = cut.rsplit(" ", 1)[0]
-        return cut.rstrip(".,;:-") + "..."
+        return describe_bio_source(cleaned)["title"]
 
     @staticmethod
     def parse_bio_sources(bio_text: str) -> list[dict[str, str]]:
@@ -1529,22 +1722,93 @@ class WikiTreeGWizard(GedGWizard):
             return parent_handle
 
         with DbTxn(_("Load WikiTree Records"), source_db) as trans:
-            # 1. Create Repository
-            repo = Repository()
-            repo.set_name(_("WikiTree (Free Family Tree)"))
-            repo.set_type(RepositoryType(RepositoryType.WEBSITE))
-            repo_handle = source_db.add_repository(repo, trans)
+            repo_cache: dict[str, str] = {}
 
-            # 2. Create Source
-            source = Source()
-            source_title = _("WikiTree - %s") % query if query else _("WikiTree")
-            source.set_title(source_title)
-            source.set_author(_("WikiTree Community"))
-            source.set_publication_info("https://www.wikitree.com")
-            repo_ref = RepoRef()
-            repo_ref.ref = repo_handle
-            source.add_repo_reference(repo_ref)
-            source_handle = source_db.add_source(source, trans)
+            def bare_tree_copy(obj: Any) -> Any:
+                """
+                Copy a tree object, keeping its handle, for the incoming
+                database, so the merge reuses the tree's object instead of
+                adding a duplicate. Its notes, media and tags stay behind.
+                """
+                duplicate = copy.deepcopy(obj)
+                for setter in ("set_note_list", "set_media_list", "set_tag_list"):
+                    if hasattr(duplicate, setter):
+                        getattr(duplicate, setter)([])
+                if hasattr(duplicate, "set_reporef_list"):
+                    duplicate.set_reporef_list([])
+                return duplicate
+
+            def tree_repository(
+                name: str, aliases: tuple[str, ...], trans: DbTxn
+            ) -> str:
+                """Return the repository handle for name, reusing the tree's."""
+                key = repository_norm(name)
+                if key in repo_cache:
+                    return repo_cache[key]
+                wanted = {repository_norm(n) for n in (name,) + tuple(aliases) if n}
+                found = None
+                for t_repo in self.db.iter_repositories():
+                    if repository_norm(str(t_repo.get_name() or "")) in wanted:
+                        found = t_repo
+                        break
+                if found is not None:
+                    reused = bare_tree_copy(found)
+                    source_db.add_repository(reused, trans)
+                    handle = reused.get_handle()
+                else:
+                    new_repo = Repository()
+                    new_repo.set_name(name)
+                    new_repo.set_type(RepositoryType(RepositoryType.WEBSITE))
+                    handle = source_db.add_repository(new_repo, trans)
+                repo_cache[key] = handle
+                return handle
+
+            def tree_source(
+                title: str, author: str, pubinfo: str, repo_h: str, trans: DbTxn
+            ) -> str:
+                """
+                Return the source handle for title, reusing the tree's
+                source when exactly one has that title.
+                """
+                key = " ".join(title.split()).casefold()
+                if key in source_cache:
+                    return source_cache[key]
+                same = [
+                    t_src
+                    for t_src in self.db.iter_sources()
+                    if " ".join(str(t_src.get_title() or "").split()).casefold() == key
+                ]
+                if len(same) == 1:
+                    reused = bare_tree_copy(same[0])
+                    source_db.add_source(reused, trans)
+                    handle = reused.get_handle()
+                else:
+                    new_src = Source()
+                    new_src.set_title(title)
+                    if author:
+                        new_src.set_author(author)
+                    if pubinfo:
+                        new_src.set_publication_info(pubinfo)
+                    if repo_h:
+                        r_ref = RepoRef()
+                        r_ref.ref = repo_h
+                        new_src.add_repo_reference(r_ref)
+                    handle = source_db.add_source(new_src, trans)
+                source_cache[key] = handle
+                return handle
+
+            # 1. The WikiTree repository and one collection-level source for
+            # every profile (the profile ID goes in the citation page).
+            repo_handle = tree_repository(
+                WIKITREE_REPOSITORY_NAME, ("WikiTree",), trans
+            )
+            source_handle = tree_source(
+                WIKITREE_SOURCE_TITLE,
+                _("WikiTree Community"),
+                "https://www.wikitree.com",
+                repo_handle,
+                trans,
+            )
 
             # 3. Create Person records
             for pdata in raw_people:
@@ -1937,33 +2201,50 @@ class WikiTreeGWizard(GedGWizard):
                         s_cleaned = self.clean_source_text(s_raw)
                         if not s_cleaned:
                             continue
-                        s_title = self.extract_source_title(s_cleaned)
-
-                        cache_key = s_title.lower()
-                        s_h = source_cache.get(cache_key)
-                        if not s_h:
-                            new_src = Source()
-                            new_src.set_title(s_title)
-                            url_m = re.search(r"https?://[^\s()<>\"']+", s_raw)
-                            if url_m:
-                                new_src.set_publication_info(url_m.group(0))
-                            r_ref = RepoRef()
-                            r_ref.ref = repo_handle
-                            new_src.add_repo_reference(r_ref)
-                            s_h = source_db.add_source(new_src, trans)
-                            source_cache[cache_key] = s_h
+                        s_info = describe_bio_source(s_cleaned, s_raw)
+                        s_repo_h = tree_repository(
+                            s_info["repository"],
+                            tuple(
+                                a for a in s_info["repository_aliases"].split("|") if a
+                            ),
+                            trans,
+                        )
+                        s_h = tree_source(
+                            s_info["title"],
+                            s_info["author"],
+                            s_info["url"],
+                            s_repo_h,
+                            trans,
+                        )
 
                         cit_obj = Citation()
                         cit_obj.set_reference_handle(s_h)
-                        cit_obj.set_date_object(Today())
+                        # The citation date is when the record was seen
+                        # ("accessed ..."), not the day of this merge.
+                        if s_info["accessed"]:
+                            try:
+                                acc_date = dateparser.parse(s_info["accessed"])
+                                if acc_date.get_year() > 0:
+                                    cit_obj.set_date_object(acc_date)
+                            except Exception:  # pylint: disable=broad-except
+                                pass
 
-                        m_page = re.search(
-                            r"(?:pp?\.\s*|pages?\s*|image\s*)(\d+(?:[-–]\d+)?)",
-                            s_cleaned,
-                            re.I,
-                        )
-                        if m_page:
-                            cit_obj.set_page(m_page.group(0))
+                        s_page = s_info["page"]
+                        if s_info["fs_id"]:
+                            s_page = _("entry for %(name)s, person ID %(id)s") % {
+                                "name": f"{given} {surname_val}".strip(),
+                                "id": s_info["fs_id"],
+                            }
+                            if not any(
+                                str(a.get_type()) == "_FSFTID"
+                                for a in person.get_attribute_list()
+                            ):
+                                fs_attr = Attribute()
+                                fs_attr.set_type(AttributeType("_FSFTID"))
+                                fs_attr.set_value(s_info["fs_id"])
+                                person.add_attribute(fs_attr)
+                        if s_page:
+                            cit_obj.set_page(s_page)
 
                         c_note = Note()
                         c_note.set_type(NoteType(NoteType.CITATION))

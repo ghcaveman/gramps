@@ -1052,7 +1052,9 @@ He passed away and was buried in Christ Church.<ref>Christ Church Burial Registe
         self.assertTrue(len(sources) >= 3)
         titles = [s.get_title() for s in sources]
         self.assertTrue(any("Old South Church" in t for t in titles))
-        self.assertTrue(any("Wright" in t for t in titles))
+        # "Wright, E." is the author; the book title is the source title.
+        self.assertTrue(any("Franklin of Philadelphia" in t for t in titles))
+        self.assertTrue(any(s.get_author() == "Wright, E." for s in sources))
 
         # Check URL was populated on the source
         church_src = [s for s in sources if "Old South Church" in s.get_title()][0]
