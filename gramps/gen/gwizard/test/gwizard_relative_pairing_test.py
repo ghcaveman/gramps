@@ -308,6 +308,7 @@ class DialogRelativeRowsTest(unittest.TestCase):
             patch.object(gwizardmergedialog, "create_diff_cell", record),
         ):
             dialog._populate_fields()
+        self.dialog = dialog
         return keys, cells
 
     def _handles(self, db: Any, *names: str) -> list[str]:
@@ -381,6 +382,34 @@ class DialogRelativeRowsTest(unittest.TestCase):
         keys, _cells = self._rows(add_new=True)
         children = [key for key in keys if key.startswith("child:")]
         self.assertEqual(len(children), 2)
+
+    def test_a_relative_in_the_tree_is_not_listed_as_missing(self) -> None:
+        """Anna, offered after leaving the family, is still in the tree."""
+        anna = self._find(self.db, "Anna")
+        from gramps.gen.db import DbTxn
+
+        with DbTxn("remove", self.db) as trans:
+            for handle in self._find(self.db, "Dad").get_family_handle_list():
+                fam = self.db.get_family_from_handle(handle)
+                fam.set_child_ref_list(
+                    [r for r in fam.get_child_ref_list() if r.ref != anna.handle]
+                )
+                self.db.commit_family(fam, trans)
+            anna.set_parent_family_handle_list([])
+            self.db.commit_person(anna, trans)
+        self._rows()
+        self.assertEqual(getattr(self.dialog, "_missing_relatives", {}), {})
+
+    def test_a_relative_with_nobody_in_the_tree_is_listed_as_missing(self) -> None:
+        """Anna, refused in the window, would be added as a new person."""
+        source_anna = self._find(self.source_db, "Anna").handle
+        self.gwizard.context["pair_map"] = {source_anna: None}
+        self._rows()
+        self.assertEqual(list(self.dialog._missing_relatives), ["child:" + source_anna])
+        self.assertIn(
+            source_anna,
+            self.gwizard.missing_relatives(self._find(self.source_db, "Dad").handle),
+        )
 
 
 if __name__ == "__main__":

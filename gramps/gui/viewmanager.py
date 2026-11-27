@@ -179,6 +179,7 @@ _GWIZARD_TOOL_ORDER = (
     "gwizardnara",  # GWizard NARA Merge
     "gwizardfsmerge",  # GWizard FamilySearch Merge
     "gwizardrecordscan",  # Multi-Archive Record Scan
+    "gwizardcitescan",  # Multi-Archive Citation Scan
 )
 
 

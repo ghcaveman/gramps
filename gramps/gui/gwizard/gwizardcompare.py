@@ -2293,6 +2293,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
         try:
             response = dialog.run()
             link_families = dialog.link_families
+            add_missing_relatives = dialog.add_missing_relatives
         finally:
             dialog.destroy()
         if response != Gtk.ResponseType.OK:
@@ -2305,6 +2306,7 @@ class GWizardCompareWindow(ManagedWindow, Gtk.Window):
                 target_person_handle=None,
                 resolutions={},
                 link_families=link_families,
+                add_missing_relatives=add_missing_relatives,
             )
         except Exception as exc:  # pragma: no cover
             LOG.exception("Add as new failed: %s", exc)
