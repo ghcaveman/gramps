@@ -252,7 +252,8 @@ User-visible features
   Processing the GWizard tools are listed together, in the order they are
   meant to be used: GWizard File Merge, GWizard File Merge (Alt), GWizard
   Media Fix, GWizard Citation Fix, GWizard WikiTree Merge, GWizard NARA
-  Merge, GWizard FamilySearch Merge, then Multi-Archive Record Scan.
+  Merge, GWizard FamilySearch Merge, Multi-Archive Record Scan, then
+  Multi-Archive Citation Scan.
 
 * **Extra columns in the main views.** New columns, which can be turned on
   in Configure View:
