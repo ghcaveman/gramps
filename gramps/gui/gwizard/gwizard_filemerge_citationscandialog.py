@@ -19,7 +19,7 @@
 #
 
 """
-The GWizard Citation Improvement Scan window: every citation in the Family
+The GWizard Multi-Archive Citation Scan window: every citation in the Family
 Tree, the work it needs (worst first), the person it is about, and for each
 installed record source (NARA, WikiTree, ...) the confidence of the best
 record found that could improve it.
@@ -91,7 +91,7 @@ from gramps.gen.gwizard.gwizard_filemerge_citationscan import (
 _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
 
-TITLE = "GWizard Citation Improvement Scan"
+TITLE = "GWizard Multi-Archive Citation Scan"
 
 # Fixed model columns.
 COL_HANDLE = 0
@@ -1075,7 +1075,7 @@ class CitationScanDialog(Gtk.Dialog):
             try:
                 self.scanner.run(sources, people, cb_result, use_cache, cancel)
             except Exception:
-                LOG.exception("Citation improvement scan failed")
+                LOG.exception("Multi-Archive Citation Scan failed")
             finally:
                 finished.set()
 
@@ -1503,7 +1503,7 @@ class CitationScanDialog(Gtk.Dialog):
     def cb_export(self, _button: Gtk.Button) -> None:
         """Save the list as CSV."""
         chooser = Gtk.FileChooserDialog(
-            title=_("Export Citation Improvement Scan"),
+            title=_("Export Multi-Archive Citation Scan"),
             transient_for=self,
             action=Gtk.FileChooserAction.SAVE,
         )
@@ -1606,7 +1606,7 @@ def run_gwizard_citation_scan(
     uistate: Any, dbstate: Any, parent: Any = None
 ) -> CitationScanDialog:
     """
-    Open the Citation Improvement Scan window for the open Family Tree. The
+    Open the Multi-Archive Citation Scan window for the open Family Tree. The
     window is not modal (citations can be edited while it is open); it
     closes itself.
     """

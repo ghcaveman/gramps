@@ -51,6 +51,7 @@ from gramps.gen.lib import (
     EventRef,
     Place,
     Name,
+    NameType,
     Family,
     FamilyRelType,
     ChildRef,
@@ -90,6 +91,7 @@ from .gwizard_base import (
     SourceMatcher,
     normalize_source_text,
     source_signature,
+    name_covers,
     parent_age_problem,
     person_birth_year,
     relative_match_problem,
@@ -134,6 +136,30 @@ def format_link_preview(entries: list[dict[str, Any]]) -> str:
             lines.append("    " + _("Nothing to link yet."))
         lines.append("")
     return "\n".join(lines).rstrip()
+
+
+def keep_replaced_name(person: Any, old_name: Any) -> bool:
+    """
+    After a merge changed a person's primary name, keep the name it had as
+    an "Also Known As" alternate name, unless the new name (or an alternate
+    name already there) holds everything the old one did.
+
+    :returns: True when the old name was added.
+    """
+    new_name = person.get_primary_name()
+    old_given = str(old_name.get_first_name() or "")
+    old_surname = surname_text(old_name)
+    if not (old_given or old_surname):
+        return False
+    for name in [new_name] + list(person.get_alternate_names()):
+        if name_covers(str(name.get_first_name() or ""), old_given) and name_covers(
+            surname_text(name), old_surname
+        ):
+            return False
+    kept = copy.deepcopy(old_name)
+    kept.set_type(NameType(NameType.AKA))
+    person.add_alternate_name(kept)
+    return True
 
 
 def format_link_summary(
@@ -2497,31 +2523,29 @@ class GedGWizard(GWizardBase):
                 if not t_person:
                     return False
 
-                # Apply choices
+                # Apply choices. A merge never loses name detail: an incoming
+                # given name or surname that the tree's already holds (the
+                # same words, initials matching whole words) leaves it as it
+                # is, and a name that is replaced is kept as an "Also Known
+                # As" name.
+                old_name = copy.deepcopy(t_person.get_primary_name())
                 # 1. Given Name
                 if resolutions.get("given_name") == "source":
                     s_given = str(s_person.get_primary_name().first_name or "").strip()
                     t_given = str(t_person.get_primary_name().first_name or "").strip()
-                    s_toks = s_given.split()
-                    t_toks = t_given.split()
-                    # Preserve richer detail: if target has middle names and source is merely
-                    # a prefix or subset (e.g. target 'John Fitzgerald' vs source 'John'),
-                    # keep the fuller target name instead of truncating.
-                    if (
-                        len(t_toks) > len(s_toks)
-                        and s_toks
-                        and t_toks[: len(s_toks)] == s_toks
-                    ):
-                        pass
-                    else:
+                    if not name_covers(t_given, s_given):
                         t_person.get_primary_name().first_name = s_given
 
                 # 2. Surname
                 if resolutions.get("surname") == "source":
-                    # Clear target surname list and copy source list
-                    t_person.get_primary_name().surname_list = copy.deepcopy(
-                        s_person.get_primary_name().surname_list
-                    )
+                    s_surname = surname_text(s_person.get_primary_name())
+                    t_surname = surname_text(t_person.get_primary_name())
+                    if not name_covers(t_surname, s_surname):
+                        # Clear target surname list and copy source list
+                        t_person.get_primary_name().surname_list = copy.deepcopy(
+                            s_person.get_primary_name().surname_list
+                        )
+                keep_replaced_name(t_person, old_name)
 
                 # 2b. Surname Prefix (a GEDCOM SPFX value lives on the
                 # Surname itself, so only the prefixes of the surnames
