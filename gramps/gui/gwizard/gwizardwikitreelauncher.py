@@ -1297,7 +1297,9 @@ def merge_wikitree_profile(
         from gramps.gui.dialog import WarningDialog
 
         WarningDialog(_("Some relationships were not linked"), problems, parent=parent)
-    photos = photo_message(gwizard.context.get("media_download"))
+    photos = relatives_message(gwizard.context.get("link_summary", [])) + photo_message(
+        gwizard.context.get("media_download")
+    )
     target_name = ""
     if target_handle:
         tp = db.get_person_from_handle(target_handle)
@@ -1313,6 +1315,21 @@ def merge_wikitree_profile(
             + photos
         )
     return True, _("Successfully imported '%s' as a new person.") % wt_id + photos
+
+
+def relatives_message(summary: list[dict[str, str]]) -> str:
+    """
+    Return the part of the merge message about relatives added as new
+    people (with a leading space), or '' when none were added.
+    """
+    added = [entry for entry in summary if entry.get("status") == "added"]
+    if not added:
+        return ""
+    return " " + ngettext(
+        "%d relative who was not in your tree was added as a new person.",
+        "%d relatives who were not in your tree were added as new people.",
+        len(added),
+    ) % len(added)
 
 
 def photo_message(result: dict[str, Any] | None) -> str:

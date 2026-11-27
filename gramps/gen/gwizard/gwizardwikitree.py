@@ -3136,9 +3136,14 @@ class WikiTreeGWizard(GedGWizard):
                 "person_map", {}
             ).get(source_person_handle)
             if merged_handle:
-                self.context["media_download"] = self.download_person_media(
-                    merged_handle
-                )
+                found = self.download_person_media(merged_handle)
+                # Relatives the merge added as new people bring their photos too.
+                for handle in self.context.get("added_relatives") or []:
+                    more = self.download_person_media(handle)
+                    found["downloaded"] += more["downloaded"]
+                    found["failed"] += more["failed"]
+                    found["no_base_path"] += more["no_base_path"]
+                self.context["media_download"] = found
 
         if applied and target_person_handle and source_person_handle:
             source_db = self.context.get("source_db")

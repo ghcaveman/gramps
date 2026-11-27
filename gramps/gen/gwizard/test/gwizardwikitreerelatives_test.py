@@ -108,8 +108,8 @@ class RelativeItemsTest(unittest.TestCase):
         self.assertNotIn("LastNameBirth", fields)
 
 
-class WikiTreeWifeTest(unittest.TestCase):
-    """The wife's birth surname, and linking her to the tree's wife."""
+class _WikiTreeFixture(unittest.TestCase):
+    """A tree with Thomas, Ann and William (no tests of its own)."""
 
     def setUp(self) -> None:
         self.db: DbWriteBase = make_database("sqlite")
@@ -157,6 +157,10 @@ class WikiTreeWifeTest(unittest.TestCase):
                 return person
         raise AssertionError(given)
 
+
+class WikiTreeWifeTest(_WikiTreeFixture):
+    """The wife's birth surname, and linking her to the tree's wife."""
+
     def test_wife_has_her_birth_surname(self) -> None:
         _gw, source_db = self._load(SPOUSES_BY_ID)
         ann = self._incoming(source_db, "Ann")
@@ -190,6 +194,48 @@ class WikiTreeWifeTest(unittest.TestCase):
         self.assertEqual(
             [ref.ref for ref in family.get_child_ref_list()], [self.handles["William"]]
         )
+
+
+class WikiTreeAddedRelativesTest(_WikiTreeFixture):
+    """Relatives the tree lacks, added as new people, with their photos."""
+
+    def setUp(self) -> None:
+        _WikiTreeFixture.setUp(self)
+        # A tree with Thomas only.
+        with DbTxn("trim", self.db) as trans:
+            for given in ("Ann", "William"):
+                self.db.remove_person(self.handles.pop(given), trans)
+
+    def test_wife_and_son_are_added_and_their_photos_fetched(self) -> None:
+        gw, source_db = self._load(SPOUSES_BY_ID)
+        gw.context["download_media"] = True
+        fetched: list[str] = []
+
+        def fake_download(handle: str) -> dict[str, Any]:
+            fetched.append(handle)
+            return {"downloaded": 1, "failed": [], "no_base_path": 0}
+
+        gw.download_person_media = fake_download  # type: ignore[method-assign]
+        self.assertTrue(
+            gw.run_step(
+                "apply",
+                source_person_handle=self._incoming(source_db, "Thomas").handle,
+                target_person_handle=self.handles["Thomas"],
+                resolutions={"link_families": "source"},
+                add_missing_relatives=True,
+            )
+        )
+        self.assertEqual(self.db.get_number_of_people(), 3)
+        thomas = self.db.get_person_from_handle(self.handles["Thomas"])
+        (family_handle,) = thomas.get_family_handle_list()
+        family = self.db.get_family_from_handle(family_handle)
+        ann = self.db.get_person_from_handle(family.get_mother_handle())
+        self.assertEqual(ann.get_primary_name().get_surname(), "Smith")
+        self.assertEqual(len(family.get_child_ref_list()), 1)
+        added = gw.context["added_relatives"]
+        self.assertEqual(len(added), 2)
+        self.assertEqual(fetched, [self.handles["Thomas"]] + added)
+        self.assertEqual(gw.context["media_download"]["downloaded"], 3)
 
 
 if __name__ == "__main__":
