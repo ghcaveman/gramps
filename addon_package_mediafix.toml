@@ -5,6 +5,9 @@
 # the child branch) depends on it and lists these modules under
 # [[dependencies]]. The shared File Merge modules reach this branch by
 # merging gwizard_filemerge (the parent branch).
+#
+# Depends on GWizardFileMerge for the media file naming
+# (gwizard_filemerge_medianaming.py), which the record-source addons share.
 
 package = "MediaFix"
 
@@ -41,6 +44,15 @@ tests = [
 ]
 test_helpers = [
     "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
+]
+
+# Media file naming (the filename template and its tokens), shared with the
+# record-source addons, ships in GWizardFileMerge.
+[[dependencies]]
+id = "gwizardmerge"
+package = "GWizardFileMerge"
+modules = [
+    "gramps/gen/gwizard/gwizard_filemerge_medianaming.py",
 ]
 
 [check]
