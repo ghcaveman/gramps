@@ -690,7 +690,7 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard Citation Improvement Scan (code in gwizard_filemerge; the record-
+# GWizard Multi-Archive Citation Scan (code in gwizard_filemerge; the record-
 # source branches register the menu entry, like the Multi-Archive Record Scan)
 #
 # ------------------------------------------------------------------------
@@ -698,7 +698,7 @@ register(
 register(
     TOOL,
     id="gwizardcitescan",
-    name=_("Citation Improvement Scan"),
+    name=_("Multi-Archive Citation Scan"),
     description=_(
         "List every citation in the Family Tree from the most work needed "
         "to the least (missing page, date, image, repository, ...), with "
@@ -722,7 +722,7 @@ register(
 
 # ------------------------------------------------------------------------
 #
-# GWizard FamilySearch citation source (for the GWizard Citation Improvement Scan)
+# GWizard FamilySearch citation source (for the GWizard Multi-Archive Citation Scan)
 #
 # ------------------------------------------------------------------------
 
@@ -731,7 +731,7 @@ register(
     id="gwizardfscitesource",
     name=_("GWizard FamilySearch citation source"),
     description=_(
-        "Lets the GWizard Citation Improvement Scan read citations of "
+        "Lets the GWizard Multi-Archive Citation Scan read citations of "
         "FamilySearch Family Tree persons and historical records, and open "
         "a cited person."
     ),
