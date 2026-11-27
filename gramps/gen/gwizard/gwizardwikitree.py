@@ -29,11 +29,13 @@ WikiTree implementation of the GWizard import and merge framework.
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import copy
+import hashlib
 import logging
 import mimetypes
 import os
 import re
-from typing import Any
+from typing import Any, Callable
+from urllib.parse import urlparse
 
 # -------------------------------------------------------------------------
 #
@@ -76,6 +78,8 @@ from gramps.gen.lib import (
     NameType,
 )
 from gramps.gen.lib.date import Today
+from gramps.gen.utils.db import get_birth_or_fallback, get_death_or_fallback
+from gramps.gen.utils.file import create_checksum, media_path, relative_path
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 
 # -------------------------------------------------------------------------
@@ -463,6 +467,258 @@ _DEFAULT_FIELDS = (
 
 # ------------------------------------------------------------
 #
+# Photos
+#
+# ------------------------------------------------------------
+# WikiTree keeps full-size images MediaWiki-style, under two folders named
+# from the MD5 of the file name: /photo.php/a/a6/Warner-1.jpg. The "/photo/
+# jpg/<name>" address is the image's web page, not the image.
+WIKITREE_IMAGE_BASE = "https://www.wikitree.com/photo.php"
+# Folder under the media base path that photos are downloaded into first;
+# a photo merged into the tree is then moved to the base media path and
+# named with Media Fix's filename template.
+WIKITREE_MEDIA_FOLDER = "WikiTree"
+# Media attribute that records the address a photo came from, so a later
+# merge of the same profile reuses the photo already in the tree.
+WIKITREE_URL_ATTRIBUTE = "WikiTree URL"
+
+# Media Fix's filename template setting and its default (gwizardmediafix.py).
+MEDIAFIX_TEMPLATE_KEY = "preferences.gwizardmediafix-filename-template"
+MEDIAFIX_DEFAULT_TEMPLATE = "{ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}"
+
+
+def wikitree_image_url(file_name: str) -> str:
+    """Return the address of the full-size WikiTree image named file_name."""
+    name = (file_name or "").strip().replace(" ", "_")
+    if not name:
+        return ""
+    name = name[0].upper() + name[1:]
+    digest = hashlib.md5(name.encode("utf-8")).hexdigest()
+    return "%s/%s/%s/%s" % (WIKITREE_IMAGE_BASE, digest[0], digest[:2], name)
+
+
+def is_wikitree_url(path: str) -> bool:
+    """Return True for a web address on wikitree.com."""
+    host = urlparse(path or "").netloc.casefold()
+    return host == "wikitree.com" or host.endswith(".wikitree.com")
+
+
+def wikitree_media_description(given: str, surname: str, caption: str = "") -> str:
+    """
+    Return a media description Media Fix reads ("Surname, Given - Photo",
+    or the caption in place of "Photo").
+    """
+    caption = " ".join((caption or "").split()) or "Photo"
+    if surname or given:
+        return "%s, %s - %s" % (surname, given, caption)
+    return caption
+
+
+# Media Fix's naming helpers, used when Media Fix is not installed. Kept the
+# same as clean_token, extract_year_and_clean_doctype and
+# format_standard_filename in gwizardmediafix.py; when Media Fix is
+# installed its own functions are used instead.
+def _clean_token(val: Any) -> str:
+    if not val:
+        return ""
+    s = re.sub(r"[\s_]*-+[\s_]*", "-", str(val))
+    clean = re.sub(r"[^\w\-]+", "_", s)
+    clean = re.sub(r"_+", "_", clean)
+    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
+    clean = re.sub(r"-+", "-", clean)
+    return clean.strip("_-")
+
+
+def _extract_year_and_clean_doctype(
+    doc_type: str, surname: str = "", given: str = ""
+) -> tuple[str, str]:
+    if not doc_type:
+        return "", ""
+    year = ""
+    y_match = re.search(r"(?:^|[^\d])(1[5-9]\d{2}|20\d{2})(?:[^\d]|$)", doc_type)
+    if y_match:
+        year = y_match.group(1)
+        doc_type = doc_type[: y_match.start(1)] + " " + doc_type[y_match.end(1) :]
+    sur_giv_m = re.match(
+        r"^\s*(?:[^\W\d_]|[\s'\-])+?,\s*(?:[^\W\d_]|[\s'\-])+?\s*[-_:]+\s*(.+)$",
+        doc_type,
+    )
+    if sur_giv_m:
+        doc_type = sur_giv_m.group(1)
+    if surname:
+        pats = (
+            [
+                rf"(?i)^\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*[-_:]*\s*",
+                rf"(?i)^\s*{re.escape(given)}\s+{re.escape(surname)}\s*[-_:]*\s*",
+                rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*",
+                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*$",
+                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*$",
+            ]
+            if given
+            else [rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*"]
+        )
+        for pat in pats:
+            doc_type = re.sub(pat, "", doc_type)
+    clean = re.sub(r"[^\w\-]+", "_", doc_type)
+    clean = re.sub(r"[\s_]*-+[\s_]*", "-", clean)
+    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
+    clean = re.sub(r"_+", "_", clean).strip("_-")
+    return clean, year
+
+
+def _format_standard_filename(
+    template: str, context: dict[str, str], max_stem_len: int = 85
+) -> str:
+    ext = _clean_token(context.get("ext", "jpg")).lower() or "jpg"
+    safe_context = {k: _clean_token(v) for k, v in context.items() if k != "ext"}
+    safe_context["ext"] = ext
+    try:
+        rendered = template.format(**safe_context)
+    except (KeyError, ValueError, IndexError):
+        rendered = f"{safe_context.get('ref_id', '')}_{safe_context.get('orig', 'media')}.{ext}"
+    base = rendered.rsplit(".", 1)[0] if "." in rendered else rendered
+    base = re.sub(r"[\s_]*-+[\s_]*", "-", base)
+    base = re.sub(r"[^\w\-]+", "_", base)
+    base = re.sub(r"_+", "_", base)
+    base = re.sub(r"[-_]*-[_\s-]*", "-", base)
+    base = re.sub(r"-+", "-", base)
+    base = base.strip("_-")
+    if not base:
+        base = (
+            _clean_token(safe_context.get("orig") or safe_context.get("id")) or "media"
+        )
+    if len(base) > max_stem_len:
+        base = base[:max_stem_len].rstrip("_-")
+    return f"{base}.{ext}"
+
+
+def _mediafix_naming() -> tuple[Callable[..., Any], Callable[..., Any], str]:
+    """
+    Return Media Fix's (extract_year_and_clean_doctype,
+    format_standard_filename, template), from Media Fix itself when it is
+    installed, otherwise from the copies above.
+    """
+    template = MEDIAFIX_DEFAULT_TEMPLATE
+    try:
+        template = str(config.get(MEDIAFIX_TEMPLATE_KEY) or template)
+    except Exception:  # pylint: disable=broad-except
+        pass
+    try:
+        # pylint: disable=import-outside-toplevel
+        from gramps.plugins.tool.gwizardmediafix import (
+            extract_year_and_clean_doctype,
+            format_standard_filename,
+        )
+
+        return extract_year_and_clean_doctype, format_standard_filename, template
+    except Exception:  # pylint: disable=broad-except
+        return _extract_year_and_clean_doctype, _format_standard_filename, template
+
+
+def person_year(db: Any, person: Any) -> str:
+    """
+    Return the year Media Fix uses for a person's media without a date:
+    birth (or fallback), else death (or fallback), else the first dated
+    event. '' when there is none.
+    """
+    if db is None or person is None:
+        return ""
+    try:
+        for event in (
+            get_birth_or_fallback(db, person),
+            get_death_or_fallback(db, person),
+        ):
+            if event is not None and event.get_date_object().get_year() > 0:
+                return str(event.get_date_object().get_year())
+        for event_ref in person.get_event_ref_list():
+            event = db.get_event_from_handle(event_ref.ref)
+            if event is not None and event.get_date_object().get_year() > 0:
+                return str(event.get_date_object().get_year())
+    except Exception:  # pylint: disable=broad-except
+        pass
+    return ""
+
+
+def media_fix_filename(db: Any, person: Any, media: Any, ext: str) -> str:
+    """
+    Return the file name Media Fix gives a person's media object (its
+    person-backlink naming): the year comes from the description, else the
+    media date, else the person.
+    """
+    extract, format_name, template = _mediafix_naming()
+    name = person.get_primary_name()
+    surname = str(name.get_surname() or "")
+    given = str(name.get_first_name() or "")
+    description = str(media.get_description() or "")
+    doc_type, found_year = extract(description or "Photo", surname, given)
+    year = found_year
+    if not year:
+        media_year = media.get_date_object().get_year()
+        year = str(media_year) if media_year > 0 else person_year(db, person)
+    orig = os.path.splitext(os.path.basename(urlparse(media.get_path()).path))[0]
+    context = {
+        "id": str(media.get_gramps_id() or ""),
+        "desc": description,
+        "orig": orig,
+        "ext": (ext or "jpg").lstrip(".").lower(),
+        "ref_id": str(person.get_gramps_id() or ""),
+        "surname": surname,
+        "given": given,
+        "doc_type": doc_type or "Photo",
+        "year": year,
+        "assoc": "",
+        "hash": str(media.get_checksum() or "")[:8],
+    }
+    return format_name(template, context)
+
+
+def place_file(cache_path: str, wanted_path: str) -> str:
+    """
+    Move a downloaded file from the download cache to wanted_path and
+    return where it ended up. A different file already there is never
+    replaced: the file gets the next free "-2", "-3", ... name. An identical
+    file already there is reused. If the move fails the file stays in the
+    cache, which is still a valid media path.
+    """
+    if not wanted_path or os.path.normcase(
+        os.path.abspath(cache_path)
+    ) == os.path.normcase(os.path.abspath(wanted_path)):
+        return cache_path
+    stem, ext = os.path.splitext(wanted_path)
+    candidate = wanted_path
+    number = 1
+    try:
+        new_sum = create_checksum(cache_path)
+        while os.path.exists(candidate):
+            if new_sum and create_checksum(candidate) == new_sum:
+                os.remove(cache_path)
+                _remove_empty_dir(cache_path, wanted_path)
+                return candidate
+            number += 1
+            candidate = "%s-%d%s" % (stem, number, ext)
+        os.makedirs(os.path.dirname(candidate) or ".", exist_ok=True)
+        os.replace(cache_path, candidate)
+    except OSError as err:
+        LOG.warning("WikiTree photo %s could not be moved: %s", cache_path, err)
+        return cache_path
+    _remove_empty_dir(cache_path, wanted_path)
+    return candidate
+
+
+def _remove_empty_dir(cache_path: str, wanted_path: str) -> None:
+    """Remove the download cache folder once it is empty."""
+    folder = os.path.dirname(os.path.abspath(cache_path))
+    if os.path.normcase(folder) != os.path.normcase(
+        os.path.dirname(os.path.abspath(wanted_path))
+    ):
+        try:
+            os.rmdir(folder)
+        except OSError:
+            pass
+
+
+# ------------------------------------------------------------
+#
 # WikiTreeInterface
 #
 # ------------------------------------------------------------
@@ -707,6 +963,59 @@ class WikiTreeInterface:
                 raise RuntimeError(str(err)) from err
         return []
 
+    def download_image(self, url: str, path: str, timeout: int = 60) -> bool:
+        """
+        Download the image at url to path and return True on success.
+
+        Only an image reply is saved: an HTML page (such as a photo's web
+        page, or an error page) is refused, so it never becomes a media
+        file. The file is written beside path first and renamed when
+        complete.
+
+        :param url: Address of the image.
+        :param path: Absolute file path to save it to.
+        :param timeout: HTTP request timeout in seconds.
+        """
+        import requests
+
+        try:
+            response = requests.get(
+                url,
+                headers={"User-Agent": self.headers["User-Agent"]},
+                verify=self.verify_ssl,
+                timeout=timeout,
+            )
+        except requests.RequestException as err:
+            LOG.warning("WikiTree photo %s could not be downloaded: %s", url, err)
+            return False
+        content_type = str(response.headers.get("Content-Type") or "").lower()
+        if (
+            response.status_code != 200
+            or not content_type.startswith("image/")
+            or not response.content
+        ):
+            LOG.warning(
+                "WikiTree photo %s not downloaded (HTTP %s, %s)",
+                url,
+                response.status_code,
+                content_type or "no content type",
+            )
+            return False
+        partial = path + ".part"
+        try:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(partial, "wb") as out:
+                out.write(response.content)
+            os.replace(partial, path)
+        except OSError as err:
+            LOG.warning("WikiTree photo %s could not be saved: %s", path, err)
+            try:
+                os.remove(partial)
+            except OSError:
+                pass
+            return False
+        return True
+
     def get_bio(self, key: str, timeout: int = 30) -> str:
         """
         Retrieve biography markdown text for a person.
@@ -782,6 +1091,8 @@ class WikiTreeGWizard(GedGWizard):
         :param app_id: Custom WikiTree App ID.
         :param client: Optional pre-configured WikiTreeInterface instance.
         :param people_data: Optional pre-fetched list/dict of profile data for tests.
+        :param download_media: Download the merged person's WikiTree photos
+            after a merge (default: yes, unless people_data is given).
         :returns: True if query or people_data is configured.
         """
         query = kwargs.get("query", "").strip()
@@ -799,6 +1110,9 @@ class WikiTreeGWizard(GedGWizard):
         self.context["app_id"] = kwargs.get("app_id", WikiTreeInterface.DEFAULT_APP_ID)
         self.context["client"] = kwargs.get("client")
         self.context["people_data"] = people_data
+        self.context["download_media"] = bool(
+            kwargs.get("download_media", people_data is None)
+        )
         return True
 
     @staticmethod
@@ -1797,6 +2111,48 @@ class WikiTreeGWizard(GedGWizard):
                 source_cache[key] = handle
                 return handle
 
+            def wikitree_media(
+                url: str,
+                description: str,
+                trans: DbTxn,
+                dimensions: str = "",
+            ) -> str:
+                """
+                Return the media handle for a WikiTree photo address: the
+                tree's copy when a tree photo came from that address
+                (WIKITREE_URL_ATTRIBUTE), otherwise a new media object
+                linked by the address (downloaded after the merge).
+                """
+                cached = media_cache.get(url)
+                if cached:
+                    return cached
+                for t_media in self.db.iter_media():
+                    if any(
+                        str(a.get_type()) == WIKITREE_URL_ATTRIBUTE
+                        and a.get_value() == url
+                        for a in t_media.get_attribute_list()
+                    ):
+                        reused = bare_tree_copy(t_media)
+                        source_db.add_media(reused, trans)
+                        media_cache[url] = reused.get_handle()
+                        return media_cache[url]
+                new_media = Media()
+                new_media.set_path(url)
+                new_media.set_description(description)
+                mime = mimetypes.guess_type(urlparse(url).path)[0]
+                new_media.set_mime_type(mime or "image/jpeg")
+                url_attr = Attribute()
+                url_attr.set_type(AttributeType(WIKITREE_URL_ATTRIBUTE))
+                url_attr.set_value(url)
+                new_media.add_attribute(url_attr)
+                if dimensions:
+                    dim_attr = Attribute()
+                    dim_attr.set_type(AttributeType(_("Dimensions")))
+                    dim_attr.set_value(dimensions)
+                    new_media.add_attribute(dim_attr)
+                media_cache[url] = source_db.add_media(new_media, trans)
+                return media_cache[url]
+
             # 1. The WikiTree repository and one collection-level source for
             # every profile (the profile ID goes in the citation page).
             repo_handle = tree_repository(
@@ -2012,18 +2368,18 @@ class WikiTreeGWizard(GedGWizard):
                     cit_note_handle = source_db.add_note(cit_note, trans)
                     citation.add_note(cit_note_handle)
 
-                # Primary Photo / Media
+                # Primary Photo / Media. PhotoData's "path" is the
+                # full-size image ("url" and "file" are the 75px thumbnail);
+                # without it the full-size address is worked out from the
+                # Photo file name.
                 photo_file = str(pdata.get("Photo") or "").strip()
                 photo_data = pdata.get("PhotoData")
                 primary_media_url = ""
-                primary_media_desc = ""
                 orig_w = ""
                 orig_h = ""
 
                 if isinstance(photo_data, dict):
-                    photo_path = str(
-                        photo_data.get("path") or photo_data.get("url") or ""
-                    ).strip()
+                    photo_path = str(photo_data.get("path") or "").strip()
                     if photo_path:
                         primary_media_url = (
                             f"https://www.wikitree.com{photo_path}"
@@ -2036,45 +2392,17 @@ class WikiTreeGWizard(GedGWizard):
                     orig_h = str(
                         photo_data.get("orig_height") or photo_data.get("height") or ""
                     )
-                    file_name = str(photo_data.get("file") or photo_file or "")
-                    if file_name:
-                        primary_media_desc = (
-                            f"{given} {surname_val} ({file_name})".strip()
-                        )
 
                 if not primary_media_url and photo_file:
-                    ext = (
-                        photo_file.rsplit(".", 1)[-1].lower()
-                        if "." in photo_file
-                        else "jpg"
-                    )
-                    primary_media_url = (
-                        f"https://www.wikitree.com/photo/{ext}/{photo_file}"
-                    )
-                    primary_media_desc = f"{given} {surname_val} ({photo_file})".strip()
-
-                if not primary_media_desc:
-                    primary_media_desc = (
-                        f"WikiTree photo for {given} {surname_val}".strip()
-                    )
+                    primary_media_url = wikitree_image_url(photo_file)
 
                 if primary_media_url:
-                    primary_media_h = media_cache.get(primary_media_url)
-                    if not primary_media_h:
-                        media = Media()
-                        media.set_path(primary_media_url)
-                        media.set_description(primary_media_desc)
-                        mime = mimetypes.guess_type(primary_media_url)[0]
-                        media.set_mime_type(mime or "image/jpeg")
-
-                        if orig_w and orig_h:
-                            dim_attr = Attribute()
-                            dim_attr.set_type(AttributeType(_("Dimensions")))
-                            dim_attr.set_value(f"{orig_w}x{orig_h}")
-                            media.add_attribute(dim_attr)
-
-                        primary_media_h = source_db.add_media(media, trans)
-                        media_cache[primary_media_url] = primary_media_h
+                    primary_media_h = wikitree_media(
+                        primary_media_url,
+                        wikitree_media_description(given, surname_val),
+                        trans,
+                        f"{orig_w}x{orig_h}" if orig_w and orig_h else "",
+                    )
 
                     # Attach directly to Person (primary photo / avatar)
                     p_mref = MediaRef()
@@ -2324,30 +2652,15 @@ class WikiTreeGWizard(GedGWizard):
                                 re.IGNORECASE,
                             )
                         ]
-                        img_desc = (
-                            " - ".join(clean_parts)
-                            if clean_parts
-                            else f"{img_file} ({given} {surname_val})"
+                        img_desc = wikitree_media_description(
+                            given, surname_val, " - ".join(clean_parts)
                         )
-                        ext = (
-                            img_file.rsplit(".", 1)[-1].lower()
-                            if "." in img_file
-                            else "jpg"
-                        )
-                        img_url = f"https://www.wikitree.com/photo/{ext}/{img_file}"
+                        img_url = wikitree_image_url(img_file)
 
-                        if img_url == primary_media_url:
+                        if not img_url or img_url == primary_media_url:
                             continue
 
-                        g_media_h = media_cache.get(img_url)
-                        if not g_media_h:
-                            g_media = Media()
-                            g_media.set_path(img_url)
-                            g_media.set_description(img_desc)
-                            mime = mimetypes.guess_type(img_url)[0]
-                            g_media.set_mime_type(mime or "image/jpeg")
-                            g_media_h = source_db.add_media(g_media, trans)
-                            media_cache[img_url] = g_media_h
+                        g_media_h = wikitree_media(img_url, img_desc, trans)
 
                         if not any(r.ref == g_media_h for r in person.get_media_list()):
                             g_mref = MediaRef()
@@ -2698,6 +3011,63 @@ class WikiTreeGWizard(GedGWizard):
 
         return people
 
+    def download_person_media(self, person_handle: str) -> dict[str, Any]:
+        """
+        Download a person's WikiTree photos (media still linked by a
+        wikitree.com address) and name them like Media Fix does.
+
+        Each photo is downloaded into <media base path>/WikiTree/, then moved
+        to the base media path under its Media Fix name (a different file
+        already there is never replaced; see place_file) and its media
+        object is pointed at the file. A photo that cannot be downloaded
+        keeps its web address.
+
+        :param person_handle: The person in the family tree.
+        :returns: Counts: downloaded, failed (addresses).
+        """
+        found: dict[str, Any] = {"downloaded": 0, "failed": []}
+        person = self.db.get_person_from_handle(person_handle)
+        if person is None:
+            return found
+        client = self.context.get("client") or WikiTreeInterface(
+            app_id=str(self.context.get("app_id") or WikiTreeInterface.DEFAULT_APP_ID)
+        )
+        base = media_path(self.db)
+        for media_ref in person.get_media_list():
+            media = self.db.get_media_from_handle(media_ref.ref)
+            if media is None or not is_wikitree_url(media.get_path()):
+                continue
+            url = media.get_path()
+            file_name = os.path.basename(urlparse(url).path) or "photo.jpg"
+            cache = os.path.join(base, WIKITREE_MEDIA_FOLDER, file_name)
+            if not client.download_image(url, cache):
+                found["failed"].append(url)
+                continue
+            ext = os.path.splitext(file_name)[1] or ".jpg"
+            final = place_file(
+                cache,
+                os.path.join(base, media_fix_filename(self.db, person, media, ext)),
+            )
+            with DbTxn(_("Download WikiTree photo"), self.db) as trans:
+                media.set_path(relative_path(final, base))
+                media.set_mime_type(
+                    mimetypes.guess_type(final)[0]
+                    or media.get_mime_type()
+                    or "image/jpeg"
+                )
+                media.set_checksum(create_checksum(final))
+                if not any(
+                    str(a.get_type()) == WIKITREE_URL_ATTRIBUTE
+                    for a in media.get_attribute_list()
+                ):
+                    url_attr = Attribute()
+                    url_attr.set_type(AttributeType(WIKITREE_URL_ATTRIBUTE))
+                    url_attr.set_value(url)
+                    media.add_attribute(url_attr)
+                self.db.commit_media(media, trans)
+            found["downloaded"] += 1
+        return found
+
     def _apply(self, **kwargs: Any) -> bool:
         """
         Apply resolutions for WikiTree merge, ensuring WikiTree ID is stored
@@ -2719,6 +3089,15 @@ class WikiTreeGWizard(GedGWizard):
             store_wtid = resolutions.pop("wtid", "source") == "source"
 
         applied = super()._apply(**kwargs)
+
+        if applied and self.context.get("download_media"):
+            merged_handle = target_person_handle or self.context.get(
+                "person_map", {}
+            ).get(source_person_handle)
+            if merged_handle:
+                self.context["media_download"] = self.download_person_media(
+                    merged_handle
+                )
 
         if applied and target_person_handle and source_person_handle:
             source_db = self.context.get("source_db")

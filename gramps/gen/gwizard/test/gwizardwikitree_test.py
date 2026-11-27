@@ -1481,8 +1481,9 @@ Sample was born and lived a quiet life.
         self.assertEqual(len(p_media_refs), 1)
         assert source_db is not None
         media_obj = source_db.get_media_from_handle(p_media_refs[0].ref)
+        # The full-size image (photo.php/<md5 folders>/), not its web page.
         self.assertEqual(
-            media_obj.get_path(), "https://www.wikitree.com/photo/gif/Deborah.gif"
+            media_obj.get_path(), "https://www.wikitree.com/photo.php/c/c5/Deborah.gif"
         )
         self.assertEqual(media_obj.get_mime_type(), "image/gif")
 

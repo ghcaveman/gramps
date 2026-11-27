@@ -39,8 +39,7 @@ modules = [
     "gramps/plugins/tool/gwizard_filemerge_scan.py",
 ]
 tests = [
-    "gramps/gen/gwizard/test/gwizardwikitree_test.py",
-    "gramps/gen/gwizard/test/gwizardwikitreematch_test.py",
+    "gramps/gen/gwizard/test/gwizardwikitree*_test.py",
     "gramps/gui/gwizard/test/gwizardwikitreelauncher_test.py",
     "gramps/plugins/tool/test/gwizardwikitree*_test.py",
     "gramps/plugins/tool/test/gwizard_filemerge_scan_test.py",

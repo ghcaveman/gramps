@@ -61,6 +61,7 @@ from gramps.gen.gwizard.gwizardwikitreematch import (
 )
 
 _ = glocale.translation.sgettext
+ngettext = glocale.translation.ngettext
 LOG = logging.getLogger(__name__)
 
 # Response id of the Merge button (a non-closing action button).
@@ -1288,17 +1289,50 @@ def merge_wikitree_profile(
 
     if response != Gtk.ResponseType.OK:
         return False, ""
+    photos = photo_message(gwizard.context.get("media_download"))
     target_name = ""
     if target_handle:
         tp = db.get_person_from_handle(target_handle)
         if tp:
             target_name = tp.get_primary_name().get_name()
     if target_name:
-        return True, _("Successfully merged '%(wt_id)s' into '%(target)s'.") % {
-            "wt_id": wt_id,
-            "target": target_name,
-        }
-    return True, _("Successfully imported '%s' as a new person.") % wt_id
+        return True, (
+            _("Successfully merged '%(wt_id)s' into '%(target)s'.")
+            % {
+                "wt_id": wt_id,
+                "target": target_name,
+            }
+            + photos
+        )
+    return True, _("Successfully imported '%s' as a new person.") % wt_id + photos
+
+
+def photo_message(result: dict[str, Any] | None) -> str:
+    """
+    Return the part of the merge message about downloaded photos (with a
+    leading space), or '' when no photo was downloaded or failed.
+    """
+    if not result:
+        return ""
+    parts = []
+    if result.get("downloaded"):
+        parts.append(
+            ngettext(
+                "%d photo downloaded.", "%d photos downloaded.", result["downloaded"]
+            )
+            % result["downloaded"]
+        )
+    if result.get("failed"):
+        parts.append(
+            ngettext(
+                "%d photo could not be downloaded and is linked by its web address.",
+                "%d photos could not be downloaded and are linked by their web "
+                "address.",
+                len(result["failed"]),
+            )
+            % len(result["failed"])
+        )
+    return (" " + " ".join(parts)) if parts else ""
 
 
 def ask_wikitree_parameters(
