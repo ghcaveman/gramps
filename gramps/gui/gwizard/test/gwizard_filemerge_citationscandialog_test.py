@@ -19,7 +19,7 @@
 #
 
 """
-Unit tests for the GWizard Citation Improvement Scan window
+Unit tests for the GWizard Multi-Archive Citation Scan window
 (gwizard_filemerge_citationscandialog). The window
 tests need a display and are skipped without one; confidence_cell runs
 everywhere.
