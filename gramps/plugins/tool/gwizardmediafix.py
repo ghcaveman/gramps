@@ -27,7 +27,6 @@
 # -------------------------------------------------------------------------
 from __future__ import annotations
 import difflib
-import hashlib
 import logging
 import functools
 import os
@@ -52,7 +51,6 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale, USER_HOME, USER_PICTURES
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.errors import HandleError
 from gramps.gen.types import EventHandle, MediaHandle, PersonHandle
-from gramps.gen.utils.db import get_birth_or_fallback, get_death_or_fallback
 from gramps.gen.utils.file import expand_path, media_path, media_path_full
 from gramps.gui.dialog import OkDialog, QuestionDialog2
 from gramps.gui.managedwindow import ManagedWindow
@@ -167,6 +165,19 @@ except (ImportError, ValueError):
 
 # Addon translations (the package's locale/ folder) fall back to Gramps' own;
 # as a built-in tool there is no locale/ folder and Gramps' are used.
+# Media file naming, shared with the GWizard record-source tools (NARA,
+# WikiTree, ...) so the files they download are named as Media Fix names
+# them. The names stay importable from this module.
+from gramps.gen.gwizard.gwizard_filemerge_medianaming import (  # noqa: F401
+    DEFAULT_FILENAME_TEMPLATE,
+    FILENAME_TEMPLATE_KEY,
+    clean_token,
+    extract_year_and_clean_doctype,
+    file_content_hash,
+    format_standard_filename,
+    person_year as get_person_year,
+)
+
 try:
     _trans = glocale.get_addon_translator(__file__)
 except ValueError:
@@ -175,9 +186,8 @@ _ = _trans.sgettext
 ngettext = _trans.ngettext
 LOG = logging.getLogger(__name__)
 
-CONFIG_TEMPLATE_KEY = "preferences.gwizardmediafix-filename-template"
-DEFAULT_FILENAME_TEMPLATE = "{ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}"
-config.register(CONFIG_TEMPLATE_KEY, DEFAULT_FILENAME_TEMPLATE)
+# The filename template setting (registered by the shared naming module).
+CONFIG_TEMPLATE_KEY = FILENAME_TEMPLATE_KEY
 
 # Most media files the report's search for unreferenced files reads before it
 # stops (0 = no limit).  When the limit is hit, Generate report offers to scan
@@ -1137,18 +1147,6 @@ def scan_unreadable_media(
     return missing, denied
 
 
-def clean_token(val: Any) -> str:
-    """Sanitize an individual token value to contain only alphanumeric characters, underscores, and hyphens."""
-    if not val:
-        return ""
-    s = re.sub(r"[\s_]*-+[\s_]*", "-", str(val))
-    clean = re.sub(r"[^\w\-]+", "_", s)
-    clean = re.sub(r"_+", "_", clean)
-    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
-    clean = re.sub(r"-+", "-", clean)
-    return clean.strip("_-")
-
-
 def parse_name_from_text(text: str) -> tuple[str, str, str]:
     """Parse 'Surname, Given - Rest' or 'Surname, Given_Rest' from text."""
     if not text:
@@ -1160,49 +1158,6 @@ def parse_name_from_text(text: str) -> tuple[str, str, str]:
     if m:
         return m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
     return "", "", text
-
-
-def extract_year_and_clean_doctype(
-    doc_type: str, surname: str = "", given: str = ""
-) -> tuple[str, str]:
-    """Extract 4-digit document year and strip redundant person names from doc_type."""
-    if not doc_type:
-        return "", ""
-
-    year = ""
-    y_match = re.search(r"(?:^|[^\d])(1[5-9]\d{2}|20\d{2})(?:[^\d]|$)", doc_type)
-    if y_match:
-        year = y_match.group(1)
-        doc_type = doc_type[: y_match.start(1)] + " " + doc_type[y_match.end(1) :]
-
-    # Strip any leading 'Surname, Given -' pattern from doc_type
-    sur_giv_m = re.match(
-        r"^\s*(?:[^\W\d_]|[\s'\-])+?,\s*(?:[^\W\d_]|[\s'\-])+?\s*[-_:]+\s*(.+)$",
-        doc_type,
-    )
-    if sur_giv_m:
-        doc_type = sur_giv_m.group(1)
-
-    if surname:
-        pats = (
-            [
-                rf"(?i)^\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*[-_:]*\s*",
-                rf"(?i)^\s*{re.escape(given)}\s+{re.escape(surname)}\s*[-_:]*\s*",
-                rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*",
-                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*$",
-                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*$",
-            ]
-            if given
-            else [rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*"]
-        )
-        for pat in pats:
-            doc_type = re.sub(pat, "", doc_type)
-
-    clean = re.sub(r"[^\w\-]+", "_", doc_type)
-    clean = re.sub(r"[\s_]*-+[\s_]*", "-", clean)
-    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
-    clean = re.sub(r"_+", "_", clean).strip("_-")
-    return clean, year
 
 
 def _norm_name(text: Any) -> str:
@@ -1541,35 +1496,6 @@ def find_duplicate_media_references(
         path_map[key].append((m_gid, desc, raw_path, assoc_str))
 
     return {k: v for k, v in path_map.items() if len(v) > 1}
-
-
-def get_person_year(db: DbReadBase, person: Any) -> str:
-    """Extract a representative year for a person (birth, death, or first dated event)."""
-    if not person or not db:
-        return ""
-    try:
-        birth = get_birth_or_fallback(db, person)
-        if birth and birth.get_date_object() and birth.get_date_object().get_year() > 0:
-            return str(birth.get_date_object().get_year())
-        death = get_death_or_fallback(db, person)
-        if death and death.get_date_object() and death.get_date_object().get_year() > 0:
-            return str(death.get_date_object().get_year())
-    except Exception:
-        pass
-    if hasattr(person, "get_event_ref_list"):
-        for eref in person.get_event_ref_list():
-            if hasattr(eref, "ref") and eref.ref:
-                try:
-                    evt = db.get_event_from_handle(eref.ref)
-                    if (
-                        evt
-                        and evt.get_date_object()
-                        and evt.get_date_object().get_year() > 0
-                    ):
-                        return str(evt.get_date_object().get_year())
-                except Exception:
-                    continue
-    return ""
 
 
 def _resolve_media_reference_context_uncached(
@@ -1925,44 +1851,6 @@ def resolve_media_reference_context(
     return ctx
 
 
-def format_standard_filename(
-    template: str, context: dict[str, str], max_stem_len: int = 85
-) -> str:
-    """Format and sanitize a filename using template tokens and context."""
-    ext = clean_token(context.get("ext", "jpg")).lower()
-    if not ext:
-        ext = "jpg"
-
-    safe_context = {k: clean_token(v) for k, v in context.items() if k != "ext"}
-    safe_context["ext"] = ext
-
-    try:
-        rendered = template.format(**safe_context)
-    except (KeyError, ValueError, IndexError):
-        rendered = f"{safe_context.get('ref_id', '')}_{safe_context.get('orig', 'media')}.{ext}"
-
-    if "." in rendered:
-        base, _ext = rendered.rsplit(".", 1)
-    else:
-        base = rendered
-
-    base = re.sub(r"[\s_]*-+[\s_]*", "-", base)
-    base = re.sub(r"[^\w\-]+", "_", base)
-    base = re.sub(r"_+", "_", base)
-    base = re.sub(r"[-_]*-[_\s-]*", "-", base)
-    base = re.sub(r"-+", "-", base)
-    base = base.strip("_-")
-
-    if not base:
-        base = safe_context.get("orig") or safe_context.get("id") or "media"
-        base = clean_token(base) or "media"
-
-    if len(base) > max_stem_len:
-        base = base[:max_stem_len].rstrip("_-")
-
-    return f"{base}.{ext}"
-
-
 def sanitize_standard_filename(
     path: str,
     db: DbReadBase | None = None,
@@ -1992,18 +1880,6 @@ def sanitize_standard_filename(
         standard_basename = format_standard_filename(tmpl, ctx)
 
     return os.path.join(dirname, standard_basename) if dirname else standard_basename
-
-
-def file_content_hash(path: str, length: int = 6) -> str:
-    """Short, stable content hash of a file ("" if it cannot be read)."""
-    try:
-        digest = hashlib.sha1()
-        with open(path, "rb") as handle:
-            for chunk in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(chunk)
-        return digest.hexdigest()[:length]
-    except OSError:
-        return ""
 
 
 # ------------------------------------------------------------
