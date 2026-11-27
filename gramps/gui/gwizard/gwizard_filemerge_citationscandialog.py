@@ -271,6 +271,9 @@ class CitationScanDialog(Gtk.Dialog):
         self.column_map: dict[Gtk.TreeViewColumn, SourceColumns] = {}
         self.scan_buttons: dict[str, Gtk.Button] = {}
         self.usage_labels: dict[str, Gtk.Label] = {}
+        # One "show" check box per source, and that source's list columns.
+        self.show_checks: dict[str, Gtk.CheckButton] = {}
+        self.source_view_columns: dict[str, list[Gtk.TreeViewColumn]] = {}
         self.scanning = False
         self._signal_keys: list[Any] = []
 
@@ -279,6 +282,7 @@ class CitationScanDialog(Gtk.Dialog):
         content.set_border_width(12)
         content.pack_start(self._build_options(), False, False, 0)
         content.pack_start(self._build_source_bar(), False, False, 0)
+        content.pack_start(self._build_show_bar(), False, False, 0)
 
         self.status_label = Gtk.Label()
         self.status_label.set_xalign(0.0)
@@ -418,6 +422,50 @@ class CitationScanDialog(Gtk.Dialog):
         self._refresh_usage()
         return box
 
+    def _build_show_bar(self) -> Gtk.Widget:
+        """
+        One check box per record source, all on: unchecking one hides its
+        columns and leaves it out of Scan All, the filters, the summary, the
+        record choices and the CSV. Its saved results are kept.
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        if not self.sources:
+            return box
+        box.pack_start(Gtk.Label(label=_("Show:")), False, False, 0)
+        for source in self.sources:
+            check = Gtk.CheckButton(label=source.title)
+            check.set_active(True)
+            check.set_tooltip_text(
+                _("Show the %s columns and include %s in Scan All.")
+                % (source.title, source.title)
+            )
+            check.connect("toggled", self.cb_show_toggled)
+            self.show_checks[source.source_id] = check
+            box.pack_start(check, False, False, 0)
+        return box
+
+    def shown(self, source: RecordSource) -> bool:
+        """Whether a source's check box is on."""
+        check = self.show_checks.get(source.source_id)
+        return check is None or check.get_active()
+
+    def shown_groups(self) -> list[SourceColumns]:
+        """Return the column groups of the sources shown."""
+        return [group for group in self.columns if self.shown(group.source)]
+
+    def shown_sources(self) -> list[RecordSource]:
+        """Return the sources shown."""
+        return [source for source in self.sources if self.shown(source)]
+
+    def cb_show_toggled(self, _check: Gtk.CheckButton) -> None:
+        """Show or hide a source's columns, and redo what depends on them."""
+        for source in self.sources:
+            for view_column in self.source_view_columns.get(source.source_id, []):
+                view_column.set_visible(self.shown(source))
+        self.filter_model.refilter()
+        self._refresh_summary()
+        self._update_buttons()
+
     def _build_model(self) -> None:
         """Create the list model with the source columns."""
         types: list[type] = [
@@ -501,6 +549,9 @@ class CitationScanDialog(Gtk.Dialog):
             self._fix_width(column, RECORD_WIDTH)
             self.tree_view.append_column(column)
             self.column_map[column] = group
+            self.source_view_columns.setdefault(group.source.source_id, []).append(
+                column
+            )
 
             renderer = Gtk.CellRendererText()
             renderer.set_property("xalign", 0.5)
@@ -512,6 +563,9 @@ class CitationScanDialog(Gtk.Dialog):
             self._fix_width(column, MATCH_WIDTH)
             self.tree_view.append_column(column)
             self.column_map[column] = group
+            self.source_view_columns.setdefault(group.source.source_id, []).append(
+                column
+            )
 
         filler = Gtk.TreeViewColumn("", Gtk.CellRendererText())
         filler.set_expand(True)
@@ -665,7 +719,7 @@ class CitationScanDialog(Gtk.Dialog):
             return any(
                 self.judged.get((g.source.source_id, item.handle))
                 or item.record_keys.get(g.source.source_id)
-                for g in self.columns
+                for g in self.shown_groups()
             )
         return True
 
@@ -681,7 +735,7 @@ class CitationScanDialog(Gtk.Dialog):
         """Return the source groups with a record to open for a citation."""
         return [
             g
-            for g in self.columns
+            for g in self.shown_groups()
             if item.record_keys.get(g.source.source_id)
             or self.judged.get((g.source.source_id, item.handle))
         ]
@@ -697,7 +751,7 @@ class CitationScanDialog(Gtk.Dialog):
         )
         searchable = [
             s
-            for s in self.sources
+            for s in self.shown_sources()
             if type(s).open_search is not RecordSource.open_search
         ]
         self.btn_search.set_sensitive(
@@ -709,10 +763,12 @@ class CitationScanDialog(Gtk.Dialog):
         for source in self.sources:
             button = self.scan_buttons.get(source.source_id)
             if button is not None:
-                button.set_sensitive(not busy and self._available(source)[0])
+                button.set_sensitive(
+                    not busy and self.shown(source) and self._available(source)[0]
+                )
         if "" in self.scan_buttons:
             self.scan_buttons[""].set_sensitive(
-                not busy and any(self._available(s)[0] for s in self.sources)
+                not busy and any(self._available(s)[0] for s in self.shown_sources())
             )
 
     # -----------------------------------------------------------------
@@ -828,7 +884,7 @@ class CitationScanDialog(Gtk.Dialog):
             % bands
         ]
         threshold = self.threshold()
-        for group in self.columns:
+        for group in self.shown_groups():
             sid = group.source.source_id
             searched = sum(1 for h in self.people if (sid, h) in self.scans)
             likely = sum(
@@ -978,7 +1034,7 @@ class CitationScanDialog(Gtk.Dialog):
         """Scan one source (or all available) for the worst citations."""
         if self.scanning:
             return
-        chosen = [s for s in (sources or self.sources) if self._available(s)[0]]
+        chosen = [s for s in (sources or self.shown_sources()) if self._available(s)[0]]
         people, skipped = self.scan_plan(chosen)
         if not chosen or not people:
             self.status_label.set_text(
@@ -1317,7 +1373,7 @@ class CitationScanDialog(Gtk.Dialog):
             entry.connect("activate", lambda _w: self.edit_citation(handle))
             menu.append(entry)
         group = self.column_map.get(column)
-        groups = [group] if group is not None else list(self.columns)
+        groups = [group] if group is not None else self.shown_groups()
         for label, action in self._record_entries(item, groups)[:15]:
             entry = Gtk.MenuItem(label=label)
             entry.connect("activate", lambda _w, act=action: act())
@@ -1359,7 +1415,7 @@ class CitationScanDialog(Gtk.Dialog):
             return
         searchable = [
             s
-            for s in self.sources
+            for s in self.shown_sources()
             if type(s).open_search is not RecordSource.open_search
         ]
         group = self.column_map.get(column)
@@ -1487,7 +1543,8 @@ class CitationScanDialog(Gtk.Dialog):
             _("Images"),
             _("Needs"),
         ]
-        for group in self.columns:
+        groups = self.shown_groups()
+        for group in groups:
             title = group.source.title
             header.extend(
                 [
@@ -1512,7 +1569,7 @@ class CitationScanDialog(Gtk.Dialog):
                     item.media_count,
                     item.issue_summary(),
                 ]
-                for group in self.columns:
+                for group in groups:
                     sid = group.source.source_id
                     scan = self.scans.get((sid, item.person_handle))
                     judged = self.judged.get((sid, item.handle), [])

@@ -391,6 +391,64 @@ class CitationScanDialogTest(unittest.TestCase):
         )
         self.assertIn("Cites Fake B1", dialog.tooltip_text(self.cites["Brown"], group))
 
+    def test_show_check_boxes(self) -> None:
+        """
+        Each source has a "show" check box, on by default; unchecking one
+        hides its columns and leaves it out of Scan All, the summary, the
+        record choices and the CSV.
+        """
+        from gramps.gui.gwizard.gwizard_filemerge_citationscandialog import (
+            CitationScanDialog,
+        )
+
+        class OtherSource(FakeSource):
+            source_id = "other"
+            title = "Other"
+
+        other = OtherSource()
+        dialog = CitationScanDialog(
+            self.dbstate,
+            sources=[self.source, other],
+            adapters={"fake": RecordIdSource()},
+            cache=ScanCache(self.cache_path),
+        )
+        self.addCleanup(dialog.destroy)
+        self.assertTrue(all(c.get_active() for c in dialog.show_checks.values()))
+        dialog.work_spin.set_value(0)
+        people, _skipped = dialog.scan_plan([self.source, other])
+        dialog.run_scan([self.source, other], people, True, FakeMeter)
+        smith = dialog.items[self.cites["Smith"]]
+        self.assertEqual(
+            {g.source.source_id for g in dialog._openable(smith)}, {"fake", "other"}
+        )
+
+        dialog.show_checks["other"].set_active(False)
+        self.assertFalse(
+            any(c.get_visible() for c in dialog.source_view_columns["other"])
+        )
+        self.assertTrue(
+            all(c.get_visible() for c in dialog.source_view_columns["fake"])
+        )
+        self.assertNotIn("Other:", dialog.summary_label.get_text())
+        self.assertFalse(dialog.scan_buttons["other"].get_sensitive())
+        self.assertEqual(
+            [g.source.source_id for g in dialog._openable(smith)], ["fake"]
+        )
+        from unittest import mock
+
+        with mock.patch.object(dialog, "run_scan") as run_scan:
+            dialog.cb_scan(None, None)
+        self.assertEqual([s.source_id for s in run_scan.call_args.args[0]], ["fake"])
+        path = os.path.join(self.tmp.name, "shown.csv")
+        dialog.export_csv(path)
+        with open(path, encoding="utf-8") as handle:
+            header = next(csv.reader(handle))
+        self.assertIn("Fake Confidence", header)
+        self.assertFalse(any(name.startswith("Other") for name in header))
+
+        dialog.show_checks["other"].set_active(True)
+        self.assertIn("Other:", dialog.summary_label.get_text())
+
 
 if __name__ == "__main__":
     unittest.main()
