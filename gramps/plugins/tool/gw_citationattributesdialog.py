@@ -219,8 +219,23 @@ def suggest_citation_attributes(
     }
 
 
-def build_citation_attribute_rows(db: DbReadBase) -> list[dict[str, Any]]:
-    """Build citation rows for GPS attribute review and assignment."""
+def current_conf_text(row: dict[str, Any]) -> str:
+    """Return the existing Conf(Q) text shown for a citation row."""
+    curr_quay = row.get("curr_attrs", {}).get("QUAY", "")
+    conf_val = row.get("confidence", 2)
+    if curr_quay:
+        return curr_quay if "(" in curr_quay else f"{conf_val}({curr_quay})"
+    return _CONF_TO_QUAY.get(conf_val, f"{conf_val}(-)")
+
+
+def build_citation_attribute_rows(
+    db: DbReadBase, citation_handles: set[str] | None = None
+) -> list[dict[str, Any]]:
+    """Build citation rows for GPS attribute review and assignment.
+
+    :param citation_handles: Only build rows for these citations (used to
+        refresh rows after Apply); None builds every citation.
+    """
     source_info: dict[str, tuple[str, str]] = {}
     for src in db.iter_sources():
         s_handle = str(src.get_handle() or "")
@@ -231,6 +246,8 @@ def build_citation_attribute_rows(db: DbReadBase) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for cit in db.iter_citations():
         c_handle = str(cit.get_handle() or "")
+        if citation_handles is not None and c_handle not in citation_handles:
+            continue
         c_gid = str(cit.get_gramps_id() or "")
         page = str(cit.get_page() or "").strip()
         raw_conf = cit.get_confidence_level()
@@ -342,6 +359,7 @@ class CitationAttributesDialog(Gtk.Dialog):
         self.dbstate = dbstate
         self.rows = build_citation_attribute_rows(dbstate.db)
         self.row_targets: list[dict[str, Any]] = []
+        self.count_label: SelectableLabel | None = None
         self.set_default_size(1285, 520)
 
         n_hints = sum(1 for r in self.rows if not r["has_all"])
@@ -370,15 +388,9 @@ class CitationAttributesDialog(Gtk.Dialog):
             content.add(done)
             return
 
-        count_label = SelectableLabel(
-            label=str(
-                _("Citations: {citations} | Needing GPS attributes: {needing}").format(
-                    citations=len(self.rows), needing=n_hints
-                )
-            ),
-            wrap=False,
-        )
-        content.add(count_label)
+        self.count_label = SelectableLabel(label="", wrap=False)
+        self.update_counts()
+        content.add(self.count_label)
 
         # Header row above scrolled grid
         header_grid = Gtk.Grid()
@@ -515,15 +527,7 @@ class CitationAttributesDialog(Gtk.Dialog):
             grid.attach(curr_et_label, 3, row_index, 1, 1)
 
             # Column 4: Existing Conf(Q)
-            curr_quay = entry.get("curr_attrs", {}).get("QUAY", "")
-            conf_val = entry.get("confidence", 2)
-            if curr_quay:
-                curr_conf_text = (
-                    curr_quay if "(" in curr_quay else f"{conf_val}({curr_quay})"
-                )
-            else:
-                curr_conf_text = _CONF_TO_QUAY.get(conf_val, f"{conf_val}(-)")
-            curr_conf_label = TableLabel(label=curr_conf_text, wrap=False)
+            curr_conf_label = TableLabel(label=current_conf_text(entry), wrap=False)
             curr_conf_label.set_max_width_chars(8)
             curr_conf_label.set_size_request(60, -1)
             grid.attach(curr_conf_label, 4, row_index, 1, 1)
@@ -637,7 +641,7 @@ class CitationAttributesDialog(Gtk.Dialog):
     @reports_apply_errors
     def cb_apply(self, _button: Gtk.Button) -> None:
         """Write the target column values into the citations' attributes."""
-        applied_count = 0
+        applied: list[dict[str, Any]] = []
         with DbTxn(_("Update Citation Attributes"), self.dbstate.db) as trans:
             for target in self.row_targets:
                 item = target["entry"]
@@ -650,7 +654,9 @@ class CitationAttributesDialog(Gtk.Dialog):
                     ev_type=target["et_entry"].get_text(),
                     quay=target["quay_entry"].get_text(),
                 ):
-                    applied_count += 1
+                    applied.append(target)
+        applied_count = len(applied)
+        self.refresh_rows(applied)
 
         if applied_count == 0:
             OkDialog(
@@ -674,6 +680,54 @@ class CitationAttributesDialog(Gtk.Dialog):
             ).format(number_of=applied_count),
             parent=self,
         )
+
+    def update_counts(self) -> None:
+        """Refresh the summary line and the Accept hints button count."""
+        n_hints = sum(1 for r in self.rows if not r["has_all"])
+        if self.count_label is not None:
+            self.count_label.set_text(
+                str(
+                    _(
+                        "Citations: {citations} | Needing GPS attributes: {needing}"
+                    ).format(citations=len(self.rows), needing=n_hints)
+                )
+            )
+        self.accept_button.set_label(
+            _("Accept hints ({number_of})").format(number_of=n_hints)
+        )
+        self.accept_button.set_sensitive(n_hints > 0)
+
+    def refresh_rows(self, targets: list[dict[str, Any]]) -> None:
+        """Re-read the given rows' citations and show what is now stored.
+
+        The current-value columns show the saved attributes and confidence,
+        the target boxes are cleared, and the hints are recalculated, so the
+        grid matches what reopening the step would show.
+        """
+        if not targets:
+            return
+        handles = {str(t["entry"].get("citation_handle") or "") for t in targets}
+        fresh = {
+            row["citation_handle"]: row
+            for row in build_citation_attribute_rows(self.dbstate.db, handles)
+        }
+        for target in targets:
+            old = target["entry"]
+            new = fresh.get(str(old.get("citation_handle") or ""))
+            if new is None:
+                continue
+            # Update in place so self.rows (same dicts) stays current
+            old.clear()
+            old.update(new)
+            attrs = old["curr_attrs"]
+            target["curr_st_label"].set_text(attrs.get("Source Type", "") or "—")
+            target["curr_it_label"].set_text(attrs.get("Information Type", "") or "—")
+            target["curr_et_label"].set_text(attrs.get("Evidence Type", "") or "—")
+            target["curr_conf_label"].set_text(current_conf_text(old))
+            for key in ("st_entry", "it_entry", "et_entry", "quay_entry"):
+                target[key].set_text("")
+            target["hint_label"].set_text(old.get("hint_text", ""))
+        self.update_counts()
 
     def show_dialog(self) -> None:
         """Display the modal dialog until user explicitly closes it."""
