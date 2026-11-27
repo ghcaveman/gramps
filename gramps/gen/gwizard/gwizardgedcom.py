@@ -90,6 +90,9 @@ from .gwizard_base import (
     SourceMatcher,
     normalize_source_text,
     source_signature,
+    parent_age_problem,
+    person_birth_year,
+    relative_match_plausible,
 )
 from .gwizard_filemerge_media import (
     TargetMediaIndex,
@@ -1200,7 +1203,13 @@ class GedGWizard(GWizardBase):
         if not matches:
             return None
         matches.sort(key=lambda m: m[1], reverse=True)
-        return matches[0][0]
+        # A score can pass on a first name alone, so the best match is used
+        # only when its surname and birth year also fit the relative.
+        for handle, _score in matches:
+            target = safe_get_person(self.db, handle)
+            if relative_match_plausible(rel, source_db, target, self.db):
+                return handle
+        return None
 
     def _find_target_family(
         self,
@@ -2133,6 +2142,46 @@ class GedGWizard(GWizardBase):
                     waiting.append(source_name(s_child_ref.ref))
 
             label = family_label(s_family)
+
+            # A parent born too short or too long a time before a child is
+            # not that child's parent, whoever the match says it is.
+            age_conflicts: list[str] = []
+            child_years = [
+                (t_child, person_birth_year(self.db, safe_get_person(self.db, t_child)))
+                for _ref, t_child in t_children
+            ]
+            for role in ("father", "mother"):
+                t_parent = t_father if role == "father" else t_mother
+                if not t_parent:
+                    continue
+                parent_year = person_birth_year(
+                    self.db, safe_get_person(self.db, t_parent)
+                )
+                for t_child, child_year in child_years:
+                    if parent_age_problem(parent_year, child_year):
+                        age_conflicts.append(
+                            _(
+                                "%(parent)s (born %(pyear)d) cannot be a parent "
+                                "of %(child)s (born %(cyear)d); not linked"
+                            )
+                            % {
+                                "parent": target_name(t_parent),
+                                "pyear": parent_year,
+                                "child": target_name(t_child),
+                                "cyear": child_year,
+                            }
+                        )
+                        if role == "father":
+                            t_father = None
+                        else:
+                            t_mother = None
+                        break
+            for text in age_conflicts:
+                link_summary.append(
+                    {"status": "conflict", "family": label, "detail": text}
+                )
+            claimed = {handle for handle in (t_father, t_mother) if handle}
+            claimed.update(t_child for _ref, t_child in t_children)
             if len(claimed) < 2:
                 # Nobody to link to yet; the family is built when more of
                 # its members are in the tree.
