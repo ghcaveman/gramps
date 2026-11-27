@@ -9,9 +9,9 @@
 # step.
 #
 # Also depends on the GWizard Media Fix addon (gwizard_mediafix): the tool
-# asks for the base media path with Media Fix's question before it opens,
-# and image downloads are named with Media Fix's template when it is
-# installed.
+# asks for the base media path with Media Fix's question before it opens.
+# Image downloads are named with Media Fix's filename template through the
+# naming module shared in GWizardFileMerge (gwizard_filemerge_medianaming.py).
 
 package = "GWizardNaraMerge"
 
@@ -142,6 +142,7 @@ modules = [
     "gramps/gen/gwizard/gwizard_base.py",
     "gramps/gen/gwizard/gwizard_filemerge_citationscan.py",
     "gramps/gen/gwizard/gwizard_filemerge_media.py",
+    "gramps/gen/gwizard/gwizard_filemerge_medianaming.py",
     "gramps/gen/gwizard/gwizard_filemerge_recordscan.py",
     "gramps/gen/gwizard/gwizardaltmatch.py",
     "gramps/gen/gwizard/gwizardgedcom.py",

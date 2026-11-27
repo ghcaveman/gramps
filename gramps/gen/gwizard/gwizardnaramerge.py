@@ -83,6 +83,7 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 #
 # -------------------------------------------------------------------------
 from .gwizard_filemerge_media import base_path_configured
+from .gwizard_filemerge_medianaming import person_media_filename, place_file
 from .gwizardgedcom import GedGWizard
 from .gwizardnarausage import (
     KIND_RECORD,
@@ -885,10 +886,6 @@ NARA_REPOSITORY_URL = "https://www.archives.gov"
 # base media path and named with Media Fix's filename template.
 NARA_MEDIA_FOLDER = "NARA"
 
-# Media Fix's filename template setting and its default (gwizardmediafix.py).
-MEDIAFIX_TEMPLATE_KEY = "preferences.gwizardmediafix-filename-template"
-MEDIAFIX_DEFAULT_TEMPLATE = "{ref_id}_{surname}_{given}-{doc_type}-{year}.{ext}"
-
 # Document type for Media Fix names and media descriptions, from the
 # record's title, series and description; the first match wins.
 _DOC_TYPES: tuple[tuple[str, str], ...] = (
@@ -1017,109 +1014,6 @@ def media_description(
     return "%s, %s" % (head, label) if label else head
 
 
-# Media Fix's naming helpers, used when Media Fix is not installed. Kept the
-# same as clean_token, extract_year_and_clean_doctype and
-# format_standard_filename in gwizardmediafix.py; when Media Fix is
-# installed its own functions are used instead.
-def _clean_token(val: Any) -> str:
-    if not val:
-        return ""
-    s = re.sub(r"[\s_]*-+[\s_]*", "-", str(val))
-    clean = re.sub(r"[^\w\-]+", "_", s)
-    clean = re.sub(r"_+", "_", clean)
-    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
-    clean = re.sub(r"-+", "-", clean)
-    return clean.strip("_-")
-
-
-def _extract_year_and_clean_doctype(
-    doc_type: str, surname: str = "", given: str = ""
-) -> tuple[str, str]:
-    if not doc_type:
-        return "", ""
-    year = ""
-    y_match = re.search(r"(?:^|[^\d])(1[5-9]\d{2}|20\d{2})(?:[^\d]|$)", doc_type)
-    if y_match:
-        year = y_match.group(1)
-        doc_type = doc_type[: y_match.start(1)] + " " + doc_type[y_match.end(1) :]
-    sur_giv_m = re.match(
-        r"^\s*(?:[^\W\d_]|[\s'\-])+?,\s*(?:[^\W\d_]|[\s'\-])+?\s*[-_:]+\s*(.+)$",
-        doc_type,
-    )
-    if sur_giv_m:
-        doc_type = sur_giv_m.group(1)
-    if surname:
-        pats = (
-            [
-                rf"(?i)^\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*[-_:]*\s*",
-                rf"(?i)^\s*{re.escape(given)}\s+{re.escape(surname)}\s*[-_:]*\s*",
-                rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*",
-                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*,\s*{re.escape(given)}\s*$",
-                rf"(?i)[-_:]*\s*{re.escape(surname)}\s*$",
-            ]
-            if given
-            else [rf"(?i)^\s*{re.escape(surname)}\s*[-_:]*\s*"]
-        )
-        for pat in pats:
-            doc_type = re.sub(pat, "", doc_type)
-    clean = re.sub(r"[^\w\-]+", "_", doc_type)
-    clean = re.sub(r"[\s_]*-+[\s_]*", "-", clean)
-    clean = re.sub(r"[-_]*-[_\s-]*", "-", clean)
-    clean = re.sub(r"_+", "_", clean).strip("_-")
-    return clean, year
-
-
-def _format_standard_filename(
-    template: str, context: dict[str, str], max_stem_len: int = 85
-) -> str:
-    ext = _clean_token(context.get("ext", "jpg")).lower() or "jpg"
-    safe_context = {k: _clean_token(v) for k, v in context.items() if k != "ext"}
-    safe_context["ext"] = ext
-    try:
-        rendered = template.format(**safe_context)
-    except (KeyError, ValueError, IndexError):
-        rendered = f"{safe_context.get('ref_id', '')}_{safe_context.get('orig', 'media')}.{ext}"
-    base = rendered.rsplit(".", 1)[0] if "." in rendered else rendered
-    base = re.sub(r"[\s_]*-+[\s_]*", "-", base)
-    base = re.sub(r"[^\w\-]+", "_", base)
-    base = re.sub(r"_+", "_", base)
-    base = re.sub(r"[-_]*-[_\s-]*", "-", base)
-    base = re.sub(r"-+", "-", base)
-    base = base.strip("_-")
-    if not base:
-        base = (
-            _clean_token(safe_context.get("orig") or safe_context.get("id")) or "media"
-        )
-    if len(base) > max_stem_len:
-        base = base[:max_stem_len].rstrip("_-")
-    return f"{base}.{ext}"
-
-
-def _mediafix_naming() -> tuple[Callable[..., Any], Callable[..., Any], str]:
-    """
-    Return Media Fix's (extract_year_and_clean_doctype,
-    format_standard_filename, template), from Media Fix itself when it is
-    installed, otherwise from the copies above.
-    """
-    template = MEDIAFIX_DEFAULT_TEMPLATE
-    try:
-        from gramps.gen.config import config
-
-        template = str(config.get(MEDIAFIX_TEMPLATE_KEY) or template)
-    except Exception:  # pylint: disable=broad-except
-        pass
-    try:
-        # pylint: disable=import-outside-toplevel
-        from gramps.plugins.tool.gwizardmediafix import (
-            extract_year_and_clean_doctype,
-            format_standard_filename,
-        )
-
-        return extract_year_and_clean_doctype, format_standard_filename, template
-    except Exception:  # pylint: disable=broad-except
-        return _extract_year_and_clean_doctype, _format_standard_filename, template
-
-
 def media_fix_filename(
     person: Person | None,
     description: str,
@@ -1127,34 +1021,25 @@ def media_fix_filename(
     ext: str,
     media_id: str = "",
     orig: str = "",
-    checksum: str = "",
+    db: Any = None,
+    file_path: str = "",
 ) -> str:
     """
     Return the file name Media Fix gives a person's media object with this
-    description and year (its person-backlink naming).
+    description and year (its person-backlink naming; see
+    person_media_filename). With ``db``, a record without a year is named
+    with the person's year, as Media Fix would.
     """
-    extract, format_name, template = _mediafix_naming()
-    surname = given = ref_id = ""
-    if person is not None:
-        name = person.get_primary_name()
-        surname = str(name.get_surname() or "")
-        given = str(name.get_first_name() or "")
-        ref_id = str(person.get_gramps_id() or "")
-    doc_type, found_year = extract(description or "Photo", surname, given)
-    context = {
-        "id": media_id,
-        "desc": description,
-        "orig": orig,
-        "ext": (ext or "jpg").lstrip(".").lower(),
-        "ref_id": ref_id or media_id,
-        "surname": surname,
-        "given": given,
-        "doc_type": doc_type or ("Photo" if surname else "Media"),
-        "year": found_year or (str(year) if year else ""),
-        "assoc": "",
-        "hash": (checksum or "")[:8],
-    }
-    return format_name(template, context)
+    return person_media_filename(
+        db,
+        person,
+        description,
+        ext,
+        year=year or "",
+        media_id=media_id,
+        orig=orig,
+        file_path=file_path,
+    )
 
 
 # Attributes this tool puts on what it creates, so a record or image can be
@@ -1706,9 +1591,10 @@ class NaraRecordAttacher:
                 if full_path:
                     media = self.db.get_media_from_handle(image.media_handle)
                     description = str(media.get_description() or "") if media else ""
-                    full_path = self._place_file(
+                    full_path = place_file(
                         full_path,
                         self.final_path(person, parsed, image, description),
+                        cache_levels=2,
                     )
                     new_paths[image.media_handle] = full_path
                 if progress is not None and progress(done, len(online)) is False:
@@ -1826,11 +1712,11 @@ class NaraRecordAttacher:
             )
             if os.path.isfile(full_path) and os.path.getsize(full_path) > 0:
                 result.already_downloaded += 1
-                full_path = self._place_file(full_path, wanted)
+                full_path = place_file(full_path, wanted, cache_levels=2)
                 paths[image.index] = relative_path(full_path, base)
             elif self._download(image.url, full_path):
                 result.downloaded += 1
-                full_path = self._place_file(full_path, wanted)
+                full_path = place_file(full_path, wanted, cache_levels=2)
                 paths[image.index] = relative_path(full_path, base)
             else:
                 result.failed.append(image.url)
@@ -1887,55 +1773,9 @@ class NaraRecordAttacher:
             record_year(parsed),
             ext,
             orig=orig,
+            db=self.db,
         )
         return os.path.join(media_path(self.db), name)
-
-    @staticmethod
-    def _place_file(cache_path: str, wanted_path: str) -> str:
-        """
-        Move a downloaded image from the download cache to wanted_path and
-        return where it ended up. A different file already there is never
-        replaced: the image gets the next free "-2", "-3", ... name. An
-        identical file already there is reused. If the move fails the image
-        stays in the cache, which is still a valid media path.
-        """
-        if not wanted_path or os.path.normcase(
-            os.path.abspath(cache_path)
-        ) == os.path.normcase(os.path.abspath(wanted_path)):
-            return cache_path
-        stem, ext = os.path.splitext(wanted_path)
-        candidate = wanted_path
-        number = 1
-        try:
-            new_sum = create_checksum(cache_path)
-            while os.path.exists(candidate):
-                if new_sum and create_checksum(candidate) == new_sum:
-                    os.remove(cache_path)
-                    NaraRecordAttacher._remove_empty_dirs(cache_path, wanted_path)
-                    return candidate
-                number += 1
-                candidate = "%s-%d%s" % (stem, number, ext)
-            os.makedirs(os.path.dirname(candidate) or ".", exist_ok=True)
-            os.replace(cache_path, candidate)
-        except OSError as err:
-            LOG.warning("NARA image %s could not be moved: %s", cache_path, err)
-            return cache_path
-        NaraRecordAttacher._remove_empty_dirs(cache_path, wanted_path)
-        return candidate
-
-    @staticmethod
-    def _remove_empty_dirs(cache_path: str, wanted_path: str) -> None:
-        """Remove the record's cache folder (and NARA/) once they are empty."""
-        base = os.path.dirname(os.path.abspath(wanted_path))
-        folder = os.path.dirname(os.path.abspath(cache_path))
-        for _level in range(2):
-            if os.path.normcase(folder) == os.path.normcase(base):
-                return
-            try:
-                os.rmdir(folder)
-            except OSError:
-                return
-            folder = os.path.dirname(folder)
 
     def download_one(self, parsed: dict[str, Any], image: ImageStatus) -> str:
         """
