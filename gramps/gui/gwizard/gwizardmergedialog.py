@@ -165,6 +165,20 @@ DIFF_CSS_DATA = b"""
 """
 
 
+def missing_relative_names(gwizard: GedGWizard, source_handle: str) -> list[str]:
+    """
+    Return the names of the incoming person's parents, spouses and children
+    who have nobody in the tree (those "add missing relatives" would add).
+    """
+    source_db = gwizard.context.get("source_db")
+    names = []
+    for handle in gwizard.missing_relatives(source_handle):
+        person = safe_get_person(source_db, handle) if source_db else None
+        if person is not None:
+            names.append(name_displayer.display(person))
+    return names
+
+
 def ensure_diff_styles_installed() -> bool:
     """
     Install the custom CSS provider so the ``diff-line`` row tint applies.
@@ -456,6 +470,24 @@ class GWizardAddNewDialog(Gtk.Dialog):
         self._link_check.set_sensitive(bool(entries))
         box.pack_start(self._link_check, False, False, 0)
 
+        # Parents, spouses and children with nobody in the tree.
+        missing = missing_relative_names(gwizard, source_handle)
+        self._relatives_check = Gtk.CheckButton(
+            label=_("Also add relatives who are not in your tree as new people")
+        )
+        self._relatives_check.set_active(False)
+        self._relatives_check.set_sensitive(bool(missing))
+        if missing:
+            self._relatives_check.set_tooltip_text(", ".join(missing))
+        self._relatives_check.set_margin_start(18)
+        box.pack_start(self._relatives_check, False, False, 0)
+        self._link_check.connect(
+            "toggled",
+            lambda check: self._relatives_check.set_sensitive(
+                check.get_active() and bool(missing)
+            ),
+        )
+
         if entries:
             intro = _(
                 "Relatives who are already in your tree are linked to the new "
@@ -494,6 +526,13 @@ class GWizardAddNewDialog(Gtk.Dialog):
     def link_families(self) -> bool:
         """Return True when the families should be linked."""
         return bool(self._link_check.get_active())
+
+    @property
+    def add_missing_relatives(self) -> bool:
+        """Return True when relatives the tree lacks should be added too."""
+        return self.link_families and bool(
+            self._relatives_check.get_active() and self._relatives_check.get_sensitive()
+        )
 
 
 class GWizardMergeDialog(Gtk.Dialog):
@@ -557,6 +596,9 @@ class GWizardMergeDialog(Gtk.Dialog):
         self._incoming_title = incoming_title
         self._resolutions: dict[str, str] = {}
         self._mergeable_count: int = 0
+        # Relative rows (by resolution key) whose relative has nobody in
+        # the tree, with the text shown for them.
+        self._missing_relatives: dict[str, str] = {}
         self._matched_sources: set[str] = set()
 
         box = self.get_content_area()
@@ -564,6 +606,28 @@ class GWizardMergeDialog(Gtk.Dialog):
         box.pack_start(self._people_row, False, False, 0)
         self._fields_table = self._build_fields_table()
         box.pack_start(self._fields_table, True, True, 0)
+        self._relatives_check: Gtk.CheckButton | None = None
+        if self._missing_relatives:
+            self._relatives_check = Gtk.CheckButton(
+                label=_("Add chosen relatives who are not in your tree as new people")
+            )
+            self._relatives_check.set_active(True)
+            self._relatives_check.set_tooltip_text(
+                _(
+                    "A relative row you move across links that relative to "
+                    "the matching person in your tree. These have nobody in "
+                    "your tree, so with this off they are left out."
+                )
+            )
+            box.pack_start(self._relatives_check, False, False, 0)
+            names = Gtk.Label(
+                label=_("Not in your tree: %s")
+                % "; ".join(self._missing_relatives.values()),
+                xalign=0.0,
+            )
+            names.set_line_wrap(True)
+            names.set_margin_start(24)
+            box.pack_start(names, False, False, 0)
 
         bar = self.get_action_area()
         btn_cancel = Gtk.Button(label=_("Cancel"))
@@ -1031,6 +1095,17 @@ class GWizardMergeDialog(Gtk.Dialog):
             sources_value(td, right),
         )
 
+        def note_missing_relative(key: str, s_rel: Person, text: str) -> None:
+            """Remember a relative row whose relative the tree lacks."""
+            if self.gwizard.target_person_for(s_rel.handle) is not None:
+                return
+            # A name match refused only for its birth year is not added.
+            if s_rel.handle in (self.gwizard.context.get("refused_matches") or {}):
+                return
+            if not hasattr(self, "_missing_relatives"):
+                self._missing_relatives = {}
+            self._missing_relatives[key] = text
+
         # ---------- Family Relations ----------
         section(_("Family Relations"), "family_relations")
         for role, title in (
@@ -1049,6 +1124,8 @@ class GWizardMergeDialog(Gtk.Dialog):
                 relative_key = (
                     role + ":" + s_rel.handle if s_rel and not t_rel else None
                 )
+                if relative_key and not hiding[0]:
+                    note_missing_relative(relative_key, s_rel, s_text)
                 add_row(
                     relative_key,
                     title,
@@ -1068,6 +1145,8 @@ class GWizardMergeDialog(Gtk.Dialog):
             t_text = self._related_text(t_rel, td) if t_rel else ""
             s_text = self._related_text(s_rel, sd) if s_rel else ""
             child_key = "child:" + s_rel.handle if s_rel and not t_rel else None
+            if child_key and not hiding[0]:
+                note_missing_relative(child_key, s_rel, s_text)
             add_row(
                 child_key,
                 "",
@@ -1931,6 +2010,7 @@ class GWizardMergeDialog(Gtk.Dialog):
                 source_person_handle=self.source_handle,
                 target_person_handle=self.target_handle,
                 resolutions=self._resolutions,
+                add_missing_relatives=self.add_missing_relatives,
             )
         except Exception as e:  # pragma: no cover
             # The apply runs in one database transaction that is rolled
@@ -1950,6 +2030,11 @@ class GWizardMergeDialog(Gtk.Dialog):
             )
             return
         self.response(Gtk.ResponseType.OK)
+
+    @property
+    def add_missing_relatives(self) -> bool:
+        """Return True when chosen relatives the tree lacks should be added."""
+        return bool(self._relatives_check and self._relatives_check.get_active())
 
     def cb_cancel(self, _button: Gtk.Button) -> None:
         """Close the dialog without applying anything."""

@@ -40,6 +40,14 @@ exclude = [
     "gramps/plugins/tool/gw_mediapreview.py",
 ]
 
+# Media Fix's file naming ships in GWizardFileMerge.
+[[dependencies]]
+id = "gwizardmerge"
+package = "GWizardFileMerge"
+modules = [
+    "gramps/gen/gwizard/gwizard_filemerge_medianaming.py",
+]
+
 [[dependencies]]
 id = "gwizardmediafix"
 package = "MediaFix"
