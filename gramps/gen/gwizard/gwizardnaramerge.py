@@ -35,6 +35,7 @@ import logging
 import mimetypes
 import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -81,6 +82,7 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 # Local imports
 #
 # -------------------------------------------------------------------------
+from .gwizard_filemerge_media import base_path_configured
 from .gwizardgedcom import GedGWizard
 from .gwizardnarausage import (
     KIND_RECORD,
@@ -908,6 +910,14 @@ _DOC_TYPES: tuple[tuple[str, str], ...] = (
 )
 
 
+def online_needs_base(db: Any) -> bool:
+    """
+    Return True when images must not be downloaded into this tree: it has
+    no base media path, so Gramps would put them in the Pictures folder.
+    """
+    return not base_path_configured(db)
+
+
 def record_doc_type(parsed: dict[str, Any]) -> str:
     """Return the record's document type ("Military", "Pension", ...)."""
     text = " ".join(
@@ -1219,6 +1229,8 @@ class AttachResult:
     already_downloaded: int = 0
     failed: list[str] = field(default_factory=list)
     cancelled: bool = False
+    # Downloading was skipped: the tree has no base media path.
+    no_base_path: bool = False
 
 
 class NaraRecordAttacher:
@@ -1258,8 +1270,18 @@ class NaraRecordAttacher:
     # Comparing
     # ------------------------------------------------------------------
     def download_folder(self, naid: str) -> str:
-        """Return the absolute folder a record's images are downloaded to."""
-        return os.path.join(media_path(self.db), NARA_MEDIA_FOLDER, naid or "unknown")
+        """
+        Return the absolute folder a record's images are downloaded to. A
+        tree without a base media path gets a temporary folder (used only by
+        the record window's preview), so nothing is written to the user's
+        Pictures folder.
+        """
+        base = (
+            media_path(self.db)
+            if base_path_configured(self.db)
+            else os.path.join(tempfile.gettempdir(), "GWizardNARA")
+        )
+        return os.path.join(base, NARA_MEDIA_FOLDER, naid or "unknown")
 
     def download_path(self, parsed: dict[str, Any], image: ImageStatus) -> str:
         """Return the absolute path an image is (or would be) downloaded to."""
@@ -1656,6 +1678,11 @@ class NaraRecordAttacher:
             download; returning False cancels the rest.
         """
         result = AttachResult()
+        if download and online_needs_base(self.db):
+            # Without a base media path the files would land in the user's
+            # Pictures folder; they stay linked by web address instead.
+            result.no_base_path = True
+            download = False
         images, online = self.merged_images(person_handle, parsed)
         citation = self._find_citation(parsed)
         if citation is not None:
@@ -1777,6 +1804,9 @@ class NaraRecordAttacher:
         name (from its description in names) in the base media path.
         """
         paths: dict[int, str] = {}
+        if download and online_needs_base(self.db):
+            result.no_base_path = True
+            download = False
         base = media_path(self.db)
         to_download = [image for image in images if not image.media_handle]
         for image in images:

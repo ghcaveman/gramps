@@ -8,9 +8,10 @@
 # merge gwizard_citationfix into this one before a release so they stay in
 # step.
 #
-# Media Fix is merged in for the planned image downloads, which will name
-# files with its template. Until the NARA code imports it, it is not listed
-# as a dependency; its files are ignored in [check] below.
+# Also depends on the GWizard Media Fix addon (gwizard_mediafix): the tool
+# asks for the base media path with Media Fix's question before it opens,
+# and image downloads are named with Media Fix's template when it is
+# installed.
 
 package = "GWizardNaraMerge"
 
@@ -153,6 +154,19 @@ modules = [
     "gramps/plugins/tool/gwizardmerge.py",
 ]
 
+# The question each tool asks before it opens when the family tree has no
+# base media path (gwizard_mediafix_basepath.py) ships in MediaFix.
+[[dependencies]]
+id = "gwizardmediafix"
+package = "MediaFix"
+modules = [
+    "gramps/plugins/tool/gwizardmediafix.py",
+    "gramps/plugins/tool/gwizard_mediafix_common.py",
+    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/plugins/tool/gw_mediapreview.py",
+    "gramps/plugins/tool/gwizard_mediafix_basepath.py",
+]
+
 [check]
 # The branch this feature branch was started from (local name first, then
 # the remote one, whichever exists).
@@ -190,14 +204,15 @@ ignore = [
     "gramps/gui/gwizard/gwizard_filemerge_*.py",
     "gramps/plugins/tool/gwizard_filemerge_*.py",
     "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
-    # Media Fix files, built from the gwizard_mediafix repo (not listed as a
-    # dependency yet; see the note at the top).
+    # Media Fix files, built from the gwizard_mediafix repo; the MediaFix
+    # addon ships them (see the dependency above).
     "gramps/plugins/tool/gwizardmediafix.py",
     "gramps/plugins/tool/gwizard_mediafix_common.py",
     "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
     "gramps/plugins/tool/gw_mediapreview.py",
     "gramps/plugins/tool/test/gwizardmediafix*_test.py",
     "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_basepath_test.py",
     "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
     # Citation Fix files and tests, inherited through gwizard_citationfix;
     # the CitationFix addon ships them.

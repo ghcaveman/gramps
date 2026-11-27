@@ -48,6 +48,7 @@ from gi.repository import Pango
 # -------------------------------------------------------------------------
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.gwizard.gwizard_base import surname_text
+from gramps.gen.gwizard.gwizard_filemerge_media import base_path_configured
 from gramps.gen.gwizard.gwizardnaramatch import MatchQuery, best_match, match_text
 from gramps.gen.lib import NameType, Person
 from gramps.gen.gwizard.gwizardnaramerge import (
@@ -1145,7 +1146,10 @@ class NaraSearchDialog(Gtk.Dialog):
         """
         attacher = NaraRecordAttacher(self.dbstate.db)
         images, online = attacher.merged_images(person_handle, parsed)
-        download = bool(online) and self._ask_download(online)
+        # Without a base media path the images would land in the Pictures
+        # folder, so they are not offered for download.
+        no_base_path = bool(online) and not base_path_configured(self.dbstate.db)
+        download = bool(online) and not no_base_path and self._ask_download(online)
 
         from gramps.gui.utils import ProgressMeter
 
@@ -1175,7 +1179,9 @@ class NaraSearchDialog(Gtk.Dialog):
         finally:
             if meter is not None:
                 meter.close()
-        return self._merge_summary(result, len(images), len(online), download)
+        return self._merge_summary(
+            result, len(images), len(online), download, no_base_path
+        )
 
     def _ask_download(self, online: list[Any]) -> bool:
         """Ask whether to download the images now linked by web address."""
@@ -1202,7 +1208,11 @@ class NaraSearchDialog(Gtk.Dialog):
 
     @staticmethod
     def _merge_summary(
-        result: AttachResult, images: int, online: int, download: bool
+        result: AttachResult,
+        images: int,
+        online: int,
+        download: bool,
+        no_base_path: bool = False,
     ) -> str:
         """Return the status message after merging a record."""
         parts = [
@@ -1215,6 +1225,15 @@ class NaraSearchDialog(Gtk.Dialog):
             )
         if online and not download:
             parts.append(_("%d images are linked by their web address.") % online)
+        if no_base_path or result.no_base_path:
+            parts.append(
+                _(
+                    "They were not downloaded because this family tree has no "
+                    'base media path. Set "Base media path" in Edit > '
+                    "Preferences > Family Tree, then merge the record again to "
+                    "download them."
+                )
+            )
         if result.failed:
             parts.append(
                 _(

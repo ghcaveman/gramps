@@ -1414,6 +1414,44 @@ class TestNaraMediaFixNaming(unittest.TestCase):
         self.assertEqual(media.get_path(), "I00000_Doe_John_Quincy-Military-1899.jpg")
         self.assertTrue(media.get_checksum())
 
+    def test_no_base_path_keeps_web_addresses(self) -> None:
+        """Without a base media path nothing is downloaded or written."""
+        self.db.set_mediapath("")
+        result = NaraRecordAttacher(self.db, session=self.session).attach(
+            self.person_handle, self.parsed
+        )
+        self.assertTrue(result.no_base_path)
+        self.assertEqual(result.downloaded, 0)
+        self.session.get.assert_not_called()
+        (media,) = list(self.db.iter_media())
+        self.assertEqual(media.get_path(), "https://example.org/1234.jpg")
+
+    def test_no_base_path_finish_merge_skips_download(self) -> None:
+        gwizard = NaraGWizard(self.db)
+        handle = gwizard.load_for_person(self.person_handle, self.parsed, {}, {})
+        try:
+            gwizard.run_step(
+                "apply",
+                source_person_handle=handle,
+                target_person_handle=self.person_handle,
+                resolutions={"person_sources": "source", "media:0": "source"},
+            )
+        finally:
+            gwizard.context["source_db"].close()
+        self.db.set_mediapath("")
+        result = NaraRecordAttacher(self.db, session=self.session).finish_merge(
+            self.person_handle, self.parsed, download=True
+        )
+        self.assertTrue(result.no_base_path)
+        self.session.get.assert_not_called()
+        (media,) = list(self.db.iter_media())
+        self.assertEqual(media.get_path(), "https://example.org/1234.jpg")
+
+    def test_no_base_path_preview_uses_temporary_folder(self) -> None:
+        self.db.set_mediapath("")
+        folder = NaraRecordAttacher(self.db).download_folder("100000001")
+        self.assertTrue(folder.startswith(tempfile.gettempdir()))
+
     def test_final_path_uses_media_base_path(self) -> None:
         attacher = NaraRecordAttacher(self.db)
         person = self.db.get_person_from_handle(self.person_handle)

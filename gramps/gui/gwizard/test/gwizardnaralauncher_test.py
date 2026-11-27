@@ -32,6 +32,7 @@ import json
 import os
 import importlib
 import sys
+import tempfile
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 from typing import TYPE_CHECKING, Any
@@ -1118,6 +1119,7 @@ class TestNaraLauncher(unittest.TestCase):
     def test_finish_attach_declined_download(self) -> None:
         """Verify declining the download leaves images linked online."""
         dialog = self._attach_dialog()
+        self.db.set_mediapath(tempfile.gettempdir())
         online = [Mock(size=10)]
         with (
             patch.object(
@@ -1131,6 +1133,25 @@ class TestNaraLauncher(unittest.TestCase):
             message = dialog._finish_attach(dialog.target_handle, {"naid": "1"})
         self.assertFalse(finish.call_args[1]["download"])
         self.assertIn("1 images are linked by their web address", message)
+
+    def test_finish_attach_without_base_path(self) -> None:
+        """Verify images are not offered for download without a base path."""
+        dialog = self._attach_dialog()
+        self.db.set_mediapath("")
+        online = [Mock(size=10)]
+        with (
+            patch.object(
+                NaraRecordAttacher, "merged_images", return_value=(online, online)
+            ),
+            patch.object(
+                NaraRecordAttacher, "finish_merge", return_value=AttachResult()
+            ) as finish,
+            patch.object(NaraSearchDialog, "_ask_download") as ask,
+        ):
+            message = dialog._finish_attach(dialog.target_handle, {"naid": "1"})
+        ask.assert_not_called()
+        self.assertFalse(finish.call_args[1]["download"])
+        self.assertIn("Base media path", message)
 
     def test_merge_summary_mentions_failures_and_cancel(self) -> None:
         """Verify the summary reports downloads, failures and cancelling."""
