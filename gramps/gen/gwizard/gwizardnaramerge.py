@@ -35,6 +35,7 @@ import logging
 import mimetypes
 import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -62,6 +63,7 @@ from gramps.gen.lib import (
     Repository,
     RepositoryType,
     RepoRef,
+    SourceMediaType,
     Attribute,
     Media,
     MediaRef,
@@ -80,7 +82,16 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 # Local imports
 #
 # -------------------------------------------------------------------------
+from .gwizard_filemerge_media import base_path_configured
+from .gwizard_filemerge_medianaming import person_media_filename, place_file
 from .gwizardgedcom import GedGWizard
+from .gwizardnarausage import (
+    KIND_RECORD,
+    KIND_SEARCH,
+    KIND_VALIDATE,
+    NaraUsage,
+    shared_usage,
+)
 
 LOG = logging.getLogger(__name__)
 _ = glocale.translation.gettext
@@ -139,6 +150,7 @@ class NaraCatalogInterface:
         api_key: str = "",
         base_url: str = DEFAULT_BASE_URL,
         verify_ssl: bool | str | None = None,
+        usage: NaraUsage | None = None,
     ) -> None:
         """Initialize the NARA Catalog interface.
 
@@ -146,6 +158,8 @@ class NaraCatalogInterface:
             variable.
         :param base_url: Base URL for NARA Catalog API v2.
         :param verify_ssl: SSL certificate verification flag or path to CA bundle.
+        :param usage: Where requests are counted (see gwizardnarausage); the
+            counter every NARA window shares when None.
         """
         # An explicit key supports callers that supply credentials directly;
         # the NARA tool itself reads only NARA_API_KEY from the environment.
@@ -159,6 +173,34 @@ class NaraCatalogInterface:
         if self.api_key:
             self.headers["x-api-key"] = self.api_key
         self.verify_ssl = verify_ssl
+        self._usage = usage
+
+    @property
+    def usage(self) -> NaraUsage:
+        """Return the counter this client's requests are added to."""
+        if self._usage is None:
+            self._usage = shared_usage()
+        return self._usage
+
+    def _count(self, kind: str, response: Any) -> None:
+        """
+        Count a request NARA answered (see gwizardnarausage). Only real
+        answers count: a stand-in response in a test is not a
+        requests.Response, so tests never add to the user's count.
+        """
+        if not isinstance(response, requests.Response) and self._usage is None:
+            return
+        try:
+            status = int(getattr(response, "status_code", 0) or 0) or None
+        except (TypeError, ValueError):
+            status = None
+        headers = getattr(response, "headers", None)
+        try:
+            self.usage.record(
+                kind, status, headers if hasattr(headers, "items") else None
+            )
+        except Exception:
+            LOG.warning("Could not count a NARA request", exc_info=True)
 
     def validate_api_key(self) -> str | None:
         """Check the key with a minimal catalog request; return an error if invalid."""
@@ -179,6 +221,7 @@ class NaraCatalogInterface:
             response = requests.get(
                 f"{self.base_url}/records/search", **request_options
             )
+            self._count(KIND_VALIDATE, response)
         except requests.exceptions.RequestException:
             LOG.warning("Could not contact NARA to validate the API key", exc_info=True)
             return _(
@@ -302,6 +345,7 @@ class NaraCatalogInterface:
             response = requests.get(
                 f"{self.base_url}/records/search", **request_options
             )
+            self._count(KIND_SEARCH, response)
         except requests.exceptions.RequestException:
             LOG.exception("NARA catalog search request failed")
             return None
@@ -340,6 +384,7 @@ class NaraCatalogInterface:
             response = requests.get(
                 f"{self.base_url}/records/search", **request_options
             )
+            self._count(KIND_RECORD, response)
         except requests.exceptions.RequestException:
             LOG.exception("NARA page text request failed for %s", naid)
             return None
@@ -354,6 +399,43 @@ class NaraCatalogInterface:
             LOG.warning("NARA page text for %s was not valid JSON", naid)
             return None
         return self.texts_from_hits(hits)
+
+    def fetch_record(self, naid: str) -> dict[str, Any] | None:
+        """
+        Fetch one record by its NAID, in the shape a search hit has (so
+        parse_record and the NARA window accept it). One API call.
+
+        :param naid: The record's National Archives Identifier.
+        :returns: The record's hit, or None when the call fails or NARA has
+            no record with that NAID.
+        """
+        request_options: dict[str, Any] = {
+            "params": {"naId": naid},
+            "headers": self.headers,
+            "timeout": 30,
+        }
+        if self.verify_ssl is not None:
+            request_options["verify"] = self.verify_ssl
+        try:
+            response = requests.get(
+                f"{self.base_url}/records/search", **request_options
+            )
+            self._count(KIND_RECORD, response)
+        except requests.exceptions.RequestException:
+            LOG.exception("NARA record request failed for %s", naid)
+            return None
+        if response.status_code != 200:
+            LOG.warning("NARA record %s returned HTTP %s", naid, response.status_code)
+            return None
+        try:
+            hits = self.extract_hits(response.json())
+        except ValueError:
+            LOG.warning("NARA record %s was not valid JSON", naid)
+            return None
+        for hit in hits:
+            if str(self.parse_record(hit).get("naid") or "") == str(naid):
+                return hit
+        return hits[0] if len(hits) == 1 else None
 
     @staticmethod
     def texts_from_hits(hits: list[dict[str, Any]]) -> dict[str, str]:
@@ -798,10 +880,166 @@ def format_size(size: int) -> str:
 NARA_REPOSITORY_NAME = "National Archives and Records Administration (NARA)"
 NARA_REPOSITORY_URL = "https://www.archives.gov"
 
-# Folder under the media base path that downloaded images go in, one
-# subfolder per record (by NAID). A stopgap until downloads are named with
-# Media Fix's template.
+# Folder under the media base path that images are downloaded into first,
+# one subfolder per record (by NAID). It is a cache (the record window's
+# preview reuses it): an image merged into the tree is then moved to the
+# base media path and named with Media Fix's filename template.
 NARA_MEDIA_FOLDER = "NARA"
+
+# Document type for Media Fix names and media descriptions, from the
+# record's title, series and description; the first match wins.
+_DOC_TYPES: tuple[tuple[str, str], ...] = (
+    (r"naturaliz|citizenship|declaration\s+of\s+intent", "Naturalization"),
+    (r"\bpension\b|widow'?s\s+claim", "Pension"),
+    (r"\bdraft\b|selective\s+service|registration\s+card", "Draft"),
+    (
+        r"military|service\s+record|confederate|union\s+army|civil\s+war|"
+        r"enlist|muster|soldier|regiment|infantry|volunteer\s+organization",
+        "Military",
+    ),
+    (r"\bcensus\b|population\s+schedule", "Census"),
+    (r"passenger|manifest|immigra|arrival", "Immigration"),
+    (r"certificate\s+of\s+death|death\s+certificate|death\s+record", "Death"),
+    (r"marriage", "Marriage"),
+    (r"\bbirth\b", "Birth"),
+    (r"homestead|land\s+entry|land\s+patent|bounty\s+land", "Land"),
+    (r"passport", "Passport"),
+)
+
+
+def online_needs_base(db: Any) -> bool:
+    """
+    Return True when images must not be downloaded into this tree: it has
+    no base media path, so Gramps would put them in the Pictures folder.
+    """
+    return not base_path_configured(db)
+
+
+def record_doc_type(parsed: dict[str, Any]) -> str:
+    """Return the record's document type ("Military", "Pension", ...)."""
+    text = " ".join(
+        str(parsed.get(key) or "") for key in ("title", "series_title", "scope_note")
+    )
+    for pattern, label in _DOC_TYPES:
+        if re.search(pattern, text, re.IGNORECASE):
+            return label
+    return "Record"
+
+
+_YEAR_RE = re.compile(r"\b(1[5-9]\d{2}|20\d{2})\b")
+
+
+def record_year(parsed: dict[str, Any]) -> int:
+    """
+    Return the record's own year: a year in its title ("MacDonald, Lyman
+    Angus - 1942"), otherwise the first year of its date, which is often
+    the span of the whole series. 0 when there is none.
+    """
+    for key in ("title", "date_str"):
+        match = _YEAR_RE.search(str(parsed.get(key) or ""))
+        if match:
+            return int(match.group(1))
+    return 0
+
+
+def record_date(parsed: dict[str, Any]) -> Date | None:
+    """
+    Return the record's date for its citation and event: the year in its
+    title when it has one, otherwise its date (a span such as "from 1899
+    to 1927"), or None.
+    """
+    match = _YEAR_RE.search(str(parsed.get("title") or ""))
+    if match:
+        date_obj = Date()
+        date_obj.set_yr_mon_day(int(match.group(1)), 0, 0)
+        return date_obj
+    return parse_nara_date(str(parsed.get("date_str") or ""))
+
+
+def nara_date_text(date_str: str) -> str:
+    """
+    Return NARA date text in a form the Gramps date parser reads: a year
+    range such as "1899-1927" becomes "from 1899 to 1927".
+    """
+    text = (date_str or "").strip()
+    match = re.fullmatch(r"(\d{4})\s*[-–]\s*(\d{4})", text)
+    if match:
+        return "from %s to %s" % (match.group(1), match.group(2))
+    return text
+
+
+def parse_nara_date(date_str: str) -> Date | None:
+    """Return a valid Gramps date for NARA date text, or None."""
+    text = nara_date_text(date_str)
+    if not text:
+        return None
+    try:
+        date_obj = dateparser.parse(text)
+    except Exception:  # pylint: disable=broad-except
+        return None
+    if date_obj.is_empty() or not date_obj.is_valid():
+        return None
+    return date_obj
+
+
+def page_label(description: str, title: str) -> str:
+    """
+    Return the page part of a description such as "<title>, page 3: Claim
+    brief" ("page 3: Claim brief"), or the whole text when it does not start
+    with the title.
+    """
+    text = (description or "").strip()
+    if title and text.startswith(title):
+        text = text[len(title) :]
+    return text.strip(" ,;:-")
+
+
+def media_description(
+    person: Person | None, parsed: dict[str, Any], label: str = ""
+) -> str:
+    """
+    Return a media description Media Fix reads ("Surname, Given - DocType
+    Year, page 3: Claim brief"), so its file name follows Media Fix's
+    template now and after any later Media Fix run.
+    """
+    surname = given = ""
+    if person is not None:
+        name = person.get_primary_name()
+        surname = str(name.get_surname() or "")
+        given = str(name.get_first_name() or "")
+    year = record_year(parsed)
+    head = record_doc_type(parsed) + (" %d" % year if year else "")
+    if surname or given:
+        head = "%s, %s - %s" % (surname, given, head)
+    return "%s, %s" % (head, label) if label else head
+
+
+def media_fix_filename(
+    person: Person | None,
+    description: str,
+    year: int,
+    ext: str,
+    media_id: str = "",
+    orig: str = "",
+    db: Any = None,
+    file_path: str = "",
+) -> str:
+    """
+    Return the file name Media Fix gives a person's media object with this
+    description and year (its person-backlink naming; see
+    person_media_filename). With ``db``, a record without a year is named
+    with the person's year, as Media Fix would.
+    """
+    return person_media_filename(
+        db,
+        person,
+        description,
+        ext,
+        year=year or "",
+        media_id=media_id,
+        orig=orig,
+        file_path=file_path,
+    )
 
 
 # Attributes this tool puts on what it creates, so a record or image can be
@@ -876,6 +1114,8 @@ class AttachResult:
     already_downloaded: int = 0
     failed: list[str] = field(default_factory=list)
     cancelled: bool = False
+    # Downloading was skipped: the tree has no base media path.
+    no_base_path: bool = False
 
 
 class NaraRecordAttacher:
@@ -891,8 +1131,9 @@ class NaraRecordAttacher:
       already has a citation for that NAID.
     - Media: one object per chosen image, with a "NARA Object ID" attribute,
       linked to the citation. Images the tree already has (same object ID,
-      path or web address) are linked, not added again. Downloaded images
-      are stored under <media base path>/NARA/<NAID>/; an image that is not
+      path or web address) are linked, not added again. Images are
+      downloaded to <media base path>/NARA/<NAID>/ and then moved to the
+      base media path under Media Fix's file name; an image that is not
       downloaded, or fails to download, is linked by its web address.
 
     Images are downloaded before the family tree is changed, so a slow or
@@ -914,8 +1155,18 @@ class NaraRecordAttacher:
     # Comparing
     # ------------------------------------------------------------------
     def download_folder(self, naid: str) -> str:
-        """Return the absolute folder a record's images are downloaded to."""
-        return os.path.join(media_path(self.db), NARA_MEDIA_FOLDER, naid or "unknown")
+        """
+        Return the absolute folder a record's images are downloaded to. A
+        tree without a base media path gets a temporary folder (used only by
+        the record window's preview), so nothing is written to the user's
+        Pictures folder.
+        """
+        base = (
+            media_path(self.db)
+            if base_path_configured(self.db)
+            else os.path.join(tempfile.gettempdir(), "GWizardNARA")
+        )
+        return os.path.join(base, NARA_MEDIA_FOLDER, naid or "unknown")
 
     def download_path(self, parsed: dict[str, Any], image: ImageStatus) -> str:
         """Return the absolute path an image is (or would be) downloaded to."""
@@ -1093,9 +1344,11 @@ class NaraRecordAttacher:
                 images = images[:max_images]
 
         result = AttachResult()
-        paths = self._fetch_images(parsed, images, download, progress, result)
-
         title = parsed.get("title") or parsed.get("naid") or _("NARA record")
+        names = self._descriptions(person, parsed, review.images, descriptions)
+        paths = self._fetch_images(
+            parsed, images, download, progress, result, person, names
+        )
         with DbTxn(
             _("Attach NARA record %s") % parsed.get("naid", ""), self.db
         ) as trans:
@@ -1114,15 +1367,10 @@ class NaraRecordAttacher:
                         trans,
                         image,
                         paths[image.index],
-                        (descriptions or {}).get(image.index)
-                        or _("%(title)s, image %(number)d of %(total)d")
-                        % {
-                            "title": title,
-                            "number": image.index + 1,
-                            "total": len(review.images),
-                        },
+                        names[image.index],
                         (page_texts or {}).get(image.index, ""),
                         citation=citation,
+                        year=record_year(parsed),
                     )
                     result.media_added += 1
                 if handle not in linked:
@@ -1213,12 +1461,14 @@ class NaraRecordAttacher:
                     if review.citation_handle
                     else None
                 )
+                new_citation = citation is None
                 if citation is not None:
                     citation = self._bare_copy(citation)
                     citation.set_reference_handle(source.get_handle())
                     source_db.add_citation(citation, trans)
                 else:
                     citation = staging._citation(trans, parsed, source, title, result)
+                names = self._descriptions(person, parsed, review.images, descriptions)
 
                 incoming = Person()
                 name = copy.deepcopy(person.get_primary_name())
@@ -1241,18 +1491,17 @@ class NaraRecordAttacher:
                             trans,
                             image,
                             image.url,
-                            (descriptions or {}).get(image.index)
-                            or _("%(title)s, image %(number)d of %(total)d")
-                            % {
-                                "title": title,
-                                "number": image.index + 1,
-                                "total": len(review.images),
-                            },
+                            names[image.index],
                             (page_texts or {}).get(image.index, ""),
+                            citation=citation if new_citation else None,
+                            year=record_year(parsed),
                         )
                     media_ref = MediaRef()
                     media_ref.set_reference_handle(handle)
                     incoming.add_media_reference(media_ref)
+                if new_citation:
+                    # Transcript notes were cross-referenced on it.
+                    source_db.commit_citation(citation, trans)
                 source_db.add_person(incoming, trans)
         except Exception:
             source_db.close()
@@ -1314,12 +1563,18 @@ class NaraRecordAttacher:
             download; returning False cancels the rest.
         """
         result = AttachResult()
+        if download and online_needs_base(self.db):
+            # Without a base media path the files would land in the user's
+            # Pictures folder; they stay linked by web address instead.
+            result.no_base_path = True
+            download = False
         images, online = self.merged_images(person_handle, parsed)
         citation = self._find_citation(parsed)
         if citation is not None:
             result.citation_handle = citation.get_handle()
 
         base = media_path(self.db)
+        person = self.db.get_person_from_handle(person_handle)
         new_paths: dict[str, str] = {}
         if download:
             for done, image in enumerate(online, start=1):
@@ -1334,6 +1589,13 @@ class NaraRecordAttacher:
                     result.failed.append(image.url)
                     full_path = ""
                 if full_path:
+                    media = self.db.get_media_from_handle(image.media_handle)
+                    description = str(media.get_description() or "") if media else ""
+                    full_path = place_file(
+                        full_path,
+                        self.final_path(person, parsed, image, description),
+                        cache_levels=2,
+                    )
                     new_paths[image.media_handle] = full_path
                 if progress is not None and progress(done, len(online)) is False:
                     result.cancelled = True
@@ -1369,15 +1631,22 @@ class NaraRecordAttacher:
         description: str,
         page_text: str = "",
         citation: Citation | None = None,
+        year: int = 0,
     ) -> str:
         """
         Add a media object for an image and return its handle; a page text
         becomes a Transcript note on it and is cross-referenced on the citation.
+        The record's year, when known, is the media date (Media Fix's
+        {year}).
         """
         media = Media()
         media.set_path(path)
         media.set_mime_type(image.mime_type)
         media.set_description(description)
+        if year:
+            media_date = Date()
+            media_date.set_yr_mon_day(year, 0, 0)
+            media.set_date_object(media_date)
         if page_text.strip():
             note = Note(
                 _(
@@ -1410,13 +1679,20 @@ class NaraRecordAttacher:
         download: bool,
         progress: Callable[[int, int], bool] | None,
         result: AttachResult,
+        person: Person | None = None,
+        names: dict[int, str] | None = None,
     ) -> dict[int, str]:
         """
         Download the new images (when asked) and return each usable image's
         media path by index: a path relative to the media base path, or the
         web address. Images already in the tree keep their own path.
+        A downloaded image is moved from the download cache to its Media Fix
+        name (from its description in names) in the base media path.
         """
         paths: dict[int, str] = {}
+        if download and online_needs_base(self.db):
+            result.no_base_path = True
+            download = False
         base = media_path(self.db)
         to_download = [image for image in images if not image.media_handle]
         for image in images:
@@ -1431,11 +1707,16 @@ class NaraRecordAttacher:
             if result.cancelled or not image.url:
                 continue
             full_path = self.download_path(parsed, image)
+            wanted = self.final_path(
+                person, parsed, image, (names or {}).get(image.index, "")
+            )
             if os.path.isfile(full_path) and os.path.getsize(full_path) > 0:
                 result.already_downloaded += 1
+                full_path = place_file(full_path, wanted, cache_levels=2)
                 paths[image.index] = relative_path(full_path, base)
             elif self._download(image.url, full_path):
                 result.downloaded += 1
+                full_path = place_file(full_path, wanted, cache_levels=2)
                 paths[image.index] = relative_path(full_path, base)
             else:
                 result.failed.append(image.url)
@@ -1443,6 +1724,58 @@ class NaraRecordAttacher:
             if progress is not None and progress(done, len(to_download)) is False:
                 result.cancelled = True
         return paths
+
+    def _descriptions(
+        self,
+        person: Person | None,
+        parsed: dict[str, Any],
+        images: list[ImageStatus],
+        descriptions: dict[int, str] | None,
+    ) -> dict[int, str]:
+        """
+        Return the media description of every image of the record, by
+        index, in Media Fix's form (see media_description). The page part
+        comes from descriptions ("<title>, page 3: Claim brief"); a record
+        with several images and no description says which image it is.
+        """
+        title = str(parsed.get("title") or parsed.get("naid") or "")
+        total = len(images)
+        found: dict[int, str] = {}
+        for image in images:
+            label = page_label((descriptions or {}).get(image.index, ""), title)
+            if total == 1 and re.fullmatch(r"page\s+1", label, re.IGNORECASE):
+                label = ""
+            if not label and total > 1:
+                label = _("image %(number)d of %(total)d") % {
+                    "number": image.index + 1,
+                    "total": total,
+                }
+            found[image.index] = media_description(person, parsed, label)
+        return found
+
+    def final_path(
+        self,
+        person: Person | None,
+        parsed: dict[str, Any],
+        image: ImageStatus,
+        description: str,
+    ) -> str:
+        """
+        Return the absolute path an image is kept at once it is in the
+        tree: its Media Fix name in the base media path.
+        """
+        orig, ext = os.path.splitext(image.filename or "")
+        if not ext:
+            ext = mimetypes.guess_extension(image.mime_type or "") or ".jpg"
+        name = media_fix_filename(
+            person,
+            description or media_description(person, parsed),
+            record_year(parsed),
+            ext,
+            orig=orig,
+            db=self.db,
+        )
+        return os.path.join(media_path(self.db), name)
 
     def download_one(self, parsed: dict[str, Any], image: ImageStatus) -> str:
         """
@@ -1548,12 +1881,33 @@ class NaraRecordAttacher:
             )
         repo_ref = RepoRef()
         repo_ref.set_reference_handle(repo_handle)
+        repo_ref.set_media_type(self._media_type(parsed))
         if series_naid:
             repo_ref.set_call_number(_("NAID %s") % series_naid)
         source.add_repo_reference(repo_ref)
         self.db.add_source(source, trans)
         result.source_created = True
         return source
+
+    @staticmethod
+    def _media_type(parsed: dict[str, Any]) -> SourceMediaType:
+        """
+        Return the medium of the record's series: card, microfilm,
+        photograph or map when its title says so, otherwise electronic (the
+        catalog's digital copy), not Gramps' default of Book.
+        """
+        text = " ".join(
+            str(parsed.get(key) or "") for key in ("series_title", "title")
+        ).casefold()
+        for pattern, medium in (
+            (r"\bcard", SourceMediaType.CARD),
+            (r"microfilm", SourceMediaType.FILM),
+            (r"photograph", SourceMediaType.PHOTO),
+            (r"\bmaps?\b", SourceMediaType.MAP),
+        ):
+            if re.search(pattern, text):
+                return SourceMediaType(medium)
+        return SourceMediaType(SourceMediaType.ELECTRONIC)
 
     @staticmethod
     def _page(parsed: dict[str, Any]) -> str:
@@ -1587,14 +1941,9 @@ class NaraRecordAttacher:
             attribute.set_value(naid)
             citation.add_attribute(attribute)
 
-        date_str = str(parsed.get("date_str") or "").strip()
-        if date_str:
-            try:
-                date_obj = dateparser.parse(date_str)
-                if not date_obj.is_empty():
-                    citation.set_date_object(date_obj)
-            except Exception:
-                pass
+        date_obj = record_date(parsed)
+        if date_obj is not None:
+            citation.set_date_object(date_obj)
 
         lines = [
             value
@@ -1704,14 +2053,9 @@ class NaraRecordAttacher:
         # No existing event found: create a new one
         new_event = Event()
         new_event.set_type(event_type)
-        date_str = str(parsed.get("date_str") or "").strip()
-        if date_str:
-            try:
-                date_obj = dateparser.parse(date_str)
-                if not date_obj.is_empty():
-                    new_event.set_date_object(date_obj)
-            except Exception:
-                pass
+        date_obj = record_date(parsed)
+        if date_obj is not None:
+            new_event.set_date_object(date_obj)
 
         title = str(parsed.get("title") or parsed.get("naid") or "")
         if title:

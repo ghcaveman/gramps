@@ -46,7 +46,13 @@ from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     tier_cell,
 )
 from gramps.gen.gwizard.gwizardnaramerge import NaraCatalogInterface
-from gramps.plugins.tool.gwizardnarasource import NaraSource, load_on_reg
+from gramps.gen.gwizard.gwizardnarausage import KIND_SEARCH, NaraUsage
+from gramps.plugins.tool.gwizardnaraquerybuilder import build_primary_nara_query
+from gramps.plugins.tool.gwizardnarasource import (
+    TIER_SCORE,
+    NaraSource,
+    load_on_reg,
+)
 
 _DATA = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -167,6 +173,183 @@ class NaraSourceTest(unittest.TestCase):
         ):
             self.assertFalse(self.source.open_merge("dbs", "uis", "h1", match))
         mock_dialog.ErrorDialog.assert_called_once()
+
+
+# ------------------------------------------------------------------
+#
+# NaraQueryBudgetTest
+#
+# ------------------------------------------------------------------
+class NaraQueryBudgetTest(unittest.TestCase):
+    """How many catalog requests a scan sends per person."""
+
+    def setUp(self) -> None:
+        """A client that finds nothing, so every allowed query is tried."""
+        self.client = Mock()
+        self.client.search_records.return_value = {"body": {"hits": {"hits": []}}}
+        self.client.extract_hits.side_effect = NaraCatalogInterface.extract_hits
+        self.query = RecordQuery(
+            given="John",
+            middle="William",
+            surnames=["Smith", "Jones"],
+            birth_year=1880,
+            death_year=1950,
+            gender="male",
+            places=["Boston, Suffolk, Massachusetts, USA"],
+        )
+
+    def test_one_query_per_person_by_default(self) -> None:
+        """The default sends one request: first given name and birth surname."""
+        source = NaraSource(client=self.client)
+        self.assertEqual(source.max_queries_per_person, 1)
+        self.assertEqual(source.search(self.query), [])
+        self.assertEqual(self.client.search_records.call_count, 1)
+        kwargs = self.client.search_records.call_args.kwargs
+        self.assertEqual(kwargs["query"], "John Smith")
+        self.assertEqual((kwargs["start_year"], kwargs["end_year"]), ("1880", "1960"))
+
+    def test_all_queries_when_unlimited(self) -> None:
+        """max_queries_per_person 0 keeps the old every-variant search."""
+        source = NaraSource(client=self.client)
+        source.max_queries_per_person = 0
+        source.search(self.query)
+        self.assertGreater(self.client.search_records.call_count, 4)
+
+    def test_capped_queries(self) -> None:
+        """A cap above one sends at most that many requests."""
+        source = NaraSource(client=self.client)
+        source.max_queries_per_person = 3
+        source.search(self.query)
+        self.assertEqual(self.client.search_records.call_count, 3)
+
+    def test_skipped_person_sends_nothing(self) -> None:
+        """People the builder skips (born after 1955) cost no request."""
+        source = NaraSource(client=self.client)
+        source.search(RecordQuery(given="John", surnames=["Smith"], birth_year=1990))
+        self.client.search_records.assert_not_called()
+
+    def test_primary_query_drops_nicknames_and_initials(self) -> None:
+        """The single query uses the real given name, not a nickname."""
+
+        def ind(name: str) -> dict:
+            return {
+                "names": [name],
+                "married_surnames": {"Jones"},
+                "sex": "F",
+                "birth_year": 1880,
+                "death_year": 1950,
+                "places": ["Boston, MA"],
+                "tags": set(),
+            }
+
+        self.assertEqual(
+            build_primary_nara_query(ind('Mary "Molly" Ann /Smith/'))["q"],
+            "Mary Smith",
+        )
+        self.assertEqual(
+            build_primary_nara_query(ind("Mary (Molly) /Smith/"))["q"], "Mary Smith"
+        )
+        self.assertEqual(
+            build_primary_nara_query(ind("J. Robert /Smith/"))["q"], "Robert Smith"
+        )
+        self.assertIsNone(build_primary_nara_query(ind("Unknown /Smith/")))
+
+    def test_one_score_column(self) -> None:
+        """NARA shows a single overall score in the Multi-Archive Record Scan."""
+        self.assertEqual(NaraSource.tiers, (TIER_SCORE,))
+
+    def test_usage_text_from_client(self) -> None:
+        """The scan shows the queries used this month."""
+        usage = NaraUsage(None)
+        usage.record(KIND_SEARCH, 200)
+        client = NaraCatalogInterface(api_key="key", usage=usage)
+        text = NaraSource(client=client).usage_text()
+        self.assertIn("1 of 10,000", text)
+
+
+# ------------------------------------------------------------------
+#
+# NaraCitedKeysTest
+#
+# ------------------------------------------------------------------
+class NaraCitedKeysTest(unittest.TestCase):
+    """NaraSource.cited_keys reads the NAIDs a person already cites."""
+
+    def setUp(self) -> None:
+        from gramps.gen.db.utils import make_database
+
+        self.db = make_database("sqlite")
+        self.db.load(":memory:")
+
+    def tearDown(self) -> None:
+        self.db.close()
+
+    def _citation(self, trans, naid: str = "") -> str:
+        """Add a citation, with a NAID attribute when given."""
+        from gramps.gen.lib import Citation, Source, SrcAttribute
+
+        source = Source()
+        source.set_title("National Archives record")
+        self.db.add_source(source, trans)
+        citation = Citation()
+        citation.set_reference_handle(source.get_handle())
+        if naid:
+            attribute = SrcAttribute()
+            attribute.set_type("NAID")
+            attribute.set_value(naid)
+            citation.add_attribute(attribute)
+        self.db.add_citation(citation, trans)
+        return citation.get_handle()
+
+    def test_person_event_and_family_citations(self) -> None:
+        """NAIDs on the person, an event and a family event are found once."""
+        from gramps.gen.db.txn import DbTxn
+        from gramps.gen.lib import Event, EventRef, EventType, Family, Person
+
+        with DbTxn("setup", self.db) as trans:
+            person = Person()
+            person.add_citation(self._citation(trans, "111"))
+            person.add_citation(self._citation(trans, "111"))
+            person.add_citation(self._citation(trans))  # no NAID: not NARA's
+            event = Event()
+            event.set_type(EventType(EventType.MILITARY_SERV))
+            event.add_citation(self._citation(trans, "222"))
+            self.db.add_event(event, trans)
+            ref = EventRef()
+            ref.set_reference_handle(event.get_handle())
+            person.add_event_ref(ref)
+            self.db.add_person(person, trans)
+            marriage = Event()
+            marriage.set_type(EventType(EventType.MARRIAGE))
+            marriage.add_citation(self._citation(trans, "333"))
+            self.db.add_event(marriage, trans)
+            family = Family()
+            family.set_father_handle(person.get_handle())
+            family_ref = EventRef()
+            family_ref.set_reference_handle(marriage.get_handle())
+            family.add_event_ref(family_ref)
+            self.db.add_family(family, trans)
+            person.add_family_handle(family.get_handle())
+            self.db.commit_person(person, trans)
+
+        person = self.db.get_person_from_handle(person.get_handle())
+        self.assertEqual(
+            NaraSource().cited_keys(self.db, person), ["111", "222", "333"]
+        )
+
+    def test_nothing_cited(self) -> None:
+        """A person without NARA citations cites nothing."""
+        from gramps.gen.db.txn import DbTxn
+        from gramps.gen.lib import Person
+
+        with DbTxn("setup", self.db) as trans:
+            person = Person()
+            self.db.add_person(person, trans)
+        self.assertEqual(NaraSource().cited_keys(self.db, person), [])
+
+    def test_searched_by_default(self) -> None:
+        """People who cite NARA are still searched unless skip_cited is set."""
+        self.assertFalse(NaraSource.skip_cited)
 
 
 if __name__ == "__main__":

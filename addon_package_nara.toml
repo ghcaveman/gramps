@@ -8,9 +8,10 @@
 # merge gwizard_citationfix into this one before a release so they stay in
 # step.
 #
-# Media Fix is merged in for the planned image downloads, which will name
-# files with its template. Until the NARA code imports it, it is not listed
-# as a dependency; its files are ignored in [check] below.
+# Also depends on the GWizard Media Fix addon (gwizard_mediafix): the tool
+# asks for the base media path with Media Fix's question before it opens.
+# Image downloads are named with Media Fix's filename template through the
+# naming module shared in GWizardFileMerge (gwizard_filemerge_medianaming.py).
 
 package = "GWizardNaraMerge"
 
@@ -34,10 +35,13 @@ modules = [
     "gramps/gen/gwizard/gwizardnaramatch.py",
     "gramps/gen/gwizard/gwizardnaramerge.py",
     "gramps/gen/gwizard/gwizardnarapages.py",
+    "gramps/gen/gwizard/gwizardnarausage.py",
     "gramps/gui/gwizard/gwizardnaraattachdialog.py",
     "gramps/gui/gwizard/gwizardnaralauncher.py",
+    "gramps/plugins/tool/gwizard_filemerge_citescan.py",
     "gramps/plugins/tool/gwizard_filemerge_scan.py",
     "gramps/plugins/tool/gwizardnara.py",
+    "gramps/plugins/tool/gwizardnaracitesource.py",
     "gramps/plugins/tool/gwizardnaraquerybuilder.py",
     "gramps/plugins/tool/gwizardnarasource.py",
 ]
@@ -45,9 +49,11 @@ tests = [
     "gramps/gen/gwizard/test/gwizardnara_test.py",
     "gramps/gen/gwizard/test/gwizardnaramatch_test.py",
     "gramps/gen/gwizard/test/gwizardnarapages_test.py",
+    "gramps/gen/gwizard/test/gwizardnarausage_test.py",
     "gramps/gui/gwizard/test/gwizardnaraattachdialog_test.py",
     "gramps/gui/gwizard/test/gwizardnaralauncher_test.py",
     "gramps/plugins/tool/test/gwizard_filemerge_scan_test.py",
+    "gramps/plugins/tool/test/gwizardnaracitesource_test.py",
     "gramps/plugins/tool/test/gwizardnarasource_test.py",
     "gramps/plugins/tool/test/gwizard_nara_query_and_match_test.py",
 ]
@@ -87,6 +93,36 @@ category = "GWizardRecordSource"
 load_on_reg = true
 gramps_versions = ["5.2.0", "6.2"]
 
+# The Multi-Archive Citation Scan's menu entry: every citation, worst first,
+# with records the record sources found that could improve it. Like the
+# Multi-Archive Record Scan, its code ships in GWizardFileMerge and each
+# record-source addon registers the entry and bundles the thin tool module.
+[[extra_registrations]]
+id = "gwizardcitescan"
+name = "Multi-Archive Citation Scan"
+description = "List every citation in the Family Tree from the most work needed to the least (missing page, date, image, repository, ...), with the person it is about and the confidence of records the installed GWizard record sources (NARA, WikiTree, ...) found that could improve it."
+fname = "gwizard_filemerge_citescan.py"
+toolclass = "GWizardCitationScan"
+optionclass = "GWizardCitationScanOptions"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+help_url = "https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool"
+gramps_versions = ["5.2.0", "6.2"]
+
+# NARA's side of the Multi-Archive Citation Scan: reads NAIDs on citations,
+# judges NARA records for a citation, opens a cited record.
+[[extra_registrations]]
+type = "GENERAL"
+id = "gwizardnaracitesource"
+name = "GWizard NARA citation source"
+description = "Lets the GWizard Multi-Archive Citation Scan read NARA citations (NAIDs) and judge NARA records for a citation."
+fname = "gwizardnaracitesource.py"
+authors = ["Kevin White"]
+authors_email = ["gocaveman@gmail.com"]
+category = "GWizardCitationSource"
+load_on_reg = true
+gramps_versions = ["5.2.0", "6.2"]
+
 # Real NARA Catalog API v2 responses the tests read. The folder is shared
 # with File Merge's fixtures, so those are copied too.
 [files.test_data]
@@ -104,10 +140,13 @@ id = "gwizardmerge"
 package = "GWizardFileMerge"
 modules = [
     "gramps/gen/gwizard/gwizard_base.py",
+    "gramps/gen/gwizard/gwizard_filemerge_citationscan.py",
     "gramps/gen/gwizard/gwizard_filemerge_media.py",
+    "gramps/gen/gwizard/gwizard_filemerge_medianaming.py",
     "gramps/gen/gwizard/gwizard_filemerge_recordscan.py",
     "gramps/gen/gwizard/gwizardaltmatch.py",
     "gramps/gen/gwizard/gwizardgedcom.py",
+    "gramps/gui/gwizard/gwizard_filemerge_citationscandialog.py",
     "gramps/gui/gwizard/gwizard_filemerge_launcher.py",
     "gramps/gui/gwizard/gwizard_filemerge_recordscandialog.py",
     "gramps/gui/gwizard/gwizardaltcompare.py",
@@ -115,6 +154,20 @@ modules = [
     "gramps/gui/gwizard/gwizardmergedialog.py",
     "gramps/plugins/tool/gwizardmerge.py",
 ]
+
+# The question each tool asks before it opens when the family tree has no
+# base media path (gwizard_mediafix_basepath.py) ships in MediaFix.
+[[dependencies]]
+id = "gwizardmediafix"
+package = "MediaFix"
+modules = [
+    "gramps/plugins/tool/gwizardmediafix.py",
+    "gramps/plugins/tool/gwizard_mediafix_common.py",
+    "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
+    "gramps/plugins/tool/gw_mediapreview.py",
+    "gramps/plugins/tool/gwizard_mediafix_basepath.py",
+]
+
 [check]
 # The branch this feature branch was started from (local name first, then
 # the remote one, whichever exists).
@@ -152,14 +205,15 @@ ignore = [
     "gramps/gui/gwizard/gwizard_filemerge_*.py",
     "gramps/plugins/tool/gwizard_filemerge_*.py",
     "gramps/plugins/tool/test/gwizard_filemerge_*_test.py",
-    # Media Fix files, built from the gwizard_mediafix repo (not listed as a
-    # dependency yet; see the note at the top).
+    # Media Fix files, built from the gwizard_mediafix repo; the MediaFix
+    # addon ships them (see the dependency above).
     "gramps/plugins/tool/gwizardmediafix.py",
     "gramps/plugins/tool/gwizard_mediafix_common.py",
     "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
     "gramps/plugins/tool/gw_mediapreview.py",
     "gramps/plugins/tool/test/gwizardmediafix*_test.py",
     "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_basepath_test.py",
     "gramps/plugins/tool/test/gwizard_gtk_fakes.py",
     # Citation Fix files and tests, inherited through gwizard_citationfix;
     # the CitationFix addon ships them.

@@ -32,6 +32,7 @@ import json
 import os
 import importlib
 import sys
+import tempfile
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 from typing import TYPE_CHECKING, Any
@@ -824,6 +825,32 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertLess(rows[1][10], rows[0][10])
         self.assertEqual(rows[1][2], "Smith, Sarah Butt")
 
+    def test_search_lists_best_match_first(self) -> None:
+        """Verify records are listed by Match score, not catalog order."""
+        response = _load_sample_response("nara_search_pension.json")
+        hits = NaraCatalogInterface.extract_hits(response)
+        mock_client = Mock()
+        mock_client.search_records.return_value = response
+        mock_client.extract_hits.return_value = hits
+        dialog = NaraSearchDialog(client=mock_client)
+        _use_terms(
+            dialog,
+            {"first_name": "Sarah", "last_name": "Butt", "married_name": "Smith"},
+        )
+        dialog.limit_spin.get_value.return_value = 5
+        dialog.material_combo.get_active_id.return_value = ""
+        dialog.online_check.get_active.return_value = False
+        rows: list[list[Any]] = []
+        dialog.results_store.append.side_effect = rows.append
+        dialog.results_store.get_value.side_effect = lambda _it, col: rows[0][col]
+
+        dialog.cb_search()
+
+        # The catalog lists Mary Kreizer Smith first; Sarah is the better match.
+        self.assertEqual(rows[0][2], "Smith, Sarah Butt")
+        scores = [row[10] for row in rows]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
     def test_selection_changed_enables_merge_with_target(self) -> None:
         """Verify Merge needs a selected record and a target person."""
         dbstate = Mock()
@@ -1092,6 +1119,7 @@ class TestNaraLauncher(unittest.TestCase):
     def test_finish_attach_declined_download(self) -> None:
         """Verify declining the download leaves images linked online."""
         dialog = self._attach_dialog()
+        self.db.set_mediapath(tempfile.gettempdir())
         online = [Mock(size=10)]
         with (
             patch.object(
@@ -1105,6 +1133,25 @@ class TestNaraLauncher(unittest.TestCase):
             message = dialog._finish_attach(dialog.target_handle, {"naid": "1"})
         self.assertFalse(finish.call_args[1]["download"])
         self.assertIn("1 images are linked by their web address", message)
+
+    def test_finish_attach_without_base_path(self) -> None:
+        """Verify images are not offered for download without a base path."""
+        dialog = self._attach_dialog()
+        self.db.set_mediapath("")
+        online = [Mock(size=10)]
+        with (
+            patch.object(
+                NaraRecordAttacher, "merged_images", return_value=(online, online)
+            ),
+            patch.object(
+                NaraRecordAttacher, "finish_merge", return_value=AttachResult()
+            ) as finish,
+            patch.object(NaraSearchDialog, "_ask_download") as ask,
+        ):
+            message = dialog._finish_attach(dialog.target_handle, {"naid": "1"})
+        ask.assert_not_called()
+        self.assertFalse(finish.call_args[1]["download"])
+        self.assertIn("Base media path", message)
 
     def test_merge_summary_mentions_failures_and_cancel(self) -> None:
         """Verify the summary reports downloads, failures and cancelling."""

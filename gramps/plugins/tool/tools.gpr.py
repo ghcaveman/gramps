@@ -796,6 +796,30 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard NARA citation source (for the GWizard Multi-Archive Citation Scan)
+#
+# ------------------------------------------------------------------------
+
+register(
+    GENERAL,
+    id="gwizardnaracitesource",
+    name=_("GWizard NARA citation source"),
+    description=_(
+        "Lets the GWizard Multi-Archive Citation Scan read NARA citations "
+        "(NAIDs) and judge NARA records for a citation."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    fname="gwizardnaracitesource.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category="GWizardCitationSource",
+    load_on_reg=True,
+)
+
+# ------------------------------------------------------------------------
+#
 # Find database Loop
 #
 # ------------------------------------------------------------------------
