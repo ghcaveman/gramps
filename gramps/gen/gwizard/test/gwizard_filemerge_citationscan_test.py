@@ -19,7 +19,7 @@
 #
 
 """
-Unit tests for the GWizard Citation Improvement Scan engine
+Unit tests for the GWizard Multi-Archive Citation Scan engine
 (gwizard_filemerge_citationscan).
 """
 
