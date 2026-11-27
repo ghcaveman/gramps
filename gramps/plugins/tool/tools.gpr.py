@@ -690,6 +690,63 @@ register(
 
 # ------------------------------------------------------------------------
 #
+# GWizard Citation Improvement Scan (code in gwizard_filemerge; the record-
+# source branches register the menu entry, like the Multi-Archive Record Scan)
+#
+# ------------------------------------------------------------------------
+
+register(
+    TOOL,
+    id="gwizardcitescan",
+    name=_("Citation Improvement Scan"),
+    description=_(
+        "List every citation in the Family Tree from the most work needed "
+        "to the least (missing page, date, image, repository, ...), with "
+        "the person it is about and the confidence of records the installed "
+        "GWizard record sources (NARA, WikiTree, ...) found that could "
+        "improve it."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    audience=EXPERT,
+    fname="gwizard_filemerge_citescan.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category=TOOL_DBPROC,
+    toolclass="GWizardCitationScan",
+    optionclass="GWizardCitationScanOptions",
+    tool_modes=[TOOL_MODE_GUI],
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
+)
+
+# ------------------------------------------------------------------------
+#
+# GWizard FamilySearch citation source (for the GWizard Citation Improvement Scan)
+#
+# ------------------------------------------------------------------------
+
+register(
+    GENERAL,
+    id="gwizardfscitesource",
+    name=_("GWizard FamilySearch citation source"),
+    description=_(
+        "Lets the GWizard Citation Improvement Scan read citations of "
+        "FamilySearch Family Tree persons and historical records, and open "
+        "a cited person."
+    ),
+    version="0.0.1",
+    gramps_target_version=MODULE_VERSION,
+    status=EXPERIMENTAL,
+    fname="gwizardfscitesource.py",
+    authors=["Kevin White"],
+    authors_email=["gocaveman@gmail.com"],
+    category="GWizardCitationSource",
+    load_on_reg=True,
+)
+
+# ------------------------------------------------------------------------
+#
 # Find database Loop
 #
 # ------------------------------------------------------------------------
