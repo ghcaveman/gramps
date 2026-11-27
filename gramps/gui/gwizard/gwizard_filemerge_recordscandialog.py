@@ -284,6 +284,9 @@ class RecordScanDialog(Gtk.Dialog):
         self.column_map: dict[Gtk.TreeViewColumn, tuple[RecordSource, str | None]] = {}
         self.scan_buttons: dict[str, Gtk.Button] = {}
         self.usage_labels: dict[str, Gtk.Label] = {}
+        # One "show" check box per source, and that source's list columns.
+        self.show_checks: dict[str, Gtk.CheckButton] = {}
+        self.source_view_columns: dict[str, list[Gtk.TreeViewColumn]] = {}
         self.scanning = False
 
         content = self.get_content_area()
@@ -291,6 +294,7 @@ class RecordScanDialog(Gtk.Dialog):
         content.set_border_width(12)
         content.pack_start(self._build_options(), False, False, 0)
         content.pack_start(self._build_source_bar(), False, False, 0)
+        content.pack_start(self._build_show_bar(), False, False, 0)
 
         self.status_label = Gtk.Label()
         self.status_label.set_xalign(0.0)
@@ -401,6 +405,50 @@ class RecordScanDialog(Gtk.Dialog):
             box.pack_start(label, False, False, 0)
         return box
 
+    def _build_show_bar(self) -> Gtk.Widget:
+        """
+        One check box per record source, all on: unchecking one hides its
+        columns and leaves it out of Scan All, the filters, the summary, the
+        merge choices and the CSV. Its saved results are kept.
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        if not self.sources:
+            return box
+        box.pack_start(Gtk.Label(label=_("Show:")), False, False, 0)
+        for source in self.sources:
+            check = Gtk.CheckButton(label=source.title)
+            check.set_active(True)
+            check.set_tooltip_text(
+                _("Show the %s columns and include %s in Scan All.")
+                % (source.title, source.title)
+            )
+            check.connect("toggled", self.cb_show_toggled)
+            self.show_checks[source.source_id] = check
+            box.pack_start(check, False, False, 0)
+        return box
+
+    def shown(self, source: RecordSource) -> bool:
+        """Whether a source's check box is on."""
+        check = self.show_checks.get(source.source_id)
+        return check is None or check.get_active()
+
+    def shown_groups(self) -> list[SourceColumns]:
+        """Return the column groups of the sources shown."""
+        return [group for group in self.columns if self.shown(group.source)]
+
+    def shown_sources(self) -> list[RecordSource]:
+        """Return the sources shown."""
+        return [source for source in self.sources if self.shown(source)]
+
+    def cb_show_toggled(self, _check: Gtk.CheckButton) -> None:
+        """Show or hide a source's columns, and redo what depends on them."""
+        for source in self.sources:
+            for view_column in self.source_view_columns.get(source.source_id, []):
+                view_column.set_visible(self.shown(source))
+        self.filter_model.refilter()
+        self._refresh_summary()
+        self._update_buttons()
+
     def _refresh_usage(self) -> None:
         """Show each source's request allowance used (see usage_text)."""
         for source in self.sources:
@@ -502,6 +550,9 @@ class RecordScanDialog(Gtk.Dialog):
                 self._fix_width(view_column, LINKED_WIDTH)
                 self.tree_view.append_column(view_column)
                 self.column_map[view_column] = (group.source, None)
+                self.source_view_columns.setdefault(group.source.source_id, []).append(
+                    view_column
+                )
             for tier, (text_col, sort_col, bg_col) in group.tiers.items():
                 renderer = Gtk.CellRendererText()
                 renderer.set_property("xalign", 0.5)
@@ -515,6 +566,9 @@ class RecordScanDialog(Gtk.Dialog):
                 self._fix_width(view_column, TIER_WIDTH)
                 self.tree_view.append_column(view_column)
                 self.column_map[view_column] = (group.source, tier)
+                self.source_view_columns.setdefault(group.source.source_id, []).append(
+                    view_column
+                )
 
         # An empty last column takes any extra width when the window is made
         # wider, so the score columns keep their size.
@@ -674,7 +728,7 @@ class RecordScanDialog(Gtk.Dialog):
         """With "only people with matches", hide rows without one."""
         if not self.matches_only_check.get_active():
             return True
-        for group in self.columns:
+        for group in self.shown_groups():
             for _text, sort_col, _bg in group.tiers.values():
                 value = model.get_value(tree_iter, sort_col)
                 if value is not None and value >= self.threshold():
@@ -693,7 +747,7 @@ class RecordScanDialog(Gtk.Dialog):
         """Return the sources that found something for a person."""
         return [
             group.source
-            for group in self.columns
+            for group in self.shown_groups()
             if self.scored.get((group.source.source_id, handle))
         ]
 
@@ -706,7 +760,7 @@ class RecordScanDialog(Gtk.Dialog):
         )
         searchable = [
             s
-            for s in self.sources
+            for s in self.shown_sources()
             if type(s).open_search is not RecordSource.open_search
         ]
         self.btn_search.set_sensitive(bool(handle) and not busy and bool(searchable))
@@ -716,11 +770,11 @@ class RecordScanDialog(Gtk.Dialog):
         if not busy:
             for source in self.sources:
                 self.scan_buttons[source.source_id].set_sensitive(
-                    self._available(source)[0]
+                    self.shown(source) and self._available(source)[0]
                 )
             if "" in self.scan_buttons:
                 self.scan_buttons[""].set_sensitive(
-                    any(self._available(s)[0] for s in self.sources)
+                    any(self._available(s)[0] for s in self.shown_sources())
                 )
 
     # -----------------------------------------------------------------
@@ -811,7 +865,7 @@ class RecordScanDialog(Gtk.Dialog):
         """Show, per source, how many people have matches at each level."""
         threshold = self.threshold()
         lines = []
-        for group in self.columns:
+        for group in self.shown_groups():
             sid = group.source.source_id
             scanned = sum(1 for (s, _h) in self.scans if s == sid)
             counts = []
@@ -871,7 +925,7 @@ class RecordScanDialog(Gtk.Dialog):
         """Scan the people in scope on one source (or all available)."""
         if self.scanning:
             return
-        chosen = [s for s in (sources or self.sources) if self._available(s)[0]]
+        chosen = [s for s in (sources or self.shown_sources()) if self._available(s)[0]]
         handles = self._scope_handles()
         if not chosen or not handles:
             self.status_label.set_text(_("Nothing to scan."))
@@ -1142,7 +1196,7 @@ class RecordScanDialog(Gtk.Dialog):
         tree.set_cursor(path, column, False)
         handle = self.sort_model.get_value(self.sort_model.get_iter(path), COL_HANDLE)
         source, tier = self._target(handle, column)
-        sources = [source] if source is not None else list(self.sources)
+        sources = [source] if source is not None else self.shown_sources()
         menu = Gtk.Menu()
         for src in sources:
             scored = self.scored.get((src.source_id, handle), [])
@@ -1216,7 +1270,7 @@ class RecordScanDialog(Gtk.Dialog):
             return
         searchable = [
             s
-            for s in self.sources
+            for s in self.shown_sources()
             if type(s).open_search is not RecordSource.open_search
         ]
         source = self.column_map.get(column, (None, None))[0] if column else None
@@ -1324,7 +1378,8 @@ class RecordScanDialog(Gtk.Dialog):
         """Write every person and their scores to a CSV file."""
         threshold = self.threshold()
         header = [_("Surname"), _("Given"), _("Birth"), _("Death"), _("ID")]
-        for group in self.columns:
+        groups = self.shown_groups()
+        for group in groups:
             title = group.source.title
             if group.source.has_links:
                 header.append(f"{title} {_('Linked')}")
@@ -1344,7 +1399,7 @@ class RecordScanDialog(Gtk.Dialog):
                     item.death_year or "",
                     item.gramps_id,
                 ]
-                for group in self.columns:
+                for group in groups:
                     sid = group.source.source_id
                     scan = self.scans.get((sid, item.handle))
                     scored = self.scored.get((sid, item.handle), [])
