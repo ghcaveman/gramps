@@ -43,6 +43,35 @@ _ = glocale.translation.sgettext
 LOG = logging.getLogger(__name__)
 
 
+def _ask_for_base_media_path(uistate: Any, dbstate: Any, tool_name: str) -> None:
+    """
+    Before the tool opens: offer to set the family tree's base media path
+    when none is set (GWizard Media Fix's question). The tool opens whatever
+    the answer; without GWizard Media Fix nothing is asked.
+    """
+    # As an addon, Media Fix's modules are in the sibling MediaFix folder,
+    # which Gramps removes from sys.path after loading it.
+    media_fix_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "MediaFix"
+    )
+    if os.path.isdir(media_fix_dir) and media_fix_dir not in sys.path:
+        sys.path.insert(0, media_fix_dir)
+    # pylint: disable=import-outside-toplevel
+    try:
+        from gramps.plugins.tool.gwizard_mediafix_basepath import (
+            ensure_base_media_path_for,
+        )
+    except ImportError:
+        try:
+            from gwizard_mediafix_basepath import (  # type: ignore[import-not-found]
+                ensure_base_media_path_for,
+            )
+        except ImportError:
+            LOG.info("GWizard Media Fix not found; the base media path is not checked")
+            return
+    ensure_base_media_path_for(uistate, dbstate, tool_name)
+
+
 # ------------------------------------------------------------
 #
 # GWizardRecordScanOptions
@@ -104,6 +133,7 @@ class GWizardRecordScan(tool.Tool):
                 parent=uistate.window,
             )
             return
+        _ask_for_base_media_path(uistate, dbstate, _("Multi-Archive Record Scan"))
         from gramps.gui.gwizard.gwizard_filemerge_recordscandialog import (
             run_gwizard_record_scan,
         )

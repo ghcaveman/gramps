@@ -32,10 +32,12 @@ modules = [
     "gramps/plugins/tool/gwizard_mediafix_common.py",
     "gramps/plugins/tool/gw_fixmediareferencesdialog.py",
     "gramps/plugins/tool/gw_mediapreview.py",
+    "gramps/plugins/tool/gwizard_mediafix_basepath.py",
 ]
 tests = [
     "gramps/plugins/tool/test/gwizardmediafix*_test.py",
     "gramps/plugins/tool/test/gwizard_mediafix_common_test.py",
+    "gramps/plugins/tool/test/gwizard_mediafix_basepath_test.py",
 ]
 test_helpers = [
     "gramps/plugins/tool/test/gwizard_gtk_fakes.py",

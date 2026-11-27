@@ -5021,6 +5021,19 @@ class GWizardMediaFixOptions(tool.ToolOptions):
         super().__init__(name, person_id)
 
 
+def _basepath_module() -> Any:
+    """
+    Return gwizard_mediafix_basepath (imported when first needed: it
+    imports this module).
+    """
+    # pylint: disable=import-outside-toplevel
+    try:
+        from . import gwizard_mediafix_basepath
+    except (ImportError, ValueError):
+        import gwizard_mediafix_basepath  # type: ignore[import-not-found,no-redef]
+    return gwizard_mediafix_basepath
+
+
 class GWizardMediaFix(tool.Tool, ManagedWindow):
     """Top-level GWizard Media Fix tool window."""
 
@@ -5046,6 +5059,11 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         ManagedWindow.__init__(self, uistate, [], self.__class__, modal=True)
         self.dbstate = dbstate
         self.report_path: str | None = None
+        # Without a base media path there is no folder to fix files into;
+        # offer to set one first (the tool opens either way).
+        _basepath_module().ensure_base_media_path_for(
+            uistate, dbstate, str(_("GWizard Media Fix"))
+        )
         # GWizard tags are created when first applied; opening the tool no
         # longer writes to the tree (it used to add an undo entry).
         self._build_window(uistate)
@@ -5524,48 +5542,23 @@ class GWizardMediaFix(tool.Tool, ManagedWindow):
         :param db: The database.
         :returns: Whether a base media path was set.
         """
-        question = QuestionDialog2(
-            str(_("No base media path")),
-            str(
-                _(
-                    "No base media path is set for this family tree, so "
-                    "'Consolidate media location' has no folder to move and "
-                    "rename the files into.\n\n"
-                    "Choose the folder now? It is saved to this family tree (the "
-                    "same setting as Edit > Preferences > Family Tree > Base media "
-                    "path). If you continue without one, every other fix still "
-                    "runs and consolidation is skipped."
-                )
-            ),
-            str(_("_Choose folder...")),
-            str(_("_Continue without")),
-            parent=self.window,
+        return bool(
+            _basepath_module().ask_for_base_path(
+                db,
+                self.window,
+                str(
+                    _(
+                        "No base media path is set for this family tree, so "
+                        "'Consolidate media location' has no folder to move and "
+                        "rename the files into.\n\n"
+                        "Choose the folder now? It is saved to this family tree "
+                        "(the same setting as Edit > Preferences > Family Tree > "
+                        "Base media path). If you continue without one, every "
+                        "other fix still runs and consolidation is skipped."
+                    )
+                ),
+            )
         )
-        if not question.run():
-            return False
-        chooser = Gtk.FileChooserDialog(
-            title=str(_("Select the base media folder")),
-            transient_for=self.window,
-            action=Gtk.FileChooserAction.SELECT_FOLDER,
-            buttons=(
-                str(_("_Cancel")),
-                Gtk.ResponseType.CANCEL,
-                str(_("_Select")),
-                Gtk.ResponseType.OK,
-            ),
-        )
-        start = get_media_base_path(db)
-        if start and os.path.isdir(start):
-            chooser.set_current_folder(start)
-        folder = chooser.get_filename() if chooser.run() == Gtk.ResponseType.OK else ""
-        chooser.destroy()
-        if not folder:
-            return False
-        rebased = set_base_media_path(db, clean_path(folder))
-        extra = base_change_summary(rebased)
-        if extra:
-            OkDialog(str(_("Base media path saved")), extra, parent=self.window)
-        return True
 
     def cb_auto_all(self) -> None:
         """Preview, then run, the default fixes across all media fix layers."""
