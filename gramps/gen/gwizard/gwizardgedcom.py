@@ -1728,6 +1728,27 @@ class GedGWizard(GWizardBase):
                 places_in_progress.discard(s_pl_handle)
             return None
 
+        notes_by_text: dict[tuple[str, str], str] = {}
+        notes_indexed: list[bool] = []
+
+        def note_key(note: Any) -> tuple[str, str] | None:
+            """Return a note's (type, text) key, or None for an empty note."""
+            text = note.get().strip()
+            return (str(note.get_type()), text) if text else None
+
+        def note_index() -> dict[tuple[str, str], str]:
+            """Return {(type, text): handle} for the tree's notes, built on first use."""
+            if not notes_indexed:
+                for handle in sorted(self.db.get_note_handles()):
+                    try:
+                        key = note_key(self.db.get_note_from_handle(handle))
+                    except Exception:  # pylint: disable=broad-except
+                        continue
+                    if key and key not in notes_by_text:
+                        notes_by_text[key] = handle
+                notes_indexed.append(True)
+            return notes_by_text
+
         # Helper to copy note
         def copy_note(s_note_handle: str | None, trans: Any) -> str | None:
             if not s_note_handle:
@@ -1739,17 +1760,27 @@ class GedGWizard(GWizardBase):
                 s_note = source_db.get_note_from_handle(s_note_handle)
                 if not s_note:
                     return None
+                if not s_note.get().strip():
+                    return None  # an empty note is import debris, not data
                 if self.db.has_note_handle(s_note_handle):
                     t_note = self.db.get_note_from_handle(s_note_handle)
                     if t_note.get_type() == s_note.get_type() and (
                         t_note.get() == s_note.get()
                     ):
                         return remember("note", s_note_handle, s_note_handle)
+                # A note with the same type and text is already in the tree
+                # (the same record merged again): it is shared, not copied.
+                key = note_key(s_note)
+                same = note_index().get(key) if key else None
+                if same and self.db.has_note_handle(same):
+                    return remember("note", s_note_handle, same)
                 new_note = copy.deepcopy(s_note)
                 unused_handle(new_note, self.db.has_note_handle)
                 drop_tags(new_note)
                 fresh_gramps_id(new_note, self.db.has_note_gramps_id)
                 self.db.add_note(new_note, trans)
+                if key:
+                    note_index()[key] = new_note.handle
                 return remember("note", s_note_handle, new_note.handle)
             except Exception:
                 LOG.warning(
@@ -1834,6 +1865,28 @@ class GedGWizard(GWizardBase):
                 copies_in_progress.discard(("media", s_media_handle))
             return None
 
+        def repository_index() -> dict[str, str]:
+            """
+            Return {normalized name: handle} for the tree's repositories,
+            built on first use. A name more than one tree repository has is
+            left out, so the merge never guesses between them.
+            """
+            index = self.context.get("repository_index")
+            if index is None:
+                index = {}
+                shared: set[str] = set()
+                for t_repo in self.db.iter_repositories():
+                    key = normalize_source_text(t_repo.get_name())
+                    if not key:
+                        continue
+                    if key in index:
+                        shared.add(key)
+                    index.setdefault(key, t_repo.handle)
+                for key in shared:
+                    del index[key]
+                self.context["repository_index"] = index
+            return index
+
         # Helper to copy repository
         def copy_repository(s_repo_handle: str | None, trans: Any) -> str | None:
             if not s_repo_handle:
@@ -1851,12 +1904,20 @@ class GedGWizard(GWizardBase):
                         t_repo.get_type() == s_repo.get_type()
                     ):
                         return remember("repo", s_repo_handle, s_repo_handle)
+                # A repository the tree already has under the same name
+                # (National Archives, WikiTree, ...) is reused, not copied.
+                same = repository_index().get(normalize_source_text(s_repo.get_name()))
+                if same and self.db.has_repository_handle(same):
+                    return remember("repo", s_repo_handle, same)
                 new_repo = copy.deepcopy(s_repo)
                 unused_handle(new_repo, self.db.has_repository_handle)
                 drop_tags(new_repo)
                 copy_note_list(new_repo, trans)
                 fresh_gramps_id(new_repo, self.db.has_repository_gramps_id)
                 self.db.add_repository(new_repo, trans)
+                name_key = normalize_source_text(new_repo.get_name())
+                if name_key:
+                    repository_index().setdefault(name_key, new_repo.handle)
                 return remember("repo", s_repo_handle, new_repo.handle)
             except Exception:
                 LOG.warning(
@@ -1922,6 +1983,50 @@ class GedGWizard(GWizardBase):
                 )
             return None
 
+        def note_texts(db: Any, obj: Any) -> list[tuple[str, str]]:
+            """Return the (type, text) of an object's notes, sorted."""
+            texts = []
+            for handle in obj.get_note_list():
+                try:
+                    note = db.get_note_from_handle(handle) if handle else None
+                except Exception:  # pylint: disable=broad-except
+                    note = None
+                if note is not None:
+                    texts.append((str(note.get_type()), note.get().strip()))
+            return sorted(texts)
+
+        def same_citation_in_tree(s_citation: Any, t_source_handle: str) -> str | None:
+            """
+            Return the tree citation the incoming ``s_citation`` repeats, if
+            any: one of the same tree source with the same page and the
+            same notes (type and text). A merge from the same record again
+            (a WikiTree profile merged twice, say) then reuses the citation
+            and its notes instead of adding copies.
+
+            The citation's date is not compared: for a web record it is the
+            date the record was read, which changes with every merge.
+            """
+            page = normalize_source_text(s_citation.get_page())
+            wanted = note_texts(source_db, s_citation)
+            try:
+                backlinks = list(
+                    self.db.find_backlink_handles(t_source_handle, ["Citation"])
+                )
+            except Exception:  # pylint: disable=broad-except
+                return None
+            for _class, handle in sorted(backlinks, key=lambda item: item[1]):
+                try:
+                    t_citation = self.db.get_citation_from_handle(handle)
+                except Exception:  # pylint: disable=broad-except
+                    continue
+                if (
+                    t_citation is not None
+                    and normalize_source_text(t_citation.get_page()) == page
+                    and note_texts(self.db, t_citation) == wanted
+                ):
+                    return handle
+            return None
+
         # Helper to copy citation
         def copy_citation(s_citation_handle: str | None, trans: Any) -> str | None:
             if not s_citation_handle:
@@ -1947,10 +2052,6 @@ class GedGWizard(GWizardBase):
                             "citation", s_citation_handle, s_citation_handle
                         )
                 new_citation = copy.deepcopy(s_citation)
-                unused_handle(new_citation, self.db.has_citation_handle)
-                drop_tags(new_citation)
-                copy_note_list(new_citation, trans)
-                copy_media_refs(new_citation, trans)
                 new_sh = copy_source(new_citation.get_reference_handle(), trans)
                 if not new_sh:
                     LOG.warning(
@@ -1958,6 +2059,13 @@ class GedGWizard(GWizardBase):
                         s_citation_handle,
                     )
                     return None
+                same = same_citation_in_tree(s_citation, new_sh)
+                if same:
+                    return remember("citation", s_citation_handle, same)
+                unused_handle(new_citation, self.db.has_citation_handle)
+                drop_tags(new_citation)
+                copy_note_list(new_citation, trans)
+                copy_media_refs(new_citation, trans)
                 new_citation.set_reference_handle(new_sh)
                 fresh_gramps_id(new_citation, self.db.has_citation_gramps_id)
                 self.db.add_citation(new_citation, trans)
@@ -2081,6 +2189,105 @@ class GedGWizard(GWizardBase):
                 owner.add_citation(new_handle)
                 if signature is not None:
                     existing.add(signature)
+
+        def upgrade_tree_event(t_evt: Any, s_evt: Any, trans: Any) -> None:
+            """
+            Merge the incoming event ``s_evt`` into the tree's event
+            ``t_evt`` without losing anything the tree event holds:
+
+            - the date and the place are taken from the incoming event
+              unless the tree's are more specific (an empty incoming date or
+              place never clears the tree's);
+            - the description is filled in only when the tree's is empty;
+            - the incoming citations, notes and media are added, skipping
+              any the event already has (a citation of the same source and
+              page with the same notes, the same note text, the same
+              picture), so merging the same record again adds nothing.
+
+            Only for an event no one else in the tree refers to: changing a
+            shared event would change it for the others too.
+            """
+            s_date = s_evt.get_date_object()
+            t_date = t_evt.get_date_object()
+            if s_date and not s_date.is_empty():
+                if (
+                    not t_date
+                    or t_date.is_empty()
+                    or compare_date_specificity(s_date, t_date) >= 0
+                ):
+                    t_evt.set_date_object(copy.deepcopy(s_date))
+            s_place_handle = s_evt.get_place_handle()
+            if s_place_handle:
+                s_pl = safe_get_place(source_db, s_place_handle)
+                t_pl = safe_get_place(self.db, t_evt.get_place_handle())
+                if t_pl is None or (
+                    compare_place_specificity(s_pl, t_pl, source_db, self.db) >= 0
+                ):
+                    new_place = get_or_create_place(s_place_handle, trans)
+                    if new_place:
+                        t_evt.set_place_handle(new_place)
+            s_desc = (s_evt.get_description() or "").strip()
+            if s_desc and not (t_evt.get_description() or "").strip():
+                t_evt.set_description(s_desc)
+            # A citation the tree already has (same source, page and notes)
+            # is reused, and so already on the event; one with new notes or
+            # a new page is added.
+            for s_cit_h in s_evt.get_citation_list():
+                t_cit_h = copy_citation(s_cit_h, trans)
+                if t_cit_h and t_cit_h not in t_evt.get_citation_list():
+                    t_evt.add_citation(t_cit_h)
+            for s_note_h in s_evt.get_note_list():
+                t_note_h = copy_note(s_note_h, trans)
+                if t_note_h and t_note_h not in t_evt.get_note_list():
+                    t_evt.add_note(t_note_h)
+            incoming = copy.deepcopy(s_evt)
+            copy_media_refs(incoming, trans)
+            have_media = {mref.ref for mref in t_evt.get_media_list()}
+            for mref in incoming.get_media_list():
+                if mref.ref not in have_media:
+                    t_evt.add_media_reference(mref)
+                    have_media.add(mref.ref)
+            self.db.commit_event(t_evt, trans)
+
+        def event_shared(event_handle: str, person_handle: str) -> bool:
+            """Return whether anyone but ``person_handle`` refers to the event."""
+            try:
+                backlinks = self.db.find_backlink_handles(event_handle)
+                return any(handle != person_handle for _cls, handle in backlinks)
+            except Exception:  # pylint: disable=broad-except
+                return True
+
+        def merge_into_copy(new_evt: Any, t_evt: Any, s_evt: Any) -> None:
+            """
+            Fill the copied incoming event ``new_evt``, which replaces the
+            shared tree event ``t_evt`` for one person, with what the tree
+            event holds: its date or place when more specific, its
+            description when the incoming one is empty, and its own
+            citations and notes.
+            """
+            s_date = s_evt.get_date_object()
+            t_date = t_evt.get_date_object()
+            if (
+                t_date
+                and not t_date.is_empty()
+                and compare_date_specificity(s_date, t_date) < 0
+            ):
+                new_evt.set_date_object(copy.deepcopy(t_date))
+            s_pl = safe_get_place(source_db, s_evt.get_place_handle())
+            t_pl = safe_get_place(self.db, t_evt.get_place_handle())
+            if t_evt.get_place_handle() and (
+                s_pl is None
+                or compare_place_specificity(s_pl, t_pl, source_db, self.db) < 0
+            ):
+                new_evt.set_place_handle(t_evt.get_place_handle())
+            if not new_evt.get_description() and t_evt.get_description():
+                new_evt.set_description(t_evt.get_description())
+            for handle in t_evt.get_citation_list():
+                if handle not in new_evt.get_citation_list():
+                    new_evt.add_citation(handle)
+            for handle in t_evt.get_note_list():
+                if handle not in new_evt.get_note_list():
+                    new_evt.add_note(handle)
 
         def remap_citations_notes(obj: Any) -> None:
             """Copy the citations and notes of ``obj`` into the target tree."""
@@ -2733,18 +2940,20 @@ class GedGWizard(GWizardBase):
                     s_list = s_person.get_primary_name().surname_list
                     t_list = t_person.get_primary_name().surname_list
                     for idx, t_surn in enumerate(t_list):
-                        if idx < len(s_list):
+                        # An empty incoming prefix does not clear the tree's.
+                        if idx < len(s_list) and s_list[idx].get_prefix().strip():
                             t_surn.set_prefix(s_list[idx].get_prefix())
 
-                # 2c. Nickname and call name
+                # 2c. Nickname and call name (an empty incoming value keeps
+                # the tree's: a merge never blanks a field)
                 if resolutions.get("nickname") == "source":
-                    t_person.get_primary_name().set_nick_name(
-                        s_person.get_primary_name().get_nick_name()
-                    )
+                    s_nick = s_person.get_primary_name().get_nick_name().strip()
+                    if s_nick:
+                        t_person.get_primary_name().set_nick_name(s_nick)
                 if resolutions.get("call_name") == "source":
-                    t_person.get_primary_name().set_call_name(
-                        s_person.get_primary_name().get_call_name()
-                    )
+                    s_call = s_person.get_primary_name().get_call_name().strip()
+                    if s_call:
+                        t_person.get_primary_name().set_call_name(s_call)
 
                 # 2d. Citations on the primary name and on the person
                 if resolutions.get("name_sources") == "source":
@@ -2754,8 +2963,11 @@ class GedGWizard(GWizardBase):
                 if resolutions.get("person_sources") == "source":
                     copy_new_citations(t_person, s_person, trans)
 
-                # 3. Gender
-                if resolutions.get("gender") == "source":
+                # 3. Gender (an incoming Unknown does not replace a known one)
+                if resolutions.get("gender") == "source" and (
+                    s_person.get_gender() != Person.UNKNOWN
+                    or t_person.get_gender() == Person.UNKNOWN
+                ):
                     t_person.set_gender(s_person.get_gender())
 
                 # Helper to extract the primary event handle to match comparison:
@@ -2792,51 +3004,60 @@ class GedGWizard(GWizardBase):
                     t_evt_h = t_ref.ref if t_ref else None
                     t_evt = safe_get_event(self.db, t_evt_h) if t_evt_h else None
 
-                    new_evt_h = copy_event(s_evt_h, trans)
-                    if not new_evt_h:
-                        return
-
-                    new_evt = safe_get_event(self.db, new_evt_h)
-                    if not new_evt:
-                        return
-
-                    if resolution_val == "alternate" and t_evt:
-                        # User chose to add incoming as alternate event, preserving primary
-                        t_person.add_event_ref(
-                            copy_event_ref(
-                                s_evt_h, new_evt_h, trans, EventRoleType.PRIMARY
+                    if t_evt and resolution_val == "alternate":
+                        # Add the incoming event as an alternate, keeping
+                        # the tree's primary event as it is.
+                        new_evt_h = copy_event(s_evt_h, trans)
+                        if new_evt_h:
+                            t_person.add_event_ref(
+                                copy_event_ref(
+                                    s_evt_h, new_evt_h, trans, EventRoleType.PRIMARY
+                                )
                             )
-                        )
+                        return
+
+                    if t_evt and not event_shared(t_evt.handle, t_person.handle):
+                        # Merge into the tree's own event, so the person
+                        # keeps one birth (or death) and nothing the tree
+                        # event holds is lost; merging again changes
+                        # nothing more.
+                        upgrade_tree_event(t_evt, s_evt, trans)
                         return
 
                     if t_evt:
-                        # Smart non-destructive merge:
-                        # 1. Date: preserve more specific date
-                        s_date = s_evt.get_date_object()
-                        t_date = t_evt.get_date_object()
-                        date_cmp = compare_date_specificity(s_date, t_date)
-                        if date_cmp < 0 and t_date and not t_date.is_empty():
-                            new_evt.set_date_object(t_date)
-
-                        # 2. Place: preserve more specific place
-                        s_pl = safe_get_place(source_db, s_evt.get_place_handle())
-                        t_pl = safe_get_place(self.db, t_evt.get_place_handle())
-                        place_cmp = compare_place_specificity(
-                            s_pl, t_pl, source_db, self.db
-                        )
-                        if place_cmp < 0 and t_evt.get_place_handle():
-                            new_evt.set_place_handle(t_evt.get_place_handle())
-
-                        # 3. Description: adopt target if incoming is empty
-                        if not new_evt.get_description() and t_evt.get_description():
-                            new_evt.set_description(t_evt.get_description())
-
-                        # 4. Citations & Notes: preserve target's citations and notes
-                        copy_new_citations(new_evt, t_evt, trans)
-                        copy_note_list(t_evt, trans)
+                        # The tree event is shared with someone else, so it
+                        # is left as it is: this person gets a merged copy
+                        # in its place.
+                        new_evt_h = copy_event(s_evt_h, trans)
+                        if not new_evt_h:
+                            return
+                        new_evt = safe_get_event(self.db, new_evt_h)
+                        if new_evt is None:
+                            return
+                        merge_into_copy(new_evt, t_evt, s_evt)
                         self.db.commit_event(new_evt, trans)
+                        new_ref = copy_event_ref(
+                            s_evt_h, new_evt_h, trans, EventRoleType.PRIMARY
+                        )
+                        # Swap the reference where it stands, so the
+                        # person's birth and death positions stay right.
+                        refs = t_person.get_event_ref_list()
+                        for index, ref in enumerate(refs):
+                            if ref.ref == t_evt.handle:
+                                refs[index] = new_ref
+                                break
+                        else:
+                            refs.append(new_ref)
+                        if event_type_val == EventType.BIRTH:
+                            t_person.set_birth_ref(new_ref)
+                        else:
+                            t_person.set_death_ref(new_ref)
+                        return
 
-                    # Update person's birth or death ref
+                    # No such event in the tree: add the incoming one.
+                    new_evt_h = copy_event(s_evt_h, trans)
+                    if not new_evt_h:
+                        return
                     new_ref = copy_event_ref(
                         s_evt_h, new_evt_h, trans, EventRoleType.PRIMARY
                     )
@@ -2901,6 +3122,31 @@ class GedGWizard(GWizardBase):
                 s_birth_h = get_source_event_handle(s_person, EventType.BIRTH)
                 s_death_h = get_source_event_handle(s_person, EventType.DEATH)
 
+                def event_key(db: Any, event: Any) -> tuple[str, int, str, str]:
+                    """Return an event's type, date, date text and place."""
+                    place = safe_get_place(db, event.get_place_handle())
+                    return (
+                        str(event.get_type()),
+                        event.get_date_object().get_sort_value(),
+                        str(event.get_date_object()),
+                        place_key(db, place) if place is not None else "",
+                    )
+
+                def same_event_on_person(s_evt_h: str) -> str | None:
+                    """
+                    Return the tree person's event that is the incoming
+                    event again (same type, date and place), if any.
+                    """
+                    s_evt = safe_get_event(source_db, s_evt_h)
+                    if s_evt is None:
+                        return None
+                    wanted = event_key(source_db, s_evt)
+                    for ref in t_person.get_event_ref_list():
+                        t_evt = safe_get_event(self.db, ref.ref)
+                        if t_evt is not None and event_key(self.db, t_evt) == wanted:
+                            return t_evt.handle
+                    return None
+
                 for key, res in resolutions.items():
                     if res != "source" or target_person_handle is None:
                         continue
@@ -2909,6 +3155,16 @@ class GedGWizard(GWizardBase):
                     if key.startswith("event:"):
                         s_evt_h = key.split(":", 1)[1]
                         if s_evt_h in (s_birth_h, s_death_h):
+                            continue
+                        same = same_event_on_person(s_evt_h)
+                        if same:
+                            # The person already has this event (the same
+                            # record merged again): add its citations and
+                            # notes there instead of a second copy.
+                            s_evt = safe_get_event(source_db, s_evt_h)
+                            t_evt = safe_get_event(self.db, same)
+                            if s_evt is not None and t_evt is not None:
+                                upgrade_tree_event(t_evt, s_evt, trans)
                             continue
                         t_evt_h = copy_event(s_evt_h, trans)
                         if t_evt_h:
@@ -3062,7 +3318,9 @@ class GedGWizard(GWizardBase):
                             t_person.add_family_handle(child_fam.handle)
                         child_ref = ChildRef()
                         child_ref.ref = t_rel_h
-                        child_fam.add_child_ref(child_ref)
+                        insert_child_by_birth(
+                            child_fam, child_ref, safe_get_person(self.db, t_rel_h)
+                        )
                         self.db.commit_family(child_fam, trans)
                         t_rel = safe_get_person(self.db, t_rel_h)
                         if t_rel:

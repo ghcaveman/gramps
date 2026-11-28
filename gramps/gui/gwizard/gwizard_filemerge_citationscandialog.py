@@ -74,6 +74,7 @@ from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     discover_sources,
 )
 from gramps.gen.utils.string import conf_strings
+from gramps.gui.gwizard.gwizard_filemerge_recordscandialog import deferred_text
 from gramps.gen.gwizard.gwizard_filemerge_citationscan import (
     DEFAULT_MAX_PEOPLE,
     DEFAULT_MIN_WORK,
@@ -1130,7 +1131,10 @@ class CitationScanDialog(Gtk.Dialog):
             )
         if errors:
             message += " " + _("%d searches failed; scan again to retry them.") % errors
-        if done < total:
+        deferred = sum(self.scanner.deferred.values())
+        if deferred:
+            message += " " + deferred_text(self.scanner, sources)
+        if done + deferred < total:
             message += " " + _("The scan was cancelled.")
         self.status_label.set_text(message)
         return done
