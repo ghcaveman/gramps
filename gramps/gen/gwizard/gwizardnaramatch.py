@@ -111,6 +111,20 @@ _YEARS = re.compile(r"\b(1[5-9]\d\d|20\d\d)\b")
 _SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}
 # Surname prefixes written as a separate word ("Mac donald", "van Buren").
 _PARTICLES = {"mac", "mc", "van", "von", "de", "del", "della", "di", "la", "le", "o"}
+# Words that show a title part is not a person's given name, as in
+# "Ohio, 8th Congressional District, Class No. 1" (a draft register).
+_NOT_GIVEN_WORDS = {
+    "class",
+    "congressional",
+    "county",
+    "department",
+    "district",
+    "division",
+    "no",
+    "regiment",
+    "vol",
+    "volume",
+}
 
 
 def _clean_words(text: str) -> list[str]:
@@ -148,6 +162,12 @@ def _inverted_name(text: str, role: str, source: str) -> Candidate | None:
         return None
     surname, rest = text.split(",", 1)
     surname = surname.strip()
+    # Only the part before the next comma can be the given names.
+    given_part = rest.split(",", 1)[0]
+    if any(c.isdigit() for c in _YEARS.sub(" ", given_part)) or any(
+        w.casefold() in _NOT_GIVEN_WORDS for w in _clean_words(given_part)
+    ):
+        return None
     rest = _YEARS.sub(" ", rest)
     given_words = [w for w in _clean_words(rest) if not w.startswith("[")]
     if not surname or not re.match(r"^[A-Za-z][A-Za-z'\- ]*$", surname):
@@ -179,6 +199,32 @@ def _upper_index_name(text: str, source: str) -> Candidate | None:
         return None
     return Candidate(
         given=rest[0], middle=" ".join(rest[1:3]), surname=words[0], source=source
+    )
+
+
+def _service_file_name(text: str, source: str) -> Candidate | None:
+    """
+    Parse military service-file titles that give the name surname first,
+    without a comma, before " -- " and a service number, such as "Smith
+    John William -- [Service Number] 0011712".
+    """
+    if " -- " not in text:
+        return None
+    head, tail = text.split(" -- ", 1)
+    # Only service files: other titles with " -- " ("Muster Rolls -- [Box
+    # 12]") start with capitalised words that are not a name.
+    if "service number" not in tail.casefold():
+        return None
+    words = head.split()
+    if not 2 <= len(words) <= 4:
+        return None
+    if not all(w.strip(".").isalpha() and w[:1].isupper() for w in words):
+        return None
+    return Candidate(
+        given=words[1].strip("."),
+        middle=" ".join(w.strip(".") for w in words[2:]),
+        surname=words[0],
+        source=source,
     )
 
 
@@ -237,6 +283,12 @@ def candidates_from_record(parsed: dict[str, Any]) -> list[Candidate]:
         head = re.split(r" - | – ", title, maxsplit=1)[0]
         candidate = _inverted_name(head, "", "title")
         if candidate and candidate.given:
+            found.append(candidate)
+
+    # "Smith John William -- [Service Number] 0011712" (Navy service files)
+    if not found:
+        candidate = _service_file_name(title, "title")
+        if candidate:
             found.append(candidate)
 
     # "MacDONALD Angus Daniel"

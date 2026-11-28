@@ -143,6 +143,28 @@ class TestCandidates(unittest.TestCase):
         self.assertEqual(_names("Tennessee SP DeVault Tavern"), [])
         self.assertEqual(_names("Von Steuben (SSBN-632) - December 1978"), [])
 
+    def test_draft_register_titles_name_nobody(self) -> None:
+        """Verify "State, 8th Congressional District, Class ..." is no name."""
+        self.assertEqual(
+            _names("Ohio, 8th Congressional District, Class No. 1, L-Z (Vol. 2 of 3)"),
+            [],
+        )
+        self.assertEqual(
+            _names("New York, 13th Congressional District, Class No. 2"), []
+        )
+        self.assertEqual(_names("Smith, John - 1942"), ["Smith, John"])
+
+    def test_service_file_titles(self) -> None:
+        """Verify Navy service-file titles, surname first before " -- "."""
+        self.assertEqual(
+            _names("Smith John William -- [Service Number] 0011712 -- [Box 12]"),
+            ["Smith, John William"],
+        )
+        self.assertEqual(
+            _names("Smith John -- [Service Number] 0011712"), ["Smith, John"]
+        )
+        self.assertEqual(_names("Muster Rolls -- [Box 12] 1918"), [])
+
     def test_person_creator_with_dates(self) -> None:
         """Verify a person creator's life years are used."""
         found = candidates_from_record(
