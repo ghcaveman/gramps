@@ -103,6 +103,8 @@ class WikiTreeSource(RecordSource):
     # Profiles asked for per person, and the birth-year spread allowed.
     search_limit = 20
     date_spread = 2
+    # Birth-year difference allowed in the dateless fallback search.
+    fallback_year_spread = 10
     tiers = SCAN_TIERS
 
     def __init__(self, client: Any = None) -> None:
@@ -136,8 +138,13 @@ class WikiTreeSource(RecordSource):
         2. Given alone + birth surname + birth year (±2) (if middle name missed)
         3. Alternate surnames (married name, collapsed particles like Dilauro)
            or inline nicknames (Mamie, King, Buzz) with birth year
-        4. Dateless fallback (first + birth surname) only when birth year is
-           missing or Tiers 1-3 returned zero hits.
+        4. Death year (±2), when the person has one and Tiers 1-3 found
+           nobody: finds profiles with no or a wrong birth date.
+        5. Dateless fallback (first + birth surname) only when Tiers 1-4
+           found nobody. With a birth year, profiles born more than
+           fallback_year_spread years away are dropped (profiles with no
+           birth date are kept), so a common name does not bring in
+           namesakes from other centuries.
         """
         from gramps.gen.gwizard.gwizardwikitreenorm import build_search_plan
 
@@ -157,17 +164,20 @@ class WikiTreeSource(RecordSource):
             birth_yr: int | None = None,
             spread: int = 0,
             last_name_match: str = "all",
+            death_yr: int | None = None,
         ) -> list[dict[str, Any]]:
             kwargs: dict[str, Any] = {
                 "first_name": fn,
                 "last_name": ln,
                 "birth_date": str(birth_yr) if birth_yr else "",
-                "date_spread": spread if birth_yr else 0,
+                "date_spread": spread if (birth_yr or death_yr) else 0,
                 "limit": self.search_limit,
                 "raise_errors": True,
                 "fields": SEARCH_FIELDS,
                 "lastNameMatch": last_name_match,
             }
+            if death_yr:
+                kwargs["death_date"] = str(death_yr)
             if plan.gender:
                 kwargs["Gender"] = plan.gender
             return self.client().search_person(**kwargs)
@@ -207,9 +217,23 @@ class WikiTreeSource(RecordSource):
                         )
                     )
 
-        # Tier 4: Dateless fallback ONLY when birth_year is absent or Tiers 1-3 found 0
+        # Tier 4: Death year, when nothing was found by birth year
+        if not profiles and plan.death_year:
+            profiles.extend(
+                _run(
+                    plan.given,
+                    primary_surname,
+                    spread=plan.date_spread,
+                    death_yr=plan.death_year,
+                )
+            )
+
+        # Tier 5: Dateless fallback ONLY when Tiers 1-4 found 0; namesakes
+        # born far from the person's birth year are dropped.
         if not profiles:
-            profiles.extend(_run(plan.given, primary_surname))
+            profiles.extend(
+                self.near_birth_year(_run(plan.given, primary_surname), plan.birth_year)
+            )
 
         self.fill_parents(profiles)
         matches: dict[str, SourceMatch] = {}
@@ -218,6 +242,25 @@ class WikiTreeSource(RecordSource):
                 match = self.to_match(profile)
                 matches.setdefault(match.key, match)
         return list(matches.values())
+
+    def near_birth_year(self, profiles: list[Any], birth_year: int | None) -> list[Any]:
+        """
+        Return the profiles born within fallback_year_spread years of
+        ``birth_year``, and those with no birth date (all of them when
+        ``birth_year`` is None).
+        """
+        if not birth_year:
+            return list(profiles)
+        kept: list[Any] = []
+        for profile in profiles:
+            if not isinstance(profile, dict):
+                continue
+            year = str(profile.get("BirthDate") or "")[:4]
+            if not year.isdigit() or int(year) <= 0:
+                kept.append(profile)
+            elif abs(int(year) - birth_year) <= self.fallback_year_spread:
+                kept.append(profile)
+        return kept
 
     def lookup(self, key: str) -> SourceMatch | None:
         """Return the profile the person is linked to."""
