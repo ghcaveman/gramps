@@ -246,6 +246,46 @@ class CellValuesTest(unittest.TestCase):
 
 # ------------------------------------------------------------
 #
+# DeferredTextTest
+#
+# ------------------------------------------------------------
+class DeferredTextTest(unittest.TestCase):
+    """The note on sources a scan stopped searching (runs without a display)."""
+
+    def test_notes(self) -> None:
+        """One note per source that left people, saying why."""
+        from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
+            STOP_ALLOWANCE,
+            STOP_SCAN_LIMIT,
+            RecordScanner,
+        )
+        from gramps.gui.gwizard.gwizard_filemerge_recordscandialog import (
+            deferred_text,
+        )
+
+        class Capped(FakeSource):
+            source_id = "capped"
+            title = "Capped"
+
+        class Metered(FakeSource):
+            source_id = "metered"
+            title = "Metered"
+
+        scanner = RecordScanner()
+        sources = [Capped(), Metered(), FakeSource()]
+        self.assertEqual(deferred_text(scanner, sources), "")
+        scanner.searched = {"capped": 50, "metered": 7, "fake": 3}
+        scanner.deferred = {"capped": 12, "metered": 4}
+        scanner.stopped = {"capped": STOP_SCAN_LIMIT, "metered": STOP_ALLOWANCE}
+        text = deferred_text(scanner, sources)
+        self.assertIn("Capped: searched 50 people", text)
+        self.assertIn("12 more are left", text)
+        self.assertIn("Metered: stopped with 4 people left", text)
+        self.assertNotIn("Fake", text)
+
+
+# ------------------------------------------------------------
+#
 # RecordScanDialogTest
 #
 # ------------------------------------------------------------

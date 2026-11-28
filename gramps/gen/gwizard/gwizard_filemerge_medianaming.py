@@ -293,6 +293,41 @@ def person_media_filename(
 
 # -------------------------------------------------------------------------
 #
+# Numbered names
+#
+# -------------------------------------------------------------------------
+# When a file's name is already taken by a different file, the file gets
+# the next free numbered name: "Smith_John-Census-1920_2.jpg", "_3", ...
+# Media Fix and the record-source tools use the same form, so Media Fix
+# recognises a numbered name as standard instead of renaming it.
+_NUMBERED_RE = re.compile(r"^(?P<stem>.+)_(?P<number>[0-9]+)$")
+
+
+def numbered_name(path: str, number: int) -> str:
+    """Return ``path`` with "_<number>" added to its file name's stem."""
+    stem, ext = os.path.splitext(path)
+    return "%s_%d%s" % (stem, number, ext)
+
+
+def numbered_variant(name: str, standard: str) -> int:
+    """
+    Return N when the file name ``name`` is ``standard`` numbered "_N"
+    (N of 2 or more), otherwise 0. Only file names are compared, without
+    regard to letter case.
+    """
+    stem, ext = os.path.splitext(os.path.basename(name))
+    std_stem, std_ext = os.path.splitext(os.path.basename(standard))
+    if ext.casefold() != std_ext.casefold():
+        return 0
+    match = _NUMBERED_RE.match(stem)
+    if not match or match.group("stem").casefold() != std_stem.casefold():
+        return 0
+    number = int(match.group("number"))
+    return number if number >= 2 else 0
+
+
+# -------------------------------------------------------------------------
+#
 # Putting a downloaded file in place
 #
 # -------------------------------------------------------------------------
@@ -302,7 +337,7 @@ def place_file(cache_path: str, wanted_path: str, cache_levels: int = 1) -> str:
     return where it ended up.
 
     A different file already at ``wanted_path`` is never replaced: the file
-    gets the next free "-2", "-3", ... name. An identical file already there
+    gets the next free numbered name ("_2", "_3", ...; see numbered_name). An identical file already there
     is reused (the download is removed). If the move fails the file stays in
     the cache, which is still a valid media path.
 
@@ -314,7 +349,6 @@ def place_file(cache_path: str, wanted_path: str, cache_levels: int = 1) -> str:
         os.path.abspath(cache_path)
     ) == os.path.normcase(os.path.abspath(wanted_path)):
         return cache_path
-    stem, ext = os.path.splitext(wanted_path)
     candidate = wanted_path
     number = 1
     try:
@@ -325,7 +359,7 @@ def place_file(cache_path: str, wanted_path: str, cache_levels: int = 1) -> str:
                 remove_empty_dirs(cache_path, wanted_path, cache_levels)
                 return candidate
             number += 1
-            candidate = "%s-%d%s" % (stem, number, ext)
+            candidate = numbered_name(wanted_path, number)
         os.makedirs(os.path.dirname(candidate) or ".", exist_ok=True)
         os.replace(cache_path, candidate)
     except OSError as err:
