@@ -74,6 +74,8 @@ from gramps.gen.lib import (
     UrlType,
 )
 from gramps.gen.datehandler import parser as dateparser
+from gramps.gen.display.name import displayer as name_displayer
+from gramps.gen.utils.db import get_death_or_fallback
 from gramps.gen.utils.file import create_checksum, media_path, relative_path
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 
@@ -84,6 +86,8 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 # -------------------------------------------------------------------------
 from .gwizard_filemerge_media import base_path_configured
 from .gwizard_filemerge_medianaming import person_media_filename, place_file
+from .gwizardnarapages import page_number
+from .gwizard_base import is_estimated_date, person_birth_date
 from .gwizardgedcom import GedGWizard
 from .gwizardnarausage import (
     KIND_RECORD,
@@ -620,6 +624,21 @@ class NaraCatalogInterface:
                     }
                 )
 
+        # NARA does not always list a record's images in page order: they
+        # are put in the order of the page number in their file names, so
+        # every image index (and the order the images are attached in)
+        # follows the pages. Names without a page number keep their place.
+        parsed_media = [
+            item
+            for _key, item in sorted(
+                (
+                    (page_number(item["filename"], position), position),
+                    item,
+                )
+                for position, item in enumerate(parsed_media)
+            )
+        ]
+
         return {
             "naid": naid,
             "title": str(record.get("title") or ""),
@@ -954,6 +973,11 @@ def record_date(parsed: dict[str, Any]) -> Date | None:
         date_obj.set_yr_mon_day(int(match.group(1)), 0, 0)
         return date_obj
     return parse_nara_date(str(parsed.get("date_str") or ""))
+
+
+# How many years an estimated birth or death ("about 1753") may be off by
+# when checking that a record's year fits the person (see year_problem).
+YEAR_SLACK = 5
 
 
 def event_date(parsed: dict[str, Any]) -> Date | None:
@@ -1436,6 +1460,51 @@ class NaraRecordAttacher:
                     result.event_linked = True
                     result.event_type = str(event_type)
         return result
+
+    # ------------------------------------------------------------------
+    # Checking the record fits the person
+    # ------------------------------------------------------------------
+    def year_problem(self, person_handle: str, parsed: dict[str, Any]) -> str:
+        """
+        Return a warning when the record cannot be about the person by its
+        year, or '' when it can.
+
+        Only the record's own year counts (the year in its title, see
+        event_date): a series span such as 1899-1927 says when a card index
+        was made, not when the person was alive. A record of any kind dated
+        before the person's birth is flagged; after their death only a
+        census is, because pension, estate and index records are often made
+        after someone died. An estimated birth or death ("about 1753")
+        allows five years either way.
+        """
+        person = self.db.get_person_from_handle(person_handle)
+        date_obj = event_date(parsed)
+        if person is None or date_obj is None:
+            return ""
+        year = date_obj.get_year()
+        name = person.get_primary_name().get_regular_name().strip() or (
+            name_displayer.display(person)
+        )
+        birth = person_birth_date(self.db, person)
+        if birth is not None and birth.get_year() > 0:
+            slack = YEAR_SLACK if is_estimated_date(birth) else 0
+            if year < birth.get_year() - slack:
+                return _(
+                    "This %(year)d record is from before %(name)s was born "
+                    "(%(birth)d)."
+                ) % {"year": year, "name": name, "birth": birth.get_year()}
+        event_type = self._detect_record_event_type(parsed)
+        if event_type is not None and int(event_type) == EventType.CENSUS:
+            death_event = get_death_or_fallback(self.db, person)
+            death = death_event.get_date_object() if death_event else None
+            if death is not None and death.get_year() > 0:
+                slack = YEAR_SLACK if is_estimated_date(death) else 0
+                if year > death.get_year() + slack:
+                    return _(
+                        "This %(year)d census is from after %(name)s died "
+                        "(%(death)d)."
+                    ) % {"year": year, "name": name, "death": death.get_year()}
+        return ""
 
     # ------------------------------------------------------------------
     # Merging through the GWizard merge window

@@ -1354,6 +1354,136 @@ class TestNaraMergeWindowEvent(unittest.TestCase):
         )
 
 
+class TestNaraPageOrder(unittest.TestCase):
+    """A record's images are put in page order when it is read."""
+
+    @staticmethod
+    def _hit(filenames: list[str]) -> dict[str, Any]:
+        return {
+            "_id": "999",
+            "_source": {
+                "naId": "999",
+                "record": {
+                    "title": "1950 Census Population Schedules - Example County",
+                    "digitalObjects": [
+                        {
+                            "objectUrl": "https://catalog.archives.gov/%s" % name,
+                            "objectFilename": name,
+                            "mimeType": "image/tiff",
+                        }
+                        for name in filenames
+                    ],
+                },
+            },
+        }
+
+    def test_images_sorted_by_page_number(self) -> None:
+        names = ["ed_%05d.tif" % page for page in (1, 2, 9, 10, 8, 11, 3)]
+        parsed = NaraCatalogInterface.parse_record(self._hit(names))
+        self.assertEqual(
+            [item["filename"] for item in parsed["digital_objects"]],
+            ["ed_%05d.tif" % page for page in (1, 2, 3, 8, 9, 10, 11)],
+        )
+
+    def test_names_without_page_numbers_keep_their_order(self) -> None:
+        names = ["2480.jpg", "2477.jpg", "2479.jpg"]
+        parsed = NaraCatalogInterface.parse_record(self._hit(names))
+        self.assertEqual(
+            [item["filename"] for item in parsed["digital_objects"]], names
+        )
+
+
+class TestNaraYearProblem(unittest.TestCase):
+    """A record dated before the person was born is not theirs."""
+
+    media_dir: str
+    db: DbWriteBase
+    person_handle: str
+    parsed: dict[str, Any]
+    session: Mock
+
+    setUp = TestNaraRecordAttacher.setUp
+    tearDown = TestNaraRecordAttacher.tearDown
+
+    CENSUS = {
+        "title": "1950 Census Population Schedules - California - ED 66-1026",
+        "series_title": "Population Schedules for the 1950 Census",
+        "date_str": "1950",
+    }
+
+    def _event(self, event_type: int, date_text: str) -> None:
+        with DbTxn("Add event", self.db) as trans:
+            event = Event()
+            event.set_type(EventType(event_type))
+            date = Date()
+            if date_text.startswith("abt "):
+                date.set(
+                    modifier=Date.MOD_ABOUT, value=(0, 0, int(date_text[4:]), False)
+                )
+            else:
+                date.set_yr_mon_day(int(date_text), 0, 0)
+            event.set_date_object(date)
+            handle = self.db.add_event(event, trans)
+            person = self.db.get_person_from_handle(self.person_handle)
+            ref = EventRef()
+            ref.ref = handle
+            person.add_event_ref(ref)
+            if event_type == EventType.BIRTH:
+                person.set_birth_ref(ref)
+            elif event_type == EventType.DEATH:
+                person.set_death_ref(ref)
+            self.db.commit_person(person, trans)
+
+    def _problem(self, **fields: str) -> str:
+        parsed = dict(self.parsed, **fields)
+        return NaraRecordAttacher(self.db, session=self.session).year_problem(
+            self.person_handle, parsed
+        )
+
+    def test_census_before_the_birth(self) -> None:
+        self._event(EventType.BIRTH, "1953")
+        self.assertEqual(
+            self._problem(**self.CENSUS),
+            "This 1950 record is from before Lyman Angus MacDonald was born (1953).",
+        )
+
+    def test_record_after_the_birth_is_fine(self) -> None:
+        self._event(EventType.BIRTH, "1900")
+        self.assertEqual(self._problem(**self.CENSUS), "")
+
+    def test_estimated_birth_allows_five_years(self) -> None:
+        self._event(EventType.BIRTH, "abt 1953")
+        self.assertEqual(self._problem(**self.CENSUS), "")
+        self._event(EventType.DEATH, "1940")
+        self.assertIn("after", self._problem(**self.CENSUS))
+
+    def test_census_after_the_death(self) -> None:
+        self._event(EventType.BIRTH, "1880")
+        self._event(EventType.DEATH, "1940")
+        self.assertEqual(
+            self._problem(**self.CENSUS),
+            "This 1950 census is from after Lyman Angus MacDonald died (1940).",
+        )
+
+    def test_other_records_after_the_death_are_fine(self) -> None:
+        """A naturalization file (or a pension) can be dated after a death."""
+        self._event(EventType.DEATH, "1930")
+        self.assertEqual(self._problem(), "")
+
+    def test_a_series_span_is_not_the_records_year(self) -> None:
+        """A card index compiled 1899-1927 can be about someone who died earlier."""
+        self._event(EventType.DEATH, "1890")
+        problem = self._problem(
+            title="MacDonald, Lyman A - 214th Infantry, Company K",
+            series_title="Index to Civil War census cards",
+            date_str="1899-1927",
+        )
+        self.assertEqual(problem, "")
+
+    def test_no_dates_no_problem(self) -> None:
+        self.assertEqual(self._problem(**self.CENSUS), "")
+
+
 class TestNaraRecordText(unittest.TestCase):
     """Test fetching a record's machine-read page text."""
 
