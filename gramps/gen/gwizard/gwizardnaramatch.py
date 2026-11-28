@@ -67,6 +67,7 @@ __all__ = [
     "MatchQuery",
     "MatchResult",
     "best_match",
+    "birth_year_from_age",
     "candidates_from_record",
     "jaro_winkler",
     "match_text",
@@ -138,11 +139,24 @@ def _clean_words(text: str) -> list[str]:
 
 
 def _natural_name(text: str, role: str, source: str) -> Candidate | None:
-    """Parse "Given [Middle...] Surname" (as in "Mary Kreizer Smith")."""
+    """
+    Parse "Given [Middle...] Surname" (as in "Mary Kreizer Smith"). Text
+    with a word in lower case (other than a surname particle or the word
+    after one, as in "Mac donald"), or with more than six words, is not a
+    name ("Enrollment with the California Indians").
+    """
     words = _clean_words(text)
     words = [w for w in words if not w.startswith("[")]
-    if not words:
+    if not words or len(words) > 6:
         return None
+    for index, word in enumerate(words):
+        after_particle = index > 0 and words[index - 1].casefold() in _PARTICLES
+        if (
+            word[:1].islower()
+            and word.casefold() not in _PARTICLES
+            and not after_particle
+        ):
+            return None
     if len(words) > 2 and words[-2].casefold() in _PARTICLES:
         words[-2:] = [f"{words[-2]} {words[-1]}"]
     if len(words) == 1:
@@ -168,8 +182,10 @@ def _inverted_name(text: str, role: str, source: str) -> Candidate | None:
         w.casefold() in _NOT_GIVEN_WORDS for w in _clean_words(given_part)
     ):
         return None
-    rest = _YEARS.sub(" ", rest)
-    given_words = [w for w in _clean_words(rest) if not w.startswith("[")]
+    # The given names end at the next comma ("White, Adelaide Briand, Year:
+    # 1942" gives Adelaide Briand, not Adelaide Briand Year).
+    given_part = _YEARS.sub(" ", given_part)
+    given_words = [w for w in _clean_words(given_part) if not w.startswith("[")]
     if not surname or not re.match(r"^[A-Za-z][A-Za-z'\- ]*$", surname):
         return None
     if len(surname.split()) > 3:
@@ -307,7 +323,29 @@ def candidates_from_record(parsed: dict[str, Any]) -> list[Candidate]:
         for candidate in found:
             if candidate.birth_year is None and candidate.source != "creator":
                 candidate.birth_year = int(birth.group(1))
+    # "White, Milton - Age 32, Year: 1865 - First Cavalry": born about 1833.
+    born = birth_year_from_age(title)
+    if born and found:
+        for candidate in found:
+            if candidate.birth_year is None and candidate.source != "creator":
+                candidate.birth_year = born
     return found
+
+
+def birth_year_from_age(title: str) -> int | None:
+    """
+    Return the birth year an "Age N, Year: YYYY" title implies (YYYY - N,
+    give or take a year), or None. Civil War service index titles give the
+    soldier's age and the year in this form; "[Blank]" in either gives None.
+    """
+    age = re.search(r"\bage:?\s*(\d{1,3})\b", title, re.I)
+    year = re.search(r"\byear:?\s*(1[5-9]\d\d|20\d\d)\b", title, re.I)
+    if not age or not year:
+        return None
+    years_old = int(age.group(1))
+    if not 0 < years_old < 120:
+        return None
+    return int(year.group(1)) - years_old
 
 
 # ------------------------------------------------------------

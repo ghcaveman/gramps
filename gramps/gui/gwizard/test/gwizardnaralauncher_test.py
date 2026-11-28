@@ -233,6 +233,8 @@ if TYPE_CHECKING:
         _extract_person_search_defaults,
         build_nara_query,
         format_size,
+        outside_years,
+        record_span,
         NaraSearchDialog,
         ask_nara_parameters,
         load_nara_gwizard,
@@ -245,6 +247,8 @@ _IMPORTED_NAMES = (
     "_extract_person_search_defaults",
     "build_nara_query",
     "format_size",
+    "outside_years",
+    "record_span",
     "NaraSearchDialog",
     "ask_nara_parameters",
     "load_nara_gwizard",
@@ -474,6 +478,28 @@ class TestNaraLauncher(unittest.TestCase):
             "Smith pension",
         )
 
+    def test_record_span_and_outside_years(self) -> None:
+        """Verify records dated wholly outside the checked years are found."""
+        census = {"title": "1940 Census Population Schedules", "date_str": "1940"}
+        court = {"title": "Smith, Mary, Year: 1942", "date_str": "1900-1991"}
+        series = {"title": "Smith, Mary - Application", "date_str": "1900-1991"}
+        draft = {"title": "Ohio, 8th District", "date_str": "1863-1865"}
+        undated = {"title": "Smith, Mary", "date_str": ""}
+        self.assertEqual(record_span(census), (1940, 1940))
+        self.assertEqual(record_span(court), (1942, 1942))
+        self.assertEqual(record_span(series), (1900, 1991))
+        self.assertIsNone(record_span(undated))
+        # Checked years 1847 to 1925.
+        self.assertTrue(outside_years(census, "1847", "1925"))
+        self.assertTrue(outside_years(court, "1847", "1925"))
+        self.assertFalse(outside_years(series, "1847", "1925"))
+        self.assertFalse(outside_years(undated, "1847", "1925"))
+        # Checked years 1879 to 1973: the Civil War draft is before them.
+        self.assertTrue(outside_years(draft, "1879", "1973"))
+        # Only the checked ends limit.
+        self.assertFalse(outside_years(draft, "", "1973"))
+        self.assertFalse(outside_years(census, "1847", ""))
+
     def test_extract_defaults_leave_out_nicknames(self) -> None:
         """Verify nicknames in quotes or brackets stay out of the names."""
         for given in ('John "Jack" William', "John (Jack) William"):
@@ -670,6 +696,46 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertEqual(kwargs["query"], "Kreizer")
         self.assertEqual(kwargs["start_year"], "")
         self.assertEqual(kwargs["end_year"], "")
+
+    def test_search_leaves_out_records_outside_the_years(self) -> None:
+        """Verify records dated outside the checked years are not listed."""
+
+        def hit(naid: str, title: str) -> dict[str, Any]:
+            return {"_id": naid, "_source": {"naId": naid, "record": {"title": title}}}
+
+        hits = [
+            hit("101", "1940 Census Population Schedules - Kansas"),
+            hit("102", "Smith, Mary Ann - Pension 1890"),
+            hit("103", "Smith, Mary Ann, Year: 1942"),
+        ]
+        mock_client = Mock()
+        mock_client.extract_hits.return_value = hits
+        dialog = NaraSearchDialog(client=mock_client)
+        _use_terms(
+            dialog,
+            {
+                "first_name": "Mary",
+                "last_name": "Smith",
+                "birth_year": "1847",
+                "death_year": "1915",
+            },
+            checked={"birth_year": True, "death_year": True},
+        )
+        dialog.limit_spin.get_value.return_value = 25
+        dialog.material_combo.get_active_id.return_value = None
+        dialog.online_check.get_active.return_value = False
+
+        dialog.cb_search()
+
+        rows = [call.args[0] for call in dialog.results_store.append.call_args_list]
+        self.assertEqual([row[0] for row in rows], ["102"])
+        (status,) = [
+            call.args[0]
+            for call in dialog.status_label.set_text.call_args_list
+            if call.args[0].startswith("Found")
+        ]
+        self.assertIn("Found 1 matching", status)
+        self.assertIn("2 more were left out", status)
 
     def test_search_with_nothing_checked_asks_for_terms(self) -> None:
         """Verify an empty query does not call NARA."""

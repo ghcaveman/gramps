@@ -237,6 +237,39 @@ def _media_summary(digital_objects: list[dict[str, Any]]) -> str:
     return str(len(digital_objects))
 
 
+_RECORD_YEAR = re.compile(r"\b(1[5-9]\d{2}|20\d{2})\b")
+
+
+def record_span(parsed: dict[str, Any]) -> tuple[int, int] | None:
+    """
+    Return the (first, last) year a parsed NARA record covers: the years
+    in its title when it has any ("1940 Census Population Schedules",
+    "Smith, Mary, Year: 1942"), otherwise its date ("1900-1991"). None
+    when it has no year.
+    """
+    for key in ("title", "date_str"):
+        years = [int(y) for y in _RECORD_YEAR.findall(str(parsed.get(key) or ""))]
+        if years:
+            return min(years), max(years)
+    return None
+
+
+def outside_years(parsed: dict[str, Any], start: str, end: str) -> bool:
+    """
+    Return whether a record lies wholly outside the checked years: it ends
+    before ``start`` or begins after ``end`` (4-digit years, or '' for no
+    limit). The catalog's own date filter does not seem to apply (a search
+    for 1847-1925 returned 1930 and 1940 censuses), so the window checks.
+    """
+    span = record_span(parsed)
+    if span is None:
+        return False
+    first, last = span
+    if start and last < int(start):
+        return True
+    return bool(end) and first > int(end)
+
+
 def _is_naid(text: str) -> bool:
     """Return whether text is a National Archives Identifier on its own."""
     return text.isdigit() and len(text) >= 5
@@ -907,9 +940,15 @@ class NaraSearchDialog(Gtk.Dialog):
             return
 
         match_query = self._match_query()
+        # A record asked for by its NAID is always shown.
+        start_year, end_year = ("", "") if _is_naid(query) else self._record_years()
         rows: list[list[Any]] = []
+        outside = 0
         for hit in hits:
             parsed = NaraCatalogInterface.parse_record(hit)
+            if outside_years(parsed, start_year, end_year):
+                outside += 1
+                continue
             people = parsed["person_creators"]
             digital_str = _media_summary(parsed["digital_objects"])
             match = best_match(match_query, parsed)
@@ -943,13 +982,18 @@ class NaraSearchDialog(Gtk.Dialog):
         for row in rows:
             self.results_store.append(row)
 
-        self.status_label.set_text(
-            _(
-                "Found %d matching records in the National Archives Catalog, "
-                "best match first."
+        message = _(
+            "Found %d matching records in the National Archives Catalog, "
+            "best match first."
+        ) % len(rows)
+        if outside:
+            message += " " + (
+                _(
+                    "%d more were left out, as their dates are outside the checked years."
+                )
+                % outside
             )
-            % len(hits)
-        )
+        self.status_label.set_text(message)
 
         first_iter = self.results_store.get_iter_first()
         if first_iter:

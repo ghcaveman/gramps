@@ -39,6 +39,7 @@ from ..gwizardnaramatch import (
     Candidate,
     MatchQuery,
     best_match,
+    birth_year_from_age,
     candidates_from_record,
     jaro_winkler,
     match_text,
@@ -153,6 +154,37 @@ class TestCandidates(unittest.TestCase):
             _names("New York, 13th Congressional District, Class No. 2"), []
         )
         self.assertEqual(_names("Smith, John - 1942"), ["Smith, John"])
+
+    def test_given_names_end_at_the_next_comma(self) -> None:
+        """Verify ", Year: 1942" after the given names is not a middle name."""
+        self.assertEqual(_names("Smith, Mary Ann, Year: 1942"), ["Smith, Mary Ann"])
+        self.assertEqual(_names("Smith, Mary Ann, Year: [BLANK]"), ["Smith, Mary Ann"])
+
+    def test_phrases_that_are_not_names(self) -> None:
+        """Verify words after "Application for" must look like a name."""
+        self.assertEqual(
+            _names(
+                "10467, John William Smith, Application for Enrollment with the "
+                "California Indians"
+            ),
+            [],
+        )
+        self.assertEqual(
+            _names("Approved Pension Application File for Mary Ann Smith"),
+            ["Smith, Mary Ann"],
+        )
+
+    def test_age_and_year_give_a_birth_year(self) -> None:
+        """Verify "Age 32, Year: 1865" titles give a birth year of 1833."""
+        found = candidates_from_record(
+            {"title": "Smith, John - Age 32, Year: 1865 - First Cavalry"}
+        )
+        self.assertEqual(found[0].display(), "Smith, John")
+        self.assertEqual(found[0].birth_year, 1833)
+        self.assertIsNone(
+            birth_year_from_age("Smith, John - Age [Blank], Year: [Blank] - Roll")
+        )
+        self.assertIsNone(birth_year_from_age("Smith, John - Year: 1865"))
 
     def test_service_file_titles(self) -> None:
         """Verify Navy service-file titles, surname first before " -- "."""

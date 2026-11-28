@@ -55,6 +55,13 @@ Brackets do not group.
 So one request can ask for only one form of a name. Finding both "Smith
 John" and "John Smith" takes two requests.
 
+The dateRange parameter does not seem to filter.
+    A search with dateRange=1847 TO 1925 returned 1930 and 1940 census
+    schedules and a record titled "..., Year: 1942"; one with 1879 TO 1973
+    returned Civil War draft registers (1863-1865). The search window now
+    leaves out records whose years (from the title, or else the record's
+    date) lie wholly outside the checked years, and says how many.
+
 
 How GWizard uses this
 ---------------------
@@ -76,6 +83,15 @@ build_nara_query): one request per Search click.
     - Keywords that are only a NAID: that record alone.
     - Nicknames in quotes or brackets in the given name ("King") are left
       out of the First and Middle Name boxes.
+    - Results dated wholly outside the checked years are left out (a
+      record asked for by its NAID is always shown).
+
+Reading names from titles (gramps/gen/gwizard/gwizardnaramatch.py) handles
+"Smith, John W.", "Approved Pension Application File for Mary Ann Smith",
+"SMITH John" index cards and "Smith John William -- [Service Number] ..."
+Navy service files. Titles such as "Ohio, 8th Congressional District, Class
+No. 1" (Civil War draft registers) and "..., Application for Enrollment
+with the California Indians" are not read as names.
 
 Known gap: a record titled given name first ("Mary Kreizer Smith, Widow
 of ...") is missed by a surname-first search. In the window, tick Exact
@@ -85,8 +101,9 @@ name and search again to try the other order.
 Not yet checked
 ---------------
 
-- Whether dateRange narrows the results. The OR probe gave 4 hits with
-  and without it, so that run could not tell.
+- Whether some other date parameter does filter (dateRange appears not
+  to; see above). A probe comparing hit counts with and without it, and
+  with other parameter names, would tell.
 - Whether a field-specific search (title only, creator only) is possible.
 - Whether the * wildcard works (the window's Keywords tooltip says NARA
   accepts AND, OR, NOT, * and phrases; AND by space works, OR does not).
