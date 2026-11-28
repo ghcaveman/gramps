@@ -73,6 +73,7 @@ try:
         to_db_path,
         unique_destination,
         consolidation_destination,
+        keeps_numbered_name,
         same_content,
         relocate_file,
         build_basename_index,
@@ -109,6 +110,7 @@ except (ImportError, ValueError):
         to_db_path,
         unique_destination,
         consolidation_destination,
+        keeps_numbered_name,
         same_content,
         relocate_file,
         build_basename_index,
@@ -2249,6 +2251,14 @@ def plan_consolidation_moves(
             raw == target_rel for _m, raw, _s in members
         ):
             claimed.add(path_key(dest_full))  # already consolidated
+            continue
+        # Already consolidated under a numbered name ("..._2.jpg") because a
+        # different file has the standard name: renaming it would only
+        # number it again.
+        if keeps_numbered_name(src_full, dest_full) and all(
+            raw == to_db_path(src_full, base_dir) for _m, raw, _s in members
+        ):
+            claimed.add(path_key(src_full))
             continue
         if not os.path.exists(src_full):
             # Missing or unreadable: reported once, with the right reason,
@@ -4604,7 +4614,17 @@ def generate_media_fix_report(
                     )
                     file_to_std_basename[norm_key] = os.path.basename(std_path)
 
-                if path_key(std_path) != path_key(raw_path):
+                # A numbered name ("..._2.jpg") is standard when the
+                # standard name belongs to a different file.
+                disk_path = on_disk or full_path
+                if path_key(std_path) != path_key(raw_path) and not (
+                    keeps_numbered_name(
+                        disk_path,
+                        os.path.join(
+                            os.path.dirname(disk_path), os.path.basename(std_path)
+                        ),
+                    )
+                ):
                     non_standard += 1
                     non_std_list.append((m_gid, desc, raw_path, std_path, assoc_str))
 

@@ -53,6 +53,10 @@ from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db import DbReadBase, DbTxn, DbWriteBase
 from gramps.gen.lib import Tag
 from gramps.gen.utils.file import create_checksum, media_path_full
+from gramps.gen.gwizard.gwizard_filemerge_medianaming import (
+    numbered_name,
+    numbered_variant,
+)
 
 # Addon translations (the package's locale/ folder) fall back to Gramps' own;
 # as a built-in tool there is no locale/ folder and Gramps' are used.
@@ -415,9 +419,10 @@ def to_db_path(full_path: str, base_dir: str) -> str:
 
 
 def unique_destination(dest: str, claimed: set[str], src: str | None = None) -> str:
-    """Return dest, or dest with _2, _3 ... appended to the stem, such that the
-    result neither exists on disk (unless it is src itself) nor was already
-    claimed by another record in the current batch.  The result is claimed."""
+    """Return dest, or dest with _2, _3 ... appended to the stem (see
+    numbered_name), such that the result neither exists on disk (unless it
+    is src itself) nor was already claimed by another record in the current
+    batch.  The result is claimed."""
 
     def taken(candidate: str) -> bool:
         """Return True if *p* is claimed in this batch or is another existing file."""
@@ -432,13 +437,35 @@ def unique_destination(dest: str, claimed: set[str], src: str | None = None) -> 
             return True
         return False
 
-    stem, ext = os.path.splitext(dest)
     cand, n = dest, 2
     while taken(cand):
-        cand = f"{stem}_{n}{ext}"
+        cand = numbered_name(dest, n)
         n += 1
     claimed.add(path_key(cand))
     return cand
+
+
+def keeps_numbered_name(file_path: str, standard_path: str) -> bool:
+    """
+    Return True when ``file_path`` has the standard name numbered ("_2",
+    "_3", ...) because the standard name itself is taken: the numbered file
+    is in the same folder as ``standard_path``, and ``standard_path`` is a
+    different file that exists. Such a name is standard; renaming it to
+    the standard name would only number it again.
+
+    :param file_path: The file's full path.
+    :param standard_path: The full path its standard name gives.
+    """
+    if not numbered_variant(file_path, standard_path):
+        return False
+    if path_key(os.path.dirname(file_path)) != path_key(os.path.dirname(standard_path)):
+        return False
+    if not os.path.isfile(standard_path):
+        return False
+    try:
+        return not os.path.samefile(file_path, standard_path)
+    except OSError:
+        return True
 
 
 def same_content(first: str, second: str) -> bool:
