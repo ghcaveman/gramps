@@ -18,18 +18,20 @@ messages by scripts and is overwritten by upstream on nearly every rebase
 User-visible features
 ---------------------
 
-* **Thumbnails in chart reports.** The ancestor, descendant and pedigree
-  charts can render a small portrait for each person. Portraits are scaled to
+* **Thumbnails in chart reports.** The Ancestor Tree and Descendant Tree
+  reports can render a small portrait for each person. Portraits are scaled to
   fit a fixed box rather than being placed at their native size, and an
   optional mask (SVG) can be applied to give them a rounded or oval shape.
   See the *Thumbnails* section of the report options.
 
-* **Age at death and marriage duration in tree charts.** The descendant and
-  ancestor charts show `d. 1975 (age 75)` beside a deceased person, and how
-  long each marriage lasted (`m. 1925  (50 yrs)`). The marriage span is shown
-  for every union that has ended, including the second and later marriages of
-  a remarried partner. Both are controlled by a *Show age* option, which
-  defaults to off and can be reverted to the old behaviour in Configure.
+* **Age at death and marriage duration in tree charts.** The Ancestor Tree
+  and Descendant Tree reports show `d. 1975 (age 75)` beside a deceased
+  person, and how long each marriage lasted (`m. 1925  (50 yrs)`). The
+  marriage span is shown for every union that has ended, including the
+  second and later marriages of a remarried partner. The Pedigree view shows
+  both too, and the Descendant view shows the age at death. Each has a
+  *Display age/years* option, on by default: in the reports' options, and in
+  Configure View for the two views, where a change takes effect immediately.
 
 * **Descendant view.** A new live chart view, *Descendant* under Charts,
   that lays out the active person's descendants from left to right, each
@@ -40,10 +42,9 @@ User-visible features
   chart can be dragged to scroll. Configure View sets whether images,
   tags and age/years are shown, and the tree size.
 
-* **Instant chart updates.** Chart and report option boxes now apply their
-  changes immediately instead of waiting for the dialog to close. A Configure
-  option is provided to retain the previous on-close behaviour, and newlines
-  are prevented from being entered into the boxes.
+* **No blank lines in chart boxes.** The person and family boxes in the
+  Pedigree and Descendant views no longer show an empty line when a birth or
+  death date, or a marriage date, name or place, is missing.
 
 * **LDS-style GEDCOM extensions.** `libgedcom.py` parses a set of extra tags
   used by some third-party GEDCOM producers, including `_PREF`, `_PAREN`,
