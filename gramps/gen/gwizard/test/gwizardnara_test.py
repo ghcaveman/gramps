@@ -99,7 +99,7 @@ os.environ["HOME"] = os.environ.get("HOME") or tempfile.mkdtemp(prefix="gramps-h
 from gramps.gen.db.base import DbWriteBase
 from gramps.gen.db.txn import DbTxn
 from gramps.gen.db.utils import make_database
-from gramps.gen.lib import Person, Name, Surname
+from gramps.gen.lib import Date, Event, EventRef, EventType, Person, Name, Surname
 from gramps.gen.utils.file import media_path
 
 # -------------------------------------------------------------------------
@@ -118,6 +118,9 @@ from ..gwizardnaramerge import (
     NaraGWizard,
     NaraRecordAttacher,
     ImageStatus,
+    _same_event_type,
+    event_date,
+    event_description,
     media_fix_filename,
     nara_date_text,
     parse_nara_date,
@@ -1196,6 +1199,291 @@ class TestNaraMergeWindowFlow(unittest.TestCase):
         self.assertEqual(len(person.get_media_list()), 2)
 
 
+class TestNaraMergeWindowEvent(unittest.TestCase):
+    """
+    The event a record documents (Naturalization, Military Service, ...)
+    through the merge window: offered as an event row when the person has
+    none, cited after the merge when they have one.
+    """
+
+    media_dir: str
+    db: DbWriteBase
+    person_handle: str
+    parsed: dict[str, Any]
+    session: Mock
+
+    setUp = TestNaraRecordAttacher.setUp
+    tearDown = TestNaraRecordAttacher.tearDown
+
+    # A Civil War card file record: no year in its title, and a date that is
+    # the span over which the card index was compiled.
+    MILITARY = {
+        "title": "MacDonald, Lyman A - 214th Infantry, Company K",
+        "series_title": "Civil War Veterans' Card File, 1861 - 1866",
+        "date_str": "1899-1927",
+    }
+
+    def _incoming_events(self, parsed: dict[str, Any]) -> list[Event]:
+        attacher = NaraRecordAttacher(self.db, session=self.session)
+        source_db, handle = attacher.build_incoming(self.person_handle, parsed)
+        self.addCleanup(source_db.close)
+        incoming = source_db.get_person_from_handle(handle)
+        events = []
+        for ref in incoming.get_event_ref_list():
+            event = source_db.get_event_from_handle(ref.ref)
+            self.assertEqual(event.get_citation_list(), incoming.get_citation_list())
+            events.append(event)
+        return events
+
+    def _merge(self, with_event: bool) -> None:
+        gwizard = NaraGWizard(self.db)
+        handle = gwizard.load_for_person(self.person_handle, self.parsed)
+        source_db = gwizard.context["source_db"]
+        try:
+            resolutions = {"person_sources": "source"}
+            if with_event:
+                incoming = source_db.get_person_from_handle(handle)
+                for ref in incoming.get_event_ref_list():
+                    resolutions["event:" + ref.ref] = "source"
+            self.assertTrue(
+                gwizard.run_step(
+                    "apply",
+                    source_person_handle=handle,
+                    target_person_handle=self.person_handle,
+                    resolutions=resolutions,
+                )
+            )
+        finally:
+            source_db.close()
+
+    def _events(self, event_type: int) -> list[Event]:
+        person = self.db.get_person_from_handle(self.person_handle)
+        events = [
+            self.db.get_event_from_handle(r.ref) for r in person.get_event_ref_list()
+        ]
+        return [e for e in events if e.get_type() == event_type]
+
+    def _add_tree_event(self, event_type: int) -> str:
+        with DbTxn("Add event", self.db) as trans:
+            event = Event()
+            event.set_type(EventType(event_type))
+            handle = self.db.add_event(event, trans)
+            person = self.db.get_person_from_handle(self.person_handle)
+            ref = EventRef()
+            ref.ref = handle
+            person.add_event_ref(ref)
+            self.db.commit_person(person, trans)
+        return handle
+
+    def test_incoming_person_has_the_records_event(self) -> None:
+        (event,) = self._incoming_events(self.parsed)
+        self.assertEqual(event.get_type(), EventType.NATURALIZATION)
+        self.assertEqual(event.get_date_object().get_year(), 1942)
+        # The title is only the name and year, so no description.
+        self.assertEqual(event.get_description(), "")
+
+    def test_military_card_event_is_not_dated_by_the_series(self) -> None:
+        parsed = dict(self.parsed, **self.MILITARY)
+        (event,) = self._incoming_events(parsed)
+        self.assertEqual(event.get_type(), EventType.MILITARY_SERV)
+        self.assertTrue(event.get_date_object().is_empty())
+        self.assertEqual(event.get_description(), "214th Infantry, Company K")
+        # The citation keeps the record's date.
+        self.assertEqual(record_date(parsed).get_year(), 1899)
+
+    def test_an_event_the_person_has_is_not_offered(self) -> None:
+        self._add_tree_event(EventType.NATURALIZATION)
+        self.assertEqual(self._incoming_events(self.parsed), [])
+
+    def test_merging_the_event_row_adds_it_with_the_records_citation(self) -> None:
+        self._merge(with_event=True)
+        (event,) = self._events(EventType.NATURALIZATION)
+        person = self.db.get_person_from_handle(self.person_handle)
+        self.assertEqual(event.get_citation_list(), person.get_citation_list())
+        self.assertEqual(self.db.get_number_of_citations(), 1)
+        result = NaraRecordAttacher(self.db, session=self.session).finish_merge(
+            self.person_handle, self.parsed
+        )
+        self.assertTrue(result.event_linked)
+        self.assertEqual(len(self._events(EventType.NATURALIZATION)), 1)
+
+    def test_finish_merge_cites_the_event_the_person_has(self) -> None:
+        handle = self._add_tree_event(EventType.NATURALIZATION)
+        self._merge(with_event=False)
+        result = NaraRecordAttacher(self.db, session=self.session).finish_merge(
+            self.person_handle, self.parsed
+        )
+        self.assertTrue(result.event_linked)
+        event = self.db.get_event_from_handle(handle)
+        person = self.db.get_person_from_handle(self.person_handle)
+        self.assertEqual(event.get_citation_list(), person.get_citation_list())
+        self.assertEqual(len(self._events(EventType.NATURALIZATION)), 1)
+
+    def test_no_citation_merged_leaves_the_event_alone(self) -> None:
+        handle = self._add_tree_event(EventType.NATURALIZATION)
+        result = NaraRecordAttacher(self.db, session=self.session).finish_merge(
+            self.person_handle, self.parsed
+        )
+        self.assertFalse(result.event_linked)
+        self.assertEqual(self.db.get_event_from_handle(handle).get_citation_list(), [])
+
+    def test_event_helpers(self) -> None:
+        self.assertIsNone(event_date({"title": "Doe, John - 214th Infantry"}))
+        date = event_date({"title": "Doe, John - 1942", "date_str": "1899-1927"})
+        assert date is not None
+        self.assertEqual(date.get_year(), 1942)
+        self.assertEqual(
+            event_description({"title": "Doe, John Q - Company K, 3rd Regiment"}),
+            "Company K, 3rd Regiment",
+        )
+        self.assertEqual(
+            event_description({"title": "Petition for Naturalization"}),
+            "Petition for Naturalization",
+        )
+
+    def test_custom_event_types_match_by_name(self) -> None:
+        pension = EventType((EventType.CUSTOM, "Pension"))
+        self.assertTrue(
+            _same_event_type(pension, EventType((EventType.CUSTOM, "Pension")))
+        )
+        self.assertFalse(
+            _same_event_type(pension, EventType((EventType.CUSTOM, "Probate")))
+        )
+        self.assertTrue(
+            _same_event_type(EventType(EventType.CENSUS), EventType(EventType.CENSUS))
+        )
+
+
+class TestNaraPageOrder(unittest.TestCase):
+    """A record's images are put in page order when it is read."""
+
+    @staticmethod
+    def _hit(filenames: list[str]) -> dict[str, Any]:
+        return {
+            "_id": "999",
+            "_source": {
+                "naId": "999",
+                "record": {
+                    "title": "1950 Census Population Schedules - Example County",
+                    "digitalObjects": [
+                        {
+                            "objectUrl": "https://catalog.archives.gov/%s" % name,
+                            "objectFilename": name,
+                            "mimeType": "image/tiff",
+                        }
+                        for name in filenames
+                    ],
+                },
+            },
+        }
+
+    def test_images_sorted_by_page_number(self) -> None:
+        names = ["ed_%05d.tif" % page for page in (1, 2, 9, 10, 8, 11, 3)]
+        parsed = NaraCatalogInterface.parse_record(self._hit(names))
+        self.assertEqual(
+            [item["filename"] for item in parsed["digital_objects"]],
+            ["ed_%05d.tif" % page for page in (1, 2, 3, 8, 9, 10, 11)],
+        )
+
+    def test_names_without_page_numbers_keep_their_order(self) -> None:
+        names = ["2480.jpg", "2477.jpg", "2479.jpg"]
+        parsed = NaraCatalogInterface.parse_record(self._hit(names))
+        self.assertEqual(
+            [item["filename"] for item in parsed["digital_objects"]], names
+        )
+
+
+class TestNaraYearProblem(unittest.TestCase):
+    """A record dated before the person was born is not theirs."""
+
+    media_dir: str
+    db: DbWriteBase
+    person_handle: str
+    parsed: dict[str, Any]
+    session: Mock
+
+    setUp = TestNaraRecordAttacher.setUp
+    tearDown = TestNaraRecordAttacher.tearDown
+
+    CENSUS = {
+        "title": "1950 Census Population Schedules - California - ED 66-1026",
+        "series_title": "Population Schedules for the 1950 Census",
+        "date_str": "1950",
+    }
+
+    def _event(self, event_type: int, date_text: str) -> None:
+        with DbTxn("Add event", self.db) as trans:
+            event = Event()
+            event.set_type(EventType(event_type))
+            date = Date()
+            if date_text.startswith("abt "):
+                date.set(
+                    modifier=Date.MOD_ABOUT, value=(0, 0, int(date_text[4:]), False)
+                )
+            else:
+                date.set_yr_mon_day(int(date_text), 0, 0)
+            event.set_date_object(date)
+            handle = self.db.add_event(event, trans)
+            person = self.db.get_person_from_handle(self.person_handle)
+            ref = EventRef()
+            ref.ref = handle
+            person.add_event_ref(ref)
+            if event_type == EventType.BIRTH:
+                person.set_birth_ref(ref)
+            elif event_type == EventType.DEATH:
+                person.set_death_ref(ref)
+            self.db.commit_person(person, trans)
+
+    def _problem(self, **fields: str) -> str:
+        parsed = dict(self.parsed, **fields)
+        return NaraRecordAttacher(self.db, session=self.session).year_problem(
+            self.person_handle, parsed
+        )
+
+    def test_census_before_the_birth(self) -> None:
+        self._event(EventType.BIRTH, "1953")
+        self.assertEqual(
+            self._problem(**self.CENSUS),
+            "This 1950 record is from before Lyman Angus MacDonald was born (1953).",
+        )
+
+    def test_record_after_the_birth_is_fine(self) -> None:
+        self._event(EventType.BIRTH, "1900")
+        self.assertEqual(self._problem(**self.CENSUS), "")
+
+    def test_estimated_birth_allows_five_years(self) -> None:
+        self._event(EventType.BIRTH, "abt 1953")
+        self.assertEqual(self._problem(**self.CENSUS), "")
+        self._event(EventType.DEATH, "1940")
+        self.assertIn("after", self._problem(**self.CENSUS))
+
+    def test_census_after_the_death(self) -> None:
+        self._event(EventType.BIRTH, "1880")
+        self._event(EventType.DEATH, "1940")
+        self.assertEqual(
+            self._problem(**self.CENSUS),
+            "This 1950 census is from after Lyman Angus MacDonald died (1940).",
+        )
+
+    def test_other_records_after_the_death_are_fine(self) -> None:
+        """A naturalization file (or a pension) can be dated after a death."""
+        self._event(EventType.DEATH, "1930")
+        self.assertEqual(self._problem(), "")
+
+    def test_a_series_span_is_not_the_records_year(self) -> None:
+        """A card index compiled 1899-1927 can be about someone who died earlier."""
+        self._event(EventType.DEATH, "1890")
+        problem = self._problem(
+            title="MacDonald, Lyman A - 214th Infantry, Company K",
+            series_title="Index to Civil War census cards",
+            date_str="1899-1927",
+        )
+        self.assertEqual(problem, "")
+
+    def test_no_dates_no_problem(self) -> None:
+        self.assertEqual(self._problem(**self.CENSUS), "")
+
+
 class TestNaraRecordText(unittest.TestCase):
     """Test fetching a record's machine-read page text."""
 
@@ -1356,7 +1644,7 @@ class TestNaraMediaFixNaming(unittest.TestCase):
             self.person_handle, self.parsed
         )
         (media,) = list(self.db.iter_media())
-        self.assertEqual(media.get_path(), "I00000_Doe_John_Quincy-Military-1899-2.jpg")
+        self.assertEqual(media.get_path(), "I00000_Doe_John_Quincy-Military-1899_2.jpg")
         with open(
             os.path.join(self.media_dir, "I00000_Doe_John_Quincy-Military-1899.jpg"),
             "rb",

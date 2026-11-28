@@ -271,15 +271,21 @@ def build_nara_queries(ind: Dict[str, Any]) -> List[Dict[str, Any]]:
     return queries
 
 
-def build_primary_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    Return the one query to send when only one request per person is
-    allowed, or None when the person is skipped (see build_nara_queries).
+# Most surnames (birth surname first, then married surnames) one primary
+# query asks for; each adds up to four phrases.
+PRIMARY_QUERY_SURNAMES = 3
 
-    The query is the first given name and the birth surname, with no
-    nickname or initial and no state: a single request has no fallback, so
-    it asks for the form a record is most likely to use and leaves the
-    birth-to-death year range to narrow the results.
+
+def primary_name_parts(
+    ind: Dict[str, Any],
+) -> Optional[tuple[str, List[str], List[str]]]:
+    """
+    Return (given name, middle names, surnames) the primary query is built
+    from, or None when the person is skipped (see build_nara_queries).
+
+    The given name is the first real given name (no nickname or initial);
+    the middle names are the given names after it; the surnames are the
+    birth surname followed by any married surnames.
     """
     if not build_nara_queries(ind):
         return None
@@ -292,7 +298,54 @@ def build_primary_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     given = tokens[0] if tokens else (given_variants[0] if given_variants else "")
     if not given or not surnames:
         return None
-    return {"q": f"{given} {surnames[0]}", "limit": 20}
+    # Middle names are the given-name words after the given name, initials
+    # included ("John W. Smith" has the middle initial W).
+    words = [t.strip(".,") for t in given_part.split() if t.strip(".,")]
+    middles = words[words.index(given) + 1 :] if given in words else []
+    return given, middles, surnames[:PRIMARY_QUERY_SURNAMES]
+
+
+def name_phrases(given: str, middles: List[str], surname: str) -> List[str]:
+    """
+    Return the exact phrases a record may name a person by, most likely
+    first: "Given Surname", "Surname Given" (titles such as "Smith, John
+    W."; the catalog ignores the comma), and with the first middle name as
+    an initial and in full ("John W Smith", "John William Smith").
+    """
+    phrases = [f"{given} {surname}", f"{surname} {given}"]
+    if middles:
+        middle = middles[0]
+        phrases.append(f"{given} {middle[0]} {surname}")
+        if len(middle) > 1:
+            phrases.append(f"{given} {middle} {surname}")
+    return list(dict.fromkeys(phrases))
+
+
+def build_primary_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Return the one query to send when only one request per person is
+    allowed, or None when the person is skipped (see build_nara_queries).
+
+    The query asks for the person's name as exact phrases joined by OR (see
+    name_phrases), for the birth surname and any married surnames, such as
+    ``"John Smith" OR "Smith John" OR "John W Smith"``. The catalog also
+    searches the machine-read text of record images, so loose words
+    (``John Smith``) match any page that has both words anywhere; phrases
+    keep the results to records naming the person. A single request has no
+    fallback, so every likely form is asked for at once, and the
+    birth-to-death year range narrows the results.
+    """
+    parts = primary_name_parts(ind)
+    if parts is None:
+        return None
+    given, middles, surnames = parts
+    phrases: List[str] = []
+    for surname in surnames:
+        for phrase in name_phrases(given, middles, surname):
+            if phrase not in phrases:
+                phrases.append(phrase)
+    query = " OR ".join(f'"{phrase}"' for phrase in phrases)
+    return {"q": query, "limit": 20}
 
 
 def build_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:

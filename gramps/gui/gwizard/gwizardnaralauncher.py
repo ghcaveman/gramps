@@ -1089,6 +1089,13 @@ class NaraSearchDialog(Gtk.Dialog):
             return
         parsed = NaraCatalogInterface.parse_record(hit)
 
+        # A record dated before the person was born (or a census after they
+        # died) is not theirs: say so before anything is merged.
+        problem = NaraRecordAttacher(self.dbstate.db).year_problem(target, parsed)
+        if problem and not self._ask_merge_anyway(problem):
+            self.status_label.set_text(_("Nothing was changed."))
+            return
+
         from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
 
         self.status_label.set_text(_("Reading the record's pages from NARA..."))
@@ -1183,6 +1190,21 @@ class NaraSearchDialog(Gtk.Dialog):
             result, len(images), len(online), download, no_base_path
         )
 
+    def _ask_merge_anyway(self, problem: str) -> bool:
+        """Show why the record may not be the person's; return True to go on."""
+        question = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text=_("This record may not be about this person"),
+        )
+        question.format_secondary_text("%s %s" % (problem, _("Merge it anyway?")))
+        try:
+            return question.run() == Gtk.ResponseType.YES
+        finally:
+            question.destroy()
+
     def _ask_download(self, online: list[Any]) -> bool:
         """Ask whether to download the images now linked by web address."""
         size = format_size(sum(image.size for image in online))
@@ -1218,6 +1240,8 @@ class NaraSearchDialog(Gtk.Dialog):
         parts = [
             _("The NARA record was merged; this person has %d of its images.") % images
         ]
+        if result.event_linked and result.event_type:
+            parts.append(_("Their %s event cites the record.") % result.event_type)
         if result.downloaded or result.already_downloaded:
             parts.append(
                 _("Images downloaded: %(new)d (already there: %(old)d).")

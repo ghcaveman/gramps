@@ -28,6 +28,7 @@
 import json
 import os
 import unittest
+from typing import Any
 from unittest.mock import Mock, patch
 
 # -------------------------------------------------------------------------
@@ -39,6 +40,8 @@ from gramps.gen.gwizard.gwizard_base import TIER_GS, RecordQuery
 from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     STATUS_ERROR,
     STATUS_OK,
+    STOP_ALLOWANCE,
+    RecordScanner,
     ScanItem,
     SourceMatch,
     scan_item,
@@ -47,7 +50,11 @@ from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
 )
 from gramps.gen.gwizard.gwizardnaramerge import NaraCatalogInterface
 from gramps.gen.gwizard.gwizardnarausage import KIND_SEARCH, NaraUsage
-from gramps.plugins.tool.gwizardnaraquerybuilder import build_primary_nara_query
+from gramps.plugins.tool.gwizardnaraquerybuilder import (
+    build_primary_nara_query,
+    name_phrases,
+    primary_name_parts,
+)
 from gramps.plugins.tool.gwizardnarasource import (
     TIER_SCORE,
     NaraSource,
@@ -117,14 +124,18 @@ class NaraSourceTest(unittest.TestCase):
         )
         self.assertEqual(
             NaraSource.search_terms(query),
-            ("John Smith", "1820", "1890"),
+            (
+                '"John Smith" OR "Smith John" OR "John Jones" OR "Jones John"',
+                "1820",
+                "1890",
+            ),
         )
 
     def test_search_finds_maiden_name_in_title(self) -> None:
         """Mary Kreizer is found in "Mary Kreizer Smith, Widow of ..."."""
         matches = self.source.search(self.query)
         kwargs = self.client.search_records.call_args.kwargs
-        self.assertEqual(kwargs["query"], "Mary Kreizer")
+        self.assertEqual(kwargs["query"], '"Mary Kreizer" OR "Kreizer Mary"')
         self.assertEqual(kwargs["start_year"], "1840")
         scored = score_matches(self.query, matches)
         self.assertEqual(scored[0].match.key, "115768360")
@@ -199,13 +210,18 @@ class NaraQueryBudgetTest(unittest.TestCase):
         )
 
     def test_one_query_per_person_by_default(self) -> None:
-        """The default sends one request: first given name and birth surname."""
+        """The default sends one request: the name phrases, birth surname first."""
         source = NaraSource(client=self.client)
         self.assertEqual(source.max_queries_per_person, 1)
         self.assertEqual(source.search(self.query), [])
         self.assertEqual(self.client.search_records.call_count, 1)
         kwargs = self.client.search_records.call_args.kwargs
-        self.assertEqual(kwargs["query"], "John Smith")
+        self.assertEqual(
+            kwargs["query"],
+            '"John Smith" OR "Smith John" OR "John W Smith" OR "John William Smith"'
+            ' OR "John Jones" OR "Jones John" OR "John W Jones"'
+            ' OR "John William Jones"',
+        )
         self.assertEqual((kwargs["start_year"], kwargs["end_year"]), ("1880", "1960"))
 
     def test_all_queries_when_unlimited(self) -> None:
@@ -244,15 +260,37 @@ class NaraQueryBudgetTest(unittest.TestCase):
 
         self.assertEqual(
             build_primary_nara_query(ind('Mary "Molly" Ann /Smith/'))["q"],
-            "Mary Smith",
+            '"Mary Smith" OR "Smith Mary" OR "Mary A Smith" OR "Mary Ann Smith"'
+            ' OR "Mary Jones" OR "Jones Mary" OR "Mary A Jones" OR "Mary Ann Jones"',
         )
         self.assertEqual(
-            build_primary_nara_query(ind("Mary (Molly) /Smith/"))["q"], "Mary Smith"
+            build_primary_nara_query(ind("Mary (Molly) /Smith/"))["q"],
+            '"Mary Smith" OR "Smith Mary" OR "Mary Jones" OR "Jones Mary"',
         )
         self.assertEqual(
-            build_primary_nara_query(ind("J. Robert /Smith/"))["q"], "Robert Smith"
+            build_primary_nara_query(ind("J. Robert /Smith/"))["q"],
+            '"Robert Smith" OR "Smith Robert" OR "Robert Jones" OR "Jones Robert"',
         )
         self.assertIsNone(build_primary_nara_query(ind("Unknown /Smith/")))
+
+    def test_primary_query_keeps_middle_initial(self) -> None:
+        """A middle initial is asked for as written, without a full form."""
+        parts = primary_name_parts(
+            {
+                "names": ["John W. /Smith/"],
+                "married_surnames": set(),
+                "sex": "M",
+                "birth_year": 1880,
+                "death_year": None,
+                "places": [],
+                "tags": set(),
+            }
+        )
+        self.assertEqual(parts, ("John", ["W"], ["Smith"]))
+        self.assertEqual(
+            name_phrases("John", ["W"], "Smith"),
+            ["John Smith", "Smith John", "John W Smith"],
+        )
 
     def test_one_score_column(self) -> None:
         """NARA shows a single overall score in the Multi-Archive Record Scan."""
@@ -354,3 +392,99 @@ class NaraCitedKeysTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ------------------------------------------------------------------
+#
+# NaraScanBudgetTest
+#
+# ------------------------------------------------------------------
+class NaraScanBudgetTest(unittest.TestCase):
+    """Who a scan searches on NARA, and how many queries it may use."""
+
+    def setUp(self) -> None:
+        """A source counting into an in-memory usage counter."""
+        self.client = Mock()
+        self.client.usage = NaraUsage(None, limit=1000)
+        self.source = NaraSource(client=self.client)
+
+    def test_scan_limits(self) -> None:
+        """At most 50 people per click, with 500 queries kept back."""
+        self.assertEqual(self.source.max_searches_per_scan, 50)
+        self.assertEqual(self.source.reserve_requests, 500)
+
+    def test_wants_search(self) -> None:
+        """A scan skips people NARA could not tell apart or has no records for."""
+        wants = self.source.wants_search
+        self.assertTrue(
+            wants(RecordQuery(given="John", surnames=["Smith"], birth_year=1880))
+        )
+        self.assertTrue(
+            wants(RecordQuery(given="John", surnames=["Smith"], death_year=1900))
+        )
+        # No years: the search would have no date range.
+        self.assertFalse(wants(RecordQuery(given="John", surnames=["Smith"])))
+        # Life over before the catalog's records start.
+        self.assertFalse(
+            wants(RecordQuery(given="John", surnames=["Smith"], death_year=1760))
+        )
+        self.assertFalse(
+            wants(RecordQuery(given="John", surnames=["Smith"], birth_year=1650))
+        )
+        self.assertTrue(
+            wants(RecordQuery(given="John", surnames=["Smith"], birth_year=1700))
+        )
+        # Born after 1955 (the builder skips them).
+        self.assertFalse(
+            wants(RecordQuery(given="John", surnames=["Smith"], birth_year=1990))
+        )
+        # No US events among the places.
+        self.assertFalse(
+            wants(
+                RecordQuery(
+                    given="John",
+                    surnames=["Smith"],
+                    birth_year=1880,
+                    places=["Genova, Liguria, Italia"],
+                )
+            )
+        )
+
+    def test_requests_left(self) -> None:
+        """The allowance left, less the reserve; none once NARA refused."""
+        usage = self.client.usage
+        self.assertEqual(self.source.requests_left(), 500)
+        for _number in range(450):
+            usage.record("search", 200)
+        self.assertEqual(self.source.requests_left(), 50)
+        for _number in range(100):
+            usage.record("search", 200)
+        self.assertEqual(self.source.requests_left(), 0)
+        fresh = NaraUsage(None, limit=1000)
+        self.client.usage = fresh
+        fresh.record("search", 429)
+        self.assertEqual(self.source.requests_left(), 0)
+
+    def test_scanner_stops_at_the_reserve(self) -> None:
+        """A scan stops searching NARA once only the reserve is left."""
+        self.client.search_records.return_value = {"body": {"hits": {"hits": []}}}
+        self.client.extract_hits.side_effect = NaraCatalogInterface.extract_hits
+        usage = self.client.usage
+
+        def counted(**_kwargs: Any) -> dict:
+            usage.record("search", 200)
+            return {"body": {"hits": {"hits": []}}}
+
+        self.client.search_records.side_effect = counted
+        for _number in range(498):
+            usage.record("search", 200)
+        query = RecordQuery(given="John", surnames=["Smith"], birth_year=1880)
+        items = [
+            ScanItem(f"h{n}", f"I{n}", "Smith", "John", 1880, None, 0, query)
+            for n in range(5)
+        ]
+        scanner = RecordScanner()
+        scanner.run([self.source], items, lambda *_args: None)
+        self.assertEqual(self.client.search_records.call_count, 2)
+        self.assertEqual(scanner.deferred, {"nara": 3})
+        self.assertEqual(scanner.stopped, {"nara": STOP_ALLOWANCE})
