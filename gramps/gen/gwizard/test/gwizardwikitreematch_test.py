@@ -67,12 +67,18 @@ class TestWikiTreeMatch(unittest.TestCase):
         self.assertEqual(match_text(result), "100%")
 
     def test_years_fade(self) -> None:
-        """Verify the score drops as the birth year moves away."""
+        """
+        Verify the score drops as the birth year moves away: no birth-year
+        credit past 5 years, and the score halved past 10 (a different
+        person).
+        """
         near = score_profile(MatchQuery("Benjamin", "", ["Franklin"], 1708), FRANKLIN)
+        eight = score_profile(MatchQuery("Benjamin", "", ["Franklin"], 1714), FRANKLIN)
         far = score_profile(MatchQuery("Benjamin", "", ["Franklin"], 1720), FRANKLIN)
         self.assertLess(near.score, 100.0)
-        self.assertGreater(near.score, far.score)
-        self.assertAlmostEqual(far.score, 65 / 90 * 100, places=1)
+        self.assertGreater(near.score, eight.score)
+        self.assertAlmostEqual(eight.score, 65 / 90 * 100, places=1)
+        self.assertAlmostEqual(far.score, 65 / 90 * 100 / 2, places=1)
 
     def test_name_only(self) -> None:
         """Verify a profile without dates is marked name only."""
