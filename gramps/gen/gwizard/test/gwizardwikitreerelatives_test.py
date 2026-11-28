@@ -215,7 +215,7 @@ class WikiTreeAddedRelativesTest(_WikiTreeFixture):
             fetched.append(handle)
             return {"downloaded": 1, "failed": [], "no_base_path": 0}
 
-        gw.download_person_media = fake_download  # type: ignore[method-assign]
+        gw.download_person_media = fake_download  # type: ignore[method-assign, assignment]
         self.assertTrue(
             gw.run_step(
                 "apply",
