@@ -1289,7 +1289,9 @@ class TestNaraMergeWindowEvent(unittest.TestCase):
         self.assertTrue(event.get_date_object().is_empty())
         self.assertEqual(event.get_description(), "214th Infantry, Company K")
         # The citation keeps the record's date.
-        self.assertEqual(record_date(parsed).get_year(), 1899)
+        date = record_date(parsed)
+        assert date is not None
+        self.assertEqual(date.get_year(), 1899)
 
     def test_an_event_the_person_has_is_not_offered(self) -> None:
         self._add_tree_event(EventType.NATURALIZATION)
