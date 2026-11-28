@@ -112,21 +112,51 @@ class WikiTreeSourceTest(unittest.TestCase):
     def test_names_only_search_when_dated_searches_find_nobody(self) -> None:
         """
         When no dated search finds anyone, the names-only search is made
-        last, and can find profiles born years away.
+        last, and can find profiles born a few years away or with no birth
+        date; namesakes born far away are dropped.
         """
-        other = dict(FRANKLIN, Name="Franklin-9", BirthDate="1650-01-01")
+        near = dict(FRANKLIN, Name="Franklin-9", BirthDate="1712-01-01")
+        undated = dict(FRANKLIN, Name="Franklin-12", BirthDate="0000-00-00")
+        far = dict(FRANKLIN, Name="Franklin-30", BirthDate="1650-01-01")
 
         def search_person(**kwargs: object) -> list[dict[str, object]]:
-            return [] if kwargs["birth_date"] else [FRANKLIN, other]
+            return [] if kwargs["birth_date"] else [FRANKLIN, near, undated, far]
 
         self.client.search_person.side_effect = search_person
         scored = score_matches(self.query, self.source.search(self.query))
         last = self.client.search_person.call_args_list[-1]
         self.assertEqual(last.kwargs["birth_date"], "")
         self.assertEqual(last.kwargs["date_spread"], 0)
-        self.assertEqual({s.match.key for s in scored}, {"Franklin-1", "Franklin-9"})
-        self.assertEqual(tier_cell(scored, TIER_GS, 80).count, 2)
+        self.assertEqual(
+            {s.match.key for s in scored}, {"Franklin-1", "Franklin-9", "Franklin-12"}
+        )
+        self.assertEqual(tier_cell(scored, TIER_GS, 80).count, 3)
         self.assertEqual(tier_cell(scored, TIER_GSB, 80).count, 1)
+
+    def test_death_year_searched_before_names_only(self) -> None:
+        """With a death year, a death-dated search comes before names only."""
+        query = RecordQuery(
+            given="Benjamin", surnames=["Franklin"], birth_year=1706, death_year=1790
+        )
+
+        def search_person(**kwargs: object) -> list[dict[str, object]]:
+            return [FRANKLIN] if kwargs.get("death_date") else []
+
+        self.client.search_person.side_effect = search_person
+        matches = self.source.search(query)
+        self.assertEqual([m.key for m in matches], ["Franklin-1"])
+        last = self.client.search_person.call_args_list[-1]
+        self.assertEqual(last.kwargs["death_date"], "1790")
+        self.assertEqual(last.kwargs["birth_date"], "")
+        self.assertEqual(last.kwargs["date_spread"], 2)
+
+    def test_death_year_without_birth_year(self) -> None:
+        """A person with only a death year is searched by it first."""
+        query = RecordQuery(given="Benjamin", surnames=["Franklin"], death_year=1790)
+        self.source.search(query)
+        (first,) = self.client.search_person.call_args_list
+        self.assertEqual(first.kwargs["death_date"], "1790")
+        self.assertEqual(first.kwargs["date_spread"], 2)
 
     def test_no_birth_year_one_search(self) -> None:
         """Without a birth year only the names-only search is made."""

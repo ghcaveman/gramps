@@ -238,5 +238,180 @@ class WikiTreeAddedRelativesTest(_WikiTreeFixture):
         self.assertEqual(gw.context["media_download"]["downloaded"], 3)
 
 
+class _FakeClient:
+    """Stands in for WikiTreeInterface: answers from a dict of profiles."""
+
+    def __init__(self, people: dict[str, dict[str, Any]]) -> None:
+        self.people = people
+        self.calls: list[list[str]] = []
+        self.person_calls: list[str] = []
+
+    def get_person(self, key: str, **_kwargs: Any) -> dict[str, Any] | None:
+        self.person_calls.append(key)
+        for data in self.people.values():
+            if data["Name"] == key or str(data["Id"]) == key:
+                return data
+        return None
+
+    def get_people(self, keys: Any, **_kwargs: Any) -> dict[str, dict[str, Any]]:
+        keys = list(keys) if isinstance(keys, list) else [keys]
+        self.calls.append(keys)
+        return {
+            str(data["Id"]): data
+            for data in self.people.values()
+            if data["Name"] in keys or str(data["Id"]) in keys
+        }
+
+
+class ParentsMarriageTest(unittest.TestCase):
+    """The marriage of the person's parents comes in with them."""
+
+    def setUp(self) -> None:
+        self.db: DbWriteBase = make_database("sqlite")
+        self.db.load(":memory:")
+
+    def tearDown(self) -> None:
+        self.db.close()
+
+    @staticmethod
+    def _parent(
+        pid: int, name: str, first: str, last: str, gender: str
+    ) -> dict[str, Any]:
+        return {
+            "Id": pid,
+            "Name": name,
+            "FirstName": first,
+            "LastNameAtBirth": last,
+            "Gender": gender,
+            "BirthDate": "1728-00-00" if gender == "Male" else "1730-00-00",
+        }
+
+    def _thomas(self) -> dict[str, Any]:
+        return {
+            "Id": 1,
+            "Name": "Baker-1",
+            "FirstName": "Thomas",
+            "LastNameAtBirth": "Baker",
+            "Gender": "Male",
+            "BirthDate": "1753-03-10",
+            "Father": 2,
+            "Mother": 3,
+            "Parents": {
+                "2": self._parent(2, "Baker-2", "Joseph", "Baker", "Male"),
+                "3": self._parent(3, "Hale-3", "Ruth", "Hale", "Female"),
+            },
+        }
+
+    def _full_parents(self) -> dict[str, dict[str, Any]]:
+        """The parents' own profiles, with their spouse lists."""
+        marriage = {
+            "marriage_date": "1750-06-01",
+            "marriage_location": "Bucks, Pennsylvania",
+        }
+        joseph = dict(self._parent(2, "Baker-2", "Joseph", "Baker", "Male"))
+        joseph["Spouses"] = {
+            "3": dict(self._parent(3, "Hale-3", "Ruth", "Hale", "Female"), **marriage),
+            # A second wife who is not one of Thomas's parents.
+            "9": dict(
+                self._parent(9, "Cole-9", "Mary", "Cole", "Female"),
+                marriage_date="1760",
+            ),
+        }
+        ruth = dict(self._parent(3, "Hale-3", "Ruth", "Hale", "Female"))
+        ruth["Spouses"] = {
+            "2": dict(self._parent(2, "Baker-2", "Joseph", "Baker", "Male"), **marriage)
+        }
+        return {"2": joseph, "3": ruth}
+
+    def _load(self, client: _FakeClient, thomas: dict[str, Any]) -> Any:
+        gw = WikiTreeGWizard(self.db)
+        gw.run_step(
+            "connect",
+            query="Baker-1",
+            people_data=[thomas],
+            include_relatives=True,
+            client=client,
+        )
+        gw.run_step("load")
+        self.addCleanup(gw.context["source_db"].close)
+        return gw.context["source_db"]
+
+    def _parents_family(self, source_db: Any) -> Any:
+        (thomas,) = [
+            p
+            for p in source_db.iter_people()
+            if p.get_primary_name().first_name == "Thomas"
+        ]
+        (handle,) = thomas.get_parent_family_handle_list()
+        return source_db.get_family_from_handle(handle)
+
+    def _marriages(self, source_db: Any, family: Any) -> list[Any]:
+        events = [
+            source_db.get_event_from_handle(r.ref) for r in family.get_event_ref_list()
+        ]
+        return [e for e in events if e.get_type() == EventType.MARRIAGE]
+
+    def test_parents_marriage_is_fetched(self) -> None:
+        client = _FakeClient(self._full_parents())
+        source_db = self._load(client, self._thomas())
+        family = self._parents_family(source_db)
+        (marriage,) = self._marriages(source_db, family)
+        self.assertEqual(marriage.get_date_object().get_year(), 1750)
+        self.assertEqual(marriage.get_date_object().get_month(), 6)
+        place = source_db.get_place_from_handle(marriage.get_place_handle())
+        self.assertIn("Bucks", place.get_name().get_value())
+        # The father's profile lists the mother: one request is enough, and
+        # his other wife does not come in.
+        self.assertEqual(client.person_calls, ["Baker-2"])
+        names = sorted(p.get_primary_name().first_name for p in source_db.iter_people())
+        self.assertEqual(names, ["Joseph", "Ruth", "Thomas"])
+        self.assertEqual(source_db.get_number_of_families(), 1)
+
+    def test_no_marriage_recorded_adds_none(self) -> None:
+        parents = self._full_parents()
+        for data in parents.values():
+            for spouse in data["Spouses"].values():
+                spouse.pop("marriage_date", None)
+                spouse.pop("marriage_location", None)
+        client = _FakeClient(parents)
+        source_db = self._load(client, self._thomas())
+        self.assertEqual(
+            self._marriages(source_db, self._parents_family(source_db)), []
+        )
+        self.assertEqual(client.person_calls, ["Baker-2"])
+
+    def test_parents_with_empty_spouse_lists_are_fetched(self) -> None:
+        """Parents that arrive with empty spouse lists still get their marriage."""
+        thomas = self._thomas()
+        for data in thomas["Parents"].values():
+            data["Spouses"] = []
+        client = _FakeClient(self._full_parents())
+        source_db = self._load(client, thomas)
+        self.assertEqual(client.person_calls, ["Baker-2"])
+        family = self._parents_family(source_db)
+        self.assertEqual(len(self._marriages(source_db, family)), 1)
+
+    def test_the_mother_is_asked_when_the_father_lists_no_spouse(self) -> None:
+        parents = self._full_parents()
+        parents["2"]["Spouses"] = {}
+        client = _FakeClient(parents)
+        source_db = self._load(client, self._thomas())
+        self.assertEqual(client.person_calls, ["Baker-2", "Hale-3"])
+        family = self._parents_family(source_db)
+        self.assertEqual(len(self._marriages(source_db, family)), 1)
+
+    def test_parents_with_spouse_lists_are_not_fetched_again(self) -> None:
+        thomas = self._thomas()
+        for pid, data in self._full_parents().items():
+            thomas["Parents"][pid]["Spouses"] = data["Spouses"]
+        client = _FakeClient(self._full_parents())
+        source_db = self._load(client, thomas)
+        # The parents are not fetched again for their spouse lists.
+        self.assertEqual(client.person_calls, [])
+        self.assertEqual(
+            len(self._marriages(source_db, self._parents_family(source_db))), 1
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

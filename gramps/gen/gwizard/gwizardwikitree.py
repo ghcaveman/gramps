@@ -614,6 +614,15 @@ def media_fix_filename(
     )
 
 
+def spouse_ids(profile: dict[str, Any]) -> set[str]:
+    """Return the WikiTree IDs (numbers, as text) of a profile's spouses."""
+    return {
+        str(item.get("Id"))
+        for item in relative_items(profile.get("Spouses"))
+        if item.get("Id") is not None
+    }
+
+
 def relative_items(value: Any) -> list[dict[str, Any]]:
     """
     Return a profile's Parents, Children or Spouses as a list of profile
@@ -1742,6 +1751,56 @@ class WikiTreeGWizard(GedGWizard):
         return result
 
     @staticmethod
+    def _fetch_parent_spouses(client: Any, raw_people: list[dict[str, Any]]) -> None:
+        """
+        Fill in the spouse lists of the parents among ``raw_people``, so
+        that the parents' marriage comes in with them.
+
+        A profile's parents arrive as relatives of it, with no spouse list
+        or an empty one, and the marriage of two people is recorded on their
+        spouse lists. Each such parent is fetched in full with getPerson
+        (the request that brings the person's own marriages), until one of
+        them lists the other as a spouse. Only the spouse list is taken,
+        and no new people come in with it: the marriage is linked only
+        between the two parents, matched by their WikiTree IDs, the same way
+        as the person's own marriages.
+        """
+        by_id = {str(p.get("Id")): p for p in raw_people if p.get("Id") is not None}
+        couples: list[tuple[str, str]] = []
+        for person in raw_people:
+            father = str(person.get("Father") or "")
+            mother = str(person.get("Mother") or "")
+            if father in by_id and mother in by_id and (father, mother) not in couples:
+                couples.append((father, mother))
+        for father, mother in couples:
+            if spouse_ids(by_id[father]) & {mother} or spouse_ids(by_id[mother]) & {
+                father
+            }:
+                continue  # their marriage is already in the data
+            for parent, other in ((father, mother), (mother, father)):
+                entry = by_id[parent]
+                key = str(entry.get("Name") or parent)
+                try:
+                    data = client.get_person(key)
+                except Exception:  # pylint: disable=broad-except
+                    LOG.warning(
+                        "Could not fetch %s for its spouses", key, exc_info=True
+                    )
+                    continue
+                spouses = (data or {}).get("Spouses")
+                if spouses:
+                    entry["Spouses"] = spouses
+                if other in spouse_ids(entry):
+                    LOG.info("Parents' marriage found on %s", key)
+                    break
+            else:
+                LOG.info(
+                    "WikiTree lists no marriage between parents %s and %s",
+                    father,
+                    mother,
+                )
+
+    @staticmethod
     def _parse_query_names(query: str) -> tuple[str, str]:
         """
         Split a human name query into first name and last name.
@@ -1897,6 +1956,8 @@ class WikiTreeGWizard(GedGWizard):
                             existing_ids.add(rid)
                         if rname:
                             existing_names.add(rname)
+
+            self._fetch_parent_spouses(client, raw_people)
 
         source_db = make_database("sqlite")
         source_db.load(":memory:")
