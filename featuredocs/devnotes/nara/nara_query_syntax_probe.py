@@ -1,10 +1,12 @@
 """
 Check which query forms the NARA Catalog API v2 search accepts.
 
-Sends five searches for "John Smith" (five of the key's monthly queries;
-the GWizard usage counter does not see them) and prints, for each, the
-HTTP status, the content type, the body size and the number of hits, or
-the start of the body when it is not JSON.
+Sends the searches in PROBES for "John Smith" (one of the key's monthly
+queries each; the GWizard usage counter does not see them) and prints, for
+each, the HTTP status, the content type, the body size and the number of
+hits, or the start of the body when it is not JSON. The results found so far
+are noted above PROBES; gwizardnaraquerybuilder.py (the scan) and
+gwizardnaralauncher.py (the search window) build their queries from them.
 
 Run from an MSYS2 shell with NARA_API_KEY set:
     python featuredocs/devnotes/nara/nara_query_syntax_probe.py
@@ -20,11 +22,24 @@ URL = "https://catalog.archives.gov/api/v2/records/search"
 YEARS = "1879 TO 1973"
 
 PROBES = [
-    ("loose words", "John Smith", YEARS),
-    ("one phrase", '"John Smith"', YEARS),
-    ("phrases with OR", '"John Smith" OR "Smith John"', YEARS),
-    ("phrases with OR, no years", '"John Smith" OR "Smith John"', ""),
-    ("grouped with AND", '("John Smith" OR "Smith John") AND pension', YEARS),
+    # Results with dateRange 1879 TO 1973 (Nov 28, 2026):
+    #   John Smith (loose words)                    1,078,648 hits
+    #   "John Smith"                                   45,725
+    #   "Smith John"                                  108,220
+    #   "John Smith" OR "Smith John"                        4  OR is a word
+    #   "John Smith" OR "Smith John", no dateRange          4
+    #   "John Smith" | "Smith John"                       680  | acts as AND
+    #   "John Smith"~2                                 43,104  no either-order
+    #   "John Smith" pension                           17,832  space = AND
+    #   ("John Smith" | "Smith John") pension               0
+    #   ("John Smith" OR "Smith John") AND pension  web page (HTML), not JSON
+    # So: one exact phrase per request, surname first finds the most;
+    # further words narrow (AND); there is no OR and no grouping.
+    ("other order, one phrase", '"Smith John"', YEARS),
+    ("phrases with |", '"John Smith" | "Smith John"', YEARS),
+    ("phrase in either order ~2", '"John Smith"~2', YEARS),
+    ("phrase and a word", '"John Smith" pension', YEARS),
+    ("| group and a word", '("John Smith" | "Smith John") pension', YEARS),
 ]
 
 
