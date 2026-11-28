@@ -1183,6 +1183,32 @@ def score_record_tier(
     return _score_record(query, candidate, tier)
 
 
+# Name similarity at or above this counts as it is; below it the credit falls
+# steeply, reaching nothing at NAME_NO_MATCH ("Mary" and "Edward" are 0.61
+# alike by jaro_winkler, yet clearly different names).
+NAME_FULL_CREDIT = 0.9
+NAME_NO_MATCH = 0.6
+# Years further apart than these mark a different person: the score is
+# halved, as for a gender mismatch.
+BIRTH_YEARS_APART = 10
+DEATH_YEARS_APART = 5
+
+
+def sharpened(similarity: float) -> float:
+    """
+    Return the credit a name similarity earns: the similarity itself from
+    NAME_FULL_CREDIT up, falling in a straight line to nothing at
+    NAME_NO_MATCH, so near misses ("Mary"/"Marie" 0.998) keep their credit
+    and different names ("Mary"/"Edward" 0.611) lose it.
+    """
+    if similarity >= NAME_FULL_CREDIT:
+        return similarity
+    if similarity <= NAME_NO_MATCH:
+        return 0.0
+    span = NAME_FULL_CREDIT - NAME_NO_MATCH
+    return (similarity - NAME_NO_MATCH) / span * NAME_FULL_CREDIT
+
+
 def _score_record(
     query: RecordQuery,
     candidate: RecordCandidate,
@@ -1208,30 +1234,36 @@ def _score_record(
     possible = 0.0
     if query.surnames and candidate.surnames:
         possible += 35.0
-        score += 35.0 * record_surname_similarity(query, candidate)
+        score += 35.0 * sharpened(record_surname_similarity(query, candidate))
     if query.given and candidate.given:
         possible += 30.0
         use_middle = tier is None or need_middle
-        score += 30.0 * record_given_similarity(query, candidate, use_middle)
+        score += 30.0 * sharpened(record_given_similarity(query, candidate, use_middle))
     compared_years = False
+    # Halves the score for years that cannot belong to the same person.
+    years_factor = 1.0
     if use_birth and query.birth_year and candidate.birth_years:
         compared_years = True
         possible += 25.0
         diff = years_apart(query.birth_year, candidate.birth_years)
         if diff <= 5:
             score += 25.0 * (1.0 - diff * 0.18)
+        elif diff > BIRTH_YEARS_APART:
+            years_factor = 0.5
     if use_death and query.death_year and candidate.death_years:
         compared_years = True
         possible += 10.0
         diff = years_apart(query.death_year, candidate.death_years)
         if diff <= 3:
             score += 10.0 * (1.0 - diff * 0.25)
-    gender_factor = 1.0
+        elif diff > DEATH_YEARS_APART:
+            years_factor = 0.5
+    gender_factor = years_factor
     wanted = query.gender.casefold()
     found = candidate.gender.casefold()
     if wanted in ("male", "female") and found in ("male", "female"):
         if wanted != found:
-            gender_factor = 0.5
+            gender_factor *= 0.5
     if with_parts:
         return score, possible, compared_years, gender_factor
     if not possible:
