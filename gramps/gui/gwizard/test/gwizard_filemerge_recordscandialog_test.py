@@ -272,7 +272,7 @@ class DeferredTextTest(unittest.TestCase):
             title = "Metered"
 
         scanner = RecordScanner()
-        sources = [Capped(), Metered(), FakeSource()]
+        sources: list[RecordSource] = [Capped(), Metered(), FakeSource()]
         self.assertEqual(deferred_text(scanner, sources), "")
         scanner.searched = {"capped": 50, "metered": 7, "fake": 3}
         scanner.deferred = {"capped": 12, "metered": 4}

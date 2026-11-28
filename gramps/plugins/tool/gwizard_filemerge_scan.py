@@ -63,7 +63,7 @@ def _ask_for_base_media_path(uistate: Any, dbstate: Any, tool_name: str) -> None
         )
     except ImportError:
         try:
-            from gwizard_mediafix_basepath import (  # type: ignore[import-not-found]
+            from gwizard_mediafix_basepath import (  # type: ignore[import-not-found, no-redef]
                 ensure_base_media_path_for,
             )
         except ImportError:
