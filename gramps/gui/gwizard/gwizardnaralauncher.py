@@ -30,6 +30,7 @@ Launcher and search dialog for the GWizard NARA Merge flow.
 from __future__ import annotations
 import logging
 import os
+import re
 from typing import Any
 
 # -------------------------------------------------------------------------
@@ -101,7 +102,8 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
     :param db: Active Gramps database.
     :param person: Gramps Person object.
     The first word of the given name is 'first_name' and any further words
-    'middle_name'. 'married_name' comes from a Married Name alternate name,
+    'middle_name', leaving out nicknames written in quotes or brackets
+    (Howard "King" Kingston gives Howard and Kingston). 'married_name' comes from a Married Name alternate name,
     or failing that (for women only) from the husband's surname in the most
     recent family.
 
@@ -128,7 +130,7 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
 
     pname = person.get_primary_name()
     if pname:
-        fn = str(pname.get_first_name() or "").strip()
+        fn = _without_nicknames(str(pname.get_first_name() or ""))
         ln = str(surname_text(pname) or "").strip()
         given_names = fn.split()
         if given_names:
@@ -159,6 +161,15 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
             defaults["death_place"] = _place_city(db, devt)
 
     return defaults
+
+
+def _without_nicknames(given: str) -> str:
+    """
+    Return given names without nicknames written in quotes or brackets:
+    'Howard "King" Kingston' gives 'Howard Kingston'.
+    """
+    given = re.sub(r'"[^"]*"|\u201c[^\u201d]*\u201d|\([^)]*\)', " ", given)
+    return " ".join(given.split())
 
 
 def _place_city(db: Any, event: Any) -> str:
@@ -226,41 +237,85 @@ def _media_summary(digital_objects: list[dict[str, Any]]) -> str:
     return str(len(digital_objects))
 
 
+def _name_phrases(first: str, middle: str, surname: str, exact: bool) -> list[str]:
+    """
+    Return the exact phrases a record may name a person by, most likely
+    first: "First Surname" and "Surname First" (titles such as "White,
+    Howard"; the catalog ignores the comma), and with a middle name its
+    initial and full form ("Howard K White", "Howard Kingston White").
+    With ``exact`` only the full name as written.
+    """
+    full = " ".join(part for part in (first, middle, surname) if part)
+    if exact:
+        return [full]
+    phrases = [f"{first} {surname}", f"{surname} {first}"]
+    if middle:
+        phrases.append(f"{first} {middle[0]} {surname}")
+        if len(middle) > 1:
+            phrases.append(full)
+    return list(dict.fromkeys(phrases))
+
+
+def _is_naid(text: str) -> bool:
+    """Return whether text is a National Archives Identifier on its own."""
+    return text.isdigit() and len(text) >= 5
+
+
 def build_nara_query(terms: dict[str, str], exact: bool = False) -> str:
     """
     Combine search terms into one NARA keyword query.
+
+    The catalog also searches the machine-read text of record images, so
+    loose words match any page that has them anywhere. With a first and a
+    last name, the name is therefore asked for as exact phrases joined by
+    OR (see _name_phrases), with the married surname as further phrases.
+    Places and keywords must also appear (AND); either place will do.
 
     :param terms: The checked terms' text, keyed by term ('first_name',
         'middle_name', 'last_name', 'married_name', 'birth_place',
         'death_place', 'keywords'); empty or missing terms are skipped. Years
         are not part of the query; they filter by record date.
-    :param exact: Put the given names and last name in quotes as one phrase.
-        The married name and keywords are always added as they are.
-    :returns: The query, for example '"Mary Kreizer" Smith pension'.
+    :param exact: Ask only for the full name as written ("Mary Ann
+        Kreizer"), not its other forms.
+    :returns: The query, for example
+        '("Mary Kreizer" OR "Kreizer Mary") AND pension'. Keywords that are
+        a NAID on their own are returned alone, to find that record.
     """
-    name = " ".join(
-        part
-        for part in (
-            terms.get("first_name", "").strip(),
-            terms.get("middle_name", "").strip(),
-            terms.get("last_name", "").strip(),
-        )
-        if part
-    )
-    if exact and len(name.split()) > 1:
-        name = f'"{name}"'
-    places = []
+    first = terms.get("first_name", "").strip()
+    middle = terms.get("middle_name", "").strip()
+    last = terms.get("last_name", "").strip()
+    married = terms.get("married_name", "").strip()
+    keywords = terms.get("keywords", "").strip()
+    if _is_naid(keywords):
+        return keywords
+
+    if first and (last or married):
+        phrases: list[str] = []
+        for surname in (last, married):
+            if surname:
+                for phrase in _name_phrases(first, middle, surname, exact):
+                    if phrase not in phrases:
+                        phrases.append(phrase)
+        names = [f'"{phrase}"' for phrase in phrases]
+    else:
+        # One name alone is searched as words.
+        words = " ".join(part for part in (first, middle, last, married) if part)
+        names = [f'"{words}"' if exact and " " in words else words] if words else []
+
+    places: list[str] = []
     for key in ("birth_place", "death_place"):
         place = terms.get(key, "").strip()
-        if place and place not in places:
-            places.append(f'"{place}"' if " " in place else place)
-    parts = [
-        name,
-        terms.get("married_name", "").strip(),
-        *places,
-        terms.get("keywords", "").strip(),
-    ]
-    return " ".join(part for part in parts if part)
+        quoted = f'"{place}"' if " " in place else place
+        if place and quoted not in places:
+            places.append(quoted)
+
+    groups = [names, places, [keywords] if keywords else []]
+    groups = [group for group in groups if group]
+    if len(groups) == 1:
+        return " OR ".join(groups[0])
+    return " AND ".join(
+        f"({' OR '.join(group)})" if len(group) > 1 else group[0] for group in groups
+    )
 
 
 # ------------------------------------------------------------
@@ -420,9 +475,10 @@ class NaraSearchDialog(Gtk.Dialog):
         self.exact_check = Gtk.CheckButton(label=_("E_xact name"), use_underline=True)
         self.exact_check.set_tooltip_text(
             _(
-                "Search the given and last names as one phrase in quotes, for "
-                'example "Lyman Angus MacDonald". A married name is still '
-                "searched as a separate word."
+                "Search only the full name as written, in quotes, for example "
+                '"Lyman Angus MacDonald". Without it the name is also searched '
+                'in other likely forms, such as "MacDonald Lyman" and '
+                '"Lyman A MacDonald".'
             )
         )
         search_grid.attach(self.exact_check, 0, 2, term_keys.index("birth_year"), 1)
@@ -953,11 +1009,15 @@ class NaraSearchDialog(Gtk.Dialog):
             "them.\n"
             "• <b>Keywords:</b> Other words such as pension, naturalization or a "
             "regiment, or a National Archives Identifier (NAID) on its own.\n"
-            "• <b>Exact name:</b> Searches the given and last names as one phrase.\n"
+            "• <b>Names:</b> Searched as exact phrases in the likely forms a record "
+            'uses ("Howard White", "White Howard", "Howard K White"), so records '
+            "that only have the words somewhere apart are left out.\n"
+            "• <b>Exact name:</b> Searches only the full name as written.\n"
             "• <b>Birth and Death Year:</b> Filter by the records' dates, not the "
             "person's: from the birth year, and up to the chosen number of years after "
             "the death year (ten by default).\n"
-            "• <b>Birth and Death City:</b> Searched as words in the records.\n"
+            "• <b>Birth and Death City:</b> A record must also mention one of the "
+            "checked cities.\n"
             "• <b>Material Type:</b> Narrow records to textual files, photographs, maps, etc.\n"
             "• <b>Online Only:</b> Restrict results to records with digitized online assets (images/documents).\n"
             "• Set the <b>NARA_API_KEY</b> environment variable before launching Gramps to authenticate with the catalog.\n\n"

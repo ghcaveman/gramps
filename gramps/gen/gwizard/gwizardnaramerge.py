@@ -364,7 +364,15 @@ class NaraCatalogInterface:
         try:
             return response.json()
         except ValueError:
-            LOG.exception("NARA catalog returned invalid JSON")
+            LOG.error(
+                "NARA catalog search returned something other than JSON "
+                "(HTTP %s, %s, %d bytes) for query %r: %r",
+                response.status_code,
+                response.headers.get("Content-Type", "no content type"),
+                len(response.content or b""),
+                query,
+                (response.text or "")[:300],
+            )
             return None
 
     def fetch_record_text(self, naid: str) -> dict[str, str] | None:
