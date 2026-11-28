@@ -38,13 +38,12 @@ from unittest.mock import MagicMock
 # Protect headless / standalone CI runs from missing display.
 os.environ.setdefault("GDK_BACKEND", "-")
 
+IMPORT_ERROR: Exception | None = None
 try:
     from gramps.gui.fs import actions
 except Exception as err:  # pragma: no cover - depends on the GTK install
-    actions = None
+    actions = None  # type: ignore[assignment]
     IMPORT_ERROR = err
-else:
-    IMPORT_ERROR = None
 
 HEADERS = {"Accept": "application/x-gedcomx-atom+json"}
 
