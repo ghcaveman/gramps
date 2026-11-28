@@ -566,6 +566,8 @@ class TestNaraGWizard(unittest.TestCase):
         assert source_db is not None
 
         # Check repository and source creation
+        repositories = [r.get_name() for r in source_db.iter_repositories()]
+        self.assertEqual(repositories, [NARA_REPOSITORY_NAME])
         sources = list(source_db.iter_source_handles())
         self.assertEqual(len(sources), 1)
         source = source_db.get_source_from_handle(sources[0])

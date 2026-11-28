@@ -717,7 +717,10 @@ class NaraGWizard(GedGWizard):
         try:
             with DbTxn(_("Load NARA Catalog Records"), source_db) as trans:
                 repository = Repository()
-                repository.set_name("National Archives and Records Administration")
+                # The same name the record attacher uses (and the tree's
+                # NARA repository has), so a merge reuses that repository
+                # rather than adding a second one.
+                repository.set_name(NARA_REPOSITORY_NAME)
                 repository.set_type(RepositoryType(RepositoryType.ARCHIVE))
                 source_db.add_repository(repository, trans)
 
