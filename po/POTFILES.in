@@ -956,6 +956,7 @@ gramps/plugins/view/citationtreeview.py
 gramps/plugins/view/dashboardview.py
 gramps/plugins/view/dnamatchview.py
 gramps/plugins/view/dnatestview.py
+gramps/plugins/view/descendantview.py
 gramps/plugins/view/eventview.py
 gramps/plugins/view/familyview.py
 gramps/plugins/view/fanchart2wayview.py

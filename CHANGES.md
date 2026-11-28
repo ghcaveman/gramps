@@ -31,6 +31,15 @@ User-visible features
   a remarried partner. Both are controlled by a *Show age* option, which
   defaults to off and can be reverted to the old behaviour in Configure.
 
+* **Descendant view.** A new live chart view, *Descendant* under Charts,
+  that lays out the active person's descendants from left to right, each
+  person shown with their spouse. Buttons beside each box jump to that
+  person's parents or children, and clicking a box makes that person
+  active. The right-click menu edits the person or family, adds parents,
+  copies to the clipboard and navigates to siblings and children. The
+  chart can be dragged to scroll. Configure View sets whether images,
+  tags and age/years are shown, and the tree size.
+
 * **Instant chart updates.** Chart and report option boxes now apply their
   changes immediately instead of waiting for the dialog to close. A Configure
   option is provided to retain the previous on-close behaviour, and newlines
