@@ -370,5 +370,96 @@ class MissingRelativesTest(unittest.TestCase):
         )
 
 
+class ChildOrderTest(unittest.TestCase):
+    """Children added by a merge go in birth order among the tree's children."""
+
+    setUp = MissingRelativesTest.setUp
+    tearDown = MissingRelativesTest.tearDown
+    _write = MissingRelativesTest._write
+    _people = MissingRelativesTest._people
+    _one = MissingRelativesTest._one
+    _open_tree = MissingRelativesTest._open_tree
+
+    # Thomas and Mary with their son Henry (born 1785) in the tree; the
+    # incoming family also has John (1778) and Peter (1790).
+    TREE = (
+        "0 @I1@ INDI\n1 NAME Thomas /Baker/\n1 SEX M\n1 BIRT\n2 DATE 1753\n"
+        "1 FAMS @F1@\n"
+        "0 @I4@ INDI\n1 NAME Mary /Cole/\n1 SEX F\n1 BIRT\n2 DATE 1755\n"
+        "1 FAMS @F1@\n"
+        "0 @I6@ INDI\n1 NAME Henry /Baker/\n1 SEX M\n1 BIRT\n2 DATE 1785\n"
+        "1 FAMC @F1@\n"
+        "0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I4@\n1 CHIL @I6@\n"
+    )
+    SOURCE = (
+        HEADER + "0 @I1@ INDI\n1 NAME Thomas /Baker/\n1 SEX M\n1 BIRT\n2 DATE 1753\n"
+        "1 FAMS @F2@\n"
+        "0 @I4@ INDI\n1 NAME Mary /Cole/\n1 SEX F\n1 BIRT\n2 DATE 1755\n"
+        "1 FAMS @F2@\n"
+        "0 @I7@ INDI\n1 NAME John /Baker/\n1 SEX M\n1 BIRT\n2 DATE ABT 1778\n"
+        "1 FAMC @F2@\n"
+        "0 @I6@ INDI\n1 NAME Henry /Baker/\n1 SEX M\n1 BIRT\n2 DATE 1785\n"
+        "1 FAMC @F2@\n"
+        "0 @I8@ INDI\n1 NAME Peter /Baker/\n1 SEX M\n1 BIRT\n2 DATE 1790\n"
+        "1 FAMC @F2@\n"
+        "0 @F2@ FAM\n1 HUSB @I1@\n1 WIFE @I4@\n1 CHIL @I7@\n1 CHIL @I6@\n"
+        "1 CHIL @I8@\n" + TRLR
+    )
+
+    def _children(self) -> list[str]:
+        thomas = self._one(self.db, "Thomas", "Baker")
+        (handle,) = thomas.get_family_handle_list()
+        family = self.db.get_family_from_handle(handle)
+        return [
+            self.db.get_person_from_handle(ref.ref).get_primary_name().first_name
+            for ref in family.get_child_ref_list()
+        ]
+
+    def _apply(self, rows: list[str]) -> None:
+        gwizard = GedGWizard(self.db)
+        self._wizards.append(gwizard)
+        gwizard.run_step("connect", gedcom_path=self._write(self.SOURCE))
+        gwizard.run_step("load")
+        source_db = gwizard.context["source_db"]
+        resolutions = {}
+        for row in rows:
+            first = row.split(":", 1)[1]
+            resolutions[
+                row.split(":", 1)[0] + ":" + self._one(source_db, first, "Baker").handle
+            ] = "source"
+        self.assertTrue(
+            gwizard.run_step(
+                "apply",
+                source_person_handle=self._one(source_db, "Thomas", "Baker").handle,
+                target_person_handle=self._one(self.db, "Thomas", "Baker").handle,
+                resolutions=resolutions,
+                add_missing_relatives=True,
+            )
+        )
+
+    def test_children_chosen_one_by_one_go_in_birth_order(self) -> None:
+        self._open_tree(self.TREE)
+        self._apply(["child:Peter", "child:John"])
+        self.assertEqual(self._children(), ["John", "Henry", "Peter"])
+
+    def test_whole_family_goes_in_birth_order(self) -> None:
+        self._open_tree(self.TREE)
+        gwizard = GedGWizard(self.db)
+        self._wizards.append(gwizard)
+        gwizard.run_step("connect", gedcom_path=self._write(self.SOURCE))
+        gwizard.run_step("load")
+        source_db = gwizard.context["source_db"]
+        self.assertTrue(
+            gwizard.run_step(
+                "apply",
+                source_person_handle=self._one(source_db, "Thomas", "Baker").handle,
+                target_person_handle=self._one(self.db, "Thomas", "Baker").handle,
+                resolutions={"link_families": "source"},
+                add_missing_relatives=True,
+            )
+        )
+        self.assertEqual(self._children(), ["John", "Henry", "Peter"])
+
+
 if __name__ == "__main__":
     unittest.main()
