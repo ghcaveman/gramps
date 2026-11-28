@@ -591,7 +591,7 @@ class NaraCatalogInterface:
         if isinstance(record_types, str):
             record_types = [record_types]
 
-        parsed_media = []
+        parsed_media: list[dict[str, Any]] = []
         digital_objects = record.get("digitalObjects") or []
         if isinstance(digital_objects, dict):
             digital_objects = [digital_objects]

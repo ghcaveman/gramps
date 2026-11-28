@@ -258,17 +258,22 @@ class NaraQueryBudgetTest(unittest.TestCase):
                 "tags": set(),
             }
 
+        def query_text(name: str) -> str:
+            query = build_primary_nara_query(ind(name))
+            assert query is not None
+            return query["q"]
+
         self.assertEqual(
-            build_primary_nara_query(ind('Mary "Molly" Ann /Smith/'))["q"],
+            query_text('Mary "Molly" Ann /Smith/'),
             '"Mary Smith" OR "Smith Mary" OR "Mary A Smith" OR "Mary Ann Smith"'
             ' OR "Mary Jones" OR "Jones Mary" OR "Mary A Jones" OR "Mary Ann Jones"',
         )
         self.assertEqual(
-            build_primary_nara_query(ind("Mary (Molly) /Smith/"))["q"],
+            query_text("Mary (Molly) /Smith/"),
             '"Mary Smith" OR "Smith Mary" OR "Mary Jones" OR "Jones Mary"',
         )
         self.assertEqual(
-            build_primary_nara_query(ind("J. Robert /Smith/"))["q"],
+            query_text("J. Robert /Smith/"),
             '"Robert Smith" OR "Smith Robert" OR "Robert Jones" OR "Jones Robert"',
         )
         self.assertIsNone(build_primary_nara_query(ind("Unknown /Smith/")))
