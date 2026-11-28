@@ -239,11 +239,19 @@ class WikiTreeAddedRelativesTest(_WikiTreeFixture):
 
 
 class _FakeClient:
-    """Stands in for WikiTreeInterface: answers get_people from a dict."""
+    """Stands in for WikiTreeInterface: answers from a dict of profiles."""
 
     def __init__(self, people: dict[str, dict[str, Any]]) -> None:
         self.people = people
         self.calls: list[list[str]] = []
+        self.person_calls: list[str] = []
+
+    def get_person(self, key: str, **_kwargs: Any) -> dict[str, Any] | None:
+        self.person_calls.append(key)
+        for data in self.people.values():
+            if data["Name"] == key or str(data["Id"]) == key:
+                return data
+        return None
 
     def get_people(self, keys: Any, **_kwargs: Any) -> dict[str, dict[str, Any]]:
         keys = list(keys) if isinstance(keys, list) else [keys]
@@ -352,8 +360,9 @@ class ParentsMarriageTest(unittest.TestCase):
         self.assertEqual(marriage.get_date_object().get_month(), 6)
         place = source_db.get_place_from_handle(marriage.get_place_handle())
         self.assertIn("Bucks", place.get_name().get_value())
-        # Both parents in one request; the other wife does not come in.
-        self.assertEqual(client.calls, [["Baker-2", "Hale-3"]])
+        # The father's profile lists the mother: one request is enough, and
+        # his other wife does not come in.
+        self.assertEqual(client.person_calls, ["Baker-2"])
         names = sorted(p.get_primary_name().first_name for p in source_db.iter_people())
         self.assertEqual(names, ["Joseph", "Ruth", "Thomas"])
         self.assertEqual(source_db.get_number_of_families(), 1)
@@ -364,10 +373,32 @@ class ParentsMarriageTest(unittest.TestCase):
             for spouse in data["Spouses"].values():
                 spouse.pop("marriage_date", None)
                 spouse.pop("marriage_location", None)
-        source_db = self._load(_FakeClient(parents), self._thomas())
+        client = _FakeClient(parents)
+        source_db = self._load(client, self._thomas())
         self.assertEqual(
             self._marriages(source_db, self._parents_family(source_db)), []
         )
+        self.assertEqual(client.person_calls, ["Baker-2"])
+
+    def test_parents_with_empty_spouse_lists_are_fetched(self) -> None:
+        """Parents that arrive with empty spouse lists still get their marriage."""
+        thomas = self._thomas()
+        for data in thomas["Parents"].values():
+            data["Spouses"] = []
+        client = _FakeClient(self._full_parents())
+        source_db = self._load(client, thomas)
+        self.assertEqual(client.person_calls, ["Baker-2"])
+        family = self._parents_family(source_db)
+        self.assertEqual(len(self._marriages(source_db, family)), 1)
+
+    def test_the_mother_is_asked_when_the_father_lists_no_spouse(self) -> None:
+        parents = self._full_parents()
+        parents["2"]["Spouses"] = {}
+        client = _FakeClient(parents)
+        source_db = self._load(client, self._thomas())
+        self.assertEqual(client.person_calls, ["Baker-2", "Hale-3"])
+        family = self._parents_family(source_db)
+        self.assertEqual(len(self._marriages(source_db, family)), 1)
 
     def test_parents_with_spouse_lists_are_not_fetched_again(self) -> None:
         thomas = self._thomas()
@@ -376,9 +407,7 @@ class ParentsMarriageTest(unittest.TestCase):
         client = _FakeClient(self._full_parents())
         source_db = self._load(client, thomas)
         # The parents are not fetched again for their spouse lists.
-        self.assertFalse(
-            [call for call in client.calls if "Baker-2" in call or "Hale-3" in call]
-        )
+        self.assertEqual(client.person_calls, [])
         self.assertEqual(
             len(self._marriages(source_db, self._parents_family(source_db))), 1
         )
