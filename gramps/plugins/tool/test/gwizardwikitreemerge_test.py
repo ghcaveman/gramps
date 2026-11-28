@@ -104,7 +104,12 @@ class GWizardWikiTreeToolTest(unittest.TestCase):
         self.assertIn('optionclass = "GWizardWikiTreeMergeOptions"', content)
         self.assertEqual(
             _extra_registration_ids(content),
-            ["gwizardrecordscan", "gwizardwikitreesource"],
+            [
+                "gwizardrecordscan",
+                "gwizardwikitreesource",
+                "gwizardcitescan",
+                "gwizardwikitreecitesource",
+            ],
         )
 
 
