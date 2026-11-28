@@ -54,6 +54,8 @@ from ..gwizard_filemerge_medianaming import (
     file_content_hash,
     filename_template,
     format_standard_filename,
+    numbered_name,
+    numbered_variant,
     person_media_filename,
     person_year,
     place_file,
@@ -208,6 +210,26 @@ class PersonMediaTest(unittest.TestCase):
         self.assertEqual(name, "Smith-%s.jpg" % file_content_hash(path))
 
 
+class NumberedNameTest(unittest.TestCase):
+    """The "_2", "_3", ... names a file gets when its name is taken."""
+
+    def test_numbered_name(self) -> None:
+        self.assertEqual(
+            numbered_name(os.path.join("pics", "I1_Smith-Census-1920.jpg"), 2),
+            os.path.join("pics", "I1_Smith-Census-1920_2.jpg"),
+        )
+
+    def test_numbered_variant(self) -> None:
+        std = "I1_Smith_John-Census-1920.jpg"
+        self.assertEqual(numbered_variant("I1_Smith_John-Census-1920_2.jpg", std), 2)
+        self.assertEqual(numbered_variant("i1_smith_john-census-1920_12.JPG", std), 12)
+        self.assertEqual(numbered_variant(std, std), 0)
+        self.assertEqual(numbered_variant("I1_Smith_John-Census-1920_1.jpg", std), 0)
+        self.assertEqual(numbered_variant("I1_Smith_John-Census-1920_2.png", std), 0)
+        self.assertEqual(numbered_variant("I1_Smith_John-Census-1921_2.jpg", std), 0)
+        self.assertEqual(numbered_variant("I1_Smith_John-Census-1920-2.jpg", std), 0)
+
+
 class PlaceFileTest(unittest.TestCase):
     """place_file: moving a download to its name without replacing a file."""
 
@@ -246,7 +268,7 @@ class PlaceFileTest(unittest.TestCase):
         wanted = self._write("I1_Smith_John-Photo-1880.jpg", b"older picture")
         final = place_file(self._download(b"new picture", "WikiTree"), wanted)
         self.assertEqual(
-            final, os.path.join(self.base, "I1_Smith_John-Photo-1880-2.jpg")
+            final, os.path.join(self.base, "I1_Smith_John-Photo-1880_2.jpg")
         )
         with open(wanted, "rb") as handle:
             self.assertEqual(handle.read(), b"older picture")

@@ -70,6 +70,7 @@ from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     STATUS_ERROR,
     STATUS_LINKED,
     STATUS_SKIPPED,
+    STOP_ALLOWANCE,
     PersonScan,
     RecordScanner,
     RecordSource,
@@ -211,6 +212,41 @@ def tier_gap(query: RecordQuery, scored: list[ScoredMatch], tier: str) -> str:
         if not any(c.father_given or c.mother_given for c in cands):
             return _("None of the records found names a parent.")
     return _("No record found has every part this level compares.")
+
+
+def deferred_text(scanner: RecordScanner, sources: list[RecordSource]) -> str:
+    """
+    Return a note on the sources a scan stopped searching because their
+    request allowance ran out (see RecordScanner.deferred), or ''.
+    Shared with the Multi-Archive Citation Scan.
+    """
+    notes: list[str] = []
+    for source in sources:
+        left = scanner.deferred.get(source.source_id, 0)
+        if not left:
+            continue
+        if scanner.stopped.get(source.source_id) == STOP_ALLOWANCE:
+            notes.append(
+                _(
+                    "%(source)s: stopped with %(left)d people left, as this "
+                    "month's query allowance is used up (or kept for the "
+                    "%(source)s search window)."
+                )
+                % {"source": source.title, "left": left}
+            )
+        else:
+            notes.append(
+                _(
+                    "%(source)s: searched %(cap)d people, the most per scan; "
+                    "%(left)d more are left. Scan again to continue."
+                )
+                % {
+                    "source": source.title,
+                    "cap": scanner.searched.get(source.source_id, 0),
+                    "left": left,
+                }
+            )
+    return " ".join(notes)
 
 
 def tier_title(tier: str) -> str:
@@ -1016,7 +1052,10 @@ class RecordScanDialog(Gtk.Dialog):
         ) % {"done": done, "total": total, "new": searched, "saved": done - searched}
         if errors:
             message += " " + _("%d searches failed; scan again to retry them.") % errors
-        if done < total:
+        deferred = sum(self.scanner.deferred.values())
+        if deferred:
+            message += " " + deferred_text(self.scanner, sources)
+        if done + deferred < total:
             message += " " + _("The scan was cancelled.")
         self.status_label.set_text(message)
         return done

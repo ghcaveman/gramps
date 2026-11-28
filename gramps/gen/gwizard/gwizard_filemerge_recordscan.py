@@ -32,6 +32,17 @@ whose module has a ``load_on_reg(dbstate, uistate, plugin)`` function that
 returns a list of sources. ``discover_sources()`` collects them, so the scan
 needs no list of the sites it can search.
 
+Request allowances
+------------------
+Some sites limit how many requests a key may make (NARA allows 10,000 a
+month). A source can cap the online searches one scan may make on it
+(``max_searches_per_scan``) and report how many requests it has left
+(``requests_left``); the scanner stops searching that source when either
+runs out and counts the people it left for the next scan in
+``RecordScanner.deferred``. Saved results cost nothing and are always
+shown. ``wants_search`` lets a source skip people it could not find
+anyway (no dates, say) before a request is spent on them.
+
 Threads
 -------
 Everything that reads the database (``build_scan_items``, the source's
@@ -91,6 +102,14 @@ STATUS_LINKED = "linked"  # already linked; the linked record was looked up
 STATUS_SKIPPED = "skipped"  # nothing to search with (no name)
 STATUS_ERROR = "error"  # the search failed
 STATUS_CITED = "cited"  # not searched: the person already cites the source
+
+# The outcomes that sent a request to the site (and count toward a source's
+# allowance).
+REQUEST_STATUSES = (STATUS_OK, STATUS_LINKED, STATUS_ERROR)
+
+# Why the scanner stopped searching a source (RecordScanner.stopped).
+STOP_SCAN_LIMIT = "scan_limit"  # max_searches_per_scan reached
+STOP_ALLOWANCE = "allowance"  # requests_left() ran out
 
 _CACHE_VERSION = 1
 
@@ -172,10 +191,31 @@ class RecordSource(abc.ABC):
     # (gwizard_base). A source whose records rarely have middle names or
     # birth years can show just TIER_SCORE.
     tiers: tuple[str, ...] = RECORD_TIERS
+    # Most online searches (or linked-record lookups) one scan may make on
+    # this source; 0 means no limit. People left over are searched by the
+    # next scan, as the ones already searched are then saved results.
+    max_searches_per_scan: int = 0
 
     def available(self) -> tuple[bool, str]:
         """Return (whether the source can be used now, why not)."""
         return True, ""
+
+    def wants_search(self, query: RecordQuery) -> bool:
+        """
+        Return False for a person the source should not be searched for
+        (too little to search with, or outside the site's records), so no
+        request is spent on them. Runs in the worker thread.
+        """
+        return True
+
+    def requests_left(self) -> int | None:
+        """
+        Return how many more requests the scan may send to the site now
+        (its allowance left, less anything kept back for other windows), or
+        None when the site has no allowance. Checked before each request,
+        possibly from the worker thread, so it must be quick and safe.
+        """
+        return None
 
     def linked_key(self, db: Any, person: Person) -> str:
         """
@@ -600,6 +640,33 @@ class RateLimiter:
         self._last = self._clock()
 
 
+def _wants_search(source: RecordSource, query: RecordQuery) -> bool:
+    """Return source.wants_search(query); a failing check means "search"."""
+    wants = getattr(source, "wants_search", None)
+    if wants is None:
+        return True
+    try:
+        return bool(wants(query))
+    except Exception:
+        LOG.warning("%s: wants_search failed", source.title, exc_info=True)
+        return True
+
+
+def needs_request(source: RecordSource, item: ScanItem) -> bool:
+    """
+    Return whether scanning this person on this source would send a request
+    to the site (a search or a linked-record lookup). Safe in a worker
+    thread.
+    """
+    if item.links.get(source.source_id, ""):
+        return True
+    if getattr(source, "skip_cited", False) and item.cited.get(source.source_id):
+        return False
+    if not item.query.has_name():
+        return False
+    return _wants_search(source, item.query)
+
+
 def scan_item(source: RecordSource, item: ScanItem) -> PersonScan:
     """
     Search one source for one person. Safe to run in a worker thread: it
@@ -628,7 +695,7 @@ def scan_item(source: RecordSource, item: ScanItem) -> PersonScan:
                 item.change,
                 scanned_at=now,
             )
-        if not item.query.has_name():
+        if not item.query.has_name() or not _wants_search(source, item.query):
             return PersonScan(
                 source.source_id,
                 item.handle,
@@ -858,12 +925,39 @@ class RecordScanner:
     ``run`` works through the people in order and calls ``on_result`` after
     each person and source. It can be called from a worker thread; the
     callbacks then run in that thread too.
+
+    A source with a request allowance (see RecordSource.max_searches_per_scan
+    and requests_left) stops being searched when it runs out: ``on_result``
+    is not called for the people it skipped, and after ``run``
+    ``deferred[source_id]`` says how many there were and
+    ``stopped[source_id]`` why (STOP_SCAN_LIMIT or STOP_ALLOWANCE).
     """
 
     def __init__(self, cache: ScanCache | None = None) -> None:
         """Set up a scanner; with no cache nothing is kept."""
         self.cache = cache if cache is not None else ScanCache(None)
         self._lock = threading.Lock()
+        self.searched: dict[str, int] = {}
+        self.deferred: dict[str, int] = {}
+        self.stopped: dict[str, str] = {}
+
+    @staticmethod
+    def _out_of_requests(source: RecordSource, searched: int) -> str:
+        """Return why the source may not be sent another request, or ''."""
+        cap = int(getattr(source, "max_searches_per_scan", 0) or 0)
+        if cap > 0 and searched >= cap:
+            return STOP_SCAN_LIMIT
+        left_of = getattr(source, "requests_left", None)
+        if left_of is None:
+            return ""
+        try:
+            left = left_of()
+        except Exception:
+            LOG.warning("%s: requests_left failed", source.title, exc_info=True)
+            return ""
+        if left is not None and left <= 0:
+            return STOP_ALLOWANCE
+        return ""
 
     def cached(self, source: RecordSource, item: ScanItem) -> PersonScan | None:
         """Return the cached scan of a person, if still valid."""
@@ -883,11 +977,16 @@ class RecordScanner:
         Scan each person on each source and return how many were scanned
         (cached results count). ``on_result(item, scan, from_cache)`` is
         called for each one; ``cancel`` stops the scan between people.
+        People a source has no requests left for are skipped (see the class
+        docstring).
         """
         sources = list(sources)
         limiters = dict(limiters or {})
         for source in sources:
             limiters.setdefault(source.source_id, RateLimiter(source.min_interval))
+        self.searched = {source.source_id: 0 for source in sources}
+        self.deferred = {}
+        self.stopped = {}
         done = 0
         for item in items:
             if cancel is not None and cancel.is_set():
@@ -895,13 +994,24 @@ class RecordScanner:
             for source in sources:
                 if cancel is not None and cancel.is_set():
                     break
+                sid = source.source_id
                 scan = self.cached(source, item) if use_cache else None
                 from_cache = scan is not None
                 if scan is None:
-                    limiters[source.source_id].wait(cancel)
-                    if cancel is not None and cancel.is_set():
-                        break
+                    if needs_request(source, item):
+                        reason = self.stopped.get(sid) or self._out_of_requests(
+                            source, self.searched[sid]
+                        )
+                        if reason:
+                            self.stopped[sid] = reason
+                            self.deferred[sid] = self.deferred.get(sid, 0) + 1
+                            continue
+                        limiters[sid].wait(cancel)
+                        if cancel is not None and cancel.is_set():
+                            break
                     scan = scan_item(source, item)
+                    if scan.status in REQUEST_STATUSES:
+                        self.searched[sid] += 1
                     with self._lock:
                         self.cache.put(scan)
                 on_result(item, scan, from_cache)
