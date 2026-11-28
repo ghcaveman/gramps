@@ -165,11 +165,14 @@ def _extract_person_search_defaults(db: Any, person: Any) -> dict[str, str]:
 
 def _without_nicknames(given: str) -> str:
     """
-    Return given names without nicknames written in quotes or brackets:
-    'Howard "King" Kingston' gives 'Howard Kingston'.
+    Return given names without nicknames written in quotes or brackets, or
+    stray full stops: 'Howard "King" Kingston' gives 'Howard Kingston',
+    'Mary Elizabeth. "Lizzie"' gives 'Mary Elizabeth'.
     """
     given = re.sub(r'"[^"]*"|\u201c[^\u201d]*\u201d|\([^)]*\)', " ", given)
-    return " ".join(given.split())
+    # Stray full stops and commas go too ("Mary Elizabeth." gives Elizabeth).
+    words = [word.strip(".,") for word in given.split()]
+    return " ".join(word for word in words if word)
 
 
 def _place_city(db: Any, event: Any) -> str:
@@ -268,6 +271,33 @@ def outside_years(parsed: dict[str, Any], start: str, end: str) -> bool:
     if start and last < int(start):
         return True
     return bool(end) and first > int(end)
+
+
+# Titles of military service records ("White, Milton - 213th Infantry,
+# Company K", "29th Militia", "163rd National Guard", "First Cavalry").
+_MILITARY = re.compile(
+    r"\b(infantry|cavalry|artillery|militia|regiment|national guard"
+    r"|volunteers|service number)\b",
+    re.IGNORECASE,
+)
+# The youngest age at which a person can have a military service record.
+MIN_SERVICE_AGE = 15
+
+
+def too_young_for(
+    parsed: dict[str, Any], birth_year: int | None, death_year: int | None
+) -> bool:
+    """
+    Return whether a record is a military service record and the person
+    died younger than MIN_SERVICE_AGE, so it cannot be theirs. Such records
+    are dated by their series (often 1899-1927 for Civil War cards), so the
+    year check alone keeps them.
+    """
+    if not birth_year or not death_year:
+        return False
+    if death_year - birth_year >= MIN_SERVICE_AGE:
+        return False
+    return bool(_MILITARY.search(str(parsed.get("title") or "")))
 
 
 def _is_naid(text: str) -> bool:
@@ -944,10 +974,16 @@ class NaraSearchDialog(Gtk.Dialog):
         start_year, end_year = ("", "") if _is_naid(query) else self._record_years()
         rows: list[list[Any]] = []
         outside = 0
+        too_young = 0
         for hit in hits:
             parsed = NaraCatalogInterface.parse_record(hit)
             if outside_years(parsed, start_year, end_year):
                 outside += 1
+                continue
+            if not _is_naid(query) and too_young_for(
+                parsed, match_query.birth_year, match_query.death_year
+            ):
+                too_young += 1
                 continue
             people = parsed["person_creators"]
             digital_str = _media_summary(parsed["digital_objects"])
@@ -992,6 +1028,18 @@ class NaraSearchDialog(Gtk.Dialog):
                     "%d more were left out, as their dates are outside the checked years."
                 )
                 % outside
+            )
+        if too_young:
+            message += " " + (
+                _(
+                    "%(count)d military service records were left out, as the "
+                    "person died at about %(age)d."
+                )
+                % {
+                    "count": too_young,
+                    "age": (match_query.death_year or 0)
+                    - (match_query.birth_year or 0),
+                }
             )
         self.status_label.set_text(message)
 

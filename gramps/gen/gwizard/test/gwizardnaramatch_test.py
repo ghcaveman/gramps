@@ -41,8 +41,10 @@ from ..gwizardnaramatch import (
     best_match,
     birth_year_from_age,
     candidates_from_record,
+    in_name_range,
     jaro_winkler,
     match_text,
+    name_range,
     name_similarity,
     score_candidate,
     sounds_alike,
@@ -186,6 +188,28 @@ class TestCandidates(unittest.TestCase):
         )
         self.assertIsNone(birth_year_from_age("Smith, John - Year: 1865"))
 
+    def test_index_card_ranges(self) -> None:
+        """Verify "Smith, Ann - Smithers, Paul (2 of 3)" is a range, not a person."""
+        title = "Smith, Ann - Smithers, Paul S. (2 of 3)"
+        self.assertEqual(_names(title), [])
+        inside = MatchQuery(given="Mary", surnames=["Smith"], birth_year=1845)
+        before = MatchQuery(given="Aaron", surnames=["Smith"])
+        after = MatchQuery(given="Mary", surnames=["Smythe"])
+        self.assertTrue(in_name_range(inside, title))
+        self.assertFalse(in_name_range(before, title))
+        self.assertFalse(in_name_range(after, title))
+        result = best_match(inside, {"title": title})
+        self.assertEqual(match_text(result), "in range")
+        self.assertEqual(result.score, 50.0)
+        self.assertEqual(result.candidate.display(), "Smith, Ann ... Smithers, Paul S")
+        self.assertEqual(match_text(best_match(before, {"title": title})), "-")
+        # A married surname counts too.
+        married = MatchQuery(given="Mary", surnames=["Jones", "Smith"])
+        self.assertTrue(in_name_range(married, title))
+        # Not ranges: a name and a place, a name and a regiment.
+        self.assertIsNone(name_range("Smith, Mary - New York - 1848 - File No. W271"))
+        self.assertIsNone(name_range("Smith, John - 27th Infantry, Company C"))
+
     def test_service_file_titles(self) -> None:
         """Verify Navy service-file titles, surname first before " -- "."""
         self.assertEqual(
@@ -219,15 +243,20 @@ class TestScoring(unittest.TestCase):
         self.assertFalse(compared)
 
     def test_birth_year_fades_over_five_years(self) -> None:
-        """Verify the birth year counts fully when equal and not at all past 5."""
+        """
+        Verify the birth year counts fully when equal, not at all past 5
+        years, and halves the score past 10 (a different person).
+        """
         query = MatchQuery(given="Angus", surnames=["MacDonald"], birth_year=1890)
         same = score_candidate(query, Candidate("Angus", "", "MacDonald", 1890))[0]
         three = score_candidate(query, Candidate("Angus", "", "MacDonald", 1893))[0]
+        eight = score_candidate(query, Candidate("Angus", "", "MacDonald", 1898))[0]
         far = score_candidate(query, Candidate("Angus", "", "MacDonald", 1915))[0]
         self.assertEqual(same, 100.0)
         self.assertGreater(same, three)
-        self.assertGreater(three, far)
-        self.assertAlmostEqual(far, 72.2, places=1)
+        self.assertGreater(three, eight)
+        self.assertAlmostEqual(eight, 72.2, places=1)
+        self.assertAlmostEqual(far, 36.1, places=1)
 
     def test_initials_and_swapped_names(self) -> None:
         """Verify initials and a given name used as a middle name still score."""

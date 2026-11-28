@@ -68,6 +68,8 @@ __all__ = [
     "MatchResult",
     "best_match",
     "birth_year_from_age",
+    "in_name_range",
+    "name_range",
     "candidates_from_record",
     "jaro_winkler",
     "match_text",
@@ -244,6 +246,49 @@ def _service_file_name(text: str, source: str) -> Candidate | None:
     )
 
 
+# A box or folder of index cards titled with the first and last names it
+# holds: "White, Edward - Whitehouse, Leroy S. (2 of 3)".
+_RANGE = re.compile(r"^(.+?,.+?) - (.+?,.+?)(?:\s*\(\d+ of \d+\))?\s*$")
+
+
+def _sort_key(surname: str, given: str) -> str:
+    """Return a name's alphabetical filing key, "white, mary"."""
+    return f"{surname.strip()}, {given.strip()}".casefold()
+
+
+def name_range(title: str) -> tuple[Candidate, Candidate] | None:
+    """
+    Return the first and last person of an index-card range title such as
+    "White, Edward - Whitehouse, Leroy S. (2 of 3)", or None when the
+    title is not a range (both ends must be names, in alphabetical order).
+    """
+    match = _RANGE.match(title.strip())
+    if not match:
+        return None
+    first = _inverted_name(match.group(1), "range", "title")
+    last = _inverted_name(match.group(2), "range", "title")
+    if not first or not last or not first.given or not last.given:
+        return None
+    if _sort_key(first.surname, first.given) > _sort_key(last.surname, last.given):
+        return None
+    return first, last
+
+
+def in_name_range(query: RecordQuery, title: str) -> bool:
+    """Return whether the person files between a range title's two names."""
+    ends = name_range(title)
+    if ends is None or not query.given:
+        return False
+    first, last = ends
+    low = _sort_key(first.surname, first.given)
+    high = _sort_key(last.surname, last.given)
+    return any(
+        low <= _sort_key(surname, query.given) <= high
+        for surname in query.surnames
+        if surname
+    )
+
+
 def candidates_from_record(parsed: dict[str, Any]) -> list[Candidate]:
     """
     Return the people a parsed NARA record names: its person creators, the
@@ -293,6 +338,12 @@ def candidates_from_record(parsed: dict[str, Any]) -> list[Candidate]:
         candidate = _natural_name(_NAME_STOP.split(match.group(1))[0], "", "title")
         if candidate:
             found.append(candidate)
+
+    # "White, Edward - Whitehouse, Leroy S. (2 of 3)" is a range of index
+    # cards, not one person; best_match checks whether the person files
+    # within it.
+    if not found and name_range(title):
+        return []
 
     # "MacDonald, Lyman Angus - 1942", "Devault, John - State: Tennessee ..."
     if not found and "," in title:
@@ -387,8 +438,34 @@ def score_candidate(query: RecordQuery, candidate: Candidate) -> tuple[float, bo
     return result.score, result.compared_years
 
 
+# The score given to a range of index cards the person files within: below
+# any named match worth a look, above records that name nobody.
+RANGE_SCORE = 50.0
+
+
 def best_match(query: RecordQuery, parsed: dict[str, Any]) -> MatchResult:
-    """Return the best-matching person a record names, or no match."""
+    """
+    Return the best-matching person a record names, or no match. For an
+    index-card range title ("White, Edward - Whitehouse, Leroy S.") the
+    result is the range itself, scored RANGE_SCORE, when the person files
+    within it.
+    """
+    title = re.sub(r"^\[[^\]]*\]\s*", "", str(parsed.get("title") or "").strip())
+    if in_name_range(query, title):
+        ends = name_range(title)
+        assert ends is not None
+        first, last = ends
+
+        def given_of(end: Candidate) -> str:
+            return " ".join(part for part in (end.given, end.middle) if part)
+
+        label = Candidate(
+            given=f"{given_of(first)} ... {last.surname}, {given_of(last)}",
+            surname=first.surname,
+            role="range",
+            source="title",
+        )
+        return MatchResult(RANGE_SCORE, label, False)
     best = MatchResult(0.0, None, False)
     for candidate in candidates_from_record(parsed):
         score, compared = score_candidate(query, candidate)
@@ -401,4 +478,6 @@ def match_text(result: MatchResult) -> str:
     """Return the Match column text, such as "92%" or "92% (name only)"."""
     if result.candidate is None:
         return "-"
+    if result.candidate.role == "range":
+        return "in range"
     return record_match_text(RecordScore(result.score, result.compared_years))

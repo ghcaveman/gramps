@@ -235,6 +235,7 @@ if TYPE_CHECKING:
         format_size,
         outside_years,
         record_span,
+        too_young_for,
         NaraSearchDialog,
         ask_nara_parameters,
         load_nara_gwizard,
@@ -249,6 +250,7 @@ _IMPORTED_NAMES = (
     "format_size",
     "outside_years",
     "record_span",
+    "too_young_for",
     "NaraSearchDialog",
     "ask_nara_parameters",
     "load_nara_gwizard",
@@ -500,9 +502,25 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertFalse(outside_years(draft, "", "1973"))
         self.assertFalse(outside_years(census, "1847", ""))
 
+    def test_too_young_for_military_records(self) -> None:
+        """Verify service records are ruled out for a child who died young."""
+        regiment = {"title": "[Pennsylvania] Smith, John - 213th Infantry, Company K"}
+        guard = {"title": "[Ohio] Smith, John - 163rd National Guard, Infantry"}
+        census = {"title": "Pennsylvania: Allegheny County, Enumeration District 7"}
+        self.assertTrue(too_young_for(regiment, 1887, 1891))
+        self.assertTrue(too_young_for(guard, 1887, 1891))
+        self.assertFalse(too_young_for(census, 1887, 1891))
+        self.assertFalse(too_young_for(regiment, 1840, 1910))
+        self.assertFalse(too_young_for(regiment, 1887, None))
+        self.assertFalse(too_young_for(regiment, None, 1891))
+
     def test_extract_defaults_leave_out_nicknames(self) -> None:
         """Verify nicknames in quotes or brackets stay out of the names."""
-        for given in ('John "Jack" William', "John (Jack) William"):
+        for given in (
+            'John "Jack" William',
+            "John (Jack) William",
+            'John William. "Jack"',
+        ):
             person = Person()
             pname = Name()
             pname.set_first_name(given)
@@ -736,6 +754,43 @@ class TestNaraLauncher(unittest.TestCase):
         ]
         self.assertIn("Found 1 matching", status)
         self.assertIn("2 more were left out", status)
+
+    def test_search_leaves_out_service_records_for_a_child(self) -> None:
+        """Verify a child who died young gets no military service records."""
+
+        def hit(naid: str, title: str) -> dict[str, Any]:
+            return {"_id": naid, "_source": {"naId": naid, "record": {"title": title}}}
+
+        mock_client = Mock()
+        mock_client.extract_hits.return_value = [
+            hit("201", "[Pennsylvania] Smith, John - 213th Infantry, Company K"),
+            hit("202", "Pennsylvania: Allegheny County, Enumeration District 7"),
+        ]
+        dialog = NaraSearchDialog(client=mock_client)
+        _use_terms(
+            dialog,
+            {
+                "first_name": "John",
+                "last_name": "Smith",
+                "birth_year": "1887",
+                "death_year": "1891",
+            },
+        )
+        dialog.limit_spin.get_value.return_value = 25
+        dialog.material_combo.get_active_id.return_value = None
+        dialog.online_check.get_active.return_value = False
+
+        dialog.cb_search()
+
+        rows = [call.args[0] for call in dialog.results_store.append.call_args_list]
+        self.assertEqual([row[0] for row in rows], ["202"])
+        (status,) = [
+            call.args[0]
+            for call in dialog.status_label.set_text.call_args_list
+            if call.args[0].startswith("Found")
+        ]
+        self.assertIn("1 military service records were left out", status)
+        self.assertIn("died at about 4", status)
 
     def test_search_with_nothing_checked_asks_for_terms(self) -> None:
         """Verify an empty query does not call NARA."""
