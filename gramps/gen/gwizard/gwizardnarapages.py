@@ -100,7 +100,17 @@ PAGE_RULES: list[tuple[str, list[str]]] = [
             r"\blaw office\b",
         ],
     ),
-    (_("Pension Bureau form"), [r"bureau of pensions", r"department of the interior"]),
+    # Pension forms were printed by the Department of the Interior, but so
+    # are National Park Service, Land Office and Indian Affairs records: the
+    # department only counts with a pension nearby.
+    (
+        _("Pension Bureau form"),
+        [
+            r"bureau of pensions",
+            r"department of the interior\b.{0,300}\bpensions?\b",
+            r"\bpensions?\b.{0,300}\bdepartment of the interior",
+        ],
+    ),
 ]
 
 _COMPILED = [
