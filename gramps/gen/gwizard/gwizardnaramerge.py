@@ -944,9 +944,9 @@ def record_year(parsed: dict[str, Any]) -> int:
 
 def record_date(parsed: dict[str, Any]) -> Date | None:
     """
-    Return the record's date for its citation and event: the year in its
-    title when it has one, otherwise its date (a span such as "from 1899
-    to 1927"), or None.
+    Return the record's date for its citation: the year in its title when
+    it has one, otherwise its date (a span such as "from 1899 to 1927"), or
+    None.
     """
     match = _YEAR_RE.search(str(parsed.get("title") or ""))
     if match:
@@ -954,6 +954,46 @@ def record_date(parsed: dict[str, Any]) -> Date | None:
         date_obj.set_yr_mon_day(int(match.group(1)), 0, 0)
         return date_obj
     return parse_nara_date(str(parsed.get("date_str") or ""))
+
+
+def event_date(parsed: dict[str, Any]) -> Date | None:
+    """
+    Return the date for the event a record documents: the year in its title
+    ("MacDonald, Lyman Angus - 1942"), or None.
+
+    A record's own date is often the span of the whole series ("1899-1927"
+    for a card index compiled after the Civil War), which says when the
+    record was made, not when the event happened, so it is left off the
+    event (the citation keeps it).
+    """
+    match = _YEAR_RE.search(str(parsed.get("title") or ""))
+    if not match:
+        return None
+    date_obj = Date()
+    date_obj.set_yr_mon_day(int(match.group(1)), 0, 0)
+    return date_obj
+
+
+def event_description(parsed: dict[str, Any]) -> str:
+    """
+    Return the description for the event a record documents: its title
+    without the leading person name ("Doe, John Q - 214th Infantry,
+    Company K" gives "214th Infantry, Company K").
+    """
+    title = " ".join(str(parsed.get("title") or "").split())
+    match = re.match(r"^[^,\-]+,[^\-]+\s+-\s+(.+)$", title)
+    rest = match.group(1).strip() if match else title
+    if _YEAR_RE.fullmatch(rest):
+        # Only a year ("MacDonald, Lyman Angus - 1942"): the date says it.
+        return ""
+    return rest
+
+
+def _same_event_type(first: EventType, second: EventType) -> bool:
+    """Whether two event types are the same (custom types by their name)."""
+    if int(first) != int(second):
+        return False
+    return int(first) != EventType.CUSTOM or str(first) == str(second)
 
 
 def nara_date_text(date_str: str) -> str:
@@ -1502,6 +1542,29 @@ class NaraRecordAttacher:
                 if new_citation:
                     # Transcript notes were cross-referenced on it.
                     source_db.commit_citation(citation, trans)
+
+                # The event the record documents (Military Service,
+                # Pension, ...), offered as an event row when the person
+                # has none of that type. An event they already have is not
+                # offered again: finish_merge adds the record's citation to
+                # it. A marriage belongs to a family, which this window
+                # does not show, so it is only ever cited.
+                event_type = self._detect_record_event_type(parsed, descriptions)
+                if (
+                    event_type is not None
+                    and int(event_type) != EventType.MARRIAGE
+                    and self._matching_event(person, event_type) is None
+                ):
+                    event = self._record_event(
+                        event_type, parsed, citation.get_handle()
+                    )
+                    source_db.add_event(event, trans)
+                    event_ref = EventRef()
+                    event_ref.ref = event.get_handle()
+                    event_ref.role = EventRoleType.PRIMARY
+                    incoming.add_event_ref(event_ref)
+                    if int(event_type) == EventType.DEATH:
+                        incoming.set_death_ref(event_ref)
                 source_db.add_person(incoming, trans)
         except Exception:
             source_db.close()
@@ -1602,7 +1665,23 @@ class NaraRecordAttacher:
 
         linked = {ref.ref for ref in citation.get_media_list()} if citation else set()
         to_link = [image for image in images if image.media_handle not in linked]
-        if not new_paths and not (citation is not None and to_link):
+        # The event the record documents, when the person has it and the
+        # merge brought the record's citation over: it is cited too.
+        event = None
+        if (
+            citation is not None
+            and person is not None
+            and citation.get_handle() in person.get_citation_list()
+        ):
+            event_type = self._detect_record_event_type(parsed)
+            if event_type is not None:
+                event = self._matching_event(person, event_type)
+                if event is not None:
+                    result.event_type = str(event_type)
+                    if citation.get_handle() in event.get_citation_list():
+                        result.event_linked = True
+                        event = None
+        if not new_paths and not (citation is not None and to_link) and event is None:
             return result
         with DbTxn(
             _("Finish NARA record %s") % parsed.get("naid", ""), self.db
@@ -1621,6 +1700,10 @@ class NaraRecordAttacher:
                     citation.add_media_reference(media_ref)
                     result.media_linked += 1
                 self.db.commit_citation(citation, trans)
+            if event is not None and citation is not None:
+                event.add_citation(citation.get_handle())
+                self.db.commit_event(event, trans)
+                result.event_linked = True
         return result
 
     def _add_media(
@@ -1998,7 +2081,8 @@ class NaraRecordAttacher:
         ):
             return EventType((EventType.CUSTOM, "Pension"))
         if "service report" in desc_text or re.search(
-            r"military|service\s+record|confederate|union\s+army|civil\s+war|enlistment|mustered",
+            r"military|service\s+record|confederate|union\s+army|civil\s+war|"
+            r"enlist|muster|soldier|regiment|infantry|volunteer\s+organization",
             combined,
         ):
             return EventType(EventType.MILITARY_SERV)
@@ -2018,6 +2102,52 @@ class NaraRecordAttacher:
         """
         Attach the citation to an existing matching event on the person,
         or create a new event for this record and link it to the person.
+        """
+        target_event = self._matching_event(person, event_type)
+
+        if target_event is not None:
+            if citation.get_handle() not in target_event.get_citation_list():
+                target_event.add_citation(citation.get_handle())
+                self.db.commit_event(target_event, trans)
+            return target_event
+
+        # No existing event found: create a new one
+        new_event = self._record_event(event_type, parsed, citation.get_handle())
+        new_handle = self.db.add_event(new_event, trans)
+
+        ref = EventRef()
+        ref.ref = new_handle
+        ref.role = EventRoleType.PRIMARY
+
+        if int(event_type) == EventType.DEATH and not person.get_death_ref():
+            person.set_death_ref(ref)
+        else:
+            person.add_event_ref(ref)
+
+        self.db.commit_person(person, trans)
+        return new_event
+
+    @staticmethod
+    def _record_event(
+        event_type: EventType, parsed: dict[str, Any], citation_handle: str
+    ) -> Event:
+        """Return a new event of ``event_type`` for this record, citing it."""
+        event = Event()
+        event.set_type(event_type)
+        date_obj = event_date(parsed)
+        if date_obj is not None:
+            event.set_date_object(date_obj)
+        description = event_description(parsed)
+        if description:
+            event.set_description(description)
+        event.add_citation(citation_handle)
+        return event
+
+    def _matching_event(self, person: Person, event_type: EventType) -> Event | None:
+        """
+        Return the person's event the record documents, if they have one:
+        their death for a death record, a marriage of one of their families
+        for a marriage record, otherwise their first event of that type.
         """
         target_event: Event | None = None
 
@@ -2040,38 +2170,7 @@ class NaraRecordAttacher:
         else:
             for ref in person.get_event_ref_list():
                 evt = self.db.get_event_from_handle(ref.ref)
-                if evt and int(evt.get_type()) == int(event_type):
+                if evt and _same_event_type(evt.get_type(), event_type):
                     target_event = evt
                     break
-
-        if target_event is not None:
-            if citation.get_handle() not in target_event.get_citation_list():
-                target_event.add_citation(citation.get_handle())
-                self.db.commit_event(target_event, trans)
-            return target_event
-
-        # No existing event found: create a new one
-        new_event = Event()
-        new_event.set_type(event_type)
-        date_obj = record_date(parsed)
-        if date_obj is not None:
-            new_event.set_date_object(date_obj)
-
-        title = str(parsed.get("title") or parsed.get("naid") or "")
-        if title:
-            new_event.set_description(title)
-
-        new_event.add_citation(citation.get_handle())
-        new_handle = self.db.add_event(new_event, trans)
-
-        ref = EventRef()
-        ref.ref = new_handle
-        ref.role = EventRoleType.PRIMARY
-
-        if int(event_type) == EventType.DEATH and not person.get_death_ref():
-            person.set_death_ref(ref)
-        else:
-            person.add_event_ref(ref)
-
-        self.db.commit_person(person, trans)
-        return new_event
+        return target_event

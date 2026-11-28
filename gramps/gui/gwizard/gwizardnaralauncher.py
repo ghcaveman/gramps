@@ -1218,6 +1218,8 @@ class NaraSearchDialog(Gtk.Dialog):
         parts = [
             _("The NARA record was merged; this person has %d of its images.") % images
         ]
+        if result.event_linked and result.event_type:
+            parts.append(_("Their %s event cites the record.") % result.event_type)
         if result.downloaded or result.already_downloaded:
             parts.append(
                 _("Images downloaded: %(new)d (already there: %(old)d).")

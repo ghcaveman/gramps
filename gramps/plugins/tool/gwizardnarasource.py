@@ -167,6 +167,17 @@ class NaraSource(RecordSource):
     # (saving a query each); the default searches them too, hiding the
     # records they already cite.
     skip_cited = False
+    # Most people one click of a scan searches on NARA (the rest are
+    # searched by the next click; saved results cost nothing).
+    max_searches_per_scan = 50
+    # Queries a scan leaves unused each month, for the NARA search window
+    # and for reading record pages.
+    reserve_requests = 500
+    # Federal records in the catalog start around the Revolution: people
+    # whose life ended before this year are not searched by a scan.
+    first_record_year = 1775
+    # Assumed lifespan, for people with a birth year but no death year.
+    lifespan_years = 90
 
     def __init__(self, client: Any = None) -> None:
         """Use ``client`` (a NaraCatalogInterface) or create one when needed."""
@@ -227,14 +238,44 @@ class NaraSource(RecordSource):
                         naids.append(naid)
         return naids
 
-    def usage_text(self) -> str:
-        """Return how many NARA queries this computer used this month."""
+    def wants_search(self, query: RecordQuery) -> bool:
+        """
+        A scan searches NARA only for people it can tell apart in the
+        catalog: born by 1955 with US events or no places (see
+        build_nara_queries), with a birth or death year (without one the
+        search has no date range, and a common name matches records from
+        every century), and alive after first_record_year.
+        """
+        if not (query.birth_year or query.death_year):
+            return False
+        last_year = query.death_year or (query.birth_year or 0) + self.lifespan_years
+        if last_year < self.first_record_year:
+            return False
+        return bool(self.queries_for(_record_query_to_ind(query)))
+
+    def _usage(self) -> Any:
+        """Return the NARA usage counter the client counts requests in."""
         from gramps.gen.gwizard.gwizardnarausage import NaraUsage, shared_usage
 
         usage = getattr(self._client, "usage", None) if self._client else None
         if not isinstance(usage, NaraUsage):
             usage = shared_usage()
-        return usage.summary_text()
+        return usage
+
+    def requests_left(self) -> int | None:
+        """
+        Return the queries a scan may still send this month: the monthly
+        allowance left, less reserve_requests; none after NARA has refused
+        requests as over the limit this month.
+        """
+        usage = self._usage()
+        if usage.blocked():
+            return 0
+        return max(0, usage.remaining() - self.reserve_requests)
+
+    def usage_text(self) -> str:
+        """Return how many NARA queries this computer used this month."""
+        return self._usage().summary_text()
 
     @staticmethod
     def search_terms(query: RecordQuery) -> tuple[str, str, str]:

@@ -1162,6 +1162,15 @@ class TestNaraLauncher(unittest.TestCase):
         self.assertIn("1 images could not be downloaded", text)
         self.assertIn("cancelled", text)
 
+    def test_merge_summary_names_the_cited_event(self) -> None:
+        """Verify the summary says which event cites the record."""
+        text = NaraSearchDialog._merge_summary(
+            AttachResult(event_linked=True, event_type="Military Service"), 1, 0, False
+        )
+        self.assertIn("Their Military Service event cites the record.", text)
+        plain = NaraSearchDialog._merge_summary(AttachResult(), 1, 0, False)
+        self.assertNotIn("event", plain)
+
     def test_ask_nara_parameters_compatibility(self) -> None:
         """Verify ask_nara_parameters compatibility helper."""
         from gi.repository import Gtk
