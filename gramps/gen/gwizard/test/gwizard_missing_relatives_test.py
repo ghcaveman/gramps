@@ -79,8 +79,8 @@ THOMAS = "0 @I1@ INDI\n1 NAME Thomas /Baker/\n1 SEX M\n1 BIRT\n2 DATE 10 MAR 175
 MARY = "0 @I4@ INDI\n1 NAME Mary /Cole/\n1 SEX F\n1 BIRT\n2 DATE 1755\n"
 
 
-class MissingRelativesTest(unittest.TestCase):
-    """Adding the relatives the tree has nobody for."""
+class _MergeTreeTestCase(unittest.TestCase):
+    """Temporary GEDCOM files and an open tree, shared by the tests below."""
 
     def setUp(self) -> None:
         self._paths: list[str] = []
@@ -121,6 +121,10 @@ class MissingRelativesTest(unittest.TestCase):
 
     def _open_tree(self, tree_records: str) -> None:
         self.db = import_as_dict(self._write(HEADER + tree_records + TRLR), User())
+
+
+class MissingRelativesTest(_MergeTreeTestCase):
+    """Adding the relatives the tree has nobody for."""
 
     def _wizard(self, father_birth: str = "1728") -> GedGWizard:
         gwizard = GedGWizard(self.db)
@@ -370,15 +374,8 @@ class MissingRelativesTest(unittest.TestCase):
         )
 
 
-class ChildOrderTest(unittest.TestCase):
+class ChildOrderTest(_MergeTreeTestCase):
     """Children added by a merge go in birth order among the tree's children."""
-
-    setUp = MissingRelativesTest.setUp
-    tearDown = MissingRelativesTest.tearDown
-    _write = MissingRelativesTest._write
-    _people = MissingRelativesTest._people
-    _one = MissingRelativesTest._one
-    _open_tree = MissingRelativesTest._open_tree
 
     # Thomas and Mary with their son Henry (born 1785) in the tree; the
     # incoming family also has John (1778) and Peter (1790).
