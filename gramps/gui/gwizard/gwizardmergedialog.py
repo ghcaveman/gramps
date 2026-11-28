@@ -1652,7 +1652,10 @@ class GWizardMergeDialog(Gtk.Dialog):
                 )
             )
         else:
-            btn.set_tooltip_text(_("Move %s to current family tree") % label)
+            btn.set_tooltip_text(
+                _("Move %s to current family tree;\nclick again to keep tree value.")
+                % label
+            )
         btn.connect("clicked", self.cb_field_clicked, key, supports_alternate)
         return btn
 
@@ -1673,9 +1676,12 @@ class GWizardMergeDialog(Gtk.Dialog):
             else:
                 button.set_label(_("=>"))
                 self._resolutions.pop(key, None)
+        elif self._resolutions.get(key) == "source":
+            # A second click takes the choice back (keep the tree value).
+            button.set_label(_("=>"))
+            self._resolutions.pop(key, None)
         else:
             button.set_label(_("\u2713"))
-            button.set_sensitive(False)
             self._resolutions[key] = "source"
 
     def _find_dangling_references(self) -> dict[str, list[str]]:
