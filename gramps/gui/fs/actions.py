@@ -545,13 +545,61 @@ def _search_result_from_entry(
     )
 
 
+_SEARCH_YEAR_RE = re.compile(r"^\d{4}$")
+
+
+def _search_params_from_text(query: str) -> dict[str, str]:
+    """
+    Turn the dialog's free-text search into Tree Person Search parameters.
+
+    FamilySearch rejects a single free-text 'q=...' parameter with HTTP 400;
+    each search term must be its own 'q.<term>' parameter. The text is read
+    as 'Given names Surname [birth year][, birth place]': a four-digit word
+    is the birth year, text after the first comma is the birth place, and
+    the last remaining word is the surname.
+    """
+    name_part, _sep, place_part = (query or "").partition(",")
+    words = name_part.split()
+    years = [word for word in words if _SEARCH_YEAR_RE.match(word)]
+    names = [word for word in words if not _SEARCH_YEAR_RE.match(word)]
+
+    params: dict[str, str] = {}
+    if names:
+        params["q.surname"] = names[-1]
+        if len(names) > 1:
+            params["q.givenName"] = " ".join(names[:-1])
+    if years:
+        params["q.birthLikeDate"] = "+" + years[0]
+    place = " ".join(place_part.split())
+    if place:
+        params["q.birthLikePlace"] = place
+    return params
+
+
+def _search_error_detail(response: Any) -> str:
+    """Return the first FamilySearch error message in a response, if any."""
+    try:
+        data = response.json()
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    for error in data.get("errors") or []:
+        if isinstance(error, dict):
+            message = str(error.get("message") or error.get("label") or "").strip()
+            if message:
+                return message
+    return ""
+
+
 def _search_familysearch_people(
     session: Any, query: str
 ) -> list[_FamilySearchSearchResult]:
     """Search FamilySearch Tree and return person choices for the dialog."""
-    query = (query or "").strip()
-    if not query:
+    params = _search_params_from_text(query)
+    if not params:
         return []
+    params["count"] = "25"
 
     data = None
     headers = {"Accept": "application/x-gedcomx-atom+json"}
@@ -560,17 +608,20 @@ def _search_familysearch_people(
         response = get_url(
             "/platform/tree/search",
             headers=headers,
-            params={"q": query, "count": "25"},
+            params=params,
         )
         if isinstance(response, dict):
             data = response
         else:
             status_code = getattr(response, "status_code", 200)
             if status_code and status_code >= 400:
-                raise RuntimeError(
-                    _("FamilySearch search failed (HTTP %(status)s).")
-                    % {"status": status_code}
-                )
+                message = _("FamilySearch search failed (HTTP %(status)s).") % {
+                    "status": status_code
+                }
+                detail = _search_error_detail(response)
+                if detail:
+                    message += " " + detail
+                raise RuntimeError(message)
             try:
                 data = response.json()
             except Exception as err:
@@ -582,7 +633,7 @@ def _search_familysearch_people(
             session, "get_json", None
         )
         if callable(get_json):
-            endpoint = "/platform/tree/search?" + urlencode({"q": query, "count": "25"})
+            endpoint = "/platform/tree/search?" + urlencode(params)
             data = get_json(endpoint, headers=headers)
 
     results: list[_FamilySearchSearchResult] = []
@@ -827,7 +878,15 @@ def _empty_tree_start_person_dialog(
     search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     search_entry = Gtk.Entry()
     search_entry.set_hexpand(True)
-    search_entry.set_placeholder_text(_("Name, date, place, or FamilySearch ID"))
+    search_entry.set_placeholder_text(
+        _("Given names Surname birth year, birth place - or FamilySearch ID")
+    )
+    search_entry.set_tooltip_text(
+        _(
+            "Example: John Smith 1850, Ohio. A four-digit number is the birth "
+            "year and text after the first comma is the birth place."
+        )
+    )
     search_button = Gtk.Button(label=_("Search"))
     search_box.pack_start(search_entry, True, True, 0)
     search_box.pack_start(search_button, False, False, 0)
