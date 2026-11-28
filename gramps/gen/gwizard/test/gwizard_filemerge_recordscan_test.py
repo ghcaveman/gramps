@@ -388,7 +388,9 @@ class ScoringHelpersTest(unittest.TestCase):
         scored = score_matches(self.query, self.matches, (TIER_SCORE,))
         self.assertEqual(list(scored[0].tiers), [TIER_SCORE])
         for item in scored:
-            self.assertEqual(item.tiers[TIER_SCORE].score, item.full.score)
+            tier = item.tiers[TIER_SCORE]
+            assert tier is not None
+            self.assertEqual(tier.score, item.full.score)
         cell = tier_cell(scored, TIER_SCORE, 80)
         self.assertTrue(cell.judged)
         self.assertEqual(cell.count, 2)
