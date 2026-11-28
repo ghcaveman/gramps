@@ -3062,7 +3062,9 @@ class GedGWizard(GWizardBase):
                             t_person.add_family_handle(child_fam.handle)
                         child_ref = ChildRef()
                         child_ref.ref = t_rel_h
-                        child_fam.add_child_ref(child_ref)
+                        insert_child_by_birth(
+                            child_fam, child_ref, safe_get_person(self.db, t_rel_h)
+                        )
                         self.db.commit_family(child_fam, trans)
                         t_rel = safe_get_person(self.db, t_rel_h)
                         if t_rel:
