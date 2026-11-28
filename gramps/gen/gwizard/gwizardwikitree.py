@@ -1742,6 +1742,49 @@ class WikiTreeGWizard(GedGWizard):
         return result
 
     @staticmethod
+    def _fetch_parent_spouses(client: Any, raw_people: list[dict[str, Any]]) -> None:
+        """
+        Fill in the spouse lists of the parents among ``raw_people``, so
+        that the parents' marriage comes in with them.
+
+        A profile's parents arrive as relatives of it, without spouse lists
+        of their own, and the marriage of two people is recorded on their
+        spouse lists. Each parent without one is fetched in full, all in one
+        request, and their spouse list (with the marriage date and place
+        WikiTree records for each spouse) is added. Only the spouse list is
+        taken, and no new people come in with it: the marriage is linked
+        only between the two parents, matched by their WikiTree IDs, the
+        same way as the person's own marriages.
+        """
+        by_id = {str(p.get("Id")): p for p in raw_people if p.get("Id") is not None}
+        parent_ids: list[str] = []
+        for person in raw_people:
+            for field in ("Father", "Mother"):
+                parent_id = str(person.get(field) or "")
+                if (
+                    parent_id
+                    and parent_id != "0"
+                    and parent_id in by_id
+                    and "Spouses" not in by_id[parent_id]
+                    and parent_id not in parent_ids
+                ):
+                    parent_ids.append(parent_id)
+        if not parent_ids:
+            return
+        keys = [str(by_id[pid].get("Name") or pid) for pid in parent_ids]
+        try:
+            fetched = client.get_people(keys)
+        except Exception:  # pylint: disable=broad-except
+            LOG.warning("Could not fetch the parents' spouses", exc_info=True)
+            return
+        for key, data in (fetched or {}).items():
+            if not isinstance(data, dict):
+                continue
+            entry = by_id.get(str(data.get("Id") or key))
+            if entry is not None and "Spouses" in data:
+                entry["Spouses"] = data["Spouses"]
+
+    @staticmethod
     def _parse_query_names(query: str) -> tuple[str, str]:
         """
         Split a human name query into first name and last name.
@@ -1897,6 +1940,8 @@ class WikiTreeGWizard(GedGWizard):
                             existing_ids.add(rid)
                         if rname:
                             existing_names.add(rname)
+
+            self._fetch_parent_spouses(client, raw_people)
 
         source_db = make_database("sqlite")
         source_db.load(":memory:")
