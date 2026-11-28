@@ -173,6 +173,11 @@ def _gtk_stub_modules() -> dict[str, Any]:
         "gi.repository": gi_repo,
         "gi.repository.GLib": glib,
         "gi.repository.Gtk": gtk,
+        # gramps.gui.fs.manager imports grampsgui, whose pygobject check
+        # fails against these stubs and calls sys.exit(), ending the whole
+        # test run. Marking it unavailable sends manager down its existing
+        # no-GUI path instead.
+        "gramps.gui.grampsgui": None,
     }
 
 
