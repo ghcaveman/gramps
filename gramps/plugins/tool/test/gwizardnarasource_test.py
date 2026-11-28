@@ -52,7 +52,6 @@ from gramps.gen.gwizard.gwizardnaramerge import NaraCatalogInterface
 from gramps.gen.gwizard.gwizardnarausage import KIND_SEARCH, NaraUsage
 from gramps.plugins.tool.gwizardnaraquerybuilder import (
     build_primary_nara_query,
-    name_phrases,
     primary_name_parts,
 )
 from gramps.plugins.tool.gwizardnarasource import (
@@ -124,18 +123,19 @@ class NaraSourceTest(unittest.TestCase):
         )
         self.assertEqual(
             NaraSource.search_terms(query),
-            (
-                '"John Smith" OR "Smith John" OR "John Jones" OR "Jones John"',
-                "1820",
-                "1890",
-            ),
+            ('"Smith John"', "1820", "1890"),
         )
 
     def test_search_finds_maiden_name_in_title(self) -> None:
-        """Mary Kreizer is found in "Mary Kreizer Smith, Widow of ..."."""
+        """
+        A record titled "Mary Kreizer Smith, Widow of ..." scores as Mary
+        Kreizer. (The real search asks for "Kreizer Mary", which such a
+        title would not match: the catalog has no OR, so one name form is
+        searched.)
+        """
         matches = self.source.search(self.query)
         kwargs = self.client.search_records.call_args.kwargs
-        self.assertEqual(kwargs["query"], '"Mary Kreizer" OR "Kreizer Mary"')
+        self.assertEqual(kwargs["query"], '"Kreizer Mary"')
         self.assertEqual(kwargs["start_year"], "1840")
         scored = score_matches(self.query, matches)
         self.assertEqual(scored[0].match.key, "115768360")
@@ -216,12 +216,8 @@ class NaraQueryBudgetTest(unittest.TestCase):
         self.assertEqual(source.search(self.query), [])
         self.assertEqual(self.client.search_records.call_count, 1)
         kwargs = self.client.search_records.call_args.kwargs
-        self.assertEqual(
-            kwargs["query"],
-            '"John Smith" OR "Smith John" OR "John W Smith" OR "John William Smith"'
-            ' OR "John Jones" OR "Jones John" OR "John W Jones"'
-            ' OR "John William Jones"',
-        )
+        # One phrase, birth surname first: the catalog has no OR.
+        self.assertEqual(kwargs["query"], '"Smith John"')
         self.assertEqual((kwargs["start_year"], kwargs["end_year"]), ("1880", "1960"))
 
     def test_all_queries_when_unlimited(self) -> None:
@@ -263,23 +259,13 @@ class NaraQueryBudgetTest(unittest.TestCase):
             assert query is not None
             return query["q"]
 
-        self.assertEqual(
-            query_text('Mary "Molly" Ann /Smith/'),
-            '"Mary Smith" OR "Smith Mary" OR "Mary A Smith" OR "Mary Ann Smith"'
-            ' OR "Mary Jones" OR "Jones Mary" OR "Mary A Jones" OR "Mary Ann Jones"',
-        )
-        self.assertEqual(
-            query_text("Mary (Molly) /Smith/"),
-            '"Mary Smith" OR "Smith Mary" OR "Mary Jones" OR "Jones Mary"',
-        )
-        self.assertEqual(
-            query_text("J. Robert /Smith/"),
-            '"Robert Smith" OR "Smith Robert" OR "Robert Jones" OR "Jones Robert"',
-        )
+        self.assertEqual(query_text('Mary "Molly" Ann /Smith/'), '"Smith Mary"')
+        self.assertEqual(query_text("Mary (Molly) /Smith/"), '"Smith Mary"')
+        self.assertEqual(query_text("J. Robert /Smith/"), '"Smith Robert"')
         self.assertIsNone(build_primary_nara_query(ind("Unknown /Smith/")))
 
-    def test_primary_query_keeps_middle_initial(self) -> None:
-        """A middle initial is asked for as written, without a full form."""
+    def test_primary_name_parts_keep_middle_initial(self) -> None:
+        """A middle initial is kept among the name parts, as written."""
         parts = primary_name_parts(
             {
                 "names": ["John W. /Smith/"],
@@ -292,10 +278,6 @@ class NaraQueryBudgetTest(unittest.TestCase):
             }
         )
         self.assertEqual(parts, ("John", ["W"], ["Smith"]))
-        self.assertEqual(
-            name_phrases("John", ["W"], "Smith"),
-            ["John Smith", "Smith John", "John W Smith"],
-        )
 
     def test_one_score_column(self) -> None:
         """NARA shows a single overall score in the Multi-Archive Record Scan."""

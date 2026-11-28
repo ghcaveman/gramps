@@ -1,0 +1,96 @@
+NARA Catalog search notes
+=========================
+
+What the National Archives Catalog API v2 search (GET /records/search,
+parameter q) accepts, found by running nara_query_syntax_probe.py on
+Nov 28, 2026. Every count below is for "John Smith" with
+dateRange=1879 TO 1973 and limit=3.
+
+
+What works
+----------
+
+One exact phrase in double quotes.
+    "John Smith"                      45,725 hits
+    John Smith (loose words)       1,078,648 hits
+    Loose words match any record that has both words anywhere, including
+    the machine-read (OCR) text of its images, so a phrase is far tighter.
+
+Surname first finds the most.
+    "Smith John"                     108,220 hits
+    Catalog titles mostly name people surname first ("Smith, John W.",
+    "WHITE Howard", "White, Howard Seymour - Canada"). The comma is
+    ignored, so "Smith John" matches "Smith, John" and "Smith, John W.".
+
+A space between terms means AND: every term must appear.
+    "John Smith" pension              17,832 hits
+    Use this to narrow by place or keyword: "White Howard" Montgomery.
+
+A NAID on its own finds that record.
+
+
+What does not work
+------------------
+
+OR is read as an ordinary word, not an operator.
+    "John Smith" OR "Smith John"           4 hits
+    (records that have both phrases and the word "or")
+    The same with or without dateRange.
+
+The pipe | acts as AND, not OR.
+    "John Smith" | "Smith John"          680 hits
+    (fewer than either phrase alone)
+
+Proximity ~N does not give an either-order search.
+    "John Smith"~2                    43,104 hits
+    (slightly fewer than "John Smith", not more)
+
+Brackets do not group.
+    ("John Smith" | "Smith John") pension     0 hits
+    ("John Smith" OR "Smith John") AND pension
+        HTTP 200 but text/html: the catalog's web page, not JSON. The
+        client then fails with "NARA catalog returned invalid JSON"; it
+        now logs the status, content type and start of the body instead.
+
+So one request can ask for only one form of a name. Finding both "Smith
+John" and "John Smith" takes two requests.
+
+
+How GWizard uses this
+---------------------
+
+Multi-Archive Record Scan (gramps/plugins/tool/gwizardnaraquerybuilder.py,
+build_primary_nara_query): one request per person, the birth surname and
+first given name as one phrase, surname first: "White Howard". Middle
+names are left out, so records without them still match. The person's
+birth-to-death years go in dateRange.
+
+NARA search window (gramps/gui/gwizard/gwizardnaralauncher.py,
+build_nara_query): one request per Search click.
+    - Name: one phrase, surname first; with Middle Name checked the
+      middle name follows the given name: "White Howard Kingston".
+    - Married Name checked: the married surname goes in the phrase and
+      the birth surname is a further word: "Smith Mary" Kreizer.
+    - Exact name: the name in the order written: "Howard Kingston White".
+    - Cities and keywords: further words (AND).
+    - Keywords that are only a NAID: that record alone.
+    - Nicknames in quotes or brackets in the given name ("King") are left
+      out of the First and Middle Name boxes.
+
+Known gap: a record titled given name first ("Mary Kreizer Smith, Widow
+of ...") is missed by a surname-first search. In the window, tick Exact
+name and search again to try the other order.
+
+
+Not yet checked
+---------------
+
+- Whether dateRange narrows the results. The OR probe gave 4 hits with
+  and without it, so that run could not tell.
+- Whether a field-specific search (title only, creator only) is possible.
+- Whether the * wildcard works (the window's Keywords tooltip says NARA
+  accepts AND, OR, NOT, * and phrases; AND by space works, OR does not).
+- Upper/lower case and accented letters in phrases.
+
+Each probe costs one of the key's monthly queries, and the GWizard usage
+counter does not see them.

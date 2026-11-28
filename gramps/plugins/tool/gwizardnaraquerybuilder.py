@@ -271,8 +271,8 @@ def build_nara_queries(ind: Dict[str, Any]) -> List[Dict[str, Any]]:
     return queries
 
 
-# Most surnames (birth surname first, then married surnames) one primary
-# query asks for; each adds up to four phrases.
+# Surnames primary_name_parts returns (birth surname first, then married
+# surnames); the primary query uses the first.
 PRIMARY_QUERY_SURNAMES = 3
 
 
@@ -305,47 +305,26 @@ def primary_name_parts(
     return given, middles, surnames[:PRIMARY_QUERY_SURNAMES]
 
 
-def name_phrases(given: str, middles: List[str], surname: str) -> List[str]:
-    """
-    Return the exact phrases a record may name a person by, most likely
-    first: "Given Surname", "Surname Given" (titles such as "Smith, John
-    W."; the catalog ignores the comma), and with the first middle name as
-    an initial and in full ("John W Smith", "John William Smith").
-    """
-    phrases = [f"{given} {surname}", f"{surname} {given}"]
-    if middles:
-        middle = middles[0]
-        phrases.append(f"{given} {middle[0]} {surname}")
-        if len(middle) > 1:
-            phrases.append(f"{given} {middle} {surname}")
-    return list(dict.fromkeys(phrases))
-
-
 def build_primary_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Return the one query to send when only one request per person is
     allowed, or None when the person is skipped (see build_nara_queries).
 
-    The query asks for the person's name as exact phrases joined by OR (see
-    name_phrases), for the birth surname and any married surnames, such as
-    ``"John Smith" OR "Smith John" OR "John W Smith"``. The catalog also
-    searches the machine-read text of record images, so loose words
-    (``John Smith``) match any page that has both words anywhere; phrases
-    keep the results to records naming the person. A single request has no
-    fallback, so every likely form is asked for at once, and the
-    birth-to-death year range narrows the results.
+    The query is the birth surname and first given name as one exact
+    phrase, surname first: ``"Smith John"``. The catalog also searches the
+    machine-read text of record images, so loose words (``John Smith``)
+    match any page that has both words anywhere; a phrase keeps the results
+    to records naming the person. Surname first is the form catalog titles
+    use ("Smith, John W."; the comma is ignored) and finds over twice as
+    many records as "John Smith". The catalog has no OR (a probe on Nov 28
+    found "OR" and "|" both read as AND), so one request asks for one form
+    of the name; the birth-to-death year range narrows the results.
     """
     parts = primary_name_parts(ind)
     if parts is None:
         return None
-    given, middles, surnames = parts
-    phrases: List[str] = []
-    for surname in surnames:
-        for phrase in name_phrases(given, middles, surname):
-            if phrase not in phrases:
-                phrases.append(phrase)
-    query = " OR ".join(f'"{phrase}"' for phrase in phrases)
-    return {"q": query, "limit": 20}
+    given, _middles, surnames = parts
+    return {"q": f'"{surnames[0]} {given}"', "limit": 20}
 
 
 def build_nara_query(ind: Dict[str, Any]) -> Optional[Dict[str, Any]]:

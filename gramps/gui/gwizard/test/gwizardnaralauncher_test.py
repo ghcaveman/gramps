@@ -414,7 +414,7 @@ class TestNaraLauncher(unittest.TestCase):
         """Verify checked terms combine into one NARA keyword query."""
         self.assertEqual(
             build_nara_query({"first_name": "Mary", "last_name": "Kreizer"}),
-            '"Mary Kreizer" OR "Kreizer Mary"',
+            '"Kreizer Mary"',
         )
         self.assertEqual(
             build_nara_query(
@@ -427,25 +427,25 @@ class TestNaraLauncher(unittest.TestCase):
                 },
                 exact=True,
             ),
-            '("Mary Ann Kreizer" OR "Mary Ann Smith") AND pension',
+            '"Mary Ann Smith" Kreizer pension',
         )
         self.assertEqual(build_nara_query({"last_name": "Smith"}, exact=True), "Smith")
         self.assertEqual(build_nara_query({"keywords": "90361620"}), "90361620")
         self.assertEqual(build_nara_query({"first_name": " ", "keywords": ""}), "")
 
     def test_build_nara_query_name_forms(self) -> None:
-        """Verify the name is searched as phrases in its likely forms."""
+        """Verify the name is one phrase, surname first; other terms are words."""
         self.assertEqual(
             build_nara_query(
                 {"first_name": "John", "middle_name": "William", "last_name": "Smith"}
             ),
-            '"John Smith" OR "Smith John" OR "John W Smith" OR "John William Smith"',
+            '"Smith John William"',
         )
         self.assertEqual(
             build_nara_query(
                 {"first_name": "John", "middle_name": "W", "last_name": "Smith"}
             ),
-            '"John Smith" OR "Smith John" OR "John W Smith"',
+            '"Smith John W"',
         )
         # A NAID in the keywords finds that record, whatever the name says.
         self.assertEqual(
@@ -454,7 +454,7 @@ class TestNaraLauncher(unittest.TestCase):
             ),
             "90361620",
         )
-        # Either checked city will do; keywords must also appear.
+        # Cities and keywords are further words a record must have.
         self.assertEqual(
             build_nara_query(
                 {
@@ -466,12 +466,12 @@ class TestNaraLauncher(unittest.TestCase):
                 },
                 exact=True,
             ),
-            '"John Smith" AND (Reno OR "Las Vegas") AND pension',
+            '"John Smith" Reno "Las Vegas" pension',
         )
         # One name alone stays a word.
         self.assertEqual(
             build_nara_query({"last_name": "Smith", "keywords": "pension"}),
-            "Smith AND pension",
+            "Smith pension",
         )
 
     def test_extract_defaults_leave_out_nicknames(self) -> None:
@@ -627,7 +627,7 @@ class TestNaraLauncher(unittest.TestCase):
         kwargs = mock_client.search_records.call_args.kwargs
         self.assertEqual(
             kwargs["query"],
-            '("Mary Kreizer" OR "Mary Smith") AND ("New York" OR Baltimore) AND pension',
+            '"Mary Smith" Kreizer "New York" Baltimore pension',
         )
         self.assertEqual(kwargs["start_year"], "1840")
         self.assertEqual(kwargs["end_year"], "1935")
