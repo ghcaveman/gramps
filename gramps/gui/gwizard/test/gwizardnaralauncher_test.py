@@ -987,7 +987,8 @@ class TestNaraLauncher(unittest.TestCase):
     def test_merge_window_rows_for_a_record(self) -> None:
         """
         Verify the merge window, given a record's incoming person, leaves out
-        the family sections and offers arrows for the citation and images.
+        the family sections and offers arrows for the citation, the record's
+        event and the images.
         """
         from gramps.gui.gwizard import gwizardmergedialog
         from gramps.gui.gwizard.gwizardmergedialog import GWizardMergeDialog
@@ -1046,7 +1047,12 @@ class TestNaraLauncher(unittest.TestCase):
             ],
         )
         arrows = [call.args[0] for call in window._make_arrow.call_args_list]
-        self.assertEqual(arrows, ["person_sources", "media:0", "media:1"])
+        # The record's event (here a Naturalization) gets a row of its own;
+        # its key holds the incoming event's handle, which changes each run.
+        self.assertEqual(arrows[0], "person_sources")
+        self.assertEqual(len(arrows), 4)
+        self.assertTrue(arrows[1].startswith("event:"), arrows[1])
+        self.assertEqual(arrows[2:], ["media:0", "media:1"])
 
     def test_cb_attach_cancel_changes_nothing(self) -> None:
         """Verify cancelling the merge window changes nothing."""
