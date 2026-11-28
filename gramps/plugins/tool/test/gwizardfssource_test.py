@@ -101,6 +101,30 @@ class FamilySearchSourceTest(unittest.TestCase):
             "https://www.familysearch.org/tree/person/details/GSVF-SGV", m.url
         )
 
+    def test_search_sends_every_known_part(self):
+        """Birth and death years and gender go into the search."""
+        query = RecordQuery(
+            given="John",
+            surnames=["Smith"],
+            birth_year=1850,
+            death_year=1920,
+            gender="male",
+        )
+        self.source.search(query)
+        kwargs = self.mock_client.search_person.call_args.kwargs
+        self.assertEqual((kwargs["first_name"], kwargs["last_name"]), ("John", "Smith"))
+        self.assertEqual((kwargs["birth_date"], kwargs["death_date"]), ("1850", "1920"))
+        self.assertEqual(kwargs["gender"], "male")
+
+    def test_search_leaves_unknown_parts_out(self):
+        """Unknown years and gender are sent empty (left out of the search)."""
+        self.source.search(RecordQuery(given="John", surnames=["Smith"]))
+        kwargs = self.mock_client.search_person.call_args.kwargs
+        self.assertEqual(
+            (kwargs["birth_date"], kwargs["death_date"], kwargs["gender"]),
+            ("", "", ""),
+        )
+
     def test_lookup(self):
         m = self.source.lookup("GSVF-SGV")
         self.assertIsNotNone(m)

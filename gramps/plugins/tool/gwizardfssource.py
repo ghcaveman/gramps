@@ -100,18 +100,25 @@ class FamilySearchSource(RecordSource):
 
     def search(self, query: RecordQuery) -> list[SourceMatch]:
         """
-        Search FamilySearch for candidates matching the query.
+        Search FamilySearch for candidates matching the query: the first
+        given name and birth surname, with the birth and death years and
+        the gender when known. FamilySearch ranks by how well each part
+        fits rather than requiring it, so every known part sharpens the
+        ranking without hiding people whose profile lacks it.
 
         :param query: RecordQuery from the Multi-Archive Record Scan.
         :returns: List of SourceMatch candidates.
         """
         surname = query.surnames[0] if query.surnames else ""
         birth = str(query.birth_year) if query.birth_year else ""
+        death = str(query.death_year) if query.death_year else ""
 
         results = self.client().search_person(
             first_name=query.given,
             last_name=surname,
             birth_date=birth,
+            death_date=death,
+            gender=query.gender or "",
             limit=self.search_limit,
         )
 

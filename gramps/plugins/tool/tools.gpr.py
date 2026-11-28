@@ -620,9 +620,8 @@ register(
     id="gwizardfsmerge",
     name=_("GWizard FamilySearch Merge"),
     description=_(
-        "Check every person in the Family Tree against the installed GWizard "
-        "record sources (WikiTree, NARA, ...), count the likely matches at "
-        "three match levels, and open a merge window for a match."
+        "Family Tree Processing Tool to search FamilySearch profiles and relatives "
+        "and compare/merge data side-by-side with the open Family Tree."
     ),
     version="0.0.1",
     gramps_target_version=MODULE_VERSION,
@@ -635,7 +634,7 @@ register(
     toolclass="GWizardFamilySearchMerge",
     optionclass="GWizardFamilySearchMergeOptions",
     tool_modes=[TOOL_MODE_GUI],
-    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFileMerge_Tool",
+    help_url="https://gramps-project.org/wiki/index.php/Addon:GWizardFamilySearchMerge_Tool",
 )
 
 # ------------------------------------------------------------------------
