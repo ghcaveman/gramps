@@ -123,6 +123,31 @@ class TestNaraPages(unittest.TestCase):
         self.assertEqual(classify_page("Box 123 Cert. 4567 of John Doe"), COVER)
         self.assertEqual(classify_page("word " * 40), UNKNOWN)
 
+    def test_interior_department_alone_is_not_a_pension_form(self) -> None:
+        """A National Park Service form is from Interior but not a pension."""
+        text = (
+            "NPS Form 10-900 United States Department of the Interior "
+            "National Park Service National Register of Historic Places "
+            "Registration Form. 1. Name of Property: Smith Farmstead. "
+        ) * 3
+        self.assertNotEqual(classify_page(text), "Pension Bureau form")
+
+    def test_pension_forms_from_interior(self) -> None:
+        self.assertEqual(
+            classify_page(
+                "Department of the Interior, Bureau of Pensions, Washington. "
+                "Sir: Please furnish this office with the record of the soldier."
+            ),
+            "Pension Bureau form",
+        )
+        self.assertEqual(
+            classify_page(
+                "DEPARTMENT OF THE INTERIOR. Washington, D. C. The pension "
+                "certificate of the soldier named above is enclosed herewith."
+            ),
+            "Pension Bureau form",
+        )
+
     def test_continuation_needs_a_previous_deposition(self) -> None:
         """Verify a "Page" start only continues a deposition or affidavit."""
         text = "Page 2\nmy recollection is that he died not a long while after"

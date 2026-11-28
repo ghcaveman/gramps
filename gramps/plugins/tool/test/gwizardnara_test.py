@@ -118,7 +118,15 @@ class GWizardNaraToolTest(unittest.TestCase):
             match = re.search(r'^id = "([^"]+)"', section, re.MULTILINE)
             if match:
                 ids.append(match.group(1))
-        self.assertEqual(ids, ["gwizardrecordscan", "gwizardnarasource"])
+        self.assertEqual(
+            ids,
+            [
+                "gwizardrecordscan",
+                "gwizardnarasource",
+                "gwizardcitescan",
+                "gwizardnaracitesource",
+            ],
+        )
 
 
 if __name__ == "__main__":
