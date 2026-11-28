@@ -14,8 +14,7 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# with this program; if not, see <https://www.gnu.org/licenses/>.
 #
 
 """
@@ -60,12 +59,14 @@ class GitAttributesTest(unittest.TestCase):
         :returns: None
         :rtype: None
         """
+        # Use --show-cdup (a relative path) rather than --show-toplevel:
+        # MSYS2/Cygwin git reports POSIX-style paths such as /c/..., which
+        # a native Windows Python cannot use.
+        here = os.path.dirname(os.path.abspath(__file__))
         try:
             res = subprocess.run(
-                # --show-cdup (a path relative to the current folder) rather
-                # than --show-toplevel: MSYS2's git reports the top level as
-                # /d/a/..., which Windows Python cannot open.
                 ["git", "rev-parse", "--show-cdup"],
+                cwd=here,
                 capture_output=True,
                 text=True,
                 check=False,
@@ -76,8 +77,7 @@ class GitAttributesTest(unittest.TestCase):
         if res.returncode != 0:
             raise unittest.SkipTest("Not running inside a git repository")
 
-        # Empty output means the current folder is the top level.
-        cls.repo_root = os.path.abspath(res.stdout.strip() or os.curdir)
+        cls.repo_root = os.path.normpath(os.path.join(here, res.stdout.strip()))
 
     @staticmethod
     def _evaluate_compliance(i_eol: str, attrs: list[str]) -> str | None:
