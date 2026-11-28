@@ -75,6 +75,8 @@ from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     STATUS_LINKED,
     STATUS_OK,
     STATUS_SKIPPED,
+    STOP_ALLOWANCE,
+    STOP_SCAN_LIMIT,
     PersonScan,
     RateLimiter,
     RecordScanner,
@@ -85,6 +87,7 @@ from gramps.gen.gwizard.gwizard_filemerge_recordscan import (
     build_scan_items,
     discover_sources,
     matches_for_tier,
+    needs_request,
     query_for_person,
     scan_item,
     score_matches,
@@ -721,6 +724,116 @@ class ScanTest(DatabaseTestBase):
             cache = ScanCache(path)
             item = build_scan_items(self.db, sources=[self.source])[0]
             self.assertIsNone(cache.get("fake", item))
+
+
+# ------------------------------------------------------------
+#
+# AllowanceTest
+#
+# ------------------------------------------------------------
+class AllowanceTest(DatabaseTestBase):
+    """Per-scan search caps, request allowances and wants_search."""
+
+    def setUp(self) -> None:
+        """Four people, one with no birth year, and a source knowing none."""
+        super().setUp()
+        for given, surname, birth in (
+            ("John", "Adams", 1850),
+            ("Mary", "Brown", 1860),
+            ("Robert", "Clark", None),
+            ("Ann", "Davis", 1870),
+        ):
+            self.add_person(given, surname, birth=birth)
+        self.items = build_scan_items(self.db, sources=[FakeSource()])
+
+    @staticmethod
+    def _run(scanner: RecordScanner, source: RecordSource, items: Any) -> list[str]:
+        """Run a scan and return the surnames reported, in order."""
+        seen: list[str] = []
+        scanner.run(
+            [source], items, lambda item, _scan, _cached: seen.append(item.surname)
+        )
+        return seen
+
+    def test_scan_limit_defers_the_rest(self) -> None:
+        """At most max_searches_per_scan searches; the next run goes on."""
+        source = FakeSource()
+        source.max_searches_per_scan = 2
+        scanner = RecordScanner()
+        self.assertEqual(self._run(scanner, source, self.items), ["Adams", "Brown"])
+        self.assertEqual(len(source.searches), 2)
+        self.assertEqual(scanner.deferred, {"fake": 2})
+        self.assertEqual(scanner.stopped, {"fake": STOP_SCAN_LIMIT})
+        self.assertEqual(scanner.searched, {"fake": 2})
+        # Deferred people are not cached, so the next run searches them and
+        # serves the first two from the cache.
+        seen = self._run(scanner, source, self.items)
+        self.assertEqual(seen, ["Adams", "Brown", "Clark", "Davis"])
+        self.assertEqual(len(source.searches), 4)
+        self.assertEqual(scanner.deferred, {})
+
+    def test_allowance_runs_out(self) -> None:
+        """requests_left() at 0 stops the source, as checked each time."""
+
+        class MeteredSource(FakeSource):
+            left = 1
+
+            def requests_left(self) -> int | None:
+                return self.left
+
+            def search(self, query: RecordQuery) -> list[SourceMatch]:
+                self.left -= 1
+                return super().search(query)
+
+        source = MeteredSource()
+        scanner = RecordScanner()
+        self.assertEqual(self._run(scanner, source, self.items), ["Adams"])
+        self.assertEqual(scanner.deferred, {"fake": 3})
+        self.assertEqual(scanner.stopped, {"fake": STOP_ALLOWANCE})
+
+    def test_unlimited_by_default(self) -> None:
+        """A source with no cap and no allowance searches everyone."""
+        source = FakeSource()
+        scanner = RecordScanner()
+        self.assertEqual(len(self._run(scanner, source, self.items)), 4)
+        self.assertEqual(scanner.deferred, {})
+        self.assertEqual(scanner.stopped, {})
+
+    def test_wants_search_skips_without_a_request(self) -> None:
+        """A person the source turns down is skipped and costs nothing."""
+
+        class DatedSource(FakeSource):
+            max_searches_per_scan = 3
+
+            def wants_search(self, query: RecordQuery) -> bool:
+                return query.birth_year is not None
+
+        source = DatedSource()
+        items = {item.surname: item for item in self.items}
+        self.assertFalse(needs_request(source, items["Clark"]))
+        self.assertTrue(needs_request(source, items["Adams"]))
+        self.assertEqual(scan_item(source, items["Clark"]).status, STATUS_SKIPPED)
+        source.searches.clear()
+        scanner = RecordScanner()
+        # Clark is skipped without using one of the 3 searches.
+        self.assertEqual(len(self._run(scanner, source, self.items)), 4)
+        self.assertEqual(len(source.searches), 3)
+        self.assertEqual(scanner.deferred, {})
+
+    def test_failing_checks_do_not_stop_the_scan(self) -> None:
+        """A broken wants_search or requests_left means "go ahead"."""
+
+        class BrokenSource(FakeSource):
+            def wants_search(self, query: RecordQuery) -> bool:
+                raise RuntimeError("broken")
+
+            def requests_left(self) -> int | None:
+                raise RuntimeError("broken")
+
+        source = BrokenSource()
+        scanner = RecordScanner()
+        self.assertEqual(len(self._run(scanner, source, self.items)), 4)
+        self.assertEqual(scanner.deferred, {})
 
 
 # ------------------------------------------------------------
